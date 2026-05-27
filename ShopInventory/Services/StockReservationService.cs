@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Invoices.Events;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -117,7 +120,8 @@ public class StockReservationService : IStockReservationService
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IBatchInventoryValidationService _batchValidation;
     private readonly IInventoryLockService _lockService;
-    private readonly IFiscalizationService _fiscalizationService;
+    private readonly IInvoiceFiscalizationQueue _fiscalizationQueue;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<StockReservationService> _logger;
 
     private const int MaxRenewals = 10;
@@ -128,14 +132,16 @@ public class StockReservationService : IStockReservationService
         ISAPServiceLayerClient sapClient,
         IBatchInventoryValidationService batchValidation,
         IInventoryLockService lockService,
-        IFiscalizationService fiscalizationService,
+        IInvoiceFiscalizationQueue fiscalizationQueue,
+        INotificationService notificationService,
         ILogger<StockReservationService> logger)
     {
         _dbContext = dbContext;
         _sapClient = sapClient;
         _batchValidation = batchValidation;
         _lockService = lockService;
-        _fiscalizationService = fiscalizationService;
+        _fiscalizationQueue = fiscalizationQueue;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -252,7 +258,8 @@ public class StockReservationService : IStockReservationService
                 WarehouseCode = lineRequest.WarehouseCode,
                 UnitPrice = lineRequest.UnitPrice,
                 TaxCode = lineRequest.TaxCode,
-                DiscountPercent = lineRequest.DiscountPercent
+                DiscountPercent = lineRequest.DiscountPercent,
+                CostCentreCode = lineRequest.CostCentreCode
             };
 
             // Convert quantity to inventory UoM if needed
@@ -389,12 +396,12 @@ public class StockReservationService : IStockReservationService
         {
             return new ConfirmReservationResponseDto
             {
-                Success = false,
-                Message = "Reservation has already been confirmed",
+                Success = true,
+                Message = "Reservation was already confirmed",
                 ReservationId = request.ReservationId,
                 SAPDocEntry = reservation.SAPDocEntry,
                 SAPDocNum = reservation.SAPDocNum,
-                Errors = new List<string> { "This reservation was already posted to SAP" }
+                Errors = new List<string>()
             };
         }
 
@@ -423,6 +430,10 @@ public class StockReservationService : IStockReservationService
             };
         }
 
+        var vanSaleOrder = string.IsNullOrWhiteSpace(reservation.ExternalReferenceId)
+            ? null
+            : reservation.ExternalReferenceId.Trim();
+
         // Convert reservation to CreateInvoiceRequest
         var invoiceRequest = new CreateInvoiceRequest
         {
@@ -433,6 +444,7 @@ public class StockReservationService : IStockReservationService
             Comments = request.Comments ?? $"Posted from reservation {reservation.ReservationId}",
             DocCurrency = reservation.Currency,
             SalesPersonCode = request.SalesPersonCode,
+            U_Van_saleorder = vanSaleOrder,
             Lines = reservation.Lines.Select(l => new CreateInvoiceLineRequest
             {
                 ItemCode = l.ItemCode,
@@ -442,6 +454,7 @@ public class StockReservationService : IStockReservationService
                 TaxCode = l.TaxCode,
                 DiscountPercent = l.DiscountPercent,
                 UoMCode = l.UoMCode,
+                CostCentreCode = l.CostCentreCode,
                 BatchNumbers = l.BatchAllocations.Select(b => new BatchNumberRequest
                 {
                     BatchNumber = b.BatchNumber,
@@ -454,6 +467,37 @@ public class StockReservationService : IStockReservationService
 
         try
         {
+            if (!string.IsNullOrWhiteSpace(vanSaleOrder))
+            {
+                var existingInvoice = await _sapClient.GetInvoiceByVanSaleOrderAsync(vanSaleOrder, cancellationToken);
+                if (existingInvoice != null)
+                {
+                    reservation.Status = ReservationStatus.Confirmed;
+                    reservation.ConfirmedAt ??= DateTime.UtcNow;
+                    reservation.SAPDocEntry = existingInvoice.DocEntry;
+                    reservation.SAPDocNum = existingInvoice.DocNum;
+
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+
+                    _logger.LogInformation(
+                        "Reservation {ReservationId} already exists in SAP as DocEntry {DocEntry}, DocNum {DocNum} for U_Van_saleorder {VanSaleOrder}",
+                        reservation.ReservationId,
+                        existingInvoice.DocEntry,
+                        existingInvoice.DocNum,
+                        vanSaleOrder);
+
+                    return new ConfirmReservationResponseDto
+                    {
+                        Success = true,
+                        Message = "Reservation already posted previously; returning existing SAP invoice",
+                        ReservationId = reservation.ReservationId,
+                        SAPDocEntry = existingInvoice.DocEntry,
+                        SAPDocNum = existingInvoice.DocNum,
+                        Invoice = existingInvoice.ToDto()
+                    };
+                }
+            }
+
             // Post to SAP
             var invoice = await _sapClient.CreateInvoiceAsync(invoiceRequest, cancellationToken);
 
@@ -469,48 +513,44 @@ public class StockReservationService : IStockReservationService
                 "Reservation {ReservationId} confirmed. SAP DocEntry: {DocEntry}, DocNum: {DocNum}",
                 reservation.ReservationId, invoice.DocEntry, invoice.DocNum);
 
-            // Fiscalize if requested
+            var invoiceDto = invoice.ToDto();
+            var (initiatedByUserId, initiatedByUsername) = await ResolveNotificationRecipientAsync(
+                reservation.CreatedBy,
+                cancellationToken);
+            var notificationActionUrl = ResolveNotificationActionUrl(reservation.SourceSystem);
+
+            // Queue fiscalization so REVMax latency does not block the SAP response.
             FiscalizationResult? fiscalizationResult = null;
             if (request.Fiscalize)
             {
-                try
-                {
-                    fiscalizationResult = await _fiscalizationService.FiscalizeInvoiceAsync(
-                        invoice.ToDto(),
-                        new CustomerFiscalDetails { CustomerName = reservation.CardName },
-                        cancellationToken);
-
-                    if (fiscalizationResult.Success)
-                    {
-                        _logger.LogInformation("Invoice {DocNum} fiscalized successfully", invoice.DocNum);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Invoice {DocNum} fiscalization failed: {Message}", invoice.DocNum, fiscalizationResult.Message);
-                    }
-                }
-                catch (Exception fiscalEx)
-                {
-                    _logger.LogError(fiscalEx, "Error during fiscalization of invoice {DocNum}", invoice.DocNum);
-                    fiscalizationResult = new FiscalizationResult
-                    {
-                        Success = false,
-                        Message = "Fiscalization error",
-                        ErrorDetails = fiscalEx.Message
-                    };
-                }
+                fiscalizationResult = QueueFiscalization(
+                    invoiceDto,
+                    initiatedByUserId,
+                    initiatedByUsername,
+                    notificationActionUrl);
             }
+
+            await SendInvoiceCreatedNotificationAsync(
+                invoiceDto,
+                reservation.ReservationId,
+                initiatedByUserId,
+                initiatedByUsername,
+                notificationActionUrl,
+                fiscalizationResult,
+                cancellationToken);
 
             return new ConfirmReservationResponseDto
             {
                 Success = true,
-                Message = fiscalizationResult?.Success == true
-                    ? "Reservation confirmed and fiscalized successfully"
+                Message = fiscalizationResult?.Queued == true
+                    ? "Reservation confirmed successfully; fiscalization is running in the background"
+                    : request.Fiscalize
+                        ? "Reservation confirmed successfully (fiscalization pending)"
                     : "Reservation confirmed successfully",
                 ReservationId = reservation.ReservationId,
                 SAPDocEntry = invoice.DocEntry,
                 SAPDocNum = invoice.DocNum,
-                Invoice = invoice.ToDto(),
+                Invoice = invoiceDto,
                 Fiscalization = fiscalizationResult
             };
         }
@@ -1143,6 +1183,123 @@ public class StockReservationService : IStockReservationService
 
     private static string BuildReservationStockKey(params string?[] parts) =>
         string.Join("|", parts.Select(part => (part ?? string.Empty).Trim().ToUpperInvariant()));
+
+    private FiscalizationResult QueueFiscalization(
+        InvoiceDto invoice,
+        Guid? userId,
+        string? username,
+        string notificationActionUrl)
+    {
+        var queued = _fiscalizationQueue.TryQueue(new InvoiceFiscalizationWorkItem(
+            invoice,
+            new CustomerFiscalDetails { CustomerName = invoice.CardName },
+            userId,
+            username,
+            notificationActionUrl));
+
+        if (queued)
+        {
+            _logger.LogInformation(
+                "Queued fiscalization for invoice {DocNum} (DocEntry: {DocEntry})",
+                invoice.DocNum,
+                invoice.DocEntry);
+
+            return new FiscalizationResult
+            {
+                Success = true,
+                Queued = true,
+                Message = "Fiscalization queued",
+                InvoiceNumber = invoice.DocNum.ToString()
+            };
+        }
+
+        _logger.LogError(
+            "Failed to queue fiscalization for invoice {DocNum} (DocEntry: {DocEntry})",
+            invoice.DocNum,
+            invoice.DocEntry);
+
+        return new FiscalizationResult
+        {
+            Success = false,
+            Message = "Fiscalization could not be queued",
+            ErrorCode = "FISCALIZATION_QUEUE_UNAVAILABLE",
+            InvoiceNumber = invoice.DocNum.ToString()
+        };
+    }
+
+    private async Task<(Guid? UserId, string? Username)> ResolveNotificationRecipientAsync(
+        string? createdBy,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(createdBy))
+        {
+            return (null, null);
+        }
+
+        var normalizedCreatedBy = createdBy.Trim();
+
+        if (Guid.TryParse(normalizedCreatedBy, out var userId))
+        {
+            var username = await _dbContext.Users
+                .AsNoTracking()
+                .Where(user => user.Id == userId)
+                .Select(user => user.Username)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return (userId, username);
+        }
+
+        var user = await _dbContext.Users
+            .AsNoTracking()
+            .WhereUsernameMatches(normalizedCreatedBy)
+            .Select(candidate => new { candidate.Id, candidate.Username })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return user is null
+            ? (null, normalizedCreatedBy)
+            : (user.Id, user.Username);
+    }
+
+    private async Task SendInvoiceCreatedNotificationAsync(
+        InvoiceDto invoice,
+        string reservationId,
+        Guid? userId,
+        string? username,
+        string notificationActionUrl,
+        FiscalizationResult? fiscalizationResult,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            return;
+        }
+
+        try
+        {
+            var notification = WorkflowNotificationFactory.CreateInvoiceCreatedNotification(
+                userId,
+                username,
+                invoice,
+                reservationId,
+                notificationActionUrl,
+                fiscalizationResult);
+
+            await _notificationService.CreateNotificationAsync(notification, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to notify user {Username} about SAP invoice {DocNum}",
+                username,
+                invoice.DocNum);
+        }
+    }
+
+    private static string ResolveNotificationActionUrl(string? sourceSystem)
+        => string.Equals(sourceSystem, "KefalosVanSales", StringComparison.OrdinalIgnoreCase)
+            ? "/mobile-drafts"
+            : "/invoices";
 
     private StockReservationDto MapToDto(StockReservationEntity entity)
     {

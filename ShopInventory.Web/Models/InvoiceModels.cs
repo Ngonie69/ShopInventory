@@ -12,12 +12,15 @@ public class InvoiceDto
     public string? Comments { get; set; }
     public string? DocStatus { get; set; }
     public string? Remarks { get; set; }
+    public string? VanSaleOrderNumber { get; set; }
+    public bool IsVanSalesInvoice { get; set; }
     public decimal DocTotal { get; set; }
     public decimal VatSum { get; set; }
     public decimal PaidToDate { get; set; }
     public string? DocCurrency { get; set; }
     public bool? IsFiscalized { get; set; }
     public string FiscalizationStatus { get; set; } = "Unknown";
+    public string? FiscalQrCode { get; set; }
     public int? FiscalReceiptGlobalNo { get; set; }
     public DateTime? FiscalizedAtUtc { get; set; }
     public List<InvoiceLineDto>? Lines { get; set; }

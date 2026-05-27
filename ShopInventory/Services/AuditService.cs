@@ -47,6 +47,12 @@ public class AuditService : IAuditService
         return TimeZoneInfo.ConvertTimeFromUtc(normalizedUtc, CatTimeZone.Value);
     }
 
+    public static DateTime FromCAT(DateTime catDateTime)
+    {
+        var normalizedCat = DateTime.SpecifyKind(catDateTime, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(normalizedCat, CatTimeZone.Value);
+    }
+
     public async Task LogAsync(string action, string username, string userRole, string? entityType = null,
         string? entityId = null, string? details = null, string? endpoint = null,
         bool isSuccess = true, string? errorMessage = null)

@@ -5,11 +5,13 @@ using ShopInventory.DTOs;
 using ShopInventory.Features.Crates.Commands.CreateCrateGrv;
 using ShopInventory.Features.Crates.Commands.CreateCrateOpeningBalance;
 using ShopInventory.Features.Crates.Commands.DeleteCrateOpeningBalance;
+using ShopInventory.Features.Crates.Commands.EnsureInvoiceCrateTransaction;
 using ShopInventory.Features.Crates.Commands.UpdateCrateOpeningBalance;
 using ShopInventory.Features.Crates.Commands.UploadCratePod;
 using ShopInventory.Features.Crates.Queries.GetCrateGrvs;
 using ShopInventory.Features.Crates.Queries.GetCratePods;
 using ShopInventory.Features.Crates.Queries.GetCrateTransactions;
+using ShopInventory.Features.Crates.Queries.ValidateBulkCratePods;
 using System.Security.Claims;
 
 namespace ShopInventory.Controllers;
@@ -64,6 +66,48 @@ public class CratesController(ISender mediator) : ApiControllerBase
 
         var result = await mediator.Send(
             new GetCratePodsQuery(search, submissionRole, userId.Value),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("pods/validate-bulk")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(typeof(BulkCratePodValidationResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ValidateBulkPods(
+        [FromBody] BulkCratePodValidationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new ValidateBulkCratePodsQuery(request.InvoiceDocNums, request.SubmissionRole, userId.Value),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("transactions/ensure-invoice")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(typeof(EnsureInvoiceCrateTransactionResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> EnsureInvoiceTransaction(
+        [FromBody] EnsureInvoiceCrateTransactionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetUserId();
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await mediator.Send(
+            new EnsureInvoiceCrateTransactionCommand(request.InvoiceDocNum, request.ExpectedQuantity, userId.Value),
             cancellationToken);
 
         return result.Match(Ok, Problem);

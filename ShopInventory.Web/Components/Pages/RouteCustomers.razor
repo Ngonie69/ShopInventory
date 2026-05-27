@@ -1,0 +1,1045 @@
+@page "/route-customers"
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin,Manager,Cashier")]
+@inject IRouteCustomerService RouteCustomerService
+@inject IMasterDataCacheService MasterDataCache
+@inject IAuditService AuditService
+@rendermode InteractiveServer
+
+<PageTitle>Route Customers - Shop Inventory</PageTitle>
+
+<style>
+    .rc-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
+    }
+
+    .rc-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .rc-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .rc-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #0f766e, #0f766e 55%, #115e59);
+        box-shadow: 0 4px 14px rgba(15, 118, 110, .25);
+        color: #fff;
+        font-size: 1.35rem;
+    }
+
+    .rc-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+    }
+
+    .rc-header p {
+        margin: 0;
+        color: #64748b;
+        font-size: .9rem;
+    }
+
+    .rc-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .75rem;
+        align-items: flex-end;
+        padding: 1rem 1.25rem;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .rc-field {
+        flex: 1;
+        min-width: 180px;
+    }
+
+    .rc-field label {
+        display: block;
+        font-size: .72rem;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: .45px;
+        margin-bottom: .35rem;
+    }
+
+    .rc-input,
+    .rc-select {
+        width: 100%;
+        min-height: 40px;
+        padding: .55rem .75rem;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #1f2937;
+        font-size: .9rem;
+    }
+
+    .rc-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: .45rem;
+        padding: .45rem .8rem;
+        border-radius: 999px;
+        background: #ecfeff;
+        color: #115e59;
+        font-weight: 700;
+        font-size: .82rem;
+    }
+
+    .rc-groups {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .rc-route-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+    }
+
+    .rc-route-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: .75rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid #eef2f7;
+        background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+    }
+
+    .rc-route-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .rc-route-subtitle {
+        margin: .15rem 0 0;
+        color: #64748b;
+        font-size: .84rem;
+    }
+
+    .rc-count-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        padding: .35rem .7rem;
+        border-radius: 999px;
+        background: #d1fae5;
+        color: #065f46;
+        font-weight: 700;
+        font-size: .78rem;
+    }
+
+    .rc-table-wrap {
+        overflow-x: auto;
+    }
+
+    .rc-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .rc-table th,
+    .rc-table td {
+        padding: .8rem 1rem;
+        border-bottom: 1px solid #eef2f7;
+        text-align: left;
+        vertical-align: top;
+        font-size: .88rem;
+    }
+
+    .rc-table th {
+        background: #f8fafc;
+        color: #475569;
+        font-size: .74rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .45px;
+    }
+
+    .rc-customer-name {
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .rc-customer-meta {
+        color: #64748b;
+        font-size: .8rem;
+        margin-top: .2rem;
+    }
+
+    .rc-feedback {
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        padding: .85rem 1rem;
+        margin-bottom: 1rem;
+        border-radius: 12px;
+        border: 1px solid #cbd5e1;
+        font-size: .9rem;
+        font-weight: 600;
+        background: #f8fafc;
+        color: #0f172a;
+    }
+
+    .rc-feedback.success {
+        background: #ecfdf5;
+        border-color: #a7f3d0;
+        color: #065f46;
+    }
+
+    .rc-feedback.error {
+        background: #fef2f2;
+        border-color: #fecaca;
+        color: #991b1b;
+    }
+
+    .rc-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .45rem;
+    }
+
+    .rc-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        min-height: 34px;
+        padding: .45rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        background: #fff;
+        color: #334155;
+        font-size: .8rem;
+        font-weight: 700;
+        transition: all .15s ease;
+    }
+
+    .rc-action-btn:hover {
+        background: #f8fafc;
+        border-color: #cbd5e1;
+    }
+
+    .rc-action-btn.edit:hover {
+        background: #eff6ff;
+        border-color: #bfdbfe;
+        color: #1d4ed8;
+    }
+
+    .rc-action-btn.delete:hover {
+        background: #fef2f2;
+        border-color: #fecaca;
+        color: #b91c1c;
+    }
+
+    .rc-modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, .55);
+        backdrop-filter: blur(4px);
+    }
+
+    .rc-modal {
+        width: min(720px, 100%);
+        max-height: calc(100vh - 2rem);
+        overflow: auto;
+        border-radius: 18px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        box-shadow: 0 24px 60px rgba(15, 23, 42, .25);
+    }
+
+    .rc-modal.compact {
+        width: min(480px, 100%);
+    }
+
+    .rc-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        padding: 1.2rem 1.25rem 1rem;
+        border-bottom: 1px solid #eef2f7;
+    }
+
+    .rc-modal-title {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: #0f172a;
+    }
+
+    .rc-modal-header p {
+        margin: .3rem 0 0;
+        color: #64748b;
+        font-size: .86rem;
+    }
+
+    .rc-modal-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        background: #fff;
+        color: #475569;
+    }
+
+    .rc-modal-close:hover {
+        background: #f8fafc;
+    }
+
+    .rc-modal-body {
+        padding: 1.2rem 1.25rem;
+        display: grid;
+        gap: 1rem;
+    }
+
+    .rc-modal-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .9rem 1rem;
+    }
+
+    .rc-field-span-2 {
+        grid-column: span 2;
+    }
+
+    .rc-checkbox-field {
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        min-height: 40px;
+        padding: .75rem .85rem;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        background: #fff;
+        color: #1f2937;
+        font-weight: 600;
+    }
+
+    .rc-checkbox-field input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+    }
+
+    .rc-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: .75rem;
+        padding: 1rem 1.25rem 1.2rem;
+        border-top: 1px solid #eef2f7;
+    }
+
+    .rc-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .45rem;
+        min-width: 120px;
+        min-height: 40px;
+        padding: .65rem 1rem;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        font-weight: 700;
+        font-size: .9rem;
+    }
+
+    .rc-button:disabled,
+    .rc-action-btn:disabled,
+    .rc-modal-close:disabled {
+        opacity: .65;
+        cursor: not-allowed;
+    }
+
+    .rc-button.secondary {
+        background: #fff;
+        border-color: #d1d5db;
+        color: #334155;
+    }
+
+    .rc-button.primary {
+        background: linear-gradient(135deg, #0f766e, #115e59);
+        color: #fff;
+    }
+
+    .rc-button.danger {
+        background: linear-gradient(135deg, #dc2626, #b91c1c);
+        color: #fff;
+    }
+
+    .rc-form-error {
+        display: flex;
+        align-items: center;
+        gap: .55rem;
+        padding: .8rem .9rem;
+        border-radius: 10px;
+        border: 1px solid #fecaca;
+        background: #fef2f2;
+        color: #991b1b;
+        font-size: .88rem;
+        font-weight: 600;
+    }
+
+    .rc-danger-copy {
+        margin: 0;
+        color: #334155;
+        line-height: 1.6;
+    }
+
+    .rc-empty,
+    .rc-loading {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        padding: 2rem 1.5rem;
+        text-align: center;
+        color: #64748b;
+    }
+
+    @@media (max-width: 768px) {
+        .rc-page {
+            padding: 1rem;
+        }
+
+        .rc-toolbar {
+            padding: .85rem 1rem;
+        }
+
+        .rc-table th,
+        .rc-table td {
+            padding: .7rem .8rem;
+        }
+
+        .rc-modal-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .rc-field-span-2 {
+            grid-column: span 1;
+        }
+
+        .rc-modal-actions {
+            flex-direction: column-reverse;
+        }
+
+        .rc-button {
+            width: 100%;
+        }
+    }
+</style>
+
+<div class="rc-page">
+    <div class="container-fluid">
+        <div class="rc-header">
+            <div class="rc-header-left">
+                <div class="rc-header-icon"><i class="bi bi-signpost-split"></i></div>
+                <div>
+                    <h2>Route Customers</h2>
+                    <p>View locally captured customers grouped by assigned business partner route.</p>
+                </div>
+            </div>
+            <div class="rc-summary">
+                <i class="bi bi-people"></i>
+                <span>@FilteredCustomerCount customer(s)</span>
+            </div>
+        </div>
+
+        <div class="rc-toolbar">
+            <div class="rc-field">
+                <label>Route</label>
+                <select class="rc-select" @bind="selectedRouteCode">
+                    <option value="">All Routes</option>
+                    @foreach (var routeCode in AvailableRouteCodes)
+                    {
+                        <option value="@routeCode">@GetRouteDisplayName(routeCode)</option>
+                    }
+                </select>
+            </div>
+            <div class="rc-field">
+                <label>Search</label>
+                <input class="rc-input" type="text" @bind="searchTerm" @bind:event="oninput"
+                       placeholder="Search customer, phone, email, or code" />
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(feedbackMessage))
+        {
+            <div class="rc-feedback @(feedbackIsError ? "error" : "success")" role="status">
+                <i class="bi @(feedbackIsError ? "bi-exclamation-triangle" : "bi-check-circle")"></i>
+                <span>@feedbackMessage</span>
+            </div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="rc-loading">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p style="margin-top:.75rem;">Loading route customers...</p>
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="rc-empty">
+                <h5>Unable to load route customers</h5>
+                <p>@errorMessage</p>
+            </div>
+        }
+        else if (!GetFilteredGroups().Any())
+        {
+            <div class="rc-empty">
+                <h5>No route customers found</h5>
+                <p>Captured customers will appear here once they are added against an assigned business partner route.</p>
+            </div>
+        }
+        else
+        {
+            <div class="rc-groups">
+                @foreach (var group in GetFilteredGroups())
+                {
+                    <section class="rc-route-card">
+                        <div class="rc-route-head">
+                            <div>
+                                <h3 class="rc-route-title">@group.RouteLabel</h3>
+                                <p class="rc-route-subtitle">Route key: @group.RouteCode</p>
+                            </div>
+                            <div class="rc-count-pill">
+                                <i class="bi bi-person-badge"></i>
+                                <span>@group.Customers.Count customer(s)</span>
+                            </div>
+                        </div>
+                        <div class="rc-table-wrap">
+                            <table class="rc-table">
+                                <thead>
+                                    <tr>
+                                        <th>Customer</th>
+                                        <th>Code</th>
+                                        <th>Contact</th>
+                                        <th>Address</th>
+                                        <th>Captured</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var customer in group.Customers)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div class="rc-customer-name">@customer.Name</div>
+                                                @if (!string.IsNullOrWhiteSpace(customer.VatNumber))
+                                                {
+                                                    <div class="rc-customer-meta">VAT: @customer.VatNumber</div>
+                                                }
+                                            </td>
+                                            <td>@customer.Code</td>
+                                            <td>
+                                                <div>@(string.IsNullOrWhiteSpace(customer.Phone) ? "-" : customer.Phone)</div>
+                                                <div class="rc-customer-meta">@(string.IsNullOrWhiteSpace(customer.Email) ? "-" :
+                                                                                            customer.Email)</div>
+                                                </td>
+                                                <td>@(string.IsNullOrWhiteSpace(customer.Address) ? "-" : customer.Address)</td>
+                                                <td>
+                                                    <div>@customer.CreatedAt.ToString("dd MMM yyyy HH:mm")</div>
+                                                    <div class="rc-customer-meta">
+                                                        @(string.IsNullOrWhiteSpace(customer.CreatedByUserName) ? "System" :
+                                                        customer.CreatedByUserName)</div>
+                                                    </td>
+                                                    <td>
+                                                        <div class="rc-actions">
+                                                            <button class="rc-action-btn edit" type="button"
+                                                                    @onclick="() => BeginEdit(customer)">
+                                                                <i class="bi bi-pencil-square"></i>
+                                                                <span>Edit</span>
+                                                            </button>
+                                                            <button class="rc-action-btn delete" type="button"
+                                                                    @onclick="() => PromptDelete(customer)">
+                                                                <i class="bi bi-trash3"></i>
+                                                                <span>Delete</span>
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (editModel is not null)
+        {
+            <div class="rc-modal-overlay" @onclick="CloseEditModal">
+                <div class="rc-modal" @onclick:stopPropagation="true">
+                    <div class="rc-modal-header">
+                        <div>
+                            <h4 class="rc-modal-title">Edit Route Customer</h4>
+                            <p>Update the locally captured customer details and route assignment.</p>
+                        </div>
+                        <button class="rc-modal-close" type="button" @onclick="CloseEditModal" disabled="@isSaving">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <form @onsubmit="SaveRouteCustomerAsync" @onsubmit:preventDefault="true">
+                        <div class="rc-modal-body">
+                            @if (!string.IsNullOrWhiteSpace(editErrorMessage))
+                            {
+                                <div class="rc-form-error">
+                                    <i class="bi bi-exclamation-octagon"></i>
+                                    <span>@editErrorMessage</span>
+                                </div>
+                            }
+
+                            <div class="rc-modal-grid">
+                                <div class="rc-field">
+                                    <label>Route</label>
+                                    <select class="rc-select" @bind="editModel.AssignedBusinessPartnerCode" required>
+                                        <option value="">Select a route</option>
+                                        @foreach (var routeCode in AvailableEditRouteCodes)
+                                        {
+                                            <option value="@routeCode">@GetRouteDisplayName(routeCode)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="rc-field">
+                                    <label>Code</label>
+                                    <input class="rc-input" type="text" @bind="editModel.Code" @bind:event="oninput" maxlength="50"
+                                           required />
+                                </div>
+                                <div class="rc-field rc-field-span-2">
+                                    <label>Name</label>
+                                    <input class="rc-input" type="text" @bind="editModel.Name" @bind:event="oninput" maxlength="200"
+                                           required />
+                                </div>
+                                <div class="rc-field">
+                                    <label>Phone</label>
+                                    <input class="rc-input" type="text" @bind="editModel.Phone" @bind:event="oninput"
+                                           maxlength="50" />
+                                </div>
+                                <div class="rc-field">
+                                    <label>Email</label>
+                                    <input class="rc-input" type="email" @bind="editModel.Email" @bind:event="oninput"
+                                           maxlength="255" />
+                                </div>
+                                <div class="rc-field">
+                                    <label>VAT Number</label>
+                                    <input class="rc-input" type="text" @bind="editModel.VatNumber" @bind:event="oninput"
+                                           maxlength="100" />
+                                </div>
+                                <label class="rc-checkbox-field">
+                                    <input type="checkbox" @bind="editModel.IsActive" />
+                                    <span>Customer is active</span>
+                                </label>
+                                <div class="rc-field rc-field-span-2">
+                                    <label>Address</label>
+                                    <textarea class="rc-input" @bind="editModel.Address" @bind:event="oninput" rows="3"
+                                              maxlength="500"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="rc-modal-actions">
+                            <button class="rc-button secondary" type="button" @onclick="CloseEditModal"
+                                    disabled="@isSaving">Cancel</button>
+                            <button class="rc-button primary" type="submit" disabled="@isSaving">
+                                @if (isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-floppy"></i>
+                                    <span>Save Changes</span>
+                                }
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        }
+
+        @if (customerPendingDelete is not null)
+        {
+            <div class="rc-modal-overlay" @onclick="CancelDelete">
+                <div class="rc-modal compact" @onclick:stopPropagation="true">
+                    <div class="rc-modal-header">
+                        <div>
+                            <h4 class="rc-modal-title">Delete Route Customer</h4>
+                            <p>This only removes the locally captured route customer.</p>
+                        </div>
+                        <button class="rc-modal-close" type="button" @onclick="CancelDelete" disabled="@isDeleting">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="rc-modal-body">
+                        @if (!string.IsNullOrWhiteSpace(deleteErrorMessage))
+                        {
+                            <div class="rc-form-error">
+                                <i class="bi bi-exclamation-octagon"></i>
+                                <span>@deleteErrorMessage</span>
+                            </div>
+                        }
+
+                        <p class="rc-danger-copy">
+                            Delete <strong>@customerPendingDelete.Name</strong> (<strong>@customerPendingDelete.Code</strong>) from
+                            route
+                            <strong>@GetRouteDisplayName(customerPendingDelete.AssignedBusinessPartnerCode)</strong>?
+                        </p>
+                    </div>
+                    <div class="rc-modal-actions">
+                        <button class="rc-button secondary" type="button" @onclick="CancelDelete"
+                                disabled="@isDeleting">Cancel</button>
+                        <button class="rc-button danger" type="button" @onclick="DeleteRouteCustomerAsync" disabled="@isDeleting">
+                            @if (isDeleting)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                <span>Deleting...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-trash3"></i>
+                                <span>Delete Customer</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+@code {
+    private List<RouteCustomerModel> routeCustomers = [];
+    private Dictionary<string, string> routeDisplayNames = new(StringComparer.OrdinalIgnoreCase);
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string? selectedRouteCode;
+    private string? searchTerm;
+    private string? feedbackMessage;
+    private bool feedbackIsError;
+    private int? editingCustomerId;
+    private UpdateRouteCustomerRequest? editModel;
+    private string? editErrorMessage;
+    private bool isSaving;
+    private RouteCustomerModel? customerPendingDelete;
+    private string? deleteErrorMessage;
+    private bool isDeleting;
+
+    private IEnumerable<string> AvailableEditRouteCodes => routeDisplayNames.Keys
+        .Concat(routeCustomers.Select(customer => customer.AssignedBusinessPartnerCode))
+        .Where(code => !string.IsNullOrWhiteSpace(code))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(code => GetRouteDisplayName(code), StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<string> AvailableRouteCodes => routeCustomers
+        .Select(customer => customer.AssignedBusinessPartnerCode)
+        .Where(code => !string.IsNullOrWhiteSpace(code))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(code => code, StringComparer.OrdinalIgnoreCase);
+
+    private int FilteredCustomerCount => GetFilteredGroups().Sum(group => group.Customers.Count);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRouteNamesAsync();
+        await LoadCustomersAsync();
+        await AuditService.LogAsync(AuditActions.ViewCustomers, "RouteCustomer", null);
+    }
+
+    private async Task LoadRouteNamesAsync()
+    {
+        try
+        {
+            var businessPartners = await MasterDataCache.GetBusinessPartnersAsync(includeInactive: true);
+            routeDisplayNames = businessPartners?
+                .Where(bp => !string.IsNullOrWhiteSpace(bp.CardCode))
+                .ToDictionary(
+                    bp => bp.CardCode!,
+                    bp => string.IsNullOrWhiteSpace(bp.CardName) ? bp.CardCode! : $"{bp.CardCode} - {bp.CardName}",
+                    StringComparer.OrdinalIgnoreCase)
+                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            routeDisplayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task LoadCustomersAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            routeCustomers = await RouteCustomerService.GetRouteCustomersAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            routeCustomers = [];
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private IEnumerable<(string RouteCode, string RouteLabel, List<RouteCustomerModel> Customers)> GetFilteredGroups()
+    {
+        var filteredCustomers = routeCustomers
+            .Where(customer => string.IsNullOrWhiteSpace(selectedRouteCode)
+                || string.Equals(customer.AssignedBusinessPartnerCode, selectedRouteCode, StringComparison.OrdinalIgnoreCase))
+            .Where(MatchesSearch)
+            .OrderBy(customer => customer.AssignedBusinessPartnerCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(customer => customer.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(customer => customer.Code, StringComparer.OrdinalIgnoreCase);
+
+        return filteredCustomers
+            .GroupBy(customer => customer.AssignedBusinessPartnerCode, StringComparer.OrdinalIgnoreCase)
+            .Select(group => (
+                RouteCode: group.Key,
+                RouteLabel: GetRouteDisplayName(group.Key),
+                Customers: group.ToList()));
+    }
+
+    private bool MatchesSearch(RouteCustomerModel customer)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            return true;
+        }
+
+        var value = searchTerm.Trim();
+        return customer.Name.Contains(value, StringComparison.OrdinalIgnoreCase)
+            || customer.Code.Contains(value, StringComparison.OrdinalIgnoreCase)
+            || (customer.Phone?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (customer.Email?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (customer.Address?.Contains(value, StringComparison.OrdinalIgnoreCase) ?? false)
+            || customer.AssignedBusinessPartnerCode.Contains(value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetRouteDisplayName(string routeCode)
+        => routeDisplayNames.TryGetValue(routeCode, out var displayName) ? displayName : routeCode;
+
+    private void BeginEdit(RouteCustomerModel customer)
+    {
+        ClearFeedback();
+        editErrorMessage = null;
+        editingCustomerId = customer.Id;
+        editModel = new UpdateRouteCustomerRequest
+        {
+            AssignedBusinessPartnerCode = customer.AssignedBusinessPartnerCode,
+            Code = customer.Code,
+            Name = customer.Name,
+            Phone = customer.Phone,
+            Email = customer.Email,
+            Address = customer.Address,
+            VatNumber = customer.VatNumber,
+            IsActive = customer.IsActive
+        };
+    }
+
+    private void CloseEditModal()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        ResetEditState();
+    }
+
+    private async Task SaveRouteCustomerAsync()
+    {
+        if (editModel is null || editingCustomerId is null)
+        {
+            return;
+        }
+
+        isSaving = true;
+        editErrorMessage = null;
+
+        try
+        {
+            var updatedCustomer = await RouteCustomerService.UpdateRouteCustomerAsync(editingCustomerId.Value, editModel);
+            UpsertRouteCustomer(updatedCustomer);
+            ResetEditState();
+            SetFeedback($"Saved changes for {updatedCustomer.Name}.", false);
+
+            try
+            {
+                await AuditService.LogAsync(
+                    AuditActions.UpdateRouteCustomer,
+                    "RouteCustomer",
+                    updatedCustomer.Id.ToString(),
+                    $"Updated route customer {updatedCustomer.Code}",
+                    true);
+            }
+            catch
+            {
+            }
+        }
+        catch (Exception ex)
+        {
+            editErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void PromptDelete(RouteCustomerModel customer)
+    {
+        ClearFeedback();
+        deleteErrorMessage = null;
+        customerPendingDelete = customer;
+    }
+
+    private void CancelDelete()
+    {
+        if (isDeleting)
+        {
+            return;
+        }
+
+        ResetDeleteState();
+    }
+
+    private async Task DeleteRouteCustomerAsync()
+    {
+        if (customerPendingDelete is null)
+        {
+            return;
+        }
+
+        isDeleting = true;
+        deleteErrorMessage = null;
+        var customerToDelete = customerPendingDelete;
+
+        try
+        {
+            await RouteCustomerService.DeleteRouteCustomerAsync(customerToDelete.Id);
+            routeCustomers.RemoveAll(customer => customer.Id == customerToDelete.Id);
+            NormalizeSelectedRoute();
+            ResetDeleteState();
+            SetFeedback($"Deleted {customerToDelete.Name}.", false);
+
+            try
+            {
+                await AuditService.LogAsync(
+                    AuditActions.DeleteRouteCustomer,
+                    "RouteCustomer",
+                    customerToDelete.Id.ToString(),
+                    $"Deleted route customer {customerToDelete.Code}",
+                    true);
+            }
+            catch
+            {
+            }
+        }
+        catch (Exception ex)
+        {
+            deleteErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private void UpsertRouteCustomer(RouteCustomerModel customer)
+    {
+        var existingIndex = routeCustomers.FindIndex(existing => existing.Id == customer.Id);
+        if (existingIndex >= 0)
+        {
+            routeCustomers[existingIndex] = customer;
+        }
+        else
+        {
+            routeCustomers.Add(customer);
+        }
+
+        NormalizeSelectedRoute();
+    }
+
+    private void NormalizeSelectedRoute()
+    {
+        if (string.IsNullOrWhiteSpace(selectedRouteCode))
+        {
+            return;
+        }
+
+        var hasMatchingRoute = routeCustomers.Any(customer =>
+            string.Equals(customer.AssignedBusinessPartnerCode, selectedRouteCode, StringComparison.OrdinalIgnoreCase));
+
+        if (!hasMatchingRoute)
+        {
+            selectedRouteCode = null;
+        }
+    }
+
+    private void SetFeedback(string message, bool isError)
+    {
+        feedbackMessage = message;
+        feedbackIsError = isError;
+    }
+
+    private void ClearFeedback()
+    {
+        feedbackMessage = null;
+        feedbackIsError = false;
+    }
+
+    private void ResetEditState()
+    {
+        editingCustomerId = null;
+        editModel = null;
+        editErrorMessage = null;
+    }
+
+    private void ResetDeleteState()
+    {
+        customerPendingDelete = null;
+        deleteErrorMessage = null;
+    }
+}

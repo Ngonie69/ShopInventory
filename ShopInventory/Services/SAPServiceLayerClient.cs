@@ -38,6 +38,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const string BusinessPartnersCacheKey = "SAP_BusinessPartners";
     private const string GLAccountsCacheKey = "SAP_GLAccounts";
     private const string PriceListsCacheKey = "SAP_PriceLists";
+    private const string WarehouseItemCodesCacheKeyPrefix = "SAP_WarehouseItemCodes_";
     private static readonly SemaphoreSlim _warehouseCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _businessPartnerCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _glAccountsCacheLock = new(1, 1);
@@ -1886,10 +1887,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
     public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default)
     {
-        return await GetPagedInvoicesByOffsetAsync(skip, pageSize, null, null, null, null, cancellationToken);
+        return await GetPagedInvoicesByOffsetAsync(skip, pageSize, null, null, null, null, null, cancellationToken);
     }
 
-    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    public async Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -1903,9 +1904,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
         if (toDate.HasValue)
             filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+        if (vanSalesOnly.HasValue)
+            filters.Add(vanSalesOnly.Value
+                ? "(U_Van_saleorder ne null and U_Van_saleorder ne '')"
+                : "(U_Van_saleorder eq null or U_Van_saleorder eq '')");
 
         var filterClause = filters.Count > 0 ? $"$filter={string.Join(" and ", filters)}&" : "";
-        var selectClause = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+        var selectClause = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,U_Van_saleorder";
 
         // SAP B1 Service Layer returns max 20 records per response by default.
         // We must loop using odata.nextLink to get all requested records.
@@ -1967,7 +1972,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         return allInvoices;
     }
 
-    public async Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
+    public async Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
@@ -1981,6 +1986,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             filters.Add($"DocDate ge '{fromDate.Value:yyyy-MM-dd}'");
         if (toDate.HasValue)
             filters.Add($"DocDate le '{toDate.Value:yyyy-MM-dd}'");
+        if (vanSalesOnly.HasValue)
+            filters.Add(vanSalesOnly.Value
+                ? "(U_Van_saleorder ne null and U_Van_saleorder ne '')"
+                : "(U_Van_saleorder eq null or U_Van_saleorder eq '')");
 
         var url = "Invoices/$count";
         if (filters.Count > 0)
@@ -2022,12 +2031,31 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var safeValue = vanSaleOrder.Replace("'", "''");
-        var url = $"Invoices?$filter=U_Van_saleorder eq '{safeValue}'&$top=1&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocTotal,U_Van_saleorder";
+        var safeValue = SanitizeSqlValue(vanSaleOrder);
+        var sqlText = $@"SELECT TOP 1
+    T0.""DocEntry"" AS ""DocEntry"",
+    T0.""DocNum"" AS ""DocNum"",
+    T0.""DocDate"" AS ""DocDate"",
+    T0.""DocDueDate"" AS ""DocDueDate"",
+    T0.""CardCode"" AS ""CardCode"",
+    T0.""CardName"" AS ""CardName"",
+    T0.""NumAtCard"" AS ""NumAtCard"",
+    T0.""Comments"" AS ""Comments"",
+    T0.""DocTotal"" AS ""DocTotal"",
+    T0.""DocCur"" AS ""DocCurrency"",
+    T0.""U_Van_saleorder"" AS ""U_Van_saleorder""
+FROM OINV T0
+WHERE T0.""CANCELED"" = 'N'
+  AND T0.""U_Van_saleorder"" = '{safeValue}'
+ORDER BY T0.""DocEntry"" DESC";
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new { SqlText = sqlText }),
+            Encoding.UTF8,
+            "application/json");
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -2035,23 +2063,45 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { SqlText = sqlText }),
+                Encoding.UTF8,
+                "application/json");
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
 
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to check invoice by U_Van_saleorder '{VanSaleOrder}': {StatusCode} - {Error}", vanSaleOrder, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check invoice by U_Van_saleorder: {response.StatusCode} - {errorContent}");
+            _logger.LogError("Failed to check invoice by T0.\"U_Van_saleorder\" '{VanSaleOrder}': {StatusCode} - {Error}", vanSaleOrder, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check invoice by T0.\"U_Van_saleorder\": {response.StatusCode} - {errorContent}");
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content);
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var document = JsonDocument.Parse(responseContent);
+        if (!document.RootElement.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() == 0)
+        {
+            return null;
+        }
 
-        return result?.Value?.FirstOrDefault();
+        var row = rows[0];
+        return new Invoice
+        {
+            DocEntry = GetSqlInt32(row, "DocEntry") ?? 0,
+            DocNum = GetSqlInt32(row, "DocNum") ?? 0,
+            DocDate = GetSqlString(row, "DocDate"),
+            DocDueDate = GetSqlString(row, "DocDueDate"),
+            CardCode = GetSqlString(row, "CardCode"),
+            CardName = GetSqlString(row, "CardName"),
+            NumAtCard = GetSqlString(row, "NumAtCard"),
+            Comments = GetSqlString(row, "Comments"),
+            DocTotal = GetSqlDecimal(row, "DocTotal") ?? 0m,
+            DocCurrency = GetSqlString(row, "DocCurrency"),
+            U_Van_saleorder = GetSqlString(row, "U_Van_saleorder")
+        };
     }
 
     #endregion
@@ -2148,20 +2198,131 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var normalizedPageSize = Math.Max(pageSize, 1);
         var skip = (normalizedPage - 1) * normalizedPageSize;
 
-        var itemCodes = await GetPagedItemCodesInWarehouseAsync(
-            warehouseCode,
-            skip,
-            normalizedPageSize + 1,
-            cancellationToken);
+        var itemCodes = await GetAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
+        if (itemCodes.Count == 0)
+        {
+            return ([], false);
+        }
 
-        var hasMore = itemCodes.Count > normalizedPageSize;
-        var pageItemCodes = hasMore
-            ? itemCodes.Take(normalizedPageSize).ToList()
-            : itemCodes;
+        var pageItemCodes = itemCodes
+            .Skip(skip)
+            .Take(normalizedPageSize)
+            .ToList();
+
+        var hasMore = skip + pageItemCodes.Count < itemCodes.Count;
 
         var items = await GetItemsByCodesAsync(pageItemCodes, cancellationToken);
         return (items, hasMore);
     }
+
+    private async Task<List<string>> GetAllItemCodesInWarehouseAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = BuildWarehouseItemCodesCacheKey(warehouseCode);
+        if (_memoryCache.TryGetValue(cacheKey, out List<string>? cachedItemCodes) && cachedItemCodes is not null)
+        {
+            return cachedItemCodes;
+        }
+
+        var itemCodes = await QueryAllItemCodesInWarehouseAsync(warehouseCode, cancellationToken);
+        _memoryCache.Set(cacheKey, itemCodes, TimeSpan.FromMinutes(2));
+        return itemCodes;
+    }
+
+    private async Task<List<string>> QueryAllItemCodesInWarehouseAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var queryCode = $"WHS_ITEM_CODES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
+        var safeWarehouse = SanitizeSqlValue(warehouseCode);
+        var sqlText = $@"SELECT DISTINCT T0.""ItemCode""
+FROM OBTN T0
+INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
+WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0
+ORDER BY T0.""ItemCode""";
+
+        try
+        {
+            await CreateSqlQueryAsync(queryCode, $"Warehouse item codes for {warehouseCode}", sqlText, cancellationToken);
+
+            var itemCodes = new List<string>();
+            const int pageSize = 500;
+            var skip = 0;
+
+            while (true)
+            {
+                var url = skip == 0
+                    ? $"SQLQueries('{queryCode}')/List"
+                    : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                    request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                    response = await _httpClient.SendAsync(request, cancellationToken);
+                }
+
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return [];
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError(
+                        "Failed to get warehouse item codes for {Warehouse}: {StatusCode} - {Error}",
+                        warehouseCode,
+                        response.StatusCode,
+                        errorContent);
+                    throw new Exception($"Failed to get warehouse item codes: {response.StatusCode} - {errorContent}");
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var pageItemCodes = ParseItemCodesFromSqlResult(content);
+                if (pageItemCodes.Count == 0)
+                {
+                    break;
+                }
+
+                itemCodes.AddRange(pageItemCodes);
+
+                if (pageItemCodes.Count < pageSize)
+                {
+                    break;
+                }
+
+                skip += pageItemCodes.Count;
+            }
+
+            return itemCodes
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        finally
+        {
+            await TryDeleteQueryAsync(queryCode, cancellationToken);
+        }
+    }
+
+    private static string BuildWarehouseItemCodesCacheKey(string warehouseCode)
+        => WarehouseItemCodesCacheKeyPrefix + warehouseCode.Trim().ToUpperInvariant();
 
     private async Task<List<Item>> GetItemsByCodesAsync(
         IEnumerable<string> itemCodes,
@@ -9997,7 +10158,8 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 UnitPrice = line.UnitPrice,
                 WarehouseCode = line.WarehouseCode,
                 DiscountPercent = line.DiscountPercent,
-                UoMEntry = resolvedUomEntry
+                UoMEntry = resolvedUomEntry,
+                CostingCode = line.CostCentreCode
             });
         }
 
@@ -10416,6 +10578,27 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return null;
     }
 
+    private static decimal? GetSqlDecimal(JsonElement row, string propertyName)
+    {
+        if (!row.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.TryGetDecimal(out var decimalValue))
+        {
+            return decimalValue;
+        }
+
+        if (value.ValueKind == JsonValueKind.String
+            && decimal.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out decimalValue))
+        {
+            return decimalValue;
+        }
+
+        return null;
+    }
+
     public async Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(
         string orderNumber,
         CancellationToken cancellationToken = default)
@@ -10423,12 +10606,31 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var safeValue = SanitizeODataValue(orderNumber);
-        var url = $"Orders?$filter=U_OrderNumber eq '{safeValue}'&$top=1&$select=DocEntry,DocNum,CardCode,CardName,DocDate,DocTotal,U_OrderNumber";
+        var safeValue = SanitizeSqlValue(orderNumber);
+        var sqlText = $@"SELECT TOP 1
+    T0.""DocEntry"" AS ""DocEntry"",
+    T0.""DocNum"" AS ""DocNum"",
+    T0.""DocDate"" AS ""DocDate"",
+    T0.""DocDueDate"" AS ""DocDueDate"",
+    T0.""CardCode"" AS ""CardCode"",
+    T0.""CardName"" AS ""CardName"",
+    T0.""NumAtCard"" AS ""NumAtCard"",
+    T0.""Comments"" AS ""Comments"",
+    T0.""DocTotal"" AS ""DocTotal"",
+    T0.""DocCur"" AS ""DocCurrency"",
+    T0.""U_OrderNumber"" AS ""U_OrderNumber""
+FROM ORDR T0
+WHERE T0.""CANCELED"" = 'N'
+  AND T0.""U_OrderNumber"" = '{safeValue}'
+ORDER BY T0.""DocEntry"" DESC";
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(new { SqlText = sqlText }),
+            Encoding.UTF8,
+            "application/json");
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -10436,23 +10638,45 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(new { SqlText = sqlText }),
+                Encoding.UTF8,
+                "application/json");
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
 
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to check sales order by U_OrderNumber '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check sales order by U_OrderNumber: {response.StatusCode} - {errorContent}");
+            _logger.LogError("Failed to check sales order by T0.\"U_OrderNumber\" '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check sales order by T0.\"U_OrderNumber\": {response.StatusCode} - {errorContent}");
         }
 
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(content);
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var document = JsonDocument.Parse(responseContent);
+        if (!document.RootElement.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() == 0)
+        {
+            return null;
+        }
 
-        return result?.Value?.FirstOrDefault();
+        var row = rows[0];
+        return new SAPSalesOrder
+        {
+            DocEntry = GetSqlInt32(row, "DocEntry") ?? 0,
+            DocNum = GetSqlInt32(row, "DocNum") ?? 0,
+            DocDate = GetSqlString(row, "DocDate"),
+            DocDueDate = GetSqlString(row, "DocDueDate"),
+            CardCode = GetSqlString(row, "CardCode"),
+            CardName = GetSqlString(row, "CardName"),
+            NumAtCard = GetSqlString(row, "NumAtCard"),
+            Comments = GetSqlString(row, "Comments"),
+            DocTotal = GetSqlDecimal(row, "DocTotal"),
+            DocCurrency = GetSqlString(row, "DocCurrency"),
+            U_OrderNumber = GetSqlString(row, "U_OrderNumber")
+        };
     }
 
     #endregion
@@ -10569,6 +10793,43 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return JsonSerializer.Deserialize<SAPCreditNote>(content);
+    }
+
+    public async Task<SAPCreditNote?> GetCreditNoteByDocNumAsync(int docNum, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var filter = $"$filter=DocNum eq {docNum}";
+        var url = $"CreditNotes?{filter}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get credit note by DocNum {DocNum}: {StatusCode} - {Error}", docNum, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get credit note: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPCreditNote>>(content);
+
+        return result?.Value?.FirstOrDefault();
     }
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default)

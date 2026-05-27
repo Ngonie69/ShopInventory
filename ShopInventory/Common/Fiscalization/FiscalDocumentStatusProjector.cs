@@ -113,6 +113,7 @@ internal static class FiscalDocumentStatusProjector
         var (isFiscalized, status) = ResolveStatus(transaction);
         invoice.IsFiscalized = isFiscalized;
         invoice.FiscalizationStatus = status;
+        invoice.FiscalQrCode = transaction?.QRCode;
         invoice.FiscalReceiptGlobalNo = transaction?.ReceiptGlobalNo;
         invoice.FiscalizedAtUtc = isFiscalized == true ? transaction?.TimestampUtc : null;
     }

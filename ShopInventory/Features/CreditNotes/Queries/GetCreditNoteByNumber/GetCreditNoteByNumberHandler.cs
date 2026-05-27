@@ -11,32 +11,23 @@ namespace ShopInventory.Features.CreditNotes.Queries.GetCreditNoteByNumber;
 
 public sealed class GetCreditNoteByNumberHandler(
     ICreditNoteService creditNoteService,
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    ISAPServiceLayerClient sapClient
 ) : IRequestHandler<GetCreditNoteByNumberQuery, ErrorOr<CreditNoteDto>>
 {
     public async Task<ErrorOr<CreditNoteDto>> Handle(
         GetCreditNoteByNumberQuery request,
         CancellationToken cancellationToken)
     {
-        var creditNote = await creditNoteService.GetByCreditNoteNumberAsync(request.CreditNoteNumber, cancellationToken);
+        var sapDocNum = TryParseSapDocNum(request.CreditNoteNumber);
+        CreditNoteDto? creditNote = null;
 
-        if (creditNote is null)
+        if (sapDocNum.HasValue)
         {
-            var sapDocNum = TryParseSapDocNum(request.CreditNoteNumber);
-            if (sapDocNum.HasValue)
-            {
-                var resolvedDocEntry = await context.CreditNotes
-                    .AsNoTracking()
-                    .Where(note => note.SAPDocNum == sapDocNum.Value)
-                    .Select(note => note.SAPDocEntry ?? note.Id)
-                    .FirstOrDefaultAsync(cancellationToken);
-
-                if (resolvedDocEntry > 0)
-                {
-                    creditNote = await creditNoteService.GetByIdAsync(resolvedDocEntry, cancellationToken);
-                }
-            }
+            creditNote = await ResolveBySapDocNumAsync(sapDocNum.Value, cancellationToken);
         }
+
+        creditNote ??= await creditNoteService.GetByCreditNoteNumberAsync(request.CreditNoteNumber, cancellationToken);
 
         if (creditNote is null)
             return Errors.CreditNote.NotFoundByNumber(request.CreditNoteNumber);
@@ -44,6 +35,41 @@ public sealed class GetCreditNoteByNumberHandler(
         await FiscalDocumentStatusProjector.EnrichCreditNoteAsync(context, creditNote, cancellationToken);
 
         return creditNote;
+    }
+
+    private async Task<CreditNoteDto?> ResolveBySapDocNumAsync(int sapDocNum, CancellationToken cancellationToken)
+    {
+        var localMatch = await context.CreditNotes
+            .AsNoTracking()
+            .Where(note => note.SAPDocNum == sapDocNum)
+            .Select(note => new
+            {
+                note.Id,
+                note.SAPDocEntry
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (localMatch?.SAPDocEntry is int sapDocEntry && sapDocEntry > 0)
+        {
+            var creditNote = await creditNoteService.GetByIdAsync(sapDocEntry, cancellationToken);
+            if (creditNote is not null)
+            {
+                return creditNote;
+            }
+        }
+
+        var sapCreditNote = await sapClient.GetCreditNoteByDocNumAsync(sapDocNum, cancellationToken);
+        if (sapCreditNote is null)
+        {
+            if (localMatch?.Id > 0)
+            {
+                return await creditNoteService.GetByIdAsync(localMatch.Id, cancellationToken);
+            }
+
+            return null;
+        }
+
+        return await creditNoteService.GetByIdAsync(sapCreditNote.DocEntry, cancellationToken);
     }
 
     private static int? TryParseSapDocNum(string creditNoteNumber)

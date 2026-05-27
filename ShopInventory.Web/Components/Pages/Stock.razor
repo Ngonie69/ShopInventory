@@ -948,7 +948,7 @@
                     </span>
                 </div>
                 <div style="overflow-x:auto;">
-                    <table class="stk-table">
+                    <table class="stk-table mobile-card-table">
                         <thead>
                             <tr>
                                 <th style="width:40px;text-align:center;">Status</th>
@@ -968,7 +968,7 @@
                                 var rowClass = item.Available <= 0 ? "row-danger" : item.Available < lowStockThreshold ?
                                 "row-warning" : "";
                                 <tr class="@rowClass">
-                                    <td style="text-align:center;">
+                                    <td data-label="Status" style="text-align:center;">
                                         @if (item.Available <= 0)
                                         {
                                             <span class="status-dot red" title="Out of stock"></span>
@@ -982,22 +982,23 @@
                                             <span class="status-dot green" title="Healthy"></span>
                                         }
                                     </td>
-                                    <td><span class="item-code">@item.ItemCode</span></td>
-                                    <td><span class="item-name">@item.ItemName</span></td>
-                                    <td style="text-align:right;"><span class="qty-cell">@item.InStock.ToString("N0")</span>
+                                    <td data-label="Item Code"><span class="item-code">@item.ItemCode</span></td>
+                                    <td data-label="Item Name"><span class="item-name">@item.ItemName</span></td>
+                                    <td data-label="On Hand" style="text-align:right;"><span
+                                        class="qty-cell">@item.InStock.ToString("N0")</span>
                                     </td>
-                                    <td style="text-align:right;"><span
+                                    <td data-label="Committed" style="text-align:right;"><span
                                         class="qty-cell qty-warning">@item.Committed.ToString("N0")</span></td>
-                                        <td style="text-align:right;"><span
+                                        <td data-label="On Order" style="text-align:right;"><span
                                             class="qty-cell qty-info">@item.Ordered.ToString("N0")</span></td>
-                                            <td style="text-align:right;">
+                                            <td data-label="Available" style="text-align:right;">
                                                 <span
                                                     class="qty-cell @(item.Available <= 0 ? "qty-danger" : item.Available < lowStockThreshold ? "qty-warning" : "qty-success")">
                                                     @item.Available.ToString("N0")
                                                 </span>
                                             </td>
-                                            <td><span class="uom-label">@item.UoM</span></td>
-                                            <td style="text-align:center;">
+                                            <td data-label="UoM"><span class="uom-label">@item.UoM</span></td>
+                                            <td data-label="Health" style="text-align:center;">
                                                 @{
                                                     var healthPercent = item.InStock > 0 ? Math.Min(100, (item.Available /
                                                     lowStockThreshold) * 100) : 0;

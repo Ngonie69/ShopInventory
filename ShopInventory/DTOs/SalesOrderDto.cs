@@ -74,6 +74,7 @@ public class SalesOrderLineDto
     public string? WarehouseCode { get; set; }
     public string? UoMCode { get; set; }
     public string? BatchNumber { get; set; }
+    public string? CostCentreCode { get; set; }
 }
 
 /// <summary>
@@ -132,6 +133,7 @@ public class CreateSalesOrderLineRequest
     public string? WarehouseCode { get; set; }
     public string? UoMCode { get; set; }
     public string? BatchNumber { get; set; }
+    public string? CostCentreCode { get; set; }
 }
 
 /// <summary>
@@ -179,6 +181,8 @@ public class CreditNoteDto
     public string StatusName => Status.ToString();
     public int? OriginalInvoiceId { get; set; }
     public int? OriginalInvoiceDocEntry { get; set; }
+    public int? OriginalInvoiceSAPDocEntry { get; set; }
+    public int? OriginalInvoiceSAPDocNum { get; set; }
     public string? Reason { get; set; }
     public string? Comments { get; set; }
     public string? Currency { get; set; }

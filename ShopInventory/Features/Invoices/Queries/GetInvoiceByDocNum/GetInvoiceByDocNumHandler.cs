@@ -17,8 +17,11 @@ namespace ShopInventory.Features.Invoices.Queries.GetInvoiceByDocNum;
 public sealed class GetInvoiceByDocNumHandler(
     ApplicationDbContext db,
     ISAPServiceLayerClient sapClient,
+    IRevmaxClient revmaxClient,
+    ISender sender,
     IAuditService auditService,
     IOptions<SAPSettings> settings,
+    IOptions<RevmaxSettings> revmaxSettings,
     ILogger<GetInvoiceByDocNumHandler> logger
 ) : IRequestHandler<GetInvoiceByDocNumQuery, ErrorOr<InvoiceDto>>
 {
@@ -78,6 +81,18 @@ public sealed class GetInvoiceByDocNumHandler(
 
             var invoiceDto = invoice.ToDto();
             await FiscalDocumentStatusProjector.EnrichInvoiceAsync(db, invoiceDto, cancellationToken);
+
+            if (revmaxSettings.Value.Enabled
+                && string.Equals(invoiceDto.FiscalizationStatus, "Unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                await InvoiceFiscalTransactionSync.SyncAsync(
+                    invoiceDto,
+                    revmaxClient,
+                    sender,
+                    logger,
+                    cancellationToken);
+            }
+
             return invoiceDto;
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)

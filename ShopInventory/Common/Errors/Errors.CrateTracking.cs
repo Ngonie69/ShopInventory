@@ -9,6 +9,9 @@ public static partial class Errors
         public static Error TransactionNotFound(int id) =>
             Error.NotFound("CrateTracking.TransactionNotFound", $"Crate transaction {id} was not found.");
 
+        public static Error InvoiceNotFound(int docNum) =>
+            Error.NotFound("CrateTracking.InvoiceNotFound", $"Invoice {docNum} was not found or is not available for crate tracking.");
+
         public static Error SubmissionNotFound(int id) =>
             Error.NotFound("CrateTracking.SubmissionNotFound", $"Crate POD submission {id} was not found.");
 

@@ -68,7 +68,7 @@
                         {
                             <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                                                                                    ?? selectedAccountFilter)
+                                                                                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -255,7 +255,7 @@
                     @if (statement.Lines.Any())
                     {
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle dashboard-table">
+                            <table class="table table-hover mb-0 align-middle dashboard-table mobile-card-table">
                                 <thead>
                                     <tr>
                                         <th>Date</th>
@@ -268,19 +268,20 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr class="table-light">
-                                        <td>@statement.FromDate.ToString("MMM dd, yyyy")</td>
-                                        <td colspan="3"><strong>Opening Balance</strong></td>
-                                        <td class="text-end">-</td>
-                                        <td class="text-end">-</td>
-                                        <td class="text-end fw-bold">@FormatCurrency(statement.OpeningBalance)</td>
+                                    <tr class="table-light mobile-table-summary">
+                                        <td data-label="Date">@statement.FromDate.ToString("MMM dd, yyyy")</td>
+                                        <td colspan="3" data-label="Summary"><strong>Opening Balance</strong></td>
+                                        <td data-label="Debit" class="text-end">-</td>
+                                        <td data-label="Credit" class="text-end">-</td>
+                                        <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(statement.OpeningBalance)
+                                        </td>
                                     </tr>
 
                                     @foreach (var line in statement.Lines)
                                     {
                                         <tr>
-                                            <td>@line.Date.ToString("MMM dd, yyyy")</td>
-                                            <td>
+                                            <td data-label="Date">@line.Date.ToString("MMM dd, yyyy")</td>
+                                            <td data-label="Type">
                                                 @{
                                                     var badgeClass = line.DocumentType switch
                                                     {
@@ -291,8 +292,8 @@
                                                 }
                                                 <span class="badge @badgeClass">@line.DocumentType</span>
                                             </td>
-                                            <td>@line.DocumentNumber</td>
-                                            <td>
+                                            <td data-label="Document #">@line.DocumentNumber</td>
+                                            <td data-label="Description">
                                                 @line.Description
                                                 @if (!string.IsNullOrEmpty(line.Reference))
                                                 {
@@ -304,23 +305,26 @@
                                                         overdue</span>
                                                     }
                                                 </td>
-                                                <td class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
+                                                <td data-label="Debit" class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
                                                     @(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")
                                                 </td>
-                                                <td class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
+                                                <td data-label="Credit"
+                                                    class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
                                                     @(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")
                                                 </td>
-                                                <td class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
+                                                <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
                                             </tr>
                                         }
 
-                                        <tr class="table-dark">
-                                            <td>@statement.ToDate.ToString("MMM dd, yyyy")</td>
-                                            <td colspan="3"><strong>Closing Balance</strong></td>
-                                            <td class="text-end fw-bold">@FormatCurrency(statement.TotalInvoices)</td>
-                                            <td class="text-end fw-bold">@FormatCurrency(statement.TotalPayments +
-                                                                                statement.TotalCreditNotes)</td>
-                                                <td class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)</td>
+                                        <tr class="table-dark mobile-table-summary mobile-table-summary--closing">
+                                            <td data-label="Date">@statement.ToDate.ToString("MMM dd, yyyy")</td>
+                                            <td colspan="3" data-label="Summary"><strong>Closing Balance</strong></td>
+                                            <td data-label="Debit" class="text-end fw-bold">@FormatCurrency(statement.TotalInvoices)
+                                            </td>
+                                            <td data-label="Credit" class="text-end fw-bold">@FormatCurrency(statement.TotalPayments +
+                                                                                                                                statement.TotalCreditNotes)</td>
+                                                <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)
+                                                </td>
                                             </tr>
                                         </tbody>
                                     </table>

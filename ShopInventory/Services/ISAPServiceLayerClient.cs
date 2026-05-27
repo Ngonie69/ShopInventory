@@ -74,8 +74,8 @@ public interface ISAPServiceLayerClient
     Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
-    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
-    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
+    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
 
     // Product/Item Operations
     Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default);
@@ -254,6 +254,7 @@ public interface ISAPServiceLayerClient
     Task<List<SAPCreditNote>> GetCreditNotesAsync(CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetPagedCreditNotesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPCreditNote?> GetCreditNoteByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<SAPCreditNote?> GetCreditNoteByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);

@@ -14,8 +14,8 @@ public static class NotificationAudienceRules
     public static readonly string[] AppVersionBroadcastCategories = ["AppVersion"];
     public static readonly string[] LabBroadcastCategories = ["Lab", "Batch", "BatchStatus"];
 
-    public static readonly string[] SalesAudienceRoles = ["Admin", "Cashier", "SalesRep", "Merchandiser"];
-    public static readonly string[] InvoiceAudienceRoles = ["Admin", "Cashier"];
+    public static readonly string[] SalesAudienceRoles = ["Admin", "Cashier", "SalesRep", "Merchandiser", "ADR", "Sales"];
+    public static readonly string[] InvoiceAudienceRoles = ["Admin", "Cashier", "Sales"];
     public static readonly string[] PaymentAudienceRoles = ["Admin", "Cashier", "DepotController"];
     public static readonly string[] InventoryAudienceRoles = ["Admin", "StockController", "DepotController"];
     public static readonly string[] PurchasingAudienceRoles = ["Admin", "Manager"];
@@ -27,7 +27,7 @@ public static class NotificationAudienceRules
     public static readonly string[] SalesOrderPageAudienceRoles = ["Admin", "Cashier", "SalesRep"];
     public static readonly string[] SalesOrderEditAudienceRoles = ["Admin", "Cashier", "Merchandiser", "SalesRep"];
     public static readonly string[] QuotationAudienceRoles = ["Admin", "Cashier"];
-    public static readonly string[] MobileSalesAudienceRoles = ["Admin", "Cashier", "Merchandiser", "SalesRep"];
+    public static readonly string[] MobileSalesAudienceRoles = ["Admin", "Cashier", "Merchandiser", "SalesRep", "ADR", "Sales"];
     public static readonly string[] MerchandiserAccountAudienceRoles = ["Admin", "SalesRep"];
     public static readonly string[] CatalogueAudienceRoles = ["Admin", "Cashier", "StockController", "DepotController", "Manager", "Merchandiser"];
     public static readonly string[] ReportAudienceRoles = ["Admin", "Cashier", "StockController", "DepotController", "Manager"];

@@ -7,5 +7,7 @@ namespace ShopInventory.Features.Products.Queries.GetPagedProductsInWarehouse;
 public sealed record GetPagedProductsInWarehouseQuery(
     string WarehouseCode,
     int Page = 1,
-    int PageSize = 20
+    int PageSize = 20,
+    string? BusinessPartnerCode = null,
+    int? PriceListNum = null
 ) : IRequest<ErrorOr<WarehouseProductsPagedResponseDto>>;

@@ -1,4 +1,5 @@
 @page "/mobile-drafts"
+@page "/van-sales-orders"
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
@@ -16,7 +17,7 @@
 @inject IReportExportService ExportService
 @rendermode InteractiveServer
 
-<PageTitle>Mobile Orders - Shop Inventory</PageTitle>
+<PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Mobile Orders - Shop Inventory")</PageTitle>
 
 <style>
     /* ── Page ────────────────────────────────────────── */
@@ -804,8 +805,8 @@
             <div class="md-header-left">
                 <div class="md-header-icon"><i class="bi bi-phone"></i></div>
                 <div>
-                    <h2>Mobile Orders</h2>
-                    <p>Review pending sales orders submitted from the mobile app</p>
+                    <h2>@(IsVanSalesView ? "Van Sales Orders" : "Mobile Orders")</h2>
+                    <p>@(IsVanSalesView ? "Review ADR and sales-person orders captured against route customers" : "Review pending sales orders submitted from the mobile app")</p>
                 </div>
             </div>
         </div>
@@ -1448,6 +1449,8 @@
 
 @code {
     private static readonly int[] DefaultPageSizeOptions = [10, 25, 50, 100, 200];
+    private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
+        .StartsWith("van-sales-orders", StringComparison.OrdinalIgnoreCase);
 
     private MudTable<SalesOrderDto> _table = null!;
     private int _pageSize = 10;
@@ -1765,7 +1768,11 @@
 
         try
         {
-            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, source: SalesOrderSource.Mobile);
+            var response = await SalesOrderService.GetSalesOrdersAsync(
+                currentPage,
+                pageSize,
+                source: SalesOrderSource.Mobile,
+                vanSalesUsersOnly: IsVanSalesView ? true : null);
             if (loadVersion != ordersLoadVersion)
                 return;
 
@@ -2302,6 +2309,7 @@
     private static bool OrderHasMissingPrices(SalesOrderDto order)
     {
         return order.Source == SalesOrderSource.Mobile
+            && (!order.IsSynced || !order.SAPDocEntry.HasValue || order.SAPDocEntry.Value <= 0)
             && order.Lines?.Any() == true
             && order.Lines.Any(l => l.UnitPrice <= 0 || l.LineTotal <= 0);
     }
@@ -2325,6 +2333,9 @@
 
     private async Task PopulateOrderPricesAsync(SalesOrderDto order)
     {
+        if (order.IsSynced && order.SAPDocEntry.HasValue && order.SAPDocEntry.Value > 0)
+            return;
+
         try
         {
             var itemCodes = order.Lines?

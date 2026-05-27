@@ -252,6 +252,12 @@
                         </span>
                         <span class="snav-text">Invoices</span>
                     </NavLink>
+                    <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Van Sales Invoices</span>
+                    </NavLink>
                     <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
@@ -264,11 +270,23 @@
                         </span>
                         <span class="snav-text">Sales Orders</span>
                     </NavLink>
+                    <NavLink class="snav-link sub-link" href="/van-sales-orders" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Van Sales Orders</span>
+                    </NavLink>
                     <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
                         </span>
                         <span class="snav-text">Create Sale Order</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Signpost" />
+                        </span>
+                        <span class="snav-text">Route Customers</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>

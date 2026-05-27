@@ -199,34 +199,9 @@ public sealed class UploadPodHandler(
             logger.LogWarning(ex, "Failed to publish POD notification for invoice {DocEntry}", command.DocEntry);
         }
 
-        // Best-effort: sync POD to SAP
-        try
-        {
-            var (fileStream, _, _) = await documentService.DownloadAttachmentAsync(attachment.Id, cancellationToken);
-            if (fileStream != null)
-            {
-                using (fileStream)
-                {
-                    if (invoiceInfo?.AttachmentEntry is int existingAttachmentEntry && existingAttachmentEntry > 0)
-                    {
-                        logger.LogInformation("Appending POD to existing SAP attachment {AttachmentEntry} for invoice {DocEntry}...",
-                            existingAttachmentEntry, command.DocEntry);
-                        await sapClient.AppendAttachmentToSAPAsync(existingAttachmentEntry, fileStream, fileName, cancellationToken);
-                    }
-                    else
-                    {
-                        logger.LogInformation("Uploading POD to SAP Attachments2 for invoice {DocEntry}...", command.DocEntry);
-                        var absEntry = await sapClient.UploadAttachmentToSAPAsync(fileStream, fileName, cancellationToken);
-                        await sapClient.LinkAttachmentToInvoiceAsync(command.DocEntry, absEntry, cancellationToken);
-                        logger.LogInformation("POD synced to SAP for invoice {DocEntry} (AbsoluteEntry={AbsEntry})", command.DocEntry, absEntry);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to sync POD to SAP for invoice {DocEntry} (non-blocking)", command.DocEntry);
-        }
+        logger.LogInformation(
+            "Skipping SAP POD sync for invoice {DocEntry}; POD attachments remain stored in the application only.",
+            command.DocEntry);
 
         return attachment;
     }

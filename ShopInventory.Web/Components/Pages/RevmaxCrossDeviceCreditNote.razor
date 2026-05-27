@@ -6,23 +6,49 @@
 <PageTitle>REVMax Cross-Device Credit Note - Shop Inventory</PageTitle>
 
 <style>
-    .rxcn-page {
-        min-height: 100vh;
-        padding: 1.5rem;
-        background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    /* ── Hero ───────────────────────────────────────── */
+    .rxcn-hero {
+        background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
+        border-radius: 16px;
+        padding: 2rem 2.5rem;
+        margin-bottom: 1.5rem;
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .rxcn-hero::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -20%;
+        width: 300px;
+        height: 300px;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+        border-radius: 50%;
+    }
+
+    .rxcn-hero-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        position: relative;
+        z-index: 1;
     }
 
     .rxcn-breadcrumb {
         display: flex;
         align-items: center;
-        gap: .45rem;
-        margin-bottom: 1rem;
-        color: #64748b;
-        font-size: .85rem;
+        gap: .4rem;
+        font-size: .8rem;
+        opacity: .8;
+        margin-bottom: .35rem;
     }
 
     .rxcn-breadcrumb a {
-        color: #0f172a;
+        color: #fff;
         text-decoration: none;
         font-weight: 600;
     }
@@ -31,233 +57,121 @@
         text-decoration: underline;
     }
 
-    .rxcn-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 1rem;
-        flex-wrap: wrap;
-        margin-bottom: 1.25rem;
-    }
-
-    .rxcn-header-left {
-        display: flex;
-        align-items: center;
-        gap: .9rem;
-    }
-
-    .rxcn-header-icon {
-        width: 54px;
-        height: 54px;
-        border-radius: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #111827, #334155);
-        color: #fff;
-        font-size: 1.4rem;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, .18);
-    }
-
-    .rxcn-title {
-        margin: 0;
-        color: #0f172a;
+    .rxcn-hero-title {
+        font-size: 1.5rem;
         font-weight: 700;
-        letter-spacing: -.03em;
-    }
-
-    .rxcn-subtitle {
-        margin: .25rem 0 0;
-        color: #64748b;
-        max-width: 760px;
-        font-size: .92rem;
-    }
-
-    .rxcn-actions {
+        margin: 0;
         display: flex;
-        gap: .65rem;
-        flex-wrap: wrap;
         align-items: center;
+        gap: .75rem;
     }
 
-    .rxcn-btn {
-        border: 1px solid transparent;
-        border-radius: 10px;
-        padding: .6rem 1rem;
-        font-weight: 600;
-        font-size: .9rem;
+    .rxcn-hero-icon {
         display: inline-flex;
         align-items: center;
-        gap: .45rem;
-        transition: all .18s ease;
-        cursor: pointer;
-        text-decoration: none;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 12px;
+        font-size: 1.25rem;
+        backdrop-filter: blur(4px);
+        flex-shrink: 0;
     }
 
-    .rxcn-btn:disabled {
-        opacity: .6;
-        cursor: not-allowed;
+    .rxcn-hero-subtitle {
+        margin: .25rem 0 0;
+        font-size: .9rem;
+        opacity: .85;
+        max-width: 680px;
     }
 
-    .rxcn-btn-primary {
-        background: #111827;
-        color: #fff;
-        box-shadow: 0 8px 18px rgba(15, 23, 42, .16);
+    .rxcn-hero-btn {
+        border-color: rgba(255, 255, 255, 0.4) !important;
+        color: #fff !important;
     }
 
-    .rxcn-btn-primary:hover:not(:disabled) {
-        background: #020617;
-        color: #fff;
-        transform: translateY(-1px);
+    .rxcn-hero-btn:hover {
+        background: rgba(255, 255, 255, 0.15) !important;
     }
 
-    .rxcn-btn-secondary {
-        background: #fff;
-        color: #0f172a;
-        border-color: #cbd5e1;
-    }
-
-    .rxcn-btn-secondary:hover:not(:disabled) {
-        background: #f8fafc;
-        border-color: #94a3b8;
-        color: #0f172a;
-    }
-
+    /* ── Cards ──────────────────────────────────────── */
     .rxcn-card {
         background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 18px;
-        box-shadow: 0 6px 20px rgba(15, 23, 42, .05);
-        padding: 1.25rem;
-        margin-bottom: 1.25rem;
+        border-radius: 16px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        margin-bottom: 1.5rem;
+        overflow: hidden;
     }
 
-    .rxcn-card-title {
+    .rxcn-card-header {
         display: flex;
         align-items: center;
         gap: .5rem;
-        margin: 0 0 1rem;
-        color: #0f172a;
+        padding: 1rem 1.5rem;
+        background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+        border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+        font-weight: 700;
         font-size: 1rem;
-        font-weight: 700;
+        color: #0f766e;
     }
 
-    .rxcn-card-title i {
-        color: #475569;
+    .rxcn-card-header i {
+        color: #0f766e;
     }
 
-    .rxcn-help {
-        margin: .85rem 0 0;
-        color: #64748b;
-        font-size: .88rem;
-        line-height: 1.5;
+    .rxcn-card-body {
+        padding: 1.5rem;
     }
 
-    .rxcn-form-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: .9rem;
-    }
-
-    .rxcn-form-grid--wide {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .rxcn-field {
-        display: flex;
-        flex-direction: column;
-        gap: .3rem;
-    }
-
-    .rxcn-field--full {
-        grid-column: 1 / -1;
-    }
-
-    .rxcn-field label {
-        color: #64748b;
-        font-size: .74rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: .06em;
-    }
-
-    .rxcn-field input,
-    .rxcn-field textarea {
-        width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 12px;
-        background: #fff;
-        color: #0f172a;
-        padding: .72rem .85rem;
-        font-size: .92rem;
-        transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
-    }
-
-    .rxcn-field textarea {
-        min-height: 96px;
-        resize: vertical;
-    }
-
-    .rxcn-field input:focus,
-    .rxcn-field textarea:focus {
-        outline: none;
-        border-color: #0f172a;
-        box-shadow: 0 0 0 3px rgba(15, 23, 42, .08);
-    }
-
-    .rxcn-grid {
+    /* ── Step grid ──────────────────────────────────── */
+    .rxcn-step-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 1rem;
+        gap: .85rem;
         margin-bottom: 1.25rem;
     }
 
-    .rxcn-meta {
-        display: grid;
-        gap: .6rem;
+    .rxcn-step-card {
+        padding: 1rem;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
     }
 
-    .rxcn-meta-item {
+    .rxcn-step-top {
         display: flex;
-        justify-content: space-between;
         align-items: flex-start;
-        gap: 1rem;
-        border-bottom: 1px solid #f1f5f9;
-        padding-bottom: .55rem;
+        justify-content: space-between;
+        gap: .75rem;
+        margin-bottom: .45rem;
     }
 
-    .rxcn-meta-item:last-child {
-        border-bottom: none;
-        padding-bottom: 0;
-    }
-
-    .rxcn-label {
-        color: #64748b;
-        font-size: .8rem;
-        font-weight: 600;
-    }
-
-    .rxcn-value {
+    .rxcn-step-title {
+        margin: 0;
+        font-size: .9rem;
+        font-weight: 700;
         color: #0f172a;
-        font-size: .92rem;
-        font-weight: 600;
-        text-align: right;
     }
 
-    .rxcn-mono {
-        font-family: 'Space Grotesk', 'Consolas', monospace;
-        letter-spacing: .02em;
+    .rxcn-step-copy {
+        margin: 0;
+        color: #64748b;
+        font-size: .84rem;
+        line-height: 1.45;
     }
 
+    /* ── Status badges ──────────────────────────────── */
     .rxcn-status {
         display: inline-flex;
         align-items: center;
-        gap: .35rem;
-        padding: .28rem .6rem;
-        border-radius: 999px;
+        border-radius: 20px;
+        padding: .28rem .65rem;
         font-size: .74rem;
         font-weight: 700;
-        letter-spacing: .03em;
+        flex-shrink: 0;
+        white-space: nowrap;
     }
 
     .rxcn-status-ok {
@@ -275,69 +189,182 @@
         color: #475569;
     }
 
-    .rxcn-alert {
+    /* ── Chips & callout ────────────────────────────── */
+    .rxcn-chip-row {
         display: flex;
-        align-items: flex-start;
-        gap: .7rem;
-        border-radius: 14px;
-        padding: .9rem 1rem;
-        margin-bottom: 1rem;
-        border: 1px solid transparent;
-        font-size: .9rem;
+        flex-wrap: wrap;
+        gap: .5rem;
+        margin-top: .85rem;
     }
 
-    .rxcn-alert i {
-        font-size: 1rem;
-        margin-top: .1rem;
-    }
-
-    .rxcn-alert-success {
-        background: #ecfdf5;
-        border-color: #a7f3d0;
-        color: #065f46;
-    }
-
-    .rxcn-alert-warning {
-        background: #fffbeb;
-        border-color: #fde68a;
-        color: #92400e;
-    }
-
-    .rxcn-alert-error {
-        background: #fef2f2;
-        border-color: #fecaca;
-        color: #991b1b;
-    }
-
-    .rxcn-table-wrap {
+    .rxcn-chip {
+        display: inline-flex;
+        align-items: center;
         border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        overflow: auto;
+        border-radius: 20px;
+        background: #f8fafc;
+        color: #475569;
+        padding: .3rem .75rem;
+        font-size: .78rem;
+        font-weight: 600;
+    }
+
+    .rxcn-callout {
+        margin-top: 1rem;
+        padding: .95rem 1rem;
+        border-radius: 12px;
+        border: 1px dashed #99f6e4;
+        background: #f0fdfa;
+    }
+
+    .rxcn-callout-label {
+        display: block;
+        color: #0f766e;
+        font-size: .74rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        margin-bottom: .2rem;
+    }
+
+    .rxcn-callout-value {
+        display: block;
+        color: #0f172a;
+        font-size: .96rem;
+        font-weight: 700;
+        margin-bottom: .2rem;
+    }
+
+    .rxcn-callout-copy {
+        margin: 0;
+        color: #64748b;
+        font-size: .88rem;
+        line-height: 1.5;
+    }
+
+    /* ── Form fields ────────────────────────────────── */
+    .rxcn-label {
+        display: block;
+        font-size: .8rem;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+        margin-bottom: .4rem;
+    }
+
+    .rxcn-input {
+        display: block;
+        width: 100%;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: #fff;
+        color: #0f172a;
+        padding: .6rem .85rem;
+        font-size: .92rem;
+        transition: border-color .18s, box-shadow .18s;
+    }
+
+    .rxcn-input:focus {
+        outline: none;
+        border-color: #0f766e;
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+    }
+
+    .rxcn-input::placeholder {
+        color: #94a3b8;
+    }
+
+    .rxcn-textarea {
+        min-height: 88px;
+        resize: vertical;
+    }
+
+    .rxcn-help {
+        margin: .85rem 0 0;
+        color: #64748b;
+        font-size: .875rem;
+        line-height: 1.55;
+    }
+
+    /* ── Metadata panels ────────────────────────────── */
+    .rxcn-meta {
+        display: grid;
+        gap: .55rem;
+    }
+
+    .rxcn-meta-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: .5rem;
+    }
+
+    .rxcn-meta-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .rxcn-meta-label {
+        color: #94a3b8;
+        font-size: .78rem;
+        font-weight: 600;
+        flex-shrink: 0;
+    }
+
+    .rxcn-meta-value {
+        color: #0f172a;
+        font-size: .9rem;
+        font-weight: 600;
+        text-align: right;
+    }
+
+    .rxcn-mono {
+        font-family: 'Consolas', monospace;
+        font-size: .88em;
+        letter-spacing: .02em;
+    }
+
+    /* ── Lines table ────────────────────────────────── */
+    .rxcn-table-wrap {
+        overflow-x: auto;
     }
 
     .rxcn-table {
         width: 100%;
-        min-width: 720px;
+        min-width: 640px;
         border-collapse: collapse;
     }
 
     .rxcn-table th {
         background: #f8fafc;
-        color: #475569;
+        color: #64748b;
         text-transform: uppercase;
         letter-spacing: .05em;
         font-size: .72rem;
         font-weight: 800;
-        padding: .8rem .9rem;
+        padding: .8rem 1rem;
         text-align: left;
+        border-bottom: 2px solid #f1f5f9;
+        white-space: nowrap;
     }
 
     .rxcn-table td {
-        padding: .85rem .9rem;
-        border-top: 1px solid #e2e8f0;
-        color: #0f172a;
-        font-size: .9rem;
+        padding: .85rem 1rem;
+        border-bottom: 1px solid #f1f5f9;
+        color: #334155;
+        font-size: .875rem;
         vertical-align: top;
+    }
+
+    .rxcn-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .rxcn-table tbody tr:hover td {
+        background: #f0fdfa;
     }
 
     .rxcn-table td:last-child,
@@ -346,412 +373,481 @@
     }
 
     .rxcn-link {
-        color: #0f172a;
+        color: #0f766e;
         font-weight: 700;
+        text-decoration: none;
     }
 
     .rxcn-link:hover {
-        color: #020617;
+        color: #0d9488;
     }
 
-    @@media (max-width: 1100px) {
-
-        .rxcn-grid,
-        .rxcn-form-grid--wide {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* ── Responsive ─────────────────────────────────── */
+    @@media (max-width: 991.98px) {
+        .rxcn-step-grid {
+            grid-template-columns: 1fr 1fr;
         }
     }
 
-    @@media (max-width: 720px) {
-        .rxcn-page {
-            padding: 1rem;
+    @@media (max-width: 767.98px) {
+        .rxcn-hero {
+            padding: 1.25rem 1rem;
         }
 
-        .rxcn-form-grid,
-        .rxcn-form-grid--wide,
-        .rxcn-grid {
+        .rxcn-hero-title {
+            font-size: 1.15rem;
+        }
+
+        .rxcn-step-grid {
             grid-template-columns: 1fr;
+        }
+
+        .rxcn-card-body {
+            padding: 1rem;
         }
 
         .rxcn-meta-item {
             flex-direction: column;
-            gap: .25rem;
+            gap: .2rem;
         }
 
-        .rxcn-value {
+        .rxcn-meta-value {
             text-align: left;
         }
     }
 </style>
 
-<div class="rxcn-page">
-    <div class="rxcn-breadcrumb">
-        <a href="/revmax">REVMax Fiscal</a>
-        <span>/</span>
-        <span>Cross-Device Credit Note</span>
-    </div>
+<div class="container-fluid fade-in staff-dashboard staff-shell">
 
-    <div class="rxcn-header">
-        <div class="rxcn-header-left">
-            <div class="rxcn-header-icon">
-                <i class="bi bi-receipt-cutoff"></i>
-            </div>
+    @* Hero *@
+    <div class="rxcn-hero">
+        <div class="rxcn-hero-content">
             <div>
-                <h1 class="rxcn-title">Cross-Device Credit Note Fiscalization</h1>
-                <p class="rxcn-subtitle">
-                    Load a ShopInventory credit note, resolve the original invoice from REVMax, confirm the cross-device
-                    reference values,
-                    and submit the TransactMExt fiscalization request.
+                <div class="rxcn-breadcrumb">
+                    <a href="/revmax">REVMax Fiscal</a>
+                    <span>/</span>
+                    <span>Cross-Device Credit Note</span>
+                </div>
+                <h2 class="rxcn-hero-title">
+                    <span class="rxcn-hero-icon"><i class="bi bi-receipt-cutoff"></i></span>
+                    Cross-Device Credit Note Fiscalization
+                </h2>
+                <p class="rxcn-hero-subtitle">
+                    Load a ShopInventory credit note, resolve the original invoice from REVMax, confirm the
+                    cross-device reference values, and submit the TransactMExt fiscalization request.
                 </p>
             </div>
-        </div>
-
-        <div class="rxcn-actions">
-            <button class="rxcn-btn rxcn-btn-primary" @onclick="LoadDraftAsync" disabled="@isLoadingDraft">
-                @if (isLoadingDraft)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                else
-                {
-                    <i class="bi bi-search"></i>
-                }
-                <span>Load Draft</span>
-            </button>
-            <button class="rxcn-btn rxcn-btn-secondary" @onclick="ClearForm"
-                    disabled="@(isLoadingDraft || isSubmitting)">
-                <i class="bi bi-x-circle"></i>
-                <span>Clear</span>
-            </button>
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadDraftAsync"
+                           Disabled="@isLoadingDraft" StartIcon="@Icons.Material.Filled.Search" Class="rxcn-hero-btn">
+                    @if (isLoadingDraft)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                    }
+                    Load Credit Note
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearForm"
+                           Disabled="@(isLoadingDraft || isSubmitting)" StartIcon="@Icons.Material.Filled.ClearAll"
+                           Class="rxcn-hero-btn">
+                    Clear
+                </MudButton>
+            </div>
         </div>
     </div>
 
+    @* Alerts *@
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="rxcn-alert rxcn-alert-error">
-            <i class="bi bi-exclamation-octagon"></i>
-            <div>@errorMessage</div>
-        </div>
+        <MudAlert Severity="Severity.Error" Class="mb-3" Dense="true" Elevation="0">
+            <strong>@errorMessage</strong>
+            @if (!string.IsNullOrWhiteSpace(LookupGuidanceMessage))
+            {
+                <div class="mt-1" style="font-size:.88rem;opacity:.92;">@LookupGuidanceMessage</div>
+            }
+        </MudAlert>
     }
 
     @if (!string.IsNullOrWhiteSpace(warningMessage))
     {
-        <div class="rxcn-alert rxcn-alert-warning">
-            <i class="bi bi-exclamation-triangle"></i>
-            <div>@warningMessage</div>
-        </div>
+        <MudAlert Severity="Severity.Warning" Class="mb-3" Dense="true" Elevation="0">@warningMessage</MudAlert>
     }
 
     @if (submissionResult is not null)
     {
-        <div class="rxcn-alert rxcn-alert-success">
-            <i class="bi bi-check-circle"></i>
-            <div>
-                <div><strong>Fiscalization complete.</strong> Credit note @submissionResult.FiscalInvoiceNumber was
-                    submitted successfully.</div>
-                    <div>Receipt: @DisplayValue(submissionResult.Response.ReceiptGlobalNo) | Fiscal Day:
-                        @DisplayValue(submissionResult.Response.FiscalDayNo)</div>
-                        @if (!string.IsNullOrWhiteSpace(submissionResult.Response.VerificationLink))
-                        {
-                            <div>
-                                <a class="rxcn-link" href="@submissionResult.Response.VerificationLink" target="_blank"
-                                   rel="noopener noreferrer">
-                                    Open verification link
-                                </a>
-                            </div>
-                        }
-                    </div>
+        <MudAlert Severity="Severity.Success" Class="mb-3" Elevation="0">
+            <strong>Fiscalization complete.</strong> Credit note @submissionResult.FiscalInvoiceNumber was submitted
+            successfully.
+            <div class="mt-1" style="font-size:.88rem;">
+                Receipt: @DisplayValue(submissionResult.Response.ReceiptGlobalNo) &nbsp;|&nbsp;
+                Fiscal Day: @DisplayValue(submissionResult.Response.FiscalDayNo)
+            </div>
+            @if (!string.IsNullOrWhiteSpace(submissionResult.Response.VerificationLink))
+            {
+                <div class="mt-1">
+                    <a class="rxcn-link" href="@submissionResult.Response.VerificationLink" target="_blank"
+                       rel="noopener noreferrer">
+                        Open verification link <i class="bi bi-box-arrow-up-right ms-1" style="font-size:.8em;"></i>
+                    </a>
                 </div>
             }
+        </MudAlert>
+    }
 
-            <section class="rxcn-card">
-                <h2 class="rxcn-card-title">
-                    <i class="bi bi-list-check"></i>
-                    <span>Load credit note and source invoice</span>
-                </h2>
+    @* Section 1 – Resolve *@
+    <div class="rxcn-card">
+        <div class="rxcn-card-header">
+            <i class="bi bi-list-check"></i>
+            <span>1. Resolve credit note and source invoice</span>
+        </div>
+        <div class="rxcn-card-body">
 
-                <div class="rxcn-form-grid">
-                    <div class="rxcn-field">
-                        <label for="rxcn-credit-note">Credit note number</label>
-                        <input id="rxcn-credit-note" type="text" placeholder="e.g. CN-0001 or SAP-CN-1234"
-                               @bind="creditNoteNumber" @bind:event="oninput" />
+            <div class="rxcn-step-grid">
+                <article class="rxcn-step-card">
+                    <div class="rxcn-step-top">
+                        <h3 class="rxcn-step-title">Credit note lookup</h3>
+                        <span
+                        class="rxcn-status @GetCreditNoteLookupStatusClass()">@GetCreditNoteLookupStatusText()</span>
                     </div>
+                    <p class="rxcn-step-copy">Accepts the local credit note number, the raw SAP DocNum, or the SAP-CN
+                        alias.</p>
+                    </article>
 
-                    <div class="rxcn-field">
-                        <label for="rxcn-original-invoice">Original invoice number</label>
-                        <input id="rxcn-original-invoice" type="text"
-                               placeholder="Resolved from the original invoice when linked" @bind="originalInvoiceNumber"
+                    <article class="rxcn-step-card">
+                        <div class="rxcn-step-top">
+                            <h3 class="rxcn-step-title">Original invoice</h3>
+                            <span
+                            class="rxcn-status @GetOriginalInvoiceStatusClass()">@GetOriginalInvoiceStatusText()</span>
+                        </div>
+                        <p class="rxcn-step-copy">@GetOriginalInvoiceStepCopy()</p>
+                    </article>
+
+                    <article class="rxcn-step-card">
+                        <div class="rxcn-step-top">
+                            <h3 class="rxcn-step-title">Cross-device reference</h3>
+                            <span class="rxcn-status @GetReferenceStatusClass()">@GetReferenceStatusText()</span>
+                        </div>
+                        <p class="rxcn-step-copy">@GetReferenceStepCopy()</p>
+                    </article>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="rxcn-label" for="rxcn-credit-note">Credit note number</label>
+                        <input id="rxcn-credit-note" class="rxcn-input" type="text"
+                               placeholder="e.g. 44019, SAP-CN-44019, or the local CN number" @bind="creditNoteNumber"
                                @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="rxcn-label" for="rxcn-original-invoice">Original invoice number</label>
+                        <input id="rxcn-original-invoice" class="rxcn-input" type="text"
+                               placeholder="Loaded automatically from the linked invoice after the credit note resolves."
+                               readonly @bind="originalInvoiceNumber" @bind:event="oninput" />
                     </div>
                 </div>
 
                 <p class="rxcn-help">
-                    The page first resolves the credit note, then tries to load the original ShopInventory invoice and REVMax
-                    source invoice.
-                    You can override the original invoice number before loading if the source invoice number differs from the
-                    local document link.
+                    Enter the same credit note identifier the operator has on hand. The page resolves the credit note first,
+                    then loads the linked ShopInventory invoice and the REVMax source invoice automatically when available.
+                    The original invoice number is fetched from the linked invoice and does not need manual entry.
                 </p>
-            </section>
 
-            @if (draft is not null)
-            {
-                <div class="rxcn-grid">
-                    <section class="rxcn-card">
-                        <h2 class="rxcn-card-title">
+                <div class="rxcn-chip-row">
+                    <span class="rxcn-chip">Local credit note number</span>
+                    <span class="rxcn-chip">Raw SAP DocNum</span>
+                    <span class="rxcn-chip">SAP-CN-44019</span>
+                </div>
+
+                @if (draft is not null)
+                {
+                    <div class="rxcn-callout">
+                        <span class="rxcn-callout-label">Resolved credit note</span>
+                        <span class="rxcn-callout-value">@draft.CreditNote.CreditNoteNumber</span>
+                        <p class="rxcn-callout-copy">@GetResolvedCreditNoteCopy()</p>
+                    </div>
+                }
+
+            </div>
+        </div>
+
+        @if (draft is not null)
+        {
+            @* Section 2 – Metadata grid *@
+            <div class="row g-3 mb-4">
+                <div class="col-lg-4">
+                    <div class="rxcn-card mb-0">
+                        <div class="rxcn-card-header">
                             <i class="bi bi-file-earmark-text"></i>
                             <span>Credit note</span>
-                        </h2>
-
-                        <div class="rxcn-meta">
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">Local number</span>
-                                <span class="rxcn-value rxcn-mono">@draft.CreditNote.CreditNoteNumber</span>
-                            </div>
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">Fiscal invoice number</span>
-                                <span class="rxcn-value rxcn-mono">@DisplayValue(draft.CreditNoteFiscalInvoiceNumber)</span>
-                            </div>
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">SAP Doc Num</span>
-                                <span class="rxcn-value rxcn-mono">@DisplayValue(draft.CreditNote.SAPDocNum)</span>
-                            </div>
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">Customer</span>
-                                <span class="rxcn-value">@DisplayValue(draft.CreditNote.CardName)</span>
-                            </div>
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">Total</span>
-                                <span class="rxcn-value">@FormatMoney(draft.CreditNote.DocTotal, draft.CreditNote.Currency)</span>
-                            </div>
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">Tax</span>
-                                <span class="rxcn-value">@FormatMoney(draft.CreditNote.TaxAmount, draft.CreditNote.Currency)</span>
-                            </div>
-                            <div class="rxcn-meta-item">
-                                <span class="rxcn-label">Original invoice link</span>
-                                <span class="rxcn-value rxcn-mono">@DisplayValue(draft.OriginalInvoice?.DocNum ??
-                                                            draft.CreditNote.OriginalInvoiceDocEntry)</span>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section class="rxcn-card">
-                            <h2 class="rxcn-card-title">
-                                <i class="bi bi-motherboard"></i>
-                                <span>Current REVMax device</span>
-                            </h2>
-
+                        </div>
+                        <div class="rxcn-card-body">
                             <div class="rxcn-meta">
                                 <div class="rxcn-meta-item">
-                                    <span class="rxcn-label">Status</span>
+                                    <span class="rxcn-meta-label">Local number</span>
+                                    <span class="rxcn-meta-value rxcn-mono">@draft.CreditNote.CreditNoteNumber</span>
+                                </div>
+                                <div class="rxcn-meta-item">
+                                    <span class="rxcn-meta-label">Fiscal invoice number</span>
                                     <span
-                                        class="rxcn-status @(draft.CurrentDevice?.Code == "1" ? "rxcn-status-ok" : "rxcn-status-muted")">
-                                        @(draft.CurrentDevice?.Code == "1" ? "Loaded" : "Unavailable")
-                                    </span>
+                                    class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.CreditNoteFiscalInvoiceNumber)</span>
                                 </div>
                                 <div class="rxcn-meta-item">
-                                    <span class="rxcn-label">Company</span>
-                                    <span class="rxcn-value">@DisplayValue(draft.CurrentDevice?.Data?.COMPANYNAME)</span>
+                                    <span class="rxcn-meta-label">SAP Doc Num</span>
+                                    <span class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.CreditNote.SAPDocNum)</span>
                                 </div>
                                 <div class="rxcn-meta-item">
-                                    <span class="rxcn-label">Device ID</span>
-                                    <span class="rxcn-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.DeviceID)</span>
+                                    <span class="rxcn-meta-label">Customer</span>
+                                    <span class="rxcn-meta-value">@DisplayValue(draft.CreditNote.CardName)</span>
                                 </div>
                                 <div class="rxcn-meta-item">
-                                    <span class="rxcn-label">Serial</span>
-                                    <span class="rxcn-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.Data?.SERIALNUMBER ??
-                                                                draft.CurrentDevice?.DeviceSerialNumber)</span>
+                                    <span class="rxcn-meta-label">Total</span>
+                                    <span class="rxcn-meta-value">@FormatMoney(draft.CreditNote.DocTotal,
+                                                                                                                draft.CreditNote.Currency)</span>
                                     </div>
                                     <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">TIN</span>
-                                        <span class="rxcn-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.Data?.TIN)</span>
+                                        <span class="rxcn-meta-label">Tax</span>
+                                        <span class="rxcn-meta-value">@FormatMoney(draft.CreditNote.TaxAmount,
+                                                                                                                        draft.CreditNote.Currency)</span>
+                                        </div>
+                                        <div class="rxcn-meta-item">
+                                            <span class="rxcn-meta-label">Original invoice link</span>
+                                            <span class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.OriginalInvoice?.DocNum ??
+                                                                                                                                draft.CreditNote.OriginalInvoiceDocEntry)</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">BPN</span>
-                                        <span class="rxcn-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.Data?.BPN)</span>
-                                    </div>
-                                </div>
-                            </section>
-
-                            <section class="rxcn-card">
-                                <h2 class="rxcn-card-title">
-                                    <i class="bi bi-diagram-3"></i>
-                                    <span>Source fiscal invoice</span>
-                                </h2>
-
-                                <div class="rxcn-meta">
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Lookup</span>
-                                        <span
-                                            class="rxcn-status @(draft.SourceFiscalInvoice?.Success == true ? "rxcn-status-ok" : "rxcn-status-warn")">
-                                            @(draft.SourceFiscalInvoice?.Success == true ? "Resolved" : "Needs attention")
-                                        </span>
-                                    </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Invoice number</span>
-                                        <span class="rxcn-value rxcn-mono">@DisplayValue(draft.SourceInvoiceNumber)</span>
-                                    </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Device ID</span>
-                                        <span class="rxcn-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.DeviceID)</span>
-                                    </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Receipt Global</span>
-                                        <span
-                                        class="rxcn-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.Data?.ReceiptGlobalNo)</span>
-                                    </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Fiscal day</span>
-                                        <span class="rxcn-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.FiscalDay)</span>
-                                    </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Device serial</span>
-                                        <span
-                                        class="rxcn-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.DeviceSerialNumber)</span>
-                                    </div>
-                                    <div class="rxcn-meta-item">
-                                        <span class="rxcn-label">Amount</span>
-                                        <span class="rxcn-value">@FormatSourceInvoiceTotal()</span>
-                                    </div>
-                                </div>
-                            </section>
-                        </div>
-
-                        <section class="rxcn-card">
-                            <h2 class="rxcn-card-title">
-                                <i class="bi bi-sliders"></i>
-                                <span>TransactMExt request details</span>
-                            </h2>
-
-                            <div class="rxcn-form-grid rxcn-form-grid--wide">
-                                <div class="rxcn-field">
-                                    <label for="rxcn-source-invoice">Original invoice number</label>
-                                    <input id="rxcn-source-invoice" type="text" @bind="originalInvoiceNumber" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-currency">Currency</label>
-                                    <input id="rxcn-currency" type="text" @bind="currency" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-branch">Branch name</label>
-                                    <input id="rxcn-branch" type="text" placeholder="Optional. Uses REVMax default when blank"
-                                           @bind="branchName" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-ref-device">Ref device ID</label>
-                                    <input id="rxcn-ref-device" type="number" @bind="refDeviceId" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-ref-receipt">Ref receipt global no</label>
-                                    <input id="rxcn-ref-receipt" type="number" @bind="refReceiptGlobalNo" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-ref-day">Ref fiscal day</label>
-                                    <input id="rxcn-ref-day" type="number" @bind="refFiscalDayNo" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-customer-name">Customer registered name</label>
-                                    <input id="rxcn-customer-name" type="text" @bind="customerName" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-customer-vat">Customer VAT number</label>
-                                    <input id="rxcn-customer-vat" type="text" @bind="customerVatNumber" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-customer-phone">Customer telephone</label>
-                                    <input id="rxcn-customer-phone" type="text" @bind="customerTelephone" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-customer-email">Customer email</label>
-                                    <input id="rxcn-customer-email" type="email" @bind="customerEmail" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field">
-                                    <label for="rxcn-customer-bpn">Customer BPN</label>
-                                    <input id="rxcn-customer-bpn" type="text" @bind="customerBpn" @bind:event="oninput" />
-                                </div>
-
-                                <div class="rxcn-field rxcn-field--full">
-                                    <label for="rxcn-comment">Reason / comment</label>
-                                    <textarea id="rxcn-comment" @bind="invoiceComment" @bind:event="oninput"></textarea>
-                                </div>
-
-                                <div class="rxcn-field rxcn-field--full">
-                                    <label for="rxcn-address">Customer full address</label>
-                                    <textarea id="rxcn-address" placeholder="Optional override sent to REVMax" @bind="customerAddress"
-                                              @bind:event="oninput"></textarea>
                                 </div>
                             </div>
 
-                            <p class="rxcn-help">
-                                The page auto-fills the three cross-device reference values from the source REVMax invoice when available.
-                                You can override them manually
-                                if the operator needs to use a different source device, receipt global number, or fiscal day provided by the
-                                other location.
-                            </p>
+                            <div class="col-lg-4">
+                                <div class="rxcn-card mb-0">
+                                    <div class="rxcn-card-header">
+                                        <i class="bi bi-motherboard"></i>
+                                        <span>Current REVMax device</span>
+                                    </div>
+                                    <div class="rxcn-card-body">
+                                        <div class="rxcn-meta">
+                                            <div class="rxcn-meta-item">
+                                                <span class="rxcn-meta-label">Status</span>
+                                                <span
+                                                    class="rxcn-status @(draft.CurrentDevice?.Code == "1" ? "rxcn-status-ok" : "rxcn-status-muted")">
+                                                    @(draft.CurrentDevice?.Code == "1" ? "Loaded" : "Unavailable")
+                                                </span>
+                                            </div>
+                                            <div class="rxcn-meta-item">
+                                                <span class="rxcn-meta-label">Company</span>
+                                                <span class="rxcn-meta-value">@DisplayValue(draft.CurrentDevice?.Data?.COMPANYNAME)</span>
+                                            </div>
+                                            <div class="rxcn-meta-item">
+                                                <span class="rxcn-meta-label">Device ID</span>
+                                                <span class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.DeviceID)</span>
+                                            </div>
+                                            <div class="rxcn-meta-item">
+                                                <span class="rxcn-meta-label">Serial</span>
+                                                <span
+                                                    class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.Data?.SERIALNUMBER
+                                                                                                                                        ?? draft.CurrentDevice?.DeviceSerialNumber)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">TIN</span>
+                                                    <span class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.Data?.TIN)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">BPN</span>
+                                                    <span class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.CurrentDevice?.Data?.BPN)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
 
-                            <div class="rxcn-actions" style="margin-top: 1rem;">
-                                <button class="rxcn-btn rxcn-btn-primary" @onclick="FiscalizeAsync" disabled="@(!CanSubmit)">
-                                    @if (isSubmitting)
-                                    {
-                                        <span class="spinner-border spinner-border-sm"></span>
-                                    }
-                                    else
-                                    {
-                                        <i class="bi bi-send-check"></i>
-                                    }
-                                    <span>Fiscalize Credit Note</span>
-                                </button>
-                                <button class="rxcn-btn rxcn-btn-secondary" @onclick="LoadDraftAsync"
-                                        disabled="@(isLoadingDraft || isSubmitting)">
-                                    <i class="bi bi-arrow-repeat"></i>
-                                    <span>Refresh Source Invoice</span>
-                                </button>
+                                <div class="col-lg-4">
+                                    <div class="rxcn-card mb-0">
+                                        <div class="rxcn-card-header">
+                                            <i class="bi bi-diagram-3"></i>
+                                            <span>Source fiscal invoice</span>
+                                        </div>
+                                        <div class="rxcn-card-body">
+                                            <div class="rxcn-meta">
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Lookup</span>
+                                                    <span
+                                                        class="rxcn-status @(draft.SourceFiscalInvoice?.Success == true ? "rxcn-status-ok" : "rxcn-status-warn")">
+                                                        @(draft.SourceFiscalInvoice?.Success == true ? "Resolved" : "Needs attention")
+                                                    </span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Invoice number</span>
+                                                    <span class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.SourceInvoiceNumber)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Device ID</span>
+                                                    <span
+                                                    class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.DeviceID)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Receipt Global</span>
+                                                    <span
+                                                    class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.Data?.ReceiptGlobalNo)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Fiscal day</span>
+                                                    <span
+                                                    class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.FiscalDay)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Device serial</span>
+                                                    <span
+                                                    class="rxcn-meta-value rxcn-mono">@DisplayValue(draft.SourceFiscalInvoice?.DeviceSerialNumber)</span>
+                                                </div>
+                                                <div class="rxcn-meta-item">
+                                                    <span class="rxcn-meta-label">Amount</span>
+                                                    <span class="rxcn-meta-value">@FormatSourceInvoiceTotal()</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </section>
 
-                        <section class="rxcn-card">
-                            <h2 class="rxcn-card-title">
-                                <i class="bi bi-list-ul"></i>
-                                <span>Credit note lines that will be fiscalized</span>
-                            </h2>
+                            @* Section 3 – TransactMExt form *@
+                            <div class="rxcn-card">
+                                <div class="rxcn-card-header">
+                                    <i class="bi bi-sliders"></i>
+                                    <span>2. Confirm TransactMExt request</span>
+                                </div>
+                                <div class="rxcn-card-body">
+                                    <div class="row g-3">
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-source-invoice">Original invoice number</label>
+                                            <input id="rxcn-source-invoice" class="rxcn-input" type="text" @bind="originalInvoiceNumber"
+                                                   readonly @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-currency">Currency</label>
+                                            <input id="rxcn-currency" class="rxcn-input" type="text" @bind="currency" @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-branch">Branch name</label>
+                                            <input id="rxcn-branch" class="rxcn-input" type="text"
+                                                   placeholder="Optional. Uses REVMax default when blank" @bind="branchName"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-ref-device">Ref device ID</label>
+                                            <input id="rxcn-ref-device" class="rxcn-input" type="number" @bind="refDeviceId"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-ref-receipt">Ref receipt global no</label>
+                                            <input id="rxcn-ref-receipt" class="rxcn-input" type="number" @bind="refReceiptGlobalNo"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-ref-day">Ref fiscal day</label>
+                                            <input id="rxcn-ref-day" class="rxcn-input" type="number" @bind="refFiscalDayNo"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-customer-name">Customer registered name</label>
+                                            <input id="rxcn-customer-name" class="rxcn-input" type="text" @bind="customerName"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-customer-vat">Customer VAT number</label>
+                                            <input id="rxcn-customer-vat" class="rxcn-input" type="text" @bind="customerVatNumber"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-customer-phone">Customer telephone</label>
+                                            <input id="rxcn-customer-phone" class="rxcn-input" type="text" @bind="customerTelephone"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-customer-email">Customer email</label>
+                                            <input id="rxcn-customer-email" class="rxcn-input" type="email" @bind="customerEmail"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-md-4 col-sm-6">
+                                            <label class="rxcn-label" for="rxcn-customer-bpn">Customer BPN</label>
+                                            <input id="rxcn-customer-bpn" class="rxcn-input" type="text" @bind="customerBpn"
+                                                   @bind:event="oninput" />
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="rxcn-label" for="rxcn-comment">
+                                                Reason / comment <span class="text-danger">*</span>
+                                            </label>
+                                            <textarea id="rxcn-comment" class="rxcn-input rxcn-textarea" @bind="invoiceComment"
+                                                      @bind:event="oninput"></textarea>
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="rxcn-label" for="rxcn-address">Customer full address</label>
+                                            <textarea id="rxcn-address" class="rxcn-input rxcn-textarea"
+                                                      placeholder="Optional override sent to REVMax" @bind="customerAddress"
+                                                      @bind:event="oninput"></textarea>
+                                        </div>
+                                    </div>
 
-                            <div class="rxcn-table-wrap">
-                                <table class="rxcn-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Line</th>
-                                            <th>Item Code</th>
-                                            <th>Description</th>
-                                            <th>Qty</th>
-                                            <th>Unit Price</th>
-                                            <th>Line Total</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var line in draft.CreditNote.Lines)
-                                        {
-                                            <tr>
-                                                <td class="rxcn-mono">@line.LineNum</td>
-                                                <td class="rxcn-mono">@DisplayValue(line.ItemCode)</td>
-                                                <td>@DisplayValue(line.ItemDescription)</td>
-                                                <td>@FormatQuantity(line.Quantity)</td>
-                                                <td>@FormatMoney(line.UnitPrice, draft.CreditNote.Currency)</td>
-                                                <td>@FormatMoney(line.LineTotal, draft.CreditNote.Currency)</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
+                                    <p class="rxcn-help">
+                                        The page auto-fills the three cross-device reference values from the source REVMax invoice when
+                                        available.
+                                        Override them manually if the operator needs to use a different source device, receipt global number, or
+                                        fiscal day.
+                                    </p>
+
+                                    <div class="d-flex gap-2 flex-wrap mt-3">
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="FiscalizeAsync"
+                                                   Disabled="@(!CanSubmit)" StartIcon="@Icons.Material.Filled.SendAndArchive" Class="pod-upload-btn">
+                                            @if (isSubmitting)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                            }
+                                            Fiscalize Credit Note
+                                        </MudButton>
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadDraftAsync"
+                                                   Disabled="@(isLoadingDraft || isSubmitting)" StartIcon="@Icons.Material.Filled.Refresh"
+                                                   Class="pod-lookup-btn">
+                                            Reload Draft
+                                        </MudButton>
+                                    </div>
+                                </div>
                             </div>
-                        </section>
-                    }
-                </div>
+
+                            @* Section 4 – Lines table *@
+                            <div class="rxcn-card">
+                                <div class="rxcn-card-header">
+                                    <i class="bi bi-list-ul"></i>
+                                    <span>Credit note lines that will be fiscalized</span>
+                                </div>
+                                <div class="rxcn-card-body p-0">
+                                    <div class="rxcn-table-wrap">
+                                        <table class="rxcn-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Line</th>
+                                                    <th>Item Code</th>
+                                                    <th>Description</th>
+                                                    <th>Qty</th>
+                                                    <th>Unit Price</th>
+                                                    <th>Line Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var line in draft.CreditNote.Lines)
+                                                {
+                                                    <tr>
+                                                        <td class="rxcn-mono">@line.LineNum</td>
+                                                        <td class="rxcn-mono">@DisplayValue(line.ItemCode)</td>
+                                                        <td>@DisplayValue(line.ItemDescription)</td>
+                                                        <td>@FormatQuantity(line.Quantity)</td>
+                                                        <td>@FormatMoney(line.UnitPrice, draft.CreditNote.Currency)</td>
+                                                        <td>@FormatMoney(line.LineTotal, draft.CreditNote.Currency)</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                    </div>

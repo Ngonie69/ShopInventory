@@ -198,7 +198,8 @@ public sealed class CreateInvoiceHandler(
             invoice,
             new CustomerFiscalDetails { CustomerName = invoice.CardName },
             userId,
-            username));
+            username,
+            "/invoices"));
 
         if (queued)
         {

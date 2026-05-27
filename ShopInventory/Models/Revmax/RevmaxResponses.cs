@@ -44,6 +44,8 @@ public class CardDetailsResponse
     public string? DeviceID { get; set; }
     public string? DeviceSerialNumber { get; set; }
     public string? FiscalDay { get; set; }
+
+    [JsonConverter(typeof(EmptyStringToNullConverter<CardDetailsData>))]
     public CardDetailsData? Data { get; set; }
 }
 

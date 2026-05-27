@@ -13,6 +13,12 @@ public static class MobileAssignedCustomerScope
         ILogger logger,
         CancellationToken cancellationToken)
     {
+        var assignedBusinessPartnerScope = NormalizeAssignedBusinessPartnerScope(user);
+        if (assignedBusinessPartnerScope.Count > 0)
+        {
+            return assignedBusinessPartnerScope;
+        }
+
         var customerCodes = Normalize(user.GetCustomerCodes());
         if (customerCodes.Count > 0 || !UsesBlanketMobileScope(user.Role))
         {
@@ -78,6 +84,17 @@ public static class MobileAssignedCustomerScope
     private static bool UsesBlanketMobileScope(string? role)
         => string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase)
             || string.Equals(role, "PodOperator", StringComparison.OrdinalIgnoreCase);
+
+    private static List<string> NormalizeAssignedBusinessPartnerScope(User user)
+    {
+        if (!string.Equals(user.Role, "ADR", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(user.Role, "Sales", StringComparison.OrdinalIgnoreCase))
+        {
+            return new List<string>();
+        }
+
+        return Normalize(new[] { user.AssignedBusinessPartnerCode ?? string.Empty });
+    }
 
     private static List<string> Deserialize(string? serializedCodes)
     {

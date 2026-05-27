@@ -481,6 +481,8 @@ public class UserModel
     public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
     public string? AssignedSection { get; set; }
     public List<string> AssignedCustomerCodes { get; set; } = new();
+    public string? AssignedBusinessPartnerCode { get; set; }
+    public string? AssignedCostCentreCode { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

@@ -286,7 +286,8 @@ public class SalesOrderService : ISalesOrderService
                     LineTotal = l.LineTotal,
                     WarehouseCode = l.WarehouseCode,
                     UoMCode = l.UoMCode,
-                    BatchNumber = l.BatchNumber
+                    BatchNumber = l.BatchNumber,
+                    CostCentreCode = l.CostCentreCode
                 }).ToList()
             })
             .ToListAsync(cancellationToken);
@@ -331,10 +332,18 @@ public class SalesOrderService : ISalesOrderService
                 (o.CustomerRefNo != null && o.CustomerRefNo.Contains(search)));
 
         var totalCount = await query.CountAsync(cancellationToken);
-        var orders = await query
+        var pageOrderIds = await query
             .OrderByDescending(o => o.OrderDate)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(o => o.Id)
+            .ToListAsync(cancellationToken);
+
+        await RefreshLocalSalesOrderSnapshotsFromSapAsync(pageOrderIds, cancellationToken);
+
+        var orders = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(o => pageOrderIds.Contains(o.Id))
             .Select(o => new SalesOrderDto
             {
                 Id = o.Id,
@@ -391,10 +400,17 @@ public class SalesOrderService : ISalesOrderService
                     LineTotal = l.LineTotal,
                     WarehouseCode = l.WarehouseCode,
                     UoMCode = l.UoMCode,
-                    BatchNumber = l.BatchNumber
+                    BatchNumber = l.BatchNumber,
+                    CostCentreCode = l.CostCentreCode
                 }).ToList()
             })
             .ToListAsync(cancellationToken);
+
+        var orderLookup = orders.ToDictionary(order => order.Id);
+        var orderedPage = pageOrderIds
+            .Where(orderLookup.ContainsKey)
+            .Select(id => orderLookup[id])
+            .ToList();
 
         return new SalesOrderListResponseDto
         {
@@ -402,7 +418,7 @@ public class SalesOrderService : ISalesOrderService
             PageSize = pageSize,
             TotalCount = totalCount,
             TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize),
-            Orders = orders
+            Orders = orderedPage
         };
     }
 
@@ -499,7 +515,8 @@ public class SalesOrderService : ISalesOrderService
                         LineTotal = lineTotal,
                         WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
                         UoMCode = lineRequest.UoMCode,
-                        BatchNumber = lineRequest.BatchNumber
+                        BatchNumber = lineRequest.BatchNumber,
+                        CostCentreCode = lineRequest.CostCentreCode
                     };
 
                     order.Lines.Add(line);
@@ -904,7 +921,8 @@ public class SalesOrderService : ISalesOrderService
                 LineTotal = lineTotal,
                 WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
                 UoMCode = lineRequest.UoMCode,
-                BatchNumber = lineRequest.BatchNumber
+                BatchNumber = lineRequest.BatchNumber,
+                CostCentreCode = lineRequest.CostCentreCode
             };
 
             order.Lines.Add(line);
@@ -1326,6 +1344,8 @@ public class SalesOrderService : ISalesOrderService
         order.SyncError = null;
         order.UpdatedAt = DateTime.UtcNow;
 
+        await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken);
+
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
@@ -1333,6 +1353,154 @@ public class SalesOrderService : ISalesOrderService
             order.OrderNumber,
             sapOrder.DocEntry,
             sapOrder.DocNum);
+    }
+
+    private async Task RefreshLocalSalesOrderSnapshotsFromSapAsync(
+        IEnumerable<int> orderIds,
+        CancellationToken cancellationToken)
+    {
+        var normalizedOrderIds = orderIds
+            .Distinct()
+            .ToList();
+
+        if (normalizedOrderIds.Count == 0)
+            return;
+
+        var syncedOrders = await _context.SalesOrders
+            .Where(order => normalizedOrderIds.Contains(order.Id)
+                && order.IsSynced
+                && order.SAPDocEntry.HasValue
+                && order.SAPDocEntry.Value > 0)
+            .ToListAsync(cancellationToken);
+
+        var updatedOrderCount = 0;
+
+        foreach (var order in syncedOrders)
+        {
+            if (await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken))
+            {
+                updatedOrderCount++;
+            }
+        }
+
+        if (updatedOrderCount == 0)
+            return;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Refreshed SAP financial snapshots for {OrderCount} local sales order(s) while serving local filtered results.",
+            updatedOrderCount);
+    }
+
+    private async Task<bool> TryRefreshLocalSalesOrderSnapshotFromSapAsync(
+        SalesOrderEntity order,
+        CancellationToken cancellationToken)
+    {
+        var sapDocEntry = order.SAPDocEntry.GetValueOrDefault();
+        if (sapDocEntry <= 0)
+            return false;
+
+        try
+        {
+            var sapOrder = await _sapClient.GetSalesOrderByDocEntryAsync(sapDocEntry, cancellationToken);
+            if (sapOrder == null)
+                return false;
+
+            return ApplySapFinancialSnapshotToLocalOrder(order, sapOrder);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to refresh local SAP financial snapshot for sales order {OrderId} ({OrderNumber}) with SAP DocEntry={DocEntry}.",
+                order.Id,
+                order.OrderNumber,
+                order.SAPDocEntry);
+
+            return false;
+        }
+    }
+
+    private static bool ApplySapFinancialSnapshotToLocalOrder(SalesOrderEntity order, SAPSalesOrder sapOrder)
+    {
+        var hasChanges = false;
+
+        if (sapOrder.DocEntry > 0 && order.SAPDocEntry != sapOrder.DocEntry)
+        {
+            order.SAPDocEntry = sapOrder.DocEntry;
+            hasChanges = true;
+        }
+
+        if (sapOrder.DocNum > 0 && order.SAPDocNum != sapOrder.DocNum)
+        {
+            order.SAPDocNum = sapOrder.DocNum;
+            hasChanges = true;
+        }
+
+        if (!order.IsSynced)
+        {
+            order.IsSynced = true;
+            hasChanges = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.SyncError))
+        {
+            order.SyncError = null;
+            hasChanges = true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(sapOrder.DocCurrency)
+            && !string.Equals(order.Currency, sapOrder.DocCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            order.Currency = sapOrder.DocCurrency;
+            hasChanges = true;
+        }
+
+        var sapDocTotal = sapOrder.DocTotal ?? order.DocTotal;
+        var sapTaxAmount = sapOrder.VatSum ?? order.TaxAmount;
+        var sapSubTotal = sapOrder.DocTotal.HasValue || sapOrder.VatSum.HasValue
+            ? Math.Max(sapDocTotal - sapTaxAmount, 0m)
+            : order.SubTotal;
+        var sapDiscountPercent = sapOrder.DiscountPercent ?? order.DiscountPercent;
+        var sapDiscountAmount = sapOrder.TotalDiscount ?? order.DiscountAmount;
+
+        if (order.SubTotal != sapSubTotal)
+        {
+            order.SubTotal = sapSubTotal;
+            hasChanges = true;
+        }
+
+        if (order.TaxAmount != sapTaxAmount)
+        {
+            order.TaxAmount = sapTaxAmount;
+            hasChanges = true;
+        }
+
+        if (order.DiscountPercent != sapDiscountPercent)
+        {
+            order.DiscountPercent = sapDiscountPercent;
+            hasChanges = true;
+        }
+
+        if (order.DiscountAmount != sapDiscountAmount)
+        {
+            order.DiscountAmount = sapDiscountAmount;
+            hasChanges = true;
+        }
+
+        if (order.DocTotal != sapDocTotal)
+        {
+            order.DocTotal = sapDocTotal;
+            hasChanges = true;
+        }
+
+        if (hasChanges)
+        {
+            order.UpdatedAt = DateTime.UtcNow;
+        }
+
+        return hasChanges;
     }
 
     private static string TruncateSyncError(string message)
@@ -1627,7 +1795,8 @@ public class SalesOrderService : ISalesOrderService
                 DiscountPercent = l.DiscountPercent ?? 0,
                 LineTotal = l.LineTotal ?? 0,
                 WarehouseCode = l.WarehouseCode,
-                UoMCode = l.UoMCode
+                UoMCode = l.UoMCode,
+                CostCentreCode = l.CostingCode
             }).ToList() ?? new List<SalesOrderLineDto>()
         };
     }
@@ -1786,7 +1955,8 @@ public class SalesOrderService : ISalesOrderService
                 LineTotal = l.LineTotal,
                 WarehouseCode = l.WarehouseCode,
                 UoMCode = l.UoMCode,
-                BatchNumber = l.BatchNumber
+                BatchNumber = l.BatchNumber,
+                CostCentreCode = l.CostCentreCode
             }).ToList()
         };
     }

@@ -39,7 +39,7 @@ public sealed class GetCrossDeviceCreditNoteDraftHandler(
             }
 
             var originalInvoice = await LoadOriginalInvoiceAsync(creditNote, cancellationToken);
-            var sourceInvoiceNumber = ResolveSourceInvoiceNumber(request.OriginalInvoiceNumberOverride, originalInvoice);
+            var sourceInvoiceNumber = ResolveSourceInvoiceNumber(request.OriginalInvoiceNumberOverride, originalInvoice, creditNote);
             var (sourceFiscalInvoice, sourceFiscalInvoiceError) = await LoadSourceFiscalInvoiceAsync(sourceInvoiceNumber, cancellationToken);
             var (currentDevice, currentDeviceError) = await LoadCurrentDeviceAsync(cancellationToken);
 
@@ -80,10 +80,11 @@ public sealed class GetCrossDeviceCreditNoteDraftHandler(
 
     private async Task<InvoiceDto?> LoadOriginalInvoiceAsync(CreditNoteDto creditNote, CancellationToken cancellationToken)
     {
-        if (creditNote.OriginalInvoiceDocEntry is int originalInvoiceDocEntry)
+        var originalInvoiceDocEntry = creditNote.OriginalInvoiceDocEntry ?? creditNote.OriginalInvoiceSAPDocEntry;
+        if (originalInvoiceDocEntry is int docEntry)
         {
             var (invoice, _) = await TryGetAsync<InvoiceDto>(
-                $"api/invoice/{originalInvoiceDocEntry}",
+                $"api/invoice/{docEntry}",
                 "original invoice",
                 cancellationToken);
             if (invoice is not null)
@@ -92,10 +93,10 @@ public sealed class GetCrossDeviceCreditNoteDraftHandler(
             }
         }
 
-        if (creditNote.OriginalInvoiceId is int originalInvoiceId)
+        if (creditNote.OriginalInvoiceSAPDocNum is int originalInvoiceSapDocNum)
         {
             var (invoice, _) = await TryGetAsync<InvoiceDto>(
-                $"api/invoice/{originalInvoiceId}",
+                $"api/invoice/by-docnum/{originalInvoiceSapDocNum}",
                 "original invoice",
                 cancellationToken);
             return invoice;
@@ -110,7 +111,7 @@ public sealed class GetCrossDeviceCreditNoteDraftHandler(
     {
         if (string.IsNullOrWhiteSpace(sourceInvoiceNumber))
         {
-            return (null, "Enter the original invoice number or load a credit note linked to an original invoice.");
+            return (null, "The linked credit note does not expose an original invoice number yet.");
         }
 
         var (response, error) = await TryGetAsync<RevmaxInvoiceResponse>(
@@ -193,8 +194,14 @@ public sealed class GetCrossDeviceCreditNoteDraftHandler(
     private static string GetFiscalInvoiceNumber(CreditNoteDto creditNote)
         => creditNote.SAPDocNum?.ToString() ?? creditNote.CreditNoteNumber;
 
-    private static string? ResolveSourceInvoiceNumber(string? overrideInvoiceNumber, InvoiceDto? originalInvoice)
-        => FirstNonEmpty(overrideInvoiceNumber, originalInvoice?.DocNum.ToString());
+    private static string? ResolveSourceInvoiceNumber(
+        string? overrideInvoiceNumber,
+        InvoiceDto? originalInvoice,
+        CreditNoteDto creditNote)
+        => FirstNonEmpty(
+            overrideInvoiceNumber,
+            originalInvoice?.DocNum.ToString(),
+            creditNote.OriginalInvoiceSAPDocNum?.ToString());
 
     private static int? ParseInt(string? value)
         => int.TryParse(value, out var parsed) ? parsed : null;

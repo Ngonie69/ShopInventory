@@ -44,10 +44,11 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] SalesOrderSource? source = null,
         [FromQuery] string? search = null,
+        [FromQuery] bool? vanSalesUsersOnly = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source, search),
+            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source, search, vanSalesUsersOnly),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

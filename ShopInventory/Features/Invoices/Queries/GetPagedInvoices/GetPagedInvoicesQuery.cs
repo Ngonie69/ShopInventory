@@ -10,5 +10,6 @@ public sealed record GetPagedInvoicesQuery(
     int? DocNum,
     string? CardCode,
     DateTime? FromDate,
-    DateTime? ToDate
+    DateTime? ToDate,
+    bool? VanSalesOnly = null
 ) : IRequest<ErrorOr<InvoiceListResponseDto>>;

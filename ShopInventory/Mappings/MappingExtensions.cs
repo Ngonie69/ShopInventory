@@ -64,6 +64,8 @@ public static class MappingExtensions
             NumAtCard = model.NumAtCard,
             Comments = model.Comments,
             DocStatus = NormalizeInvoiceStatus(model.DocStatus, model.DocumentStatus, model.Cancelled),
+            VanSaleOrderNumber = model.U_Van_saleorder,
+            IsVanSalesInvoice = !string.IsNullOrWhiteSpace(model.U_Van_saleorder),
             DocTotal = model.DocTotal,
             PaidToDate = model.PaidToDate,
             VatSum = model.VatSum,

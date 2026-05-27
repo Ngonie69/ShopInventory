@@ -61,3 +61,30 @@ public class CrateGrvDto
     public string? CreatedByUserName { get; set; }
     public List<DocumentAttachmentDto> Attachments { get; set; } = new();
 }
+
+public class BulkCratePodValidationRequest
+{
+    public List<int> InvoiceDocNums { get; set; } = [];
+    public string? SubmissionRole { get; set; }
+}
+
+public class BulkCratePodValidationResponse
+{
+    public List<BulkCratePodValidationResult> Results { get; set; } = [];
+}
+
+public class BulkCratePodValidationResult
+{
+    public int InvoiceDocNum { get; set; }
+    public int? CrateTransactionId { get; set; }
+    public string? ShopCardCode { get; set; }
+    public string? ShopName { get; set; }
+    public decimal ExpectedQuantity { get; set; }
+    public decimal? ExistingQuantity { get; set; }
+    public int ExistingAttachmentCount { get; set; }
+    public bool HasExistingSubmission { get; set; }
+    public string? Status { get; set; }
+    public bool Found { get; set; }
+    public bool CanUpload { get; set; }
+    public string? ErrorMessage { get; set; }
+}

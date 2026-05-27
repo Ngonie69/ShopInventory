@@ -140,10 +140,11 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
 
     private async Task<InvoiceDto?> LoadOriginalInvoiceAsync(CreditNoteDto creditNote, CancellationToken cancellationToken)
     {
-        if (creditNote.OriginalInvoiceDocEntry is int originalInvoiceDocEntry)
+        var originalInvoiceDocEntry = creditNote.OriginalInvoiceDocEntry ?? creditNote.OriginalInvoiceSAPDocEntry;
+        if (originalInvoiceDocEntry is int docEntry)
         {
             var (invoice, _) = await TryGetAsync<InvoiceDto>(
-                $"api/invoice/{originalInvoiceDocEntry}",
+                $"api/invoice/{docEntry}",
                 "original invoice",
                 cancellationToken);
             if (invoice is not null)
@@ -152,10 +153,10 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
             }
         }
 
-        if (creditNote.OriginalInvoiceId is int originalInvoiceId)
+        if (creditNote.OriginalInvoiceSAPDocNum is int originalInvoiceSapDocNum)
         {
             var (invoice, _) = await TryGetAsync<InvoiceDto>(
-                $"api/invoice/{originalInvoiceId}",
+                $"api/invoice/by-docnum/{originalInvoiceSapDocNum}",
                 "original invoice",
                 cancellationToken);
             return invoice;

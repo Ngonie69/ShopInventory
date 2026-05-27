@@ -166,7 +166,7 @@ else
                         else if (recentInvoices?.Any() == true)
                         {
                             <div class="table-responsive">
-                                <table class="table table-hover mb-0 align-middle dashboard-table">
+                                <table class="table table-hover mb-0 align-middle dashboard-table mobile-card-table">
                                     <thead>
                                         <tr>
                                             <th>Doc #</th>
@@ -179,11 +179,11 @@ else
                                         @foreach (var invoice in recentInvoices.Take(5))
                                         {
                                             <tr>
-                                                <td><span class="badge bg-primary">@invoice.DocNum</span></td>
-                                                <td>@invoice.CardName</td>
-                                                <td>@(DateTime.TryParse(invoice.DocDate, out var invoiceDate) ?
-                                                                                                                                                                                                                                                                                            invoiceDate.ToString("dd MMM yyyy") : invoice.DocDate)</td>
-                                                    <td class="text-end fw-semibold">@invoice.DocCurrency
+                                                <td data-label="Doc #"><span class="badge bg-primary">@invoice.DocNum</span></td>
+                                                <td data-label="Customer">@invoice.CardName</td>
+                                                <td data-label="Date">@(DateTime.TryParse(invoice.DocDate, out var invoiceDate) ?
+                                                                                                                                                                                                                                                                                                                                                invoiceDate.ToString("dd MMM yyyy") : invoice.DocDate)</td>
+                                                    <td data-label="Total" class="text-end fw-semibold">@invoice.DocCurrency
                                                         @invoice.DocTotal.ToString("N2")</td>
                                                     </tr>
                                                 }
@@ -235,7 +235,7 @@ else
                                 else if (recentPayments?.Any() == true)
                                 {
                                     <div class="table-responsive">
-                                        <table class="table table-hover mb-0 align-middle dashboard-table">
+                                        <table class="table table-hover mb-0 align-middle dashboard-table mobile-card-table">
                                             <thead>
                                                 <tr>
                                                     <th>Doc #</th>
@@ -248,11 +248,11 @@ else
                                                 @foreach (var payment in recentPayments.Take(5))
                                                 {
                                                     <tr>
-                                                        <td><span class="badge bg-success">@payment.DocNum</span></td>
-                                                        <td>@payment.CardName</td>
-                                                        <td>@(DateTime.TryParse(payment.DocDate, out var paymentDate) ?
-                                                                                                                                                                                                                                                                                                                            paymentDate.ToString("dd MMM yyyy") : payment.DocDate)</td>
-                                                            <td class="text-end fw-semibold">@payment.DocCurrency
+                                                        <td data-label="Doc #"><span class="badge bg-success">@payment.DocNum</span></td>
+                                                        <td data-label="Customer">@payment.CardName</td>
+                                                        <td data-label="Date">@(DateTime.TryParse(payment.DocDate, out var paymentDate) ?
+                                                                                                                                                                                                                                                                                                                                                                                        paymentDate.ToString("dd MMM yyyy") : payment.DocDate)</td>
+                                                            <td data-label="Amount" class="text-end fw-semibold">@payment.DocCurrency
                                                                 @payment.DocTotal.ToString("N2")</td>
                                                             </tr>
                                                         }

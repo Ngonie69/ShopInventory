@@ -64,7 +64,7 @@
                         {
                             <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                    ?? selectedAccountFilter)
+                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -173,7 +173,7 @@
                                 total</span>
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-hover mb-0 align-middle dashboard-table payments-table">
+                                <table class="table table-hover mb-0 align-middle dashboard-table payments-table mobile-card-table">
                                     <thead>
                                         <tr>
                                             <th>Payment #</th>
@@ -191,108 +191,111 @@
                                         @foreach (var payment in pagedPayments)
                                         {
                                             <tr class="payment-row">
-                                                <td><span class="payment-num-badge">@payment.DocNum</span></td>
+                                                <td data-label="Payment #"><span class="payment-num-badge">@payment.DocNum</span></td>
                                                 @if (isMultiAccount)
                                                 {
-                                                    <td>
-                                                        <small class="d-block fw-semibold">@(payment.CardCode ?? "-")</small>
-                                                        @if (!string.IsNullOrEmpty(payment.Currency))
-                                                        {
-                                                            <span class="badge bg-outline-dark border"
-                                                                  style="font-size: 0.65rem;">@payment.Currency</span>
-                                                        }
+                                                    <td data-label="Account">
+                                                        <div class="mobile-card-inline-group">
+                                                            <small class="d-block fw-semibold">@(payment.CardCode ?? "-")</small>
+                                                            @if (!string.IsNullOrEmpty(payment.Currency))
+                                                            {
+                                                                <span class="badge bg-outline-dark border"
+                                                                      style="font-size: 0.65rem;">@payment.Currency</span>
+                                                            }
+                                                        </div>
                                                     </td>
                                                 }
-                                                <td>@payment.DocDate.ToString("MMM dd, yyyy")</td>
-                                                <td>
+                                                <td data-label="Date">@payment.DocDate.ToString("MMM dd, yyyy")</td>
+                                                <td data-label="Method">
                                                     <span class="payment-method-chip">@payment.PaymentMethod</span>
                                                 </td>
-                                                <td>@(payment.Reference ?? "-")</td>
-                                                <td class="text-end fw-semibold text-success">@FormatCurrency(payment.DocTotal)</td>
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            @* Pagination *@
-                            @if (totalPages > 1)
-                            {
-                                <div class="invoices-pagination">
-                                    <div class="pagination-info">
-                                        Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize,
-                                                                                                    filteredPayments.Count)) of @filteredPayments.Count payments
-                                    </div>
-                                    <nav>
-                                        <ul class="pagination pagination-sm mb-0">
-                                            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                                <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(currentPage == 1)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                         viewBox="0 0 16 16">
-                                                        <path fill-rule="evenodd"
-                                                              d="M8.354 1.646a.5.5 0 0 1 0 .708L2.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0zM12.354 1.646a.5.5 0 0 1 0 .708L6.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
-                                                    </svg>
-                                                </button>
-                                            </li>
-                                            <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                                <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
-                                                        disabled="@(currentPage == 1)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                         viewBox="0 0 16 16">
-                                                        <path fill-rule="evenodd"
-                                                              d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
-                                                    </svg>
-                                                </button>
-                                            </li>
-                                            @foreach (var pg in GetVisiblePages())
-                                            {
-                                                @if (pg == -1)
-                                                {
-                                                    <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
-                                                }
-                                                else
-                                                {
-                                                    <li class="page-item @(pg == currentPage ? "active" : "")">
-                                                        <button class="page-link" @onclick="() => GoToPage(pg)">@pg</button>
-                                                    </li>
-                                                }
+                                                <td data-label="Reference">@(payment.Reference ?? "-")</td>
+                                                <td data-label="Amount" class="text-end fw-semibold text-success">
+                                                    @FormatCurrency(payment.DocTotal)</td>
+                                                </tr>
                                             }
-                                            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                                <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
-                                                        disabled="@(currentPage == totalPages)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                         viewBox="0 0 16 16">
-                                                        <path fill-rule="evenodd"
-                                                              d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
-                                                    </svg>
-                                                </button>
-                                            </li>
-                                            <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                                <button class="page-link" @onclick="() => GoToPage(totalPages)"
-                                                        disabled="@(currentPage == totalPages)">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                         viewBox="0 0 16 16">
-                                                        <path fill-rule="evenodd"
-                                                              d="M3.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L9.293 8 3.646 2.354a.5.5 0 0 1 0-.708zM7.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L13.293 8 7.646 2.354a.5.5 0 0 1 0-.708z" />
-                                                    </svg>
-                                                </button>
-                                            </li>
-                                        </ul>
-                                    </nav>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                @* Pagination *@
+                                @if (totalPages > 1)
+                                {
+                                    <div class="invoices-pagination">
+                                        <div class="pagination-info">
+                                            Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize,
+                                                                                                                                                filteredPayments.Count)) of @filteredPayments.Count payments
+                                        </div>
+                                        <nav>
+                                            <ul class="pagination pagination-sm mb-0">
+                                                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                                    <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(currentPage == 1)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+                                                             viewBox="0 0 16 16">
+                                                            <path fill-rule="evenodd"
+                                                                  d="M8.354 1.646a.5.5 0 0 1 0 .708L2.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0zM12.354 1.646a.5.5 0 0 1 0 .708L6.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                                <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                                    <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
+                                                            disabled="@(currentPage == 1)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+                                                             viewBox="0 0 16 16">
+                                                            <path fill-rule="evenodd"
+                                                                  d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                                @foreach (var pg in GetVisiblePages())
+                                                {
+                                                    @if (pg == -1)
+                                                    {
+                                                        <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+                                                    }
+                                                    else
+                                                    {
+                                                        <li class="page-item @(pg == currentPage ? "active" : "")">
+                                                            <button class="page-link" @onclick="() => GoToPage(pg)">@pg</button>
+                                                        </li>
+                                                    }
+                                                }
+                                                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                                    <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
+                                                            disabled="@(currentPage == totalPages)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+                                                             viewBox="0 0 16 16">
+                                                            <path fill-rule="evenodd"
+                                                                  d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                                <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                                    <button class="page-link" @onclick="() => GoToPage(totalPages)"
+                                                            disabled="@(currentPage == totalPages)">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+                                                             viewBox="0 0 16 16">
+                                                            <path fill-rule="evenodd"
+                                                                  d="M3.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L9.293 8 3.646 2.354a.5.5 0 0 1 0-.708zM7.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L13.293 8 7.646 2.354a.5.5 0 0 1 0-.708z" />
+                                                        </svg>
+                                                    </button>
+                                                </li>
+                                            </ul>
+                                        </nav>
+                                    </div>
+                                }
+                            }
+                else
+                            {
+                                <div class="text-center py-5 dashboard-empty">
+                                    <p class="text-muted mb-0">No payments found for the selected period.</p>
                                 </div>
                             }
                         }
-                else
-                        {
-                            <div class="text-center py-5 dashboard-empty">
-                                <p class="text-muted mb-0">No payments found for the selected period.</p>
-                            </div>
-                        }
-                    }
+                    </div>
                 </div>
-            </div>
-        }
-    </div>
+            }
+        </div>
 
 @code {
     private CustomerPortalSession? portalSession;

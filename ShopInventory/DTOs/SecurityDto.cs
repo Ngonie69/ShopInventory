@@ -270,6 +270,8 @@ public class UserDetailDto
     public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedSection { get; set; }
+    public string? AssignedBusinessPartnerCode { get; set; }
+    public string? AssignedCostCentreCode { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -337,6 +339,16 @@ public class CreateUserDetailRequest
     public List<string>? AssignedCustomerCodes { get; set; }
 
     /// <summary>
+    /// Assigned business partner code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedBusinessPartnerCode { get; set; }
+
+    /// <summary>
+    /// Assigned cost centre code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>
     /// Whether to send welcome email
     /// </summary>
     public bool SendWelcomeEmail { get; set; } = true;
@@ -397,6 +409,16 @@ public class UpdateUserDetailRequest
     /// Assigned customer/business partner codes for Merchandiser role
     /// </summary>
     public List<string>? AssignedCustomerCodes { get; set; }
+
+    /// <summary>
+    /// Assigned business partner code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedBusinessPartnerCode { get; set; }
+
+    /// <summary>
+    /// Assigned cost centre code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedCostCentreCode { get; set; }
 }
 
 /// <summary>

@@ -22,6 +22,7 @@ public class CreateDesktopInvoiceLineRequest
     public string? TaxCode { get; set; }
     public decimal? DiscountPercent { get; set; }
     public string? UoMCode { get; set; }
+    public string? CostCentreCode { get; set; }
     public bool AutoAllocateBatches { get; set; } = true;
     public List<DesktopBatchRequest>? BatchNumbers { get; set; }
 }

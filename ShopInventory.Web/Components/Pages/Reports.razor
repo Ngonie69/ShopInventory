@@ -272,7 +272,7 @@
                                                 </div>
                                                 <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Daily Breakdown</h6>
                                                 <div class="table-responsive">
-                                                    <table class="table table-hover align-middle mb-0">
+                                                    <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                         <thead>
                                                             <tr style="background: #f8f9fa;">
                                                                 <th class="border-0 fw-semibold">Date</th>
@@ -285,22 +285,22 @@
                                                             @foreach (var day in salesReport.DailySales.OrderByDescending(d => d.Date))
                                                             {
                                                                 <tr>
-                                                                    <td class="fw-medium">@day.Date.ToString("ddd, dd MMM yyyy")</td>
-                                                                    <td class="text-end"><span class="badge bg-secondary rounded-pill">@day.InvoiceCount</span>
+                                                                    <td data-label="Date" class="fw-medium">@day.Date.ToString("ddd, dd MMM yyyy")</td>
+                                                                    <td data-label="Invoices" class="text-end"><span class="badge bg-secondary rounded-pill">@day.InvoiceCount</span>
                                                                     </td>
-                                                                    <td class="text-end fw-semibold" style="color: #2e7d32;">$@day.TotalSalesUSD.ToString("N2")
+                                                                    <td data-label="USD Sales" class="text-end fw-semibold" style="color: #2e7d32;">$@day.TotalSalesUSD.ToString("N2")
                                                                     </td>
-                                                                    <td class="text-end fw-semibold" style="color: #00838f;">ZIG
+                                                                    <td data-label="ZIG Sales" class="text-end fw-semibold" style="color: #00838f;">ZIG
                                                                         @day.TotalSalesZIG.ToString("N2")</td>
                                                                     </tr>
                                                                 }
                                                             </tbody>
                                                             <tfoot>
                                                                 <tr style="background: #e8eaf6; font-weight: 700;">
-                                                                    <td>Total</td>
-                                                                    <td class="text-end">@salesReport.TotalInvoices</td>
-                                                                    <td class="text-end" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</td>
-                                                                    <td class="text-end" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
+                                                                    <td data-label="Summary">Total</td>
+                                                                    <td data-label="Invoices" class="text-end">@salesReport.TotalInvoices</td>
+                                                                    <td data-label="USD Sales" class="text-end" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</td>
+                                                                    <td data-label="ZIG Sales" class="text-end" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
                                                                     </td>
                                                                 </tr>
                                                             </tfoot>
@@ -333,7 +333,7 @@
                                                         </div>
                                                     </div>
                                                     <div class="table-responsive">
-                                                        <table class="table table-hover align-middle mb-0">
+                                                        <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                             <thead>
                                                                 <tr style="background: #f8f9fa;">
                                                                     <th class="border-0 fw-semibold" style="width: 60px;">Rank</th>
@@ -348,7 +348,7 @@
                                                                 @foreach (var p in topProductsReport.TopProducts)
                                                                 {
                                                                     <tr>
-                                                                        <td>
+                                                                        <td data-label="Rank">
                                                                             @if (p.Rank <= 3)
                                                                             {
                                                                                 <span
@@ -360,15 +360,15 @@
                                                                                 <span class="text-muted fw-medium ms-2">@p.Rank</span>
                                                                             }
                                                                         </td>
-                                                                        <td>
+                                                                        <td data-label="Product">
                                                                             <div class="fw-semibold">@p.ItemName</div>
                                                                             <small class="text-muted font-monospace">@p.ItemCode</small>
                                                                         </td>
-                                                                        <td class="text-end fw-bold">@p.TotalQuantitySold.ToString("N0")</td>
-                                                                        <td class="text-end">@p.TimesOrdered</td>
-                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">$@p.TotalRevenueUSD.ToString("N2")
+                                                                        <td data-label="Qty Sold" class="text-end fw-bold">@p.TotalQuantitySold.ToString("N0")</td>
+                                                                        <td data-label="Orders" class="text-end">@p.TimesOrdered</td>
+                                                                        <td data-label="Revenue (USD)" class="text-end fw-semibold" style="color: #2e7d32;">$@p.TotalRevenueUSD.ToString("N2")
                                                                         </td>
-                                                                        <td class="text-end fw-semibold" style="color: #00838f;">ZIG
+                                                                        <td data-label="Revenue (ZIG)" class="text-end fw-semibold" style="color: #00838f;">ZIG
                                                                             @p.TotalRevenueZIG.ToString("N2")</td>
                                                                         </tr>
                                                                     }
@@ -424,7 +424,7 @@
                                                             <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-building me-2"></i>Stock by Warehouse
                                                             </h6>
                                                             <div class="table-responsive">
-                                                                <table class="table table-hover align-middle mb-0">
+                                                                <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                                     <thead>
                                                                         <tr style="background: #f8f9fa;">
                                                                             <th class="border-0 fw-semibold">Warehouse</th>
@@ -436,20 +436,20 @@
                                                                         @foreach (var wh in stockReport.StockByWarehouse.OrderByDescending(w => w.TotalQuantity))
                                                                         {
                                                                             <tr>
-                                                                                <td>
+                                                                                <td data-label="Warehouse">
                                                                                     <div class="fw-semibold">@wh.WarehouseCode</div>
                                                                                     <small class="text-muted">@wh.WarehouseName</small>
                                                                                 </td>
-                                                                                <td class="text-end">@wh.ProductCount</td>
-                                                                                <td class="text-end fw-bold">@wh.TotalQuantity.ToString("N0")</td>
+                                                                                <td data-label="Products" class="text-end">@wh.ProductCount</td>
+                                                                                <td data-label="Total Quantity" class="text-end fw-bold">@wh.TotalQuantity.ToString("N0")</td>
                                                                             </tr>
                                                                         }
                                                                     </tbody>
                                                                     <tfoot>
                                                                         <tr style="background: #e8eaf6; font-weight: 700;">
-                                                                            <td>Total</td>
-                                                                            <td class="text-end">@stockReport.TotalProducts</td>
-                                                                            <td class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
+                                                                            <td data-label="Summary">Total</td>
+                                                                            <td data-label="Products" class="text-end">@stockReport.TotalProducts</td>
+                                                                            <td data-label="Total Quantity" class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
                                                                             </td>
                                                                         </tr>
                                                                     </tfoot>
@@ -581,7 +581,7 @@
                                                                                         <span class="text-muted small">@topCustomersReport.TotalCustomers total customers</span>
                                                                                     </div>
                                                                                     <div class="table-responsive">
-                                                                                        <table class="table table-hover align-middle mb-0">
+                                                                                        <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                                                             <thead>
                                                                                                 <tr style="background: #f8f9fa;">
                                                                                                     <th class="border-0 fw-semibold" style="width: 60px;">Rank</th>
@@ -597,7 +597,7 @@
                                                                                                 @foreach (var c in topCustomersReport.TopCustomers)
                                                                                                 {
                                                                                                     <tr>
-                                                                                                        <td>
+                                                                                                        <td data-label="Rank">
                                                                                                             @if (c.Rank <= 3)
                                                                                                             {
                                                                                                                 <span
@@ -609,17 +609,17 @@
                                                                                                                 <span class="text-muted fw-medium ms-2">@c.Rank</span>
                                                                                                             }
                                                                                                         </td>
-                                                                                                        <td>
+                                                                                                        <td data-label="Customer">
                                                                                                             <div class="fw-semibold">@c.CardName</div>
                                                                                                             <small class="text-muted font-monospace">@c.CardCode</small>
                                                                                                         </td>
-                                                                                                        <td class="text-end"><span class="badge bg-secondary rounded-pill">@c.InvoiceCount</span>
+                                                                                                        <td data-label="Invoices" class="text-end"><span class="badge bg-secondary rounded-pill">@c.InvoiceCount</span>
                                                                                                         </td>
-                                                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">
+                                                                                                        <td data-label="Purchases (USD)" class="text-end fw-semibold" style="color: #2e7d32;">
                                                                                                             $@c.TotalPurchasesUSD.ToString("N2")</td>
-                                                                                                            <td class="text-end" style="color: #00838f;">@(c.TotalPurchasesZIG > 0 ? $"ZIG {c.TotalPurchasesZIG:N2}" : "-")</td>
-                                                                                                            <td class="text-end">$@c.TotalPaymentsUSD.ToString("N2")</td>
-                                                                                                            <td class="text-end fw-bold"
+                                                                                                            <td data-label="Purchases (ZIG)" class="text-end" style="color: #00838f;">@(c.TotalPurchasesZIG > 0 ? $"ZIG {c.TotalPurchasesZIG:N2}" : "-")</td>
+                                                                                                            <td data-label="Payments (USD)" class="text-end">$@c.TotalPaymentsUSD.ToString("N2")</td>
+                                                                                                            <td data-label="Balance (USD)" class="text-end fw-bold"
                                                                                                                 style="color: @(c.OutstandingBalanceUSD > 0 ? "#c62828" : "#2e7d32");">
                                                                                                                 $@c.OutstandingBalanceUSD.ToString("N2")</td>
                                                                                                             </tr>
@@ -996,7 +996,7 @@ else if (activeTab == "profit")
         {
             <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Monthly Breakdown</h6>
             <div class="table-responsive mb-4">
-                <table class="table table-sm table-hover align-middle mb-0">
+                <table class="table table-sm table-hover align-middle mb-0 mobile-card-table">
                     <thead>
                         <tr style="background: #f8f9fa;">
                             <th class="border-0 fw-semibold">Month</th>
@@ -1015,13 +1015,13 @@ else if (activeTab == "profit")
                             var gp = netRev - m.PurchaseCostUSD;
                             var margin = netRev > 0 ? (gp / netRev * 100) : 0;
                             <tr>
-                                <td class="fw-medium">@(m.Month)</td>
-                                <td class="text-end">$@m.RevenueUSD.ToString("N2")</td>
-                                <td class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
-                                <td class="text-end fw-semibold">$@netRev.ToString("N2")</td>
-                                <td class="text-end">$@m.PurchaseCostUSD.ToString("N2")</td>
-                                <td class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
-                                <td class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
+                                <td data-label="Month" class="fw-medium">@(m.Month)</td>
+                                <td data-label="Sales (USD)" class="text-end">$@m.RevenueUSD.ToString("N2")</td>
+                                <td data-label="Credit Notes" class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
+                                <td data-label="Net Revenue" class="text-end fw-semibold">$@netRev.ToString("N2")</td>
+                                <td data-label="Purchases" class="text-end">$@m.PurchaseCostUSD.ToString("N2")</td>
+                                <td data-label="Gross Profit" class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
+                                <td data-label="Margin %" class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
                             </tr>
                         }
                     </tbody>

@@ -6,7 +6,7 @@ namespace ShopInventory.Web.Services;
 
 public interface IInvoiceService
 {
-    Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null);
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
     Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null);
@@ -27,7 +27,7 @@ public class InvoiceService : IInvoiceService
         _logger = logger;
     }
 
-    public async Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+    public async Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null)
     {
         try
         {
@@ -40,6 +40,8 @@ public class InvoiceService : IInvoiceService
                 queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
             if (toDate.HasValue)
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (vanSalesOnly.HasValue)
+                queryParams.Add($"vanSalesOnly={vanSalesOnly.Value.ToString().ToLowerInvariant()}");
 
             var url = $"api/invoice/paged?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<InvoiceListResponse>(url);

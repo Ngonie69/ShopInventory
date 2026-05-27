@@ -317,10 +317,11 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] string? cardCode = null,
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
+        [FromQuery] bool? vanSalesOnly = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetPagedInvoicesQuery(page, pageSize, docNum, cardCode, fromDate, toDate), cancellationToken);
+            new GetPagedInvoicesQuery(page, pageSize, docNum, cardCode, fromDate, toDate, vanSalesOnly), cancellationToken);
 
         return result.Match(Ok, Problem);
     }

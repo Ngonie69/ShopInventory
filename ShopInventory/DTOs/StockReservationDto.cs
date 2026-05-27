@@ -169,6 +169,12 @@ public class CreateStockReservationLineRequest
     public decimal DiscountPercent { get; set; }
 
     /// <summary>
+    /// SAP dimension 1 cost centre code for the line.
+    /// </summary>
+    [MaxLength(50)]
+    public string? CostCentreCode { get; set; }
+
+    /// <summary>
     /// Specific batch allocations (optional - if not provided, FIFO/FEFO will be used)
     /// </summary>
     public List<ReservationBatchRequest>? BatchNumbers { get; set; }

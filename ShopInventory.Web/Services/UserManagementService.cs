@@ -239,7 +239,9 @@ public class UserManagementService : IUserManagementService
             DefaultGLAccount = model.DefaultGLAccount,
             AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
-            AssignedCustomerCodes = assignedCustomerCodes
+            AssignedCustomerCodes = assignedCustomerCodes,
+            AssignedBusinessPartnerCode = model.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = model.AssignedCostCentreCode
         });
 
         if (!response.IsSuccessStatusCode)
@@ -350,7 +352,9 @@ public class UserManagementService : IUserManagementService
             DefaultGLAccount = model.DefaultGLAccount,
             AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
-            AssignedCustomerCodes = assignedCustomerCodes
+            AssignedCustomerCodes = assignedCustomerCodes,
+            AssignedBusinessPartnerCode = model.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = model.AssignedCostCentreCode
         });
 
         if (!response.IsSuccessStatusCode)

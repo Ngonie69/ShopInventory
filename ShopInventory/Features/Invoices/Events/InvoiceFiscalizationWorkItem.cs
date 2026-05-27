@@ -7,4 +7,5 @@ public sealed record InvoiceFiscalizationWorkItem(
     InvoiceDto Invoice,
     CustomerFiscalDetails CustomerDetails,
     Guid? InitiatedByUserId,
-    string? InitiatedByUsername);
+    string? InitiatedByUsername,
+    string? NotificationActionUrl);

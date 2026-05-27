@@ -46,6 +46,7 @@ public sealed class GetAllSalesOrdersHandler(
                 localToExclusive,
                 request.Source,
                 orderSearch,
+                request.VanSalesUsersOnly,
                 cancellationToken);
         }
 
@@ -57,7 +58,8 @@ public sealed class GetAllSalesOrdersHandler(
                 localFromDate,
                 localToExclusive,
                 source: null,
-                orderSearch)
+                orderSearch,
+                request.VanSalesUsersOnly)
             .CountAsync(cancellationToken);
 
         var localPage = await ProjectSalesOrderListItems(
@@ -68,7 +70,8 @@ public sealed class GetAllSalesOrdersHandler(
                     localFromDate,
                     localToExclusive,
                     source: null,
-                    orderSearch)
+                    orderSearch,
+                    request.VanSalesUsersOnly)
                 .OrderByDescending(o => o.OrderDate)
                 .ThenByDescending(o => o.Id)
                 .Skip(localOffset)
@@ -141,6 +144,7 @@ public sealed class GetAllSalesOrdersHandler(
                 localToExclusive,
                 request.Source,
                 orderSearch,
+                request.VanSalesUsersOnly,
                 cancellationToken);
         }
     }
@@ -152,7 +156,8 @@ public sealed class GetAllSalesOrdersHandler(
         DateTime? fromDate,
         DateTime? toExclusive,
         SalesOrderSource? source,
-        string? orderSearch)
+        string? orderSearch,
+        bool? vanSalesUsersOnly)
     {
         var query = context.SalesOrders.AsNoTracking().AsQueryable();
 
@@ -178,6 +183,29 @@ public sealed class GetAllSalesOrdersHandler(
 
         if (source.HasValue)
             query = query.Where(o => o.Source == source.Value);
+
+        if (vanSalesUsersOnly.HasValue)
+        {
+            const string vanSalesCommentPrefix = "Van sales sales order%";
+
+            query = vanSalesUsersOnly.Value
+                ? query.Where(o =>
+                    o.Source == SalesOrderSource.Mobile
+                    && ((o.Comments != null && EF.Functions.ILike(o.Comments, vanSalesCommentPrefix))
+                        || (o.CustomerRefNo != null
+                            && o.CustomerRefNo != string.Empty
+                            && o.ClientRequestId != null
+                            && o.ClientRequestId != string.Empty
+                            && o.CustomerRefNo == o.ClientRequestId)))
+                : query.Where(o =>
+                    o.Source != SalesOrderSource.Mobile
+                    || (((o.Comments == null || !EF.Functions.ILike(o.Comments, vanSalesCommentPrefix))
+                            && (o.CustomerRefNo == null
+                                || o.CustomerRefNo == string.Empty
+                                || o.ClientRequestId == null
+                                || o.ClientRequestId == string.Empty
+                                || o.CustomerRefNo != o.ClientRequestId))));
+        }
 
         if (!string.IsNullOrWhiteSpace(orderSearch))
         {
@@ -210,9 +238,10 @@ public sealed class GetAllSalesOrdersHandler(
         DateTime? toExclusive,
         SalesOrderSource? source,
         string? orderSearch,
+        bool? vanSalesUsersOnly,
         CancellationToken cancellationToken)
     {
-        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch);
+        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch, vanSalesUsersOnly);
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await ProjectSalesOrderListItems(
             query.OrderByDescending(o => o.OrderDate)

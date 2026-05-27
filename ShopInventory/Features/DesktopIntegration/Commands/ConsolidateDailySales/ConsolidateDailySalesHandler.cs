@@ -6,6 +6,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Hubs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -20,6 +21,7 @@ public sealed class ConsolidateDailySalesHandler(
     ISAPServiceLayerClient sapClient,
     IBatchInventoryValidationService batchValidation,
     IInvoiceQueueService queueService,
+    INotificationService notificationService,
     IHubContext<NotificationHub> hubContext,
     ILogger<ConsolidateDailySalesHandler> logger
 ) : IRequestHandler<ConsolidateDailySalesCommand, ErrorOr<ConsolidateDailySalesResult>>
@@ -135,7 +137,7 @@ public sealed class ConsolidateDailySalesHandler(
         // Merge line items across all sales for this BP
         var mergedLines = sales
             .SelectMany(s => s.Lines)
-            .GroupBy(l => new { l.ItemCode, l.WarehouseCode, l.UnitPrice, l.TaxCode, l.DiscountPercent })
+            .GroupBy(l => new { l.ItemCode, l.WarehouseCode, l.UnitPrice, l.TaxCode, l.DiscountPercent, l.CostCentreCode })
             .Select(g => new CreateInvoiceLineRequest
             {
                 ItemCode = g.Key.ItemCode,
@@ -144,6 +146,7 @@ public sealed class ConsolidateDailySalesHandler(
                 WarehouseCode = g.Key.WarehouseCode,
                 TaxCode = g.Key.TaxCode,
                 DiscountPercent = g.Key.DiscountPercent,
+                CostCentreCode = g.Key.CostCentreCode,
                 AutoAllocateBatches = true
             })
             .ToList();
@@ -205,6 +208,14 @@ public sealed class ConsolidateDailySalesHandler(
                 await queueService.MarkAsConsolidatedAsync(
                     queueIds, sapInvoice.DocEntry.ToString(), sapInvoice.DocNum, ct);
             }
+
+            await NotifyVanSalesRecipientsAsync(
+                sales,
+                sapInvoice.DocEntry,
+                sapInvoice.DocNum,
+                cardCode,
+                cardName,
+                ct);
 
             logger.LogInformation(
                 "Posted consolidated invoice for {CardCode}: SapDocNum={DocNum}, {SaleCount} sales, total={Total}",
@@ -275,6 +286,93 @@ public sealed class ConsolidateDailySalesHandler(
                 })
                 .ToList();
         }
+    }
+
+    private async Task NotifyVanSalesRecipientsAsync(
+        IReadOnlyCollection<DesktopSaleEntity> sales,
+        int sapDocEntry,
+        int sapDocNum,
+        string cardCode,
+        string? cardName,
+        CancellationToken cancellationToken)
+    {
+        var createdByValues = sales
+            .Where(sale => string.Equals(sale.SourceSystem, "KefalosVanSales", StringComparison.OrdinalIgnoreCase))
+            .Select(sale => sale.CreatedBy)
+            .Where(createdBy => !string.IsNullOrWhiteSpace(createdBy))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (createdByValues.Count == 0)
+        {
+            return;
+        }
+
+        var invoiceDto = new InvoiceDto
+        {
+            DocEntry = sapDocEntry,
+            DocNum = sapDocNum,
+            CardCode = cardCode,
+            CardName = cardName
+        };
+
+        foreach (var createdBy in createdByValues)
+        {
+            var (targetUserId, targetUsername) = await ResolveNotificationRecipientAsync(createdBy!, cancellationToken);
+            if (string.IsNullOrWhiteSpace(targetUsername))
+            {
+                continue;
+            }
+
+            try
+            {
+                var notification = WorkflowNotificationFactory.CreateInvoiceCreatedNotification(
+                    targetUserId,
+                    targetUsername,
+                    invoiceDto,
+                    null,
+                    "/mobile-drafts",
+                    null);
+
+                await notificationService.CreateNotificationAsync(notification, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "Failed to notify van-sales user {Username} about consolidated SAP invoice {DocNum}",
+                    targetUsername,
+                    sapDocNum);
+            }
+        }
+    }
+
+    private async Task<(Guid? UserId, string? Username)> ResolveNotificationRecipientAsync(
+        string createdBy,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCreatedBy = createdBy.Trim();
+
+        if (Guid.TryParse(normalizedCreatedBy, out var userId))
+        {
+            var username = await context.Users
+                .AsNoTracking()
+                .Where(user => user.Id == userId)
+                .Select(user => user.Username)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return (userId, username);
+        }
+
+        var user = await context.Users
+            .AsNoTracking()
+            .Where(user => user.Username.ToUpper() == normalizedCreatedBy.ToUpper())
+            .Select(candidate => new { candidate.Id, candidate.Username })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return user is null
+            ? (null, normalizedCreatedBy)
+            : (user.Id, user.Username);
     }
 
     private async Task<int?> PostIncomingPaymentAsync(
@@ -383,7 +481,8 @@ public sealed class ConsolidateDailySalesHandler(
                         WarehouseCode = l.WarehouseCode,
                         TaxCode = l.TaxCode,
                         DiscountPercent = l.DiscountPercent,
-                        UoMCode = l.UoMCode
+                        UoMCode = l.UoMCode,
+                        CostCentreCode = l.CostCentreCode
                     }).ToList()
                 };
 

@@ -42,7 +42,9 @@ public sealed class UpdateUserHandler(
         "Merchandiser",
         "SalesRep",
         "MerchandiserPurchaseOrderViewer",
-        "Lab"
+        "Lab",
+        "ADR",
+        "Sales"
     ];
 
     public async Task<ErrorOr<Success>> Handle(
@@ -158,7 +160,7 @@ public sealed class UpdateUserHandler(
 
         if (command.Request.AssignedWarehouseCodes != null)
         {
-            if (user.Role == "StockController" || user.Role == "DepotController" || user.Role == "Merchandiser")
+            if (user.Role == "StockController" || user.Role == "DepotController" || user.Role == "Merchandiser" || user.Role == "ADR" || user.Role == "Sales")
                 user.SetWarehouseCodes(command.Request.AssignedWarehouseCodes);
             else
                 user.SetWarehouseCodes(null);
@@ -183,6 +185,17 @@ public sealed class UpdateUserHandler(
         else
             user.AssignedSection = null;
 
+        if (user.Role == "ADR" || user.Role == "Sales")
+        {
+            user.AssignedBusinessPartnerCode = command.Request.AssignedBusinessPartnerCode?.Trim();
+            user.AssignedCostCentreCode = command.Request.AssignedCostCentreCode?.Trim();
+        }
+        else
+        {
+            user.AssignedBusinessPartnerCode = null;
+            user.AssignedCostCentreCode = null;
+        }
+
         if (command.Request.AllowedPaymentMethods != null)
         {
             user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
@@ -200,19 +213,29 @@ public sealed class UpdateUserHandler(
             user.SetAllowedPaymentBusinessPartners(command.Request.AllowedPaymentBusinessPartners);
         }
 
-        if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
+        if ((user.Role == "StockController" || user.Role == "DepotController" || user.Role == "ADR" || user.Role == "Sales") && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
         }
 
         if (user.Role == "Merchandiser" && user.GetCustomerCodes().Count == 0)
         {
-            return Errors.UserManagement.UpdateFailed("At least one assigned customer code is required for Merchandiser role");
+            return Errors.UserManagement.UpdateFailed($"At least one assigned customer code is required for {user.Role} role");
         }
 
         if ((user.Role == "Driver" || user.Role == "PodOperator") && string.IsNullOrWhiteSpace(user.AssignedSection))
         {
-            return Errors.UserManagement.UpdateFailed("An assigned section is required for Driver and PodOperator roles");
+            return Errors.UserManagement.UpdateFailed($"An assigned section is required for {user.Role} role");
+        }
+
+        if ((user.Role == "ADR" || user.Role == "Sales") && string.IsNullOrWhiteSpace(user.AssignedBusinessPartnerCode))
+        {
+            return Errors.UserManagement.UpdateFailed($"An assigned business partner code is required for {user.Role} role");
+        }
+
+        if ((user.Role == "ADR" || user.Role == "Sales") && string.IsNullOrWhiteSpace(user.AssignedCostCentreCode))
+        {
+            return Errors.UserManagement.UpdateFailed($"An assigned cost centre code is required for {user.Role} role");
         }
 
         var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
@@ -275,6 +298,8 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedWarehouseCodes, user.AssignedWarehouseCodes)
                 .SetProperty(x => x.AssignedCustomerCodes, user.AssignedCustomerCodes)
                 .SetProperty(x => x.AssignedSection, user.AssignedSection)
+                .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
+                .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.Permissions, user.Permissions)
                 .SetProperty(x => x.AllowedPaymentMethods, user.AllowedPaymentMethods)
                 .SetProperty(x => x.DefaultGLAccount, user.DefaultGLAccount)

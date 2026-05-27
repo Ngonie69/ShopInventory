@@ -19,6 +19,7 @@ using ShopInventory.Common.Caching;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
+using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
 using ShopInventory.Middleware;
@@ -266,7 +267,7 @@ try
             .RequireRole("Admin")
             .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
         options.AddPolicy("ApiAccess", policy =>
-            policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab")
+            policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab", "ADR", "Sales")
                   .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
     });
 
@@ -325,15 +326,17 @@ try
             if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
                 return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
 
+            var apiRateLimitValues = GetApiRateLimitValues(httpContext, rateLimitSettings);
+
             return RateLimitPartition.GetSlidingWindowLimiter(
-                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                GetApiPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
                 _ => new SlidingWindowRateLimiterOptions
                 {
-                    PermitLimit = rateLimitSettings.PermitLimit,
-                    Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds),
+                    PermitLimit = apiRateLimitValues.PermitLimit,
+                    Window = TimeSpan.FromSeconds(apiRateLimitValues.WindowSeconds),
                     SegmentsPerWindow = 4,
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                    QueueLimit = rateLimitSettings.QueueLimit
+                    QueueLimit = apiRateLimitValues.QueueLimit
                 });
         });
 
@@ -341,18 +344,19 @@ try
         options.OnRejected = async (context, cancellationToken) =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            var apiRateLimitValues = GetApiRateLimitValues(context.HttpContext, rateLimitSettings);
             logger.LogWarning("Rate limit exceeded for client: {ClientPartition}, IP: {IpAddress}, Path: {Path}",
-                GetClientPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                GetApiPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
                 context.HttpContext.Connection.RemoteIpAddress,
                 context.HttpContext.Request.Path);
 
             context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            context.HttpContext.Response.Headers["Retry-After"] = rateLimitSettings.WindowSeconds.ToString();
+            context.HttpContext.Response.Headers["Retry-After"] = apiRateLimitValues.WindowSeconds.ToString();
 
             await context.HttpContext.Response.WriteAsJsonAsync(new
             {
                 message = "Too many requests. Please try again later.",
-                retryAfter = rateLimitSettings.WindowSeconds
+                retryAfter = apiRateLimitValues.WindowSeconds
             }, cancellationToken);
         };
     });
@@ -394,6 +398,7 @@ try
 
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
+    builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 
     builder.Services.AddSingleton<IMobileVersionPolicyEvaluator, MobileVersionPolicyEvaluator>();
@@ -913,10 +918,45 @@ static string GetClientPartitionKey(
     return "anonymous";
 }
 
+static string GetApiPartitionKey(
+    HttpContext httpContext,
+    RateLimitSettings settings,
+    IReadOnlyDictionary<string, ApiKeyConfig> apiKeyRateLimitPartitions)
+{
+    var clientPartition = GetClientPartitionKey(httpContext, settings, apiKeyRateLimitPartitions);
+    return IsHighThroughputApiPath(httpContext.Request.Path)
+        ? $"{clientPartition}:bulk"
+        : clientPartition;
+}
+
+static (int PermitLimit, int WindowSeconds, int QueueLimit) GetApiRateLimitValues(
+    HttpContext httpContext,
+    RateLimitSettings settings)
+{
+    if (!IsHighThroughputApiPath(httpContext.Request.Path))
+        return (settings.PermitLimit, settings.WindowSeconds, settings.QueueLimit);
+
+    return (
+        PermitLimit: Math.Max(settings.PermitLimit * 50, 5000),
+        WindowSeconds: Math.Max(settings.WindowSeconds * 10, 600),
+        QueueLimit: Math.Max(settings.QueueLimit * 50, 200));
+}
+
 static string GetIpPartitionKey(HttpContext httpContext)
 {
     var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
     return string.IsNullOrWhiteSpace(ipAddress) ? "ip:unknown" : $"ip:{ipAddress}";
+}
+
+static bool IsHighThroughputApiPath(PathString path)
+{
+    var value = path.Value;
+    if (string.IsNullOrWhiteSpace(value))
+        return false;
+
+    return value.StartsWith("/api/notification", StringComparison.OrdinalIgnoreCase)
+        || (value.StartsWith("/api/invoice/", StringComparison.OrdinalIgnoreCase)
+            && value.EndsWith("/pod", StringComparison.OrdinalIgnoreCase));
 }
 
 static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings settings)

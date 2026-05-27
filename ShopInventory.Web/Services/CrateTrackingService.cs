@@ -11,10 +11,12 @@ public interface ICrateTrackingService
     Task<List<CrateTransactionDto>?> GetTransactionsAsync(string? search = null, string? status = null, string? transactionType = null, CancellationToken cancellationToken = default);
     Task<List<CratePodSubmissionDto>?> GetPodsAsync(string? search = null, string? submissionRole = null, CancellationToken cancellationToken = default);
     Task<List<CrateGrvDto>?> GetGrvsAsync(string? search = null, string? status = null, CancellationToken cancellationToken = default);
+    Task<BulkCratePodValidationResponse?> ValidateBulkCratePodsAsync(IEnumerable<int> invoiceDocNums, string? submissionRole = null, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CrateTransactionDto? Transaction)> CreateOpeningBalanceAsync(string shopCardCode, decimal quantity, DateTime effectiveDate, IBrowserFile? file, string? notes = null, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CrateTransactionDto? Transaction)> UpdateOpeningBalanceAsync(int crateTransactionId, string shopCardCode, decimal quantity, DateTime effectiveDate, IBrowserFile? file, string? notes = null, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message)> DeleteOpeningBalanceAsync(int crateTransactionId, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CratePodSubmissionDto? Submission)> UploadCratePodAsync(int crateTransactionId, decimal quantity, IBrowserFile file, string? submissionRole = null, string? notes = null, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message)> DeleteAttachmentAsync(int attachmentId, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CrateGrvDto? Grv)> CreateCrateGrvAsync(int crateTransactionId, string reason, IBrowserFile file, CancellationToken cancellationToken = default);
 }
 
@@ -86,6 +88,56 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
         catch (Exception ex)
         {
             logger.LogError(ex, "Error loading crate GRVs");
+            return null;
+        }
+    }
+
+    public async Task<BulkCratePodValidationResponse?> ValidateBulkCratePodsAsync(
+        IEnumerable<int> invoiceDocNums,
+        string? submissionRole = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+
+            var request = new BulkCratePodValidationRequest
+            {
+                InvoiceDocNums = invoiceDocNums
+                    .Where(invoiceDocNum => invoiceDocNum > 0)
+                    .Distinct()
+                    .ToList(),
+                SubmissionRole = string.IsNullOrWhiteSpace(submissionRole)
+                    ? null
+                    : submissionRole.Trim()
+            };
+
+            if (request.InvoiceDocNums.Count == 0)
+            {
+                return new BulkCratePodValidationResponse();
+            }
+
+            var response = await httpClient.PostAsJsonAsync("api/crates/pods/validate-bulk", request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<BulkCratePodValidationResponse>(cancellationToken);
+            }
+
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+            logger.LogWarning(
+                "Bulk crate POD validation failed: {StatusCode} {Payload}",
+                (int)response.StatusCode,
+                ApiErrorResponse.SanitizeForLog(payload));
+
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error validating bulk crate PODs");
             return null;
         }
     }
@@ -239,6 +291,35 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
         {
             logger.LogError(ex, "Error uploading crate POD for transaction {TransactionId}", crateTransactionId);
             return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't upload this crate POD right now. Please try again."), null);
+        }
+    }
+
+    public async Task<(bool Success, string Message)> DeleteAttachmentAsync(
+        int attachmentId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await EnsureAuthenticationAsync();
+            var response = await httpClient.DeleteAsync($"api/document/attachments/{attachmentId}", cancellationToken);
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return (true, "Attachment deleted successfully.");
+            }
+
+            return (
+                false,
+                ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    payload,
+                    "We couldn't delete this attachment right now. Please try again."));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error deleting crate attachment {AttachmentId}", attachmentId);
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't delete this attachment right now. Please try again."));
         }
     }
 

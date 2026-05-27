@@ -4,6 +4,7 @@ internal static class MobileVersionPolicyAppCatalog
 {
     public const string CheesemanPolicyKey = "cheeseman-driver";
     public const string KefalosSalesOrderPolicyKey = "kefalos-so";
+    public const string KefalosVanSalesPolicyKey = "kefalos-vansales";
 
     private static readonly Dictionary<string, string> PolicyKeyAliases = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -16,10 +17,15 @@ internal static class MobileVersionPolicyAppCatalog
         ["shopinventory-mobile"] = KefalosSalesOrderPolicyKey,
         ["shopinventory.mobile"] = KefalosSalesOrderPolicyKey,
         ["merchandiser"] = KefalosSalesOrderPolicyKey,
-        ["com.kefalocheese.so"] = KefalosSalesOrderPolicyKey
+        ["com.kefalocheese.so"] = KefalosSalesOrderPolicyKey,
+        [KefalosVanSalesPolicyKey] = KefalosVanSalesPolicyKey,
+        ["kefalos-van-sales"] = KefalosVanSalesPolicyKey,
+        ["vansales"] = KefalosVanSalesPolicyKey,
+        ["kefalosvansales"] = KefalosVanSalesPolicyKey,
+        ["com.kefalos.vansales"] = KefalosVanSalesPolicyKey
     };
 
-    public static readonly string[] SupportedPolicyKeys = [CheesemanPolicyKey, KefalosSalesOrderPolicyKey];
+    public static readonly string[] SupportedPolicyKeys = [CheesemanPolicyKey, KefalosSalesOrderPolicyKey, KefalosVanSalesPolicyKey];
 
     public static bool IsSupportedPolicyKey(string? appId) => TryResolvePolicyKey(appId, out _);
 
@@ -39,6 +45,7 @@ internal static class MobileVersionPolicyAppCatalog
     {
         CheesemanPolicyKey => "Cheeseman Driver App",
         KefalosSalesOrderPolicyKey => "Kefalos SO App",
+        KefalosVanSalesPolicyKey => "Kefalos Van Sales App",
         _ => "Mobile App"
     };
 
@@ -46,6 +53,7 @@ internal static class MobileVersionPolicyAppCatalog
     {
         CheesemanPolicyKey => ["Driver", "PodOperator"],
         KefalosSalesOrderPolicyKey => ["Merchandiser"],
+        KefalosVanSalesPolicyKey => ["ADR", "Sales"],
         _ => []
     };
 }

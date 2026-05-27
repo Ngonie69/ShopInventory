@@ -29,7 +29,7 @@
                 </h2>
                 <p class="pod-hero-subtitle">Upload and manage product delivery POD attachments for invoices</p>
             </div>
-            <div class="d-flex gap-2 align-items-center">
+            <div class="pod-hero-actions d-flex gap-2 align-items-center">
                 <span class="pod-stat-pill">
                     <i class="bi bi-file-earmark-check me-1"></i>
                     @(podResponse?.TotalCount ?? 0) records
@@ -213,7 +213,7 @@
                 @if (bulkFiles.Count > 0 && bulkMappings.Count > 0)
                 {
                     <div class="table-responsive mb-3">
-                        <table class="pod-table">
+                        <table class="pod-table mobile-card-table">
                             <thead>
                                 <tr>
                                     <th style="width: 40px;">#</th>
@@ -231,11 +231,11 @@
                                 {
                                     <tr
                                         class="pod-row @(map.Status == BulkFileStatus.Error ? "table-danger" : map.Status == BulkFileStatus.Uploaded ? "table-success" : map.Status == BulkFileStatus.Skipped ? "table-secondary" : "")">
-                                        <td>@(idx + 1)</td>
-                                        <td>
+                                        <td data-label="#">@(idx + 1)</td>
+                                        <td data-label="Filename">
                                             <div class="pod-file-name">@map.FileName</div>
                                         </td>
-                                        <td>
+                                        <td data-label="Invoice #">
                                             @if (map.DocNum.HasValue)
                                             {
                                                 <span class="pod-invoice-badge">@map.DocNum</span>
@@ -245,8 +245,8 @@
                                                 <span class="text-danger fw-semibold">No number found</span>
                                             }
                                         </td>
-                                        <td>@(map.CardName ?? "-")</td>
-                                        <td>
+                                        <td data-label="Customer">@(map.CardName ?? "-")</td>
+                                        <td data-label="Existing PODs">
                                             @if (map.ExistingPodCount > 0)
                                             {
                                                 <span class="badge bg-warning text-dark"
@@ -263,8 +263,8 @@
                                                 <span class="text-muted">-</span>
                                             }
                                         </td>
-                                        <td class="pod-size">@FormatFileSize(map.FileSize)</td>
-                                        <td>
+                                        <td data-label="Size" class="pod-size">@FormatFileSize(map.FileSize)</td>
+                                        <td data-label="Status">
                                             @switch (map.Status)
                                             {
                                                 case BulkFileStatus.Pending:
@@ -296,7 +296,7 @@
                                                                         break;
                                                                     }
                                                                 </td>
-                                                                <td>
+                                                                <td data-label="Action">
                                                                     @if (map.Status != BulkFileStatus.Uploading && map.Status != BulkFileStatus.Uploaded &&
                                                         !isBulkUploading)
                                                                     {
@@ -312,7 +312,7 @@
                                             </table>
                                         </div>
 
-                                        <div class="d-flex justify-content-between align-items-center">
+                                        <div class="pod-bulk-footer d-flex justify-content-between align-items-center">
                                             <div>
                                                 <span class="text-muted small">
                                                     @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or BulkFileStatus.ValidWithWarning) of
@@ -320,16 +320,16 @@
                                                     @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Skipped))
                                                     {
                                                         <text> &mdash; <span class="text-secondary">@bulkMappings.Count(m => m.Status ==
-                                                                                            BulkFileStatus.Skipped) skipped</span></text>
+                                                                                                                                                        BulkFileStatus.Skipped) skipped</span></text>
                                                         }
                                                         @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
                                                         {
                                                             <text> &mdash; <span class="text-danger">@bulkMappings.Count(m => m.Status ==
-                                                                                                BulkFileStatus.Error) with errors</span></text>
+                                                                                                                                                                BulkFileStatus.Error) with errors</span></text>
                                                             }
                                                         </span>
                                                     </div>
-                                                    <div class="d-flex gap-2">
+                                                    <div class="pod-bulk-actions d-flex gap-2 flex-wrap">
                                                         @if (bulkMappings.Any(m => m.Status == BulkFileStatus.Error))
                                                         {
                                                             <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="RetryBulkValidation"
@@ -342,7 +342,7 @@
                                                                 else
                                                                 {
                                                                     <i class="bi bi-arrow-clockwise me-1"></i><text>Retry @bulkMappings.Count(m => m.Status ==
-                                                                                                BulkFileStatus.Error) Errors</text>
+                                                                                                                                                                    BulkFileStatus.Error) Errors</text>
                                                                 }
                                                             </MudButton>
                                                         }
@@ -361,7 +361,7 @@
                                                             else
                                                             {
                                                                 <text>Upload @bulkMappings.Count(m => m.Status is BulkFileStatus.Valid or
-                                                                                                BulkFileStatus.ValidWithWarning) PODs</text>
+                                                                                                                                                                    BulkFileStatus.ValidWithWarning) PODs</text>
                                                                 }
                                                             </MudButton>
                                                         </div>
@@ -436,7 +436,7 @@
                                                         @if (lookupInvoice.Lines?.Any() == true)
                                                         {
                                                             <div class="table-responsive mt-3">
-                                                                <table class="table table-sm table-hover mb-0 align-middle">
+                                                                <table class="table table-sm table-hover mb-0 align-middle mobile-card-table">
                                                                     <thead class="table-light">
                                                                         <tr>
                                                                             <th>#</th>
@@ -452,928 +452,1050 @@
                                                                         @foreach (var line in lookupInvoice.Lines)
                                                                         {
                                                                             <tr>
-                                                                                <td>@(line.LineNum + 1)</td>
-                                                                                <td><code>@line.ItemCode</code></td>
-                                                                                <td>@line.ItemDescription</td>
-                                                                                <td class="text-end">@QuantityDisplay.FormatWithUom(line.Quantity, line.UoMCode)</td>
-                                                                                <td class="text-end">@line.UnitPrice.ToString("N2")</td>
-                                                                                <td class="text-end">@(line.DiscountPercent > 0 ? $"{line.DiscountPercent:N1}%" : "-")</td>
-                                                                                <td class="text-end fw-semibold">@line.LineTotal.ToString("N2")</td>
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                    <tfoot>
-                                                                        <tr class="table-light">
-                                                                            <td colspan="6" class="text-end fw-semibold">VAT:</td>
-                                                                            <td class="text-end fw-semibold">@lookupInvoice.VatSum.ToString("N2")</td>
-                                                                        </tr>
-                                                                        <tr class="table-light">
-                                                                            <td colspan="6" class="text-end fw-semibold">Total:</td>
-                                                                            <td class="text-end fw-semibold">@lookupInvoice.DocCurrency
-                                                                                @lookupInvoice.DocTotal.ToString("N2")</td>
-                                                                            </tr>
-                                                                        </tfoot>
-                                                                    </table>
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                }
-
-                                                @* Filter & List *@
-                                                <div class="pod-list-card">
-                                                    <div class="pod-list-header">
-                                                        <div class="d-flex align-items-center gap-2">
-                                                            <i class="bi bi-list-task"></i>
-                                                            <span>Product POD Uploads</span>
-                                                        </div>
-                                                        <span class="pod-record-count">@(podResponse?.TotalCount ?? 0) records</span>
-                                                    </div>
-                                                    <div class="pod-filter-bar">
-                                                        <div class="row g-2 align-items-end">
-                                                            <div class="col-md-2">
-                                                                <label class="pod-label">Search</label>
-                                                                <input type="text" class="form-control pod-input" @bind="filterSearch" @bind:event="oninput"
-                                                                       @onkeydown="OnFilterKeyDown" placeholder="Invoice #, customer, code, or uploader" />
-                                                            </div>
-                                                            <div class="col-md-2">
-                                                                <label class="pod-label">Customer Code</label>
-                                                                <input type="text" class="form-control pod-input" @bind="filterCardCode" @bind:event="oninput"
-                                                                       @onkeydown="OnFilterKeyDown" placeholder="e.g. C00001" />
-                                                            </div>
-                                                            <div class="col-md-2">
-                                                                <label class="pod-label">Uploaded By</label>
-                                                                <input type="text" class="form-control pod-input" @bind="filterUploadedBy" @bind:event="oninput"
-                                                                       @onkeydown="OnFilterKeyDown" placeholder="username" />
-                                                            </div>
-                                                            <div class="col-md-2">
-                                                                <label class="pod-label">Upload Location</label>
-                                                                <select class="form-select pod-input" @bind="filterUploadedFromLocation">
-                                                                    <option value="">All locations</option>
-                                                                    @foreach (var location in AssignedSectionOptions.All)
-                                                                    {
-                                                                        <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
+                                                                                <td data-label="#">@(line.LineNum + 1)</td>
+                                                                                <td data-label="Item Code"><code>@line.ItemCode</code></td>
+                                                                                <td data-label="Description">@line.ItemDescription</td>
+                                                                                <td data-label="Qty" class="text-end">@QuantityDisplay.FormatWithUom(line.Quantity,
+                                                                                                                    line.UoMCode)</td>
+                                                                                    <td data-label="Unit Price" class="text-end">@line.UnitPrice.ToString("N2")</td>
+                                                                                    <td data-label="Discount" class="text-end">@(line.DiscountPercent > 0 ?
+                                                                                                                        $"{line.DiscountPercent:N1}%" : "-")</td>
+                                                                                        <td data-label="Line Total" class="text-end fw-semibold">@line.LineTotal.ToString("N2")</td>
+                                                                                    </tr>
+                                                                                }
+                                                                            </tbody>
+                                                                            <tfoot>
+                                                                                <tr class="table-light">
+                                                                                    <td colspan="6" data-label="Summary" class="text-end fw-semibold">VAT:</td>
+                                                                                    <td data-label="Amount" class="text-end fw-semibold">@lookupInvoice.VatSum.ToString("N2")
+                                                                                    </td>
+                                                                                </tr>
+                                                                                <tr class="table-light">
+                                                                                    <td colspan="6" data-label="Summary" class="text-end fw-semibold">Total:</td>
+                                                                                    <td data-label="Amount" class="text-end fw-semibold">@lookupInvoice.DocCurrency
+                                                                                        @lookupInvoice.DocTotal.ToString("N2")</td>
+                                                                                    </tr>
+                                                                                </tfoot>
+                                                                            </table>
+                                                                        </div>
                                                                     }
-                                                                </select>
-                                                            </div>
-                                                            <div class="col-md-2">
-                                                                <label class="pod-label">From Date</label>
-                                                                <input type="date" class="form-control pod-input" @bind="filterFromDate" />
-                                                            </div>
-                                                            <div class="col-md-2">
-                                                                <label class="pod-label">To Date</label>
-                                                                <input type="date" class="form-control pod-input" @bind="filterToDate" />
-                                                            </div>
-                                                            <div class="col-md-1">
-                                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilter"
-                                                                           Class="pod-filter-btn">
-                                                                    <i class="bi bi-funnel me-1"></i>Filter
-                                                                </MudButton>
-                                                            </div>
-                                                            @if (HasActiveFilters)
-                                                            {
-                                                                <div class="col-md-1">
-                                                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ClearFilter">
-                                                                        <i class="bi bi-x-circle me-1"></i>Clear
-                                                                    </MudButton>
                                                                 </div>
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                    <div class="pod-table-wrap">
-                                                        @if (!string.IsNullOrWhiteSpace(podLoadError))
-                                                        {
-                                                            <MudAlert Severity="Severity.Error" Dense="true" Class="m-3">
-                                                                @podLoadError
-                                                            </MudAlert>
+                                                            </div>
                                                         }
 
-                                                        <MudTable T="PodAttachmentItemDto" @key="podsTableKey" @ref="_podsTable" ServerData="LoadPodsTableData"
-                                                                  Dense="true" Hover="true" Loading="@isLoading" RowsPerPage="@DefaultPodPageSize" Elevation="0"
-                                                                  Class="pod-mud-table">
-                                                            <HeaderContent>
-                                                                <MudTh>Invoice #</MudTh>
-                                                                <MudTh>Customer</MudTh>
-                                                                <MudTh>File</MudTh>
-                                                                <MudTh>Description</MudTh>
-                                                                <MudTh>Size</MudTh>
-                                                                <MudTh>Uploaded</MudTh>
-                                                                <MudTh>By</MudTh>
-                                                                <MudTh Class="text-end">Actions</MudTh>
-                                                            </HeaderContent>
-                                                            <RowTemplate>
-                                                                <MudTd DataLabel="Invoice #">
-                                                                    <span class="pod-invoice-badge">@(context.InvoiceDocNum > 0 ? context.InvoiceDocNum.ToString() :
-                                                                                        "-")</span>
-                                                                    </MudTd>
-                                                                    <MudTd DataLabel="Customer">
-                                                                        <div class="pod-customer-name">@(context.CardName ?? "-")</div>
-                                                                        <div class="pod-customer-code">@(context.CardCode ?? "-")</div>
-                                                                    </MudTd>
-                                                                    <MudTd DataLabel="File">
-                                                                        <div class="pod-file-name">@context.FileName</div>
-                                                                        <div class="pod-file-type">@context.MimeType</div>
-                                                                    </MudTd>
-                                                                    <MudTd DataLabel="Description" Class="pod-description">@(context.Description ?? "-")</MudTd>
-                                                                    <MudTd DataLabel="Size" Class="pod-size">@context.FileSizeFormatted</MudTd>
-                                                                    <MudTd DataLabel="Uploaded">
-                                                                        <div class="pod-date">@context.UploadedAt.ToString("MMM dd, yyyy")</div>
-                                                                        <div class="pod-time">@context.UploadedAt.ToString("HH:mm")</div>
-                                                                    </MudTd>
-                                                                    <MudTd DataLabel="By" Class="pod-user">
-                                                                        <div class="pod-user-name">@(context.UploadedByUserName ?? "-")</div>
-                                                                        @if (!string.IsNullOrWhiteSpace(context.UploadedFromLocation))
-                                                                        {
-                                                                            <div class="pod-user-location">@AssignedSectionOptions.GetLabel(context.UploadedFromLocation)
-                                                                            </div>
-                                                                        }
-                                                                    </MudTd>
-                                                                    <MudTd DataLabel="Actions" Class="text-end">
-                                                                        <div class="pod-actions">
-                                                                            @if (IsViewable(context.MimeType))
-                                                                            {
-                                                                                <button class="pod-action-btn pod-action-view" @onclick="() => ViewPod(context)"
-                                                                                        title="View">
-                                                                                    <i class="bi bi-eye"></i>
-                                                                                </button>
-                                                                            }
-                                                                            <button class="pod-action-btn pod-action-download" @onclick="() => DownloadPod(context)"
-                                                                                    title="Download">
-                                                                                <i class="bi bi-download"></i>
-                                                                            </button>
-                                                                            <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(context)"
-                                                                                    title="Delete">
-                                                                                <i class="bi bi-trash"></i>
-                                                                            </button>
-                                                                        </div>
-                                                                    </MudTd>
-                                                                </RowTemplate>
-                                                                <NoRecordsContent>
-                                                                    @if (string.IsNullOrWhiteSpace(podLoadError))
-                                                                    {
-                                                                        <div class="pod-empty-state">
-                                                                            <div class="pod-empty-icon">
-                                                                                <i class="bi bi-clipboard-x"></i>
-                                                                            </div>
-                                                                            <p class="pod-empty-title">No POD records found</p>
-                                                                            <p class="pod-empty-sub">Upload a product POD using the form above.</p>
-                                                                        </div>
-                                                                    }
-                                                                </NoRecordsContent>
-                                                                <LoadingContent>
-                                                                    <div class="pod-loading-state">
-                                                                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
-                                                                        <p class="pod-loading-text">Loading PODs...</p>
-                                                                    </div>
-                                                                </LoadingContent>
-                                                                <PagerContent>
-                                                                    <MudTablePager PageSizeOptions="new int[] { 20, 50, 100 }" />
-                                                                </PagerContent>
-                                                            </MudTable>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                @* POD Viewer Modal *@
-                                                @if (showViewer)
-                                                {
-                                                    <div class="pod-viewer-overlay" @onclick="CloseViewer">
-                                                        <div class="pod-viewer-container" @onclick:stopPropagation>
-                                                            <div class="pod-viewer-header">
-                                                                <h6 class="mb-0 text-truncate">@viewerFileName</h6>
-                                                                <div class="d-flex gap-2">
-                                                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                                                               OnClick="() => DownloadPod(viewerPod!)">
-                                                                        <i class="bi bi-download me-1"></i> Download
-                                                                    </MudButton>
-                                                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="CloseViewer">
-                                                                        <i class="bi bi-x-lg"></i>
-                                                                    </MudButton>
+                                                        @* Filter & List *@
+                                                        <div class="pod-list-card">
+                                                            <div class="pod-list-header">
+                                                                <div class="d-flex align-items-center gap-2">
+                                                                    <i class="bi bi-list-task"></i>
+                                                                    <span>Product POD Uploads</span>
                                                                 </div>
+                                                                <span class="pod-record-count">@(podResponse?.TotalCount ?? 0) records</span>
                                                             </div>
-                                                            <div class="pod-viewer-body">
-                                                                @if (isLoadingViewer)
-                                                                {
-                                                                    <div class="d-flex justify-content-center align-items-center h-100">
-                                                                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                                                            <div class="pod-filter-bar">
+                                                                <div class="row g-2 align-items-end">
+                                                                    <div class="col-md-2">
+                                                                        <label class="pod-label">Search</label>
+                                                                        <input type="text" class="form-control pod-input" @bind="filterSearch" @bind:event="oninput"
+                                                                               @onkeydown="OnFilterKeyDown" placeholder="Invoice #, customer, code, or uploader" />
                                                                     </div>
-                                                                }
-                                                                else if (viewerMimeType?.StartsWith("image/") == true)
-                                                                {
-                                                                    <img src="@viewerDataUri" alt="@viewerFileName" class="pod-viewer-image" />
-                                                                }
-                                                                else if (viewerMimeType == "application/pdf")
-                                                                {
-                                                                    <iframe src="@viewerDataUri" class="pod-viewer-pdf" title="@viewerFileName"></iframe>
-                                                                }
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                }
-
-                                                @* Delete Confirmation Modal *@
-                                                @if (showDeleteConfirm)
-                                                {
-                                                    <div class="pod-viewer-overlay" @onclick="CancelDelete">
-                                                        <div class="pod-delete-dialog" @onclick:stopPropagation>
-                                                            <div class="p-4 text-center">
-                                                                <i class="bi bi-exclamation-triangle" style="font-size: 2.5rem; color: var(--mud-palette-error);"></i>
-                                                                <h5 class="mt-3 mb-2">Delete POD?</h5>
-                                                                <p class="text-muted mb-1">Are you sure you want to delete this attachment?</p>
-                                                                <p class="fw-semibold mb-3">@deletePod?.FileName</p>
-                                                                @if (isDeleting)
-                                                                {
-                                                                    <MudProgressCircular Indeterminate="true" Color="Color.Error" Size="Size.Small" />
-                                                                }
-                                                                else
-                                                                {
-                                                                    <div class="d-flex gap-2 justify-content-center">
-                                                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="CancelDelete">Cancel</MudButton>
-                                                                        <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeletePod">
-                                                                            <i class="bi bi-trash me-1"></i> Delete
+                                                                    <div class="col-md-2">
+                                                                        <label class="pod-label">Customer Code</label>
+                                                                        <input type="text" class="form-control pod-input" @bind="filterCardCode" @bind:event="oninput"
+                                                                               @onkeydown="OnFilterKeyDown" placeholder="e.g. C00001" />
+                                                                    </div>
+                                                                    <div class="col-md-2">
+                                                                        <label class="pod-label">Uploaded By</label>
+                                                                        <input type="text" class="form-control pod-input" @bind="filterUploadedBy" @bind:event="oninput"
+                                                                               @onkeydown="OnFilterKeyDown" placeholder="username" />
+                                                                    </div>
+                                                                    <div class="col-md-2">
+                                                                        <label class="pod-label">Upload Location</label>
+                                                                        <select class="form-select pod-input" @bind="filterUploadedFromLocation">
+                                                                            <option value="">All locations</option>
+                                                                            @foreach (var location in AssignedSectionOptions.All)
+                                                                            {
+                                                                                <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
+                                                                            }
+                                                                        </select>
+                                                                    </div>
+                                                                    <div class="col-md-2">
+                                                                        <label class="pod-label">From Date</label>
+                                                                        <input type="date" class="form-control pod-input" @bind="filterFromDate" />
+                                                                    </div>
+                                                                    <div class="col-md-2">
+                                                                        <label class="pod-label">To Date</label>
+                                                                        <input type="date" class="form-control pod-input" @bind="filterToDate" />
+                                                                    </div>
+                                                                    <div class="col-md-1">
+                                                                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true" OnClick="ApplyFilter"
+                                                                                   Class="pod-filter-btn">
+                                                                            <i class="bi bi-funnel me-1"></i>Filter
                                                                         </MudButton>
                                                                     </div>
-                                                                }
-                                                                @if (!string.IsNullOrEmpty(deleteMessage))
+                                                                    @if (HasActiveFilters)
+                                                                    {
+                                                                        <div class="col-md-1">
+                                                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" OnClick="ClearFilter">
+                                                                                <i class="bi bi-x-circle me-1"></i>Clear
+                                                                            </MudButton>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                            <div class="pod-table-wrap">
+                                                                @if (!string.IsNullOrWhiteSpace(podLoadError))
                                                                 {
-                                                                    <MudAlert Severity="@(deleteSuccess ? Severity.Success : Severity.Error)" Class="mt-3" Dense="true">
-                                                                        @deleteMessage
+                                                                    <MudAlert Severity="Severity.Error" Dense="true" Class="m-3">
+                                                                        @podLoadError
                                                                     </MudAlert>
                                                                 }
+
+                                                                <MudTable T="PodAttachmentItemDto" @key="podsTableKey" @ref="_podsTable" ServerData="LoadPodsTableData"
+                                                                          Dense="true" Hover="true" Loading="@isLoading" RowsPerPage="@DefaultPodPageSize" Elevation="0"
+                                                                          Breakpoint="Breakpoint.Md" Class="pod-mud-table">
+                                                                    <HeaderContent>
+                                                                        <MudTh>Invoice #</MudTh>
+                                                                        <MudTh>Customer</MudTh>
+                                                                        <MudTh>File</MudTh>
+                                                                        <MudTh>Description</MudTh>
+                                                                        <MudTh>Size</MudTh>
+                                                                        <MudTh>Uploaded</MudTh>
+                                                                        <MudTh>By</MudTh>
+                                                                        <MudTh Class="text-end">Actions</MudTh>
+                                                                    </HeaderContent>
+                                                                    <RowTemplate>
+                                                                        <MudTd DataLabel="Invoice #">
+                                                                            <span class="pod-invoice-badge">@(context.InvoiceDocNum > 0 ? context.InvoiceDocNum.ToString() :
+                                                                                                                                                                        "-")</span>
+                                                                            </MudTd>
+                                                                            <MudTd DataLabel="Customer">
+                                                                                <div class="pod-customer-name">@(context.CardName ?? "-")</div>
+                                                                                <div class="pod-customer-code">@(context.CardCode ?? "-")</div>
+                                                                            </MudTd>
+                                                                            <MudTd DataLabel="File">
+                                                                                <div class="pod-file-name">@context.FileName</div>
+                                                                                <div class="pod-file-type">@context.MimeType</div>
+                                                                            </MudTd>
+                                                                            <MudTd DataLabel="Description" Class="pod-description">@(context.Description ?? "-")</MudTd>
+                                                                            <MudTd DataLabel="Size" Class="pod-size">@context.FileSizeFormatted</MudTd>
+                                                                            <MudTd DataLabel="Uploaded">
+                                                                                <div class="pod-date">@context.UploadedAt.ToString("MMM dd, yyyy")</div>
+                                                                                <div class="pod-time">@context.UploadedAt.ToString("HH:mm")</div>
+                                                                            </MudTd>
+                                                                            <MudTd DataLabel="By" Class="pod-user">
+                                                                                <div class="pod-user-name">@(context.UploadedByUserName ?? "-")</div>
+                                                                                @if (!string.IsNullOrWhiteSpace(context.UploadedFromLocation))
+                                                                                {
+                                                                                    <div class="pod-user-location">@AssignedSectionOptions.GetLabel(context.UploadedFromLocation)
+                                                                                    </div>
+                                                                                }
+                                                                            </MudTd>
+                                                                            <MudTd DataLabel="Actions" Class="text-end">
+                                                                                <div class="pod-actions">
+                                                                                    @if (IsViewable(context.MimeType))
+                                                                                    {
+                                                                                        <button class="pod-action-btn pod-action-view" @onclick="() => ViewPod(context)"
+                                                                                                title="View">
+                                                                                            <i class="bi bi-eye"></i>
+                                                                                        </button>
+                                                                                    }
+                                                                                    <button class="pod-action-btn pod-action-download" @onclick="() => DownloadPod(context)"
+                                                                                            title="Download">
+                                                                                        <i class="bi bi-download"></i>
+                                                                                    </button>
+                                                                                    <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(context)"
+                                                                                            title="Delete">
+                                                                                        <i class="bi bi-trash"></i>
+                                                                                    </button>
+                                                                                </div>
+                                                                            </MudTd>
+                                                                        </RowTemplate>
+                                                                        <NoRecordsContent>
+                                                                            @if (string.IsNullOrWhiteSpace(podLoadError))
+                                                                            {
+                                                                                <div class="pod-empty-state">
+                                                                                    <div class="pod-empty-icon">
+                                                                                        <i class="bi bi-clipboard-x"></i>
+                                                                                    </div>
+                                                                                    <p class="pod-empty-title">No POD records found</p>
+                                                                                    <p class="pod-empty-sub">Upload a product POD using the form above.</p>
+                                                                                </div>
+                                                                            }
+                                                                        </NoRecordsContent>
+                                                                        <LoadingContent>
+                                                                            <div class="pod-loading-state">
+                                                                                <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Medium" />
+                                                                                <p class="pod-loading-text">Loading PODs...</p>
+                                                                            </div>
+                                                                        </LoadingContent>
+                                                                        <PagerContent>
+                                                                            <MudTablePager PageSizeOptions="new int[] { 20, 50, 100 }" />
+                                                                        </PagerContent>
+                                                                    </MudTable>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                }
-
-                                                <style>
-                                                    /* ── Hero ─────────────────────────────────────── */
-                                                    .pod-hero {
-                                                        background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
-                                                        border-radius: 16px;
-                                                        padding: 2rem 2.5rem;
-                                                        margin-bottom: 1.5rem;
-                                                        color: #fff;
-                                                        position: relative;
-                                                        overflow: hidden;
-                                                    }
-
-                                                    .pod-hero::before {
-                                                        content: '';
-                                                        position: absolute;
-                                                        top: -50%;
-                                                        right: -20%;
-                                                        width: 300px;
-                                                        height: 300px;
-                                                        background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
-                                                        border-radius: 50%;
-                                                    }
-
-                                                    .pod-hero-content {
-                                                        display: flex;
-                                                        justify-content: space-between;
-                                                        align-items: center;
-                                                        flex-wrap: wrap;
-                                                        gap: 1rem;
-                                                        position: relative;
-                                                        z-index: 1;
-                                                    }
-
-                                                    .pod-hero-title {
-                                                        font-size: 1.5rem;
-                                                        font-weight: 700;
-                                                        margin: 0;
-                                                        display: flex;
-                                                        align-items: center;
-                                                        gap: 0.75rem;
-                                                    }
-
-                                                    .pod-hero-icon {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        width: 42px;
-                                                        height: 42px;
-                                                        background: rgba(255, 255, 255, 0.2);
-                                                        border-radius: 12px;
-                                                        font-size: 1.25rem;
-                                                        backdrop-filter: blur(4px);
-                                                    }
-
-                                                    .pod-hero-subtitle {
-                                                        margin: 0.25rem 0 0;
-                                                        font-size: 0.9rem;
-                                                        opacity: 0.85;
-                                                    }
-
-                                                    .pod-stat-pill {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        gap: 0.25rem;
-                                                        background: rgba(255, 255, 255, 0.2);
-                                                        backdrop-filter: blur(4px);
-                                                        border-radius: 20px;
-                                                        padding: 0.4rem 1rem;
-                                                        font-size: 0.85rem;
-                                                        font-weight: 600;
-                                                        color: #fff;
-                                                    }
-
-                                                    .pod-refresh-btn {
-                                                        border-color: rgba(255, 255, 255, 0.4) !important;
-                                                        color: #fff !important;
-                                                    }
-
-                                                    .pod-refresh-btn:hover {
-                                                        background: rgba(255, 255, 255, 0.15) !important;
-                                                    }
-
-                                                    /* ── Upload Mode Toggle ─────────────────────── */
-                                                    .pod-mode-toggle {
-                                                        display: flex;
-                                                        gap: 0.5rem;
-                                                    }
-
-                                                    .pod-mode-btn {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        gap: 0.25rem;
-                                                        padding: 0.5rem 1.25rem;
-                                                        border-radius: 10px;
-                                                        border: 1px solid #e2e8f0;
-                                                        background: #fff;
-                                                        font-weight: 600;
-                                                        font-size: 0.875rem;
-                                                        color: #64748b;
-                                                        cursor: pointer;
-                                                        transition: all 0.2s;
-                                                    }
-
-                                                    .pod-mode-btn:hover {
-                                                        border-color: #0f766e;
-                                                        color: #0f766e;
-                                                        background: #f0fdfa;
-                                                    }
-
-                                                    .pod-mode-active {
-                                                        background: linear-gradient(135deg, #0f766e, #14b8a6) !important;
-                                                        color: #fff !important;
-                                                        border-color: transparent !important;
-                                                    }
-
-                                                    /* ── Upload Card ──────────────────────────────── */
-                                                    .pod-upload-card {
-                                                        background: #fff;
-                                                        border-radius: 16px;
-                                                        border: 1px solid rgba(15, 23, 42, 0.08);
-                                                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-                                                        margin-bottom: 1.5rem;
-                                                        overflow: hidden;
-                                                    }
-
-                                                    .pod-upload-header {
-                                                        display: flex;
-                                                        align-items: center;
-                                                        gap: 0.5rem;
-                                                        padding: 1rem 1.5rem;
-                                                        background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
-                                                        border-bottom: 1px solid rgba(15, 23, 42, 0.06);
-                                                        font-weight: 600;
-                                                        font-size: 1rem;
-                                                        color: #0f766e;
-                                                    }
-
-                                                    .pod-upload-body {
-                                                        padding: 1.5rem;
-                                                    }
-
-                                                    .pod-label {
-                                                        display: block;
-                                                        font-size: 0.8rem;
-                                                        font-weight: 600;
-                                                        color: #475569;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.03em;
-                                                        margin-bottom: 0.4rem;
-                                                    }
-
-                                                    .pod-input {
-                                                        border-radius: 10px !important;
-                                                        border-color: #e2e8f0 !important;
-                                                        transition: border-color 0.2s, box-shadow 0.2s;
-                                                    }
-
-                                                    .pod-input:focus {
-                                                        border-color: #0f766e !important;
-                                                        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12) !important;
-                                                    }
-
-                                                    .pod-lookup-btn,
-                                                    .pod-upload-btn {
-                                                        border-radius: 10px !important;
-                                                        min-height: 38px;
-                                                    }
-
-                                                    .pod-file-chips {
-                                                        margin-top: 0.75rem;
-                                                    }
-
-                                                    .pod-file-chip {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        gap: 0.25rem;
-                                                        background: #f0fdfa;
-                                                        border: 1px solid #99f6e4;
-                                                        color: #0f766e;
-                                                        border-radius: 20px;
-                                                        padding: 0.25rem 0.75rem;
-                                                        font-size: 0.8rem;
-                                                        font-weight: 500;
-                                                    }
-
-                                                    .pod-file-chip-size {
-                                                        color: #64748b;
-                                                        font-weight: 400;
-                                                    }
-
-                                                    /* ── Invoice Card ─────────────────────────────── */
-                                                    .pod-invoice-card {
-                                                        background: #fff;
-                                                        border-radius: 16px;
-                                                        border: 1px solid rgba(15, 23, 42, 0.08);
-                                                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-                                                        margin-bottom: 1.5rem;
-                                                        overflow: hidden;
-                                                    }
-
-                                                    .pod-invoice-header {
-                                                        display: flex;
-                                                        justify-content: space-between;
-                                                        align-items: center;
-                                                        padding: 1rem 1.5rem;
-                                                        background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
-                                                        border-bottom: 1px solid rgba(15, 23, 42, 0.06);
-                                                        font-weight: 600;
-                                                        font-size: 1rem;
-                                                        color: #0f766e;
-                                                    }
-
-                                                    .pod-invoice-body {
-                                                        padding: 1.5rem;
-                                                    }
-
-                                                    .pod-invoice-grid {
-                                                        display: grid;
-                                                        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-                                                        gap: 1.25rem;
-                                                    }
-
-                                                    .pod-invoice-field {
-                                                        display: flex;
-                                                        flex-direction: column;
-                                                    }
-
-                                                    .pod-field-label {
-                                                        font-size: 0.75rem;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.04em;
-                                                        color: #94a3b8;
-                                                        font-weight: 600;
-                                                        margin-bottom: 0.15rem;
-                                                    }
-
-                                                    .pod-field-value {
-                                                        font-weight: 600;
-                                                        color: #0f172a;
-                                                        font-size: 0.95rem;
-                                                    }
-
-                                                    .pod-field-sub {
-                                                        font-size: 0.8rem;
-                                                        color: #64748b;
-                                                    }
-
-                                                    .pod-field-balance {
-                                                        font-size: 0.8rem;
-                                                        color: #dc2626;
-                                                        font-weight: 600;
-                                                    }
-
-                                                    .pod-status-badge {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        gap: 0.35rem;
-                                                        border-radius: 20px;
-                                                        padding: 0.3rem 0.85rem;
-                                                        font-size: 0.8rem;
-                                                        font-weight: 600;
-                                                    }
-
-                                                    .pod-status-dot {
-                                                        width: 7px;
-                                                        height: 7px;
-                                                        border-radius: 50%;
-                                                        display: inline-block;
-                                                    }
-
-                                                    .pod-status-open {
-                                                        background: #fef3c7;
-                                                        color: #92400e;
-                                                    }
-
-                                                    .pod-status-open .pod-status-dot {
-                                                        background: #f59e0b;
-                                                    }
-
-                                                    .pod-status-closed {
-                                                        background: #dcfce7;
-                                                        color: #166534;
-                                                    }
-
-                                                    .pod-status-closed .pod-status-dot {
-                                                        background: #16a34a;
-                                                    }
-
-                                                    /* ── List Card ────────────────────────────────── */
-                                                    .pod-list-card {
-                                                        background: #fff;
-                                                        border-radius: 16px;
-                                                        border: 1px solid rgba(15, 23, 42, 0.08);
-                                                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-                                                        overflow: hidden;
-                                                    }
-
-                                                    .pod-list-header {
-                                                        display: flex;
-                                                        justify-content: space-between;
-                                                        align-items: center;
-                                                        padding: 1rem 1.5rem;
-                                                        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-                                                        border-bottom: 1px solid rgba(15, 23, 42, 0.06);
-                                                        font-weight: 600;
-                                                        font-size: 1rem;
-                                                        color: #0f172a;
-                                                    }
-
-                                                    .pod-record-count {
-                                                        font-size: 0.8rem;
-                                                        font-weight: 500;
-                                                        color: #64748b;
-                                                        background: #f1f5f9;
-                                                        border-radius: 20px;
-                                                        padding: 0.25rem 0.75rem;
-                                                    }
-
-                                                    .pod-filter-bar {
-                                                        padding: 1rem 1.5rem;
-                                                        border-bottom: 1px solid rgba(15, 23, 42, 0.05);
-                                                        background: #fafbfc;
-                                                    }
-
-                                                    .pod-filter-btn {
-                                                        border-radius: 10px !important;
-                                                    }
-
-                                                    /* ── Table ────────────────────────────────────── */
-                                                    .pod-table-wrap {
-                                                        padding: 0;
-                                                    }
-
-                                                    .pod-table {
-                                                        width: 100%;
-                                                        border-collapse: separate;
-                                                        border-spacing: 0;
-                                                        margin: 0;
-                                                    }
-
-                                                    .pod-table thead th {
-                                                        font-size: 0.7rem;
-                                                        font-weight: 700;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.06em;
-                                                        color: #64748b;
-                                                        padding: 0.85rem 1rem;
-                                                        border-bottom: 2px solid #f1f5f9;
-                                                        background: #fafbfc;
-                                                        white-space: nowrap;
-                                                    }
-
-                                                    .pod-table tbody td {
-                                                        padding: 0.85rem 1rem;
-                                                        border-bottom: 1px solid #f1f5f9;
-                                                        font-size: 0.875rem;
-                                                        color: #334155;
-                                                        vertical-align: middle;
-                                                    }
-
-                                                    .pod-row {
-                                                        transition: background 0.15s;
-                                                    }
-
-                                                    .pod-row:hover {
-                                                        background: #f0fdfa;
-                                                    }
-
-                                                    .pod-mud-table {
-                                                        background: transparent;
-                                                    }
-
-                                                    .pod-mud-table .mud-table-container {
-                                                        overflow-x: auto;
-                                                    }
-
-                                                    .pod-mud-table .mud-table-head .mud-table-cell {
-                                                        font-size: 0.7rem;
-                                                        font-weight: 700;
-                                                        text-transform: uppercase;
-                                                        letter-spacing: 0.06em;
-                                                        color: #64748b;
-                                                        padding: 0.85rem 1rem;
-                                                        border-bottom: 2px solid #f1f5f9;
-                                                        background: #fafbfc;
-                                                        white-space: nowrap;
-                                                    }
-
-                                                    .pod-mud-table .mud-table-body .mud-table-cell {
-                                                        padding: 0.85rem 1rem;
-                                                        border-bottom: 1px solid #f1f5f9;
-                                                        font-size: 0.875rem;
-                                                        color: #334155;
-                                                        vertical-align: middle;
-                                                        background: #fff;
-                                                    }
-
-                                                    .pod-mud-table .mud-table-body .mud-table-row:hover .mud-table-cell {
-                                                        background: #f0fdfa;
-                                                    }
-
-                                                    .pod-mud-table .mud-table-pagination {
-                                                        border-top: 1px solid #f1f5f9;
-                                                        padding: 0.35rem 0.75rem;
-                                                    }
-
-                                                    .pod-invoice-badge {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        min-width: 52px;
-                                                        padding: 0.3rem 0.65rem;
-                                                        background: linear-gradient(135deg, #0f766e, #14b8a6);
-                                                        color: #fff;
-                                                        border-radius: 8px;
-                                                        font-weight: 700;
-                                                        font-size: 0.85rem;
-                                                        letter-spacing: 0.02em;
-                                                    }
-
-                                                    .pod-customer-name {
-                                                        font-weight: 600;
-                                                        color: #0f172a;
-                                                    }
-
-                                                    .pod-customer-code {
-                                                        font-size: 0.78rem;
-                                                        color: #94a3b8;
-                                                    }
-
-                                                    .pod-file-name {
-                                                        font-weight: 600;
-                                                        color: #0f172a;
-                                                        font-size: 0.85rem;
-                                                    }
-
-                                                    .pod-file-type {
-                                                        font-size: 0.75rem;
-                                                        color: #94a3b8;
-                                                    }
-
-                                                    .pod-description {
-                                                        color: #64748b;
-                                                    }
-
-                                                    .pod-size {
-                                                        font-weight: 500;
-                                                        font-variant-numeric: tabular-nums;
-                                                    }
-
-                                                    .pod-date {
-                                                        font-weight: 500;
-                                                        color: #0f172a;
-                                                    }
-
-                                                    .pod-time {
-                                                        font-size: 0.78rem;
-                                                        color: #94a3b8;
-                                                    }
-
-                                                    .pod-user {
-                                                        color: #64748b;
-                                                    }
-
-                                                    .pod-user-name {
-                                                        color: #64748b;
-                                                        font-weight: 500;
-                                                    }
-
-                                                    .pod-user-location {
-                                                        font-size: 0.78rem;
-                                                        color: #94a3b8;
-                                                    }
-
-                                                    /* ── Action Buttons (icon-only) ──────────────── */
-                                                    .pod-actions {
-                                                        display: flex;
-                                                        gap: 0.35rem;
-                                                        justify-content: flex-end;
-                                                    }
-
-                                                    .pod-action-btn {
-                                                        display: inline-flex;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        width: 34px;
-                                                        height: 34px;
-                                                        border-radius: 10px;
-                                                        border: 1px solid transparent;
-                                                        background: transparent;
-                                                        cursor: pointer;
-                                                        transition: all 0.2s;
-                                                        font-size: 0.95rem;
-                                                    }
-
-                                                    .pod-action-view {
-                                                        color: #0f766e;
-                                                    }
-
-                                                    .pod-action-view:hover {
-                                                        background: #f0fdfa;
-                                                        border-color: #99f6e4;
-                                                    }
-
-                                                    .pod-action-download {
-                                                        color: #0369a1;
-                                                    }
-
-                                                    .pod-action-download:hover {
-                                                        background: #f0f9ff;
-                                                        border-color: #7dd3fc;
-                                                    }
-
-                                                    .pod-action-delete {
-                                                        color: #dc2626;
-                                                    }
-
-                                                    .pod-action-delete:hover {
-                                                        background: #fef2f2;
-                                                        border-color: #fca5a5;
-                                                    }
-
-                                                    /* ── Pagination ───────────────────────────────── */
-                                                    .pod-pagination {
-                                                        display: flex;
-                                                        justify-content: space-between;
-                                                        align-items: center;
-                                                        padding: 0.85rem 1.5rem;
-                                                        border-top: 1px solid #f1f5f9;
-                                                        flex-wrap: wrap;
-                                                        gap: 0.5rem;
-                                                    }
-
-                                                    .pod-pagination-info {
-                                                        font-size: 0.8rem;
-                                                        color: #64748b;
-                                                    }
-
-                                                    .pod-pagination-btns {
-                                                        display: flex;
-                                                        gap: 0.35rem;
-                                                        align-items: center;
-                                                    }
-
-                                                    .pod-page-btn {
-                                                        min-width: 36px !important;
-                                                    }
-
-                                                    .pod-page-ellipsis {
-                                                        padding: 0 0.25rem;
-                                                        color: #94a3b8;
-                                                        font-size: 0.85rem;
-                                                    }
-
-                                                    /* ── Empty / Loading ─────────────────────────── */
-                                                    .pod-loading-state {
-                                                        display: flex;
-                                                        flex-direction: column;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        padding: 3rem 1rem;
-                                                    }
-
-                                                    .pod-loading-text {
-                                                        margin-top: 1rem;
-                                                        color: #94a3b8;
-                                                        font-size: 0.9rem;
-                                                    }
-
-                                                    .pod-empty-state {
-                                                        display: flex;
-                                                        flex-direction: column;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        padding: 3rem 1rem;
-                                                    }
-
-                                                    .pod-empty-icon {
-                                                        width: 64px;
-                                                        height: 64px;
-                                                        border-radius: 16px;
-                                                        background: #f1f5f9;
-                                                        display: flex;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        font-size: 1.75rem;
-                                                        color: #94a3b8;
-                                                        margin-bottom: 0.75rem;
-                                                    }
-
-                                                    .pod-empty-title {
-                                                        font-weight: 600;
-                                                        color: #334155;
-                                                        margin-bottom: 0.25rem;
-                                                    }
-
-                                                    .pod-empty-sub {
-                                                        font-size: 0.85rem;
-                                                        color: #94a3b8;
-                                                    }
-
-                                                    /* ── Modals (Viewer & Delete) ─────────────────── */
-                                                    .pod-viewer-overlay {
-                                                        position: fixed;
-                                                        top: 0;
-                                                        left: 0;
-                                                        right: 0;
-                                                        bottom: 0;
-                                                        background: rgba(15, 23, 42, 0.6);
-                                                        backdrop-filter: blur(4px);
-                                                        z-index: 9999;
-                                                        display: flex;
-                                                        align-items: center;
-                                                        justify-content: center;
-                                                        padding: 2rem;
-                                                    }
-
-                                                    .pod-viewer-container {
-                                                        background: #fff;
-                                                        border-radius: 16px;
-                                                        max-width: 90vw;
-                                                        max-height: 90vh;
-                                                        width: 100%;
-                                                        display: flex;
-                                                        flex-direction: column;
-                                                        overflow: hidden;
-                                                        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
-                                                    }
-
-                                                    .pod-viewer-header {
-                                                        display: flex;
-                                                        justify-content: space-between;
-                                                        align-items: center;
-                                                        padding: 1rem 1.5rem;
-                                                        border-bottom: 1px solid #f1f5f9;
-                                                        gap: 1rem;
-                                                    }
-
-                                                    .pod-viewer-body {
-                                                        flex: 1;
-                                                        overflow: auto;
-                                                        display: flex;
-                                                        align-items: flex-start;
-                                                        justify-content: center;
-                                                        min-height: 300px;
-                                                        max-height: calc(90vh - 70px);
-                                                        background: #f8fafc;
-                                                    }
-
-                                                    .pod-viewer-image {
-                                                        max-width: 100%;
-                                                        height: auto;
-                                                        object-fit: contain;
-                                                    }
-
-                                                    .pod-viewer-pdf {
-                                                        width: 100%;
-                                                        height: calc(90vh - 70px);
-                                                        border: none;
-                                                    }
-
-                                                    .pod-delete-dialog {
-                                                        background: #fff;
-                                                        border-radius: 16px;
-                                                        max-width: 420px;
-                                                        width: 100%;
-                                                        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
-                                                    }
-                                                </style>
+
+                                                        @* POD Viewer Modal *@
+                                                        @if (showViewer)
+                                                        {
+                                                            <div class="pod-viewer-overlay" @onclick="CloseViewer">
+                                                                <div class="pod-viewer-container" @onclick:stopPropagation>
+                                                                    <div class="pod-viewer-header">
+                                                                        <h6 class="mb-0 text-truncate">@viewerFileName</h6>
+                                                                        <div class="d-flex gap-2">
+                                                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
+                                                                                       OnClick="() => DownloadPod(viewerPod!)">
+                                                                                <i class="bi bi-download me-1"></i> Download
+                                                                            </MudButton>
+                                                                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" OnClick="CloseViewer">
+                                                                                <i class="bi bi-x-lg"></i>
+                                                                            </MudButton>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="pod-viewer-body">
+                                                                        @if (isLoadingViewer)
+                                                                        {
+                                                                            <div class="d-flex justify-content-center align-items-center h-100">
+                                                                                <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+                                                                            </div>
+                                                                        }
+                                                                        else if (viewerMimeType?.StartsWith("image/") == true)
+                                                                        {
+                                                                            <img src="@viewerDataUri" alt="@viewerFileName" class="pod-viewer-image" />
+                                                                        }
+                                                                        else if (viewerMimeType == "application/pdf")
+                                                                        {
+                                                                            <iframe src="@viewerDataUri" class="pod-viewer-pdf" title="@viewerFileName"></iframe>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        }
+
+                                                        @* Delete Confirmation Modal *@
+                                                        @if (showDeleteConfirm)
+                                                        {
+                                                            <div class="pod-viewer-overlay" @onclick="CancelDelete">
+                                                                <div class="pod-delete-dialog" @onclick:stopPropagation>
+                                                                    <div class="p-4 text-center">
+                                                                        <i class="bi bi-exclamation-triangle" style="font-size: 2.5rem; color: var(--mud-palette-error);"></i>
+                                                                        <h5 class="mt-3 mb-2">Delete POD?</h5>
+                                                                        <p class="text-muted mb-1">Are you sure you want to delete this attachment?</p>
+                                                                        <p class="fw-semibold mb-3">@deletePod?.FileName</p>
+                                                                        @if (isDeleting)
+                                                                        {
+                                                                            <MudProgressCircular Indeterminate="true" Color="Color.Error" Size="Size.Small" />
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <div class="d-flex gap-2 justify-content-center">
+                                                                                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="CancelDelete">Cancel</MudButton>
+                                                                                <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeletePod">
+                                                                                    <i class="bi bi-trash me-1"></i> Delete
+                                                                                </MudButton>
+                                                                            </div>
+                                                                        }
+                                                                        @if (!string.IsNullOrEmpty(deleteMessage))
+                                                                        {
+                                                                            <MudAlert Severity="@(deleteSuccess ? Severity.Success : Severity.Error)" Class="mt-3" Dense="true">
+                                                                                @deleteMessage
+                                                                            </MudAlert>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        }
+
+                                                        <style>
+                                                            /* ── Hero ─────────────────────────────────────── */
+                                                            .pod-hero {
+                                                                background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
+                                                                border-radius: 16px;
+                                                                padding: 2rem 2.5rem;
+                                                                margin-bottom: 1.5rem;
+                                                                color: #fff;
+                                                                position: relative;
+                                                                overflow: hidden;
+                                                            }
+
+                                                            .pod-hero::before {
+                                                                content: '';
+                                                                position: absolute;
+                                                                top: -50%;
+                                                                right: -20%;
+                                                                width: 300px;
+                                                                height: 300px;
+                                                                background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+                                                                border-radius: 50%;
+                                                            }
+
+                                                            .pod-hero-content {
+                                                                display: flex;
+                                                                justify-content: space-between;
+                                                                align-items: center;
+                                                                flex-wrap: wrap;
+                                                                gap: 1rem;
+                                                                position: relative;
+                                                                z-index: 1;
+                                                            }
+
+                                                            .pod-hero-title {
+                                                                font-size: 1.5rem;
+                                                                font-weight: 700;
+                                                                margin: 0;
+                                                                display: flex;
+                                                                align-items: center;
+                                                                gap: 0.75rem;
+                                                            }
+
+                                                            .pod-hero-icon {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                width: 42px;
+                                                                height: 42px;
+                                                                background: rgba(255, 255, 255, 0.2);
+                                                                border-radius: 12px;
+                                                                font-size: 1.25rem;
+                                                                backdrop-filter: blur(4px);
+                                                            }
+
+                                                            .pod-hero-subtitle {
+                                                                margin: 0.25rem 0 0;
+                                                                font-size: 0.9rem;
+                                                                opacity: 0.85;
+                                                            }
+
+                                                            .pod-stat-pill {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                gap: 0.25rem;
+                                                                background: rgba(255, 255, 255, 0.2);
+                                                                backdrop-filter: blur(4px);
+                                                                border-radius: 20px;
+                                                                padding: 0.4rem 1rem;
+                                                                font-size: 0.85rem;
+                                                                font-weight: 600;
+                                                                color: #fff;
+                                                            }
+
+                                                            .pod-refresh-btn {
+                                                                border-color: rgba(255, 255, 255, 0.4) !important;
+                                                                color: #fff !important;
+                                                            }
+
+                                                            .pod-refresh-btn:hover {
+                                                                background: rgba(255, 255, 255, 0.15) !important;
+                                                            }
+
+                                                            /* ── Upload Mode Toggle ─────────────────────── */
+                                                            .pod-mode-toggle {
+                                                                display: flex;
+                                                                gap: 0.5rem;
+                                                            }
+
+                                                            .pod-mode-btn {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                gap: 0.25rem;
+                                                                padding: 0.5rem 1.25rem;
+                                                                border-radius: 10px;
+                                                                border: 1px solid #e2e8f0;
+                                                                background: #fff;
+                                                                font-weight: 600;
+                                                                font-size: 0.875rem;
+                                                                color: #64748b;
+                                                                cursor: pointer;
+                                                                transition: all 0.2s;
+                                                            }
+
+                                                            .pod-mode-btn:hover {
+                                                                border-color: #0f766e;
+                                                                color: #0f766e;
+                                                                background: #f0fdfa;
+                                                            }
+
+                                                            .pod-mode-active {
+                                                                background: linear-gradient(135deg, #0f766e, #14b8a6) !important;
+                                                                color: #fff !important;
+                                                                border-color: transparent !important;
+                                                            }
+
+                                                            /* ── Upload Card ──────────────────────────────── */
+                                                            .pod-upload-card {
+                                                                background: #fff;
+                                                                border-radius: 16px;
+                                                                border: 1px solid rgba(15, 23, 42, 0.08);
+                                                                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+                                                                margin-bottom: 1.5rem;
+                                                                overflow: hidden;
+                                                            }
+
+                                                            .pod-upload-header {
+                                                                display: flex;
+                                                                align-items: center;
+                                                                gap: 0.5rem;
+                                                                padding: 1rem 1.5rem;
+                                                                background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+                                                                border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+                                                                font-weight: 600;
+                                                                font-size: 1rem;
+                                                                color: #0f766e;
+                                                            }
+
+                                                            .pod-upload-body {
+                                                                padding: 1.5rem;
+                                                            }
+
+                                                            .pod-label {
+                                                                display: block;
+                                                                font-size: 0.8rem;
+                                                                font-weight: 600;
+                                                                color: #475569;
+                                                                text-transform: uppercase;
+                                                                letter-spacing: 0.03em;
+                                                                margin-bottom: 0.4rem;
+                                                            }
+
+                                                            .pod-input {
+                                                                border-radius: 10px !important;
+                                                                border-color: #e2e8f0 !important;
+                                                                transition: border-color 0.2s, box-shadow 0.2s;
+                                                            }
+
+                                                            .pod-input:focus {
+                                                                border-color: #0f766e !important;
+                                                                box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12) !important;
+                                                            }
+
+                                                            .pod-lookup-btn,
+                                                            .pod-upload-btn {
+                                                                border-radius: 10px !important;
+                                                                min-height: 38px;
+                                                            }
+
+                                                            .pod-file-chips {
+                                                                margin-top: 0.75rem;
+                                                            }
+
+                                                            .pod-file-chip {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                gap: 0.25rem;
+                                                                background: #f0fdfa;
+                                                                border: 1px solid #99f6e4;
+                                                                color: #0f766e;
+                                                                border-radius: 20px;
+                                                                padding: 0.25rem 0.75rem;
+                                                                font-size: 0.8rem;
+                                                                font-weight: 500;
+                                                            }
+
+                                                            .pod-file-chip-size {
+                                                                color: #64748b;
+                                                                font-weight: 400;
+                                                            }
+
+                                                            /* ── Invoice Card ─────────────────────────────── */
+                                                            .pod-invoice-card {
+                                                                background: #fff;
+                                                                border-radius: 16px;
+                                                                border: 1px solid rgba(15, 23, 42, 0.08);
+                                                                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+                                                                margin-bottom: 1.5rem;
+                                                                overflow: hidden;
+                                                            }
+
+                                                            .pod-invoice-header {
+                                                                display: flex;
+                                                                justify-content: space-between;
+                                                                align-items: center;
+                                                                padding: 1rem 1.5rem;
+                                                                background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
+                                                                border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+                                                                font-weight: 600;
+                                                                font-size: 1rem;
+                                                                color: #0f766e;
+                                                            }
+
+                                                            .pod-invoice-body {
+                                                                padding: 1.5rem;
+                                                            }
+
+                                                            .pod-invoice-grid {
+                                                                display: grid;
+                                                                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                                                                gap: 1.25rem;
+                                                            }
+
+                                                            .pod-invoice-field {
+                                                                display: flex;
+                                                                flex-direction: column;
+                                                            }
+
+                                                            .pod-field-label {
+                                                                font-size: 0.75rem;
+                                                                text-transform: uppercase;
+                                                                letter-spacing: 0.04em;
+                                                                color: #94a3b8;
+                                                                font-weight: 600;
+                                                                margin-bottom: 0.15rem;
+                                                            }
+
+                                                            .pod-field-value {
+                                                                font-weight: 600;
+                                                                color: #0f172a;
+                                                                font-size: 0.95rem;
+                                                            }
+
+                                                            .pod-field-sub {
+                                                                font-size: 0.8rem;
+                                                                color: #64748b;
+                                                            }
+
+                                                            .pod-field-balance {
+                                                                font-size: 0.8rem;
+                                                                color: #dc2626;
+                                                                font-weight: 600;
+                                                            }
+
+                                                            .pod-status-badge {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                gap: 0.35rem;
+                                                                border-radius: 20px;
+                                                                padding: 0.3rem 0.85rem;
+                                                                font-size: 0.8rem;
+                                                                font-weight: 600;
+                                                            }
+
+                                                            .pod-status-dot {
+                                                                width: 7px;
+                                                                height: 7px;
+                                                                border-radius: 50%;
+                                                                display: inline-block;
+                                                            }
+
+                                                            .pod-status-open {
+                                                                background: #fef3c7;
+                                                                color: #92400e;
+                                                            }
+
+                                                            .pod-status-open .pod-status-dot {
+                                                                background: #f59e0b;
+                                                            }
+
+                                                            .pod-status-closed {
+                                                                background: #dcfce7;
+                                                                color: #166534;
+                                                            }
+
+                                                            .pod-status-closed .pod-status-dot {
+                                                                background: #16a34a;
+                                                            }
+
+                                                            /* ── List Card ────────────────────────────────── */
+                                                            .pod-list-card {
+                                                                background: #fff;
+                                                                border-radius: 16px;
+                                                                border: 1px solid rgba(15, 23, 42, 0.08);
+                                                                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+                                                                overflow: hidden;
+                                                            }
+
+                                                            .pod-list-header {
+                                                                display: flex;
+                                                                justify-content: space-between;
+                                                                align-items: center;
+                                                                padding: 1rem 1.5rem;
+                                                                background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+                                                                border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+                                                                font-weight: 600;
+                                                                font-size: 1rem;
+                                                                color: #0f172a;
+                                                            }
+
+                                                            .pod-record-count {
+                                                                font-size: 0.8rem;
+                                                                font-weight: 500;
+                                                                color: #64748b;
+                                                                background: #f1f5f9;
+                                                                border-radius: 20px;
+                                                                padding: 0.25rem 0.75rem;
+                                                            }
+
+                                                            .pod-filter-bar {
+                                                                padding: 1rem 1.5rem;
+                                                                border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+                                                                background: #fafbfc;
+                                                            }
+
+                                                            .pod-filter-btn {
+                                                                border-radius: 10px !important;
+                                                            }
+
+                                                            /* ── Table ────────────────────────────────────── */
+                                                            .pod-table-wrap {
+                                                                padding: 0;
+                                                            }
+
+                                                            .pod-table {
+                                                                width: 100%;
+                                                                border-collapse: separate;
+                                                                border-spacing: 0;
+                                                                margin: 0;
+                                                            }
+
+                                                            .pod-table thead th {
+                                                                font-size: 0.7rem;
+                                                                font-weight: 700;
+                                                                text-transform: uppercase;
+                                                                letter-spacing: 0.06em;
+                                                                color: #64748b;
+                                                                padding: 0.85rem 1rem;
+                                                                border-bottom: 2px solid #f1f5f9;
+                                                                background: #fafbfc;
+                                                                white-space: nowrap;
+                                                            }
+
+                                                            .pod-table tbody td {
+                                                                padding: 0.85rem 1rem;
+                                                                border-bottom: 1px solid #f1f5f9;
+                                                                font-size: 0.875rem;
+                                                                color: #334155;
+                                                                vertical-align: middle;
+                                                            }
+
+                                                            .pod-row {
+                                                                transition: background 0.15s;
+                                                            }
+
+                                                            .pod-row:hover {
+                                                                background: #f0fdfa;
+                                                            }
+
+                                                            .pod-mud-table {
+                                                                background: transparent;
+                                                            }
+
+                                                            .pod-mud-table .mud-table-container {
+                                                                overflow-x: auto;
+                                                            }
+
+                                                            .pod-mud-table .mud-table-head .mud-table-cell {
+                                                                font-size: 0.7rem;
+                                                                font-weight: 700;
+                                                                text-transform: uppercase;
+                                                                letter-spacing: 0.06em;
+                                                                color: #64748b;
+                                                                padding: 0.85rem 1rem;
+                                                                border-bottom: 2px solid #f1f5f9;
+                                                                background: #fafbfc;
+                                                                white-space: nowrap;
+                                                            }
+
+                                                            .pod-mud-table .mud-table-body .mud-table-cell {
+                                                                padding: 0.85rem 1rem;
+                                                                border-bottom: 1px solid #f1f5f9;
+                                                                font-size: 0.875rem;
+                                                                color: #334155;
+                                                                vertical-align: middle;
+                                                                background: #fff;
+                                                            }
+
+                                                            .pod-mud-table .mud-table-body .mud-table-row:hover .mud-table-cell {
+                                                                background: #f0fdfa;
+                                                            }
+
+                                                            .pod-mud-table .mud-table-pagination {
+                                                                border-top: 1px solid #f1f5f9;
+                                                                padding: 0.35rem 0.75rem;
+                                                            }
+
+                                                            .pod-invoice-badge {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                min-width: 52px;
+                                                                padding: 0.3rem 0.65rem;
+                                                                background: linear-gradient(135deg, #0f766e, #14b8a6);
+                                                                color: #fff;
+                                                                border-radius: 8px;
+                                                                font-weight: 700;
+                                                                font-size: 0.85rem;
+                                                                letter-spacing: 0.02em;
+                                                            }
+
+                                                            .pod-customer-name {
+                                                                font-weight: 600;
+                                                                color: #0f172a;
+                                                            }
+
+                                                            .pod-customer-code {
+                                                                font-size: 0.78rem;
+                                                                color: #94a3b8;
+                                                            }
+
+                                                            .pod-file-name {
+                                                                font-weight: 600;
+                                                                color: #0f172a;
+                                                                font-size: 0.85rem;
+                                                            }
+
+                                                            .pod-file-type {
+                                                                font-size: 0.75rem;
+                                                                color: #94a3b8;
+                                                            }
+
+                                                            .pod-description {
+                                                                color: #64748b;
+                                                            }
+
+                                                            .pod-size {
+                                                                font-weight: 500;
+                                                                font-variant-numeric: tabular-nums;
+                                                            }
+
+                                                            .pod-date {
+                                                                font-weight: 500;
+                                                                color: #0f172a;
+                                                            }
+
+                                                            .pod-time {
+                                                                font-size: 0.78rem;
+                                                                color: #94a3b8;
+                                                            }
+
+                                                            .pod-user {
+                                                                color: #64748b;
+                                                            }
+
+                                                            .pod-user-name {
+                                                                color: #64748b;
+                                                                font-weight: 500;
+                                                            }
+
+                                                            .pod-user-location {
+                                                                font-size: 0.78rem;
+                                                                color: #94a3b8;
+                                                            }
+
+                                                            /* ── Action Buttons (icon-only) ──────────────── */
+                                                            .pod-actions {
+                                                                display: flex;
+                                                                gap: 0.35rem;
+                                                                justify-content: flex-end;
+                                                            }
+
+                                                            .pod-action-btn {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                width: 34px;
+                                                                height: 34px;
+                                                                border-radius: 10px;
+                                                                border: 1px solid transparent;
+                                                                background: transparent;
+                                                                cursor: pointer;
+                                                                transition: all 0.2s;
+                                                                font-size: 0.95rem;
+                                                            }
+
+                                                            .pod-action-view {
+                                                                color: #0f766e;
+                                                            }
+
+                                                            .pod-action-view:hover {
+                                                                background: #f0fdfa;
+                                                                border-color: #99f6e4;
+                                                            }
+
+                                                            .pod-action-download {
+                                                                color: #0369a1;
+                                                            }
+
+                                                            .pod-action-download:hover {
+                                                                background: #f0f9ff;
+                                                                border-color: #7dd3fc;
+                                                            }
+
+                                                            .pod-action-delete {
+                                                                color: #dc2626;
+                                                            }
+
+                                                            .pod-action-delete:hover {
+                                                                background: #fef2f2;
+                                                                border-color: #fca5a5;
+                                                            }
+
+                                                            /* ── Pagination ───────────────────────────────── */
+                                                            .pod-pagination {
+                                                                display: flex;
+                                                                justify-content: space-between;
+                                                                align-items: center;
+                                                                padding: 0.85rem 1.5rem;
+                                                                border-top: 1px solid #f1f5f9;
+                                                                flex-wrap: wrap;
+                                                                gap: 0.5rem;
+                                                            }
+
+                                                            .pod-pagination-info {
+                                                                font-size: 0.8rem;
+                                                                color: #64748b;
+                                                            }
+
+                                                            .pod-pagination-btns {
+                                                                display: flex;
+                                                                gap: 0.35rem;
+                                                                align-items: center;
+                                                            }
+
+                                                            .pod-page-btn {
+                                                                min-width: 36px !important;
+                                                            }
+
+                                                            .pod-page-ellipsis {
+                                                                padding: 0 0.25rem;
+                                                                color: #94a3b8;
+                                                                font-size: 0.85rem;
+                                                            }
+
+                                                            /* ── Empty / Loading ─────────────────────────── */
+                                                            .pod-loading-state {
+                                                                display: flex;
+                                                                flex-direction: column;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                padding: 3rem 1rem;
+                                                            }
+
+                                                            .pod-loading-text {
+                                                                margin-top: 1rem;
+                                                                color: #94a3b8;
+                                                                font-size: 0.9rem;
+                                                            }
+
+                                                            .pod-empty-state {
+                                                                display: flex;
+                                                                flex-direction: column;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                padding: 3rem 1rem;
+                                                            }
+
+                                                            .pod-empty-icon {
+                                                                width: 64px;
+                                                                height: 64px;
+                                                                border-radius: 16px;
+                                                                background: #f1f5f9;
+                                                                display: flex;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                font-size: 1.75rem;
+                                                                color: #94a3b8;
+                                                                margin-bottom: 0.75rem;
+                                                            }
+
+                                                            .pod-empty-title {
+                                                                font-weight: 600;
+                                                                color: #334155;
+                                                                margin-bottom: 0.25rem;
+                                                            }
+
+                                                            .pod-empty-sub {
+                                                                font-size: 0.85rem;
+                                                                color: #94a3b8;
+                                                            }
+
+                                                            /* ── Modals (Viewer & Delete) ─────────────────── */
+                                                            .pod-viewer-overlay {
+                                                                position: fixed;
+                                                                top: 0;
+                                                                left: 0;
+                                                                right: 0;
+                                                                bottom: 0;
+                                                                background: rgba(15, 23, 42, 0.6);
+                                                                backdrop-filter: blur(4px);
+                                                                z-index: 9999;
+                                                                display: flex;
+                                                                align-items: center;
+                                                                justify-content: center;
+                                                                padding: 2rem;
+                                                            }
+
+                                                            .pod-viewer-container {
+                                                                background: #fff;
+                                                                border-radius: 16px;
+                                                                max-width: 90vw;
+                                                                max-height: 90vh;
+                                                                width: 100%;
+                                                                display: flex;
+                                                                flex-direction: column;
+                                                                overflow: hidden;
+                                                                box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+                                                            }
+
+                                                            .pod-viewer-header {
+                                                                display: flex;
+                                                                justify-content: space-between;
+                                                                align-items: center;
+                                                                padding: 1rem 1.5rem;
+                                                                border-bottom: 1px solid #f1f5f9;
+                                                                gap: 1rem;
+                                                            }
+
+                                                            .pod-viewer-body {
+                                                                flex: 1;
+                                                                overflow: auto;
+                                                                display: flex;
+                                                                align-items: flex-start;
+                                                                justify-content: center;
+                                                                min-height: 300px;
+                                                                max-height: calc(90vh - 70px);
+                                                                background: #f8fafc;
+                                                            }
+
+                                                            .pod-viewer-image {
+                                                                max-width: 100%;
+                                                                height: auto;
+                                                                object-fit: contain;
+                                                            }
+
+                                                            .pod-viewer-pdf {
+                                                                width: 100%;
+                                                                height: calc(90vh - 70px);
+                                                                border: none;
+                                                            }
+
+                                                            .pod-delete-dialog {
+                                                                background: #fff;
+                                                                border-radius: 16px;
+                                                                max-width: 420px;
+                                                                width: 100%;
+                                                                box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+                                                            }
+
+                                                            @@media (max-width: 767.98px) {
+                                                                .pod-hero {
+                                                                    padding: 1rem;
+                                                                }
+
+                                                                .pod-hero-title {
+                                                                    font-size: 1.15rem;
+                                                                    align-items: flex-start;
+                                                                }
+
+                                                                .pod-hero-icon {
+                                                                    width: 40px;
+                                                                    height: 40px;
+                                                                    font-size: 1rem;
+                                                                    flex-shrink: 0;
+                                                                }
+
+                                                                .pod-hero-actions {
+                                                                    width: 100%;
+                                                                    flex-wrap: wrap;
+                                                                    justify-content: flex-start;
+                                                                }
+
+                                                                .pod-mode-toggle {
+                                                                    overflow-x: auto;
+                                                                    flex-wrap: nowrap;
+                                                                    padding-bottom: 0.25rem;
+                                                                    scrollbar-width: thin;
+                                                                }
+
+                                                                .pod-mode-btn {
+                                                                    flex: 0 0 auto;
+                                                                    white-space: nowrap;
+                                                                }
+
+                                                                .pod-upload-body,
+                                                                .pod-invoice-body {
+                                                                    padding: 1rem;
+                                                                }
+
+                                                                .pod-bulk-footer {
+                                                                    flex-direction: column;
+                                                                    align-items: stretch;
+                                                                    gap: 0.75rem;
+                                                                }
+
+                                                                .pod-bulk-actions {
+                                                                    width: 100%;
+                                                                }
+
+                                                                .pod-bulk-actions .mud-button-root {
+                                                                    flex: 1 1 180px;
+                                                                }
+
+                                                                .pod-table.mobile-card-table .badge {
+                                                                    max-width: 100%;
+                                                                    white-space: normal;
+                                                                    text-align: left;
+                                                                    line-height: 1.3;
+                                                                }
+
+                                                                .pod-actions {
+                                                                    justify-content: flex-start;
+                                                                    flex-wrap: wrap;
+                                                                }
+
+                                                                .pod-viewer-overlay {
+                                                                    padding: 0.75rem;
+                                                                }
+
+                                                                .pod-viewer-container {
+                                                                    max-width: 100%;
+                                                                    max-height: calc(100vh - 1.5rem);
+                                                                    border-radius: 14px;
+                                                                }
+
+                                                                .pod-viewer-header {
+                                                                    padding: 0.85rem 1rem;
+                                                                    flex-wrap: wrap;
+                                                                }
+
+                                                                .pod-viewer-body {
+                                                                    max-height: calc(100vh - 110px);
+                                                                }
+
+                                                                .pod-viewer-pdf {
+                                                                    height: calc(100vh - 110px);
+                                                                }
+                                                            }
+
+                                                            @@media (max-width: 575.98px) {
+                                                                .pod-hero-title {
+                                                                    font-size: 1rem;
+                                                                }
+
+                                                                .pod-hero-subtitle {
+                                                                    font-size: 0.8rem;
+                                                                }
+
+                                                                .pod-stat-pill {
+                                                                    width: 100%;
+                                                                    justify-content: center;
+                                                                }
+
+                                                                .pod-upload-header,
+                                                                .pod-invoice-header,
+                                                                .pod-list-header {
+                                                                    padding: 0.85rem 1rem;
+                                                                }
+
+                                                                .pod-invoice-grid {
+                                                                    grid-template-columns: 1fr;
+                                                                }
+
+                                                                .pod-bulk-actions .mud-button-root {
+                                                                    width: 100%;
+                                                                }
+                                                            }
+                                                        </style>
 
 @code {
     private MudTable<PodAttachmentItemDto>? _podsTable;

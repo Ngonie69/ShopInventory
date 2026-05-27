@@ -63,6 +63,7 @@ public class CreditNoteService : ICreditNoteService
             .Include(c => c.Lines)
             .Include(c => c.CreatedByUser)
             .Include(c => c.ApprovedByUser)
+            .Include(c => c.OriginalInvoice)
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.CreditNoteNumber == creditNoteNumber, cancellationToken);
 
@@ -687,6 +688,8 @@ public class CreditNoteService : ICreditNoteService
             Status = entity.Status,
             OriginalInvoiceId = entity.OriginalInvoiceId,
             OriginalInvoiceDocEntry = entity.OriginalInvoiceDocEntry,
+            OriginalInvoiceSAPDocEntry = entity.OriginalInvoice?.SAPDocEntry,
+            OriginalInvoiceSAPDocNum = entity.OriginalInvoice?.SAPDocNum,
             Reason = entity.Reason,
             Comments = entity.Comments,
             Currency = entity.Currency,
@@ -728,6 +731,7 @@ public class CreditNoteService : ICreditNoteService
     private static CreditNoteDto MapFromSAP(SAPCreditNote sap)
     {
         DateTime.TryParse(sap.DocDate, out var docDate);
+        var originalInvoiceDocEntry = ResolveOriginalInvoiceDocEntry(sap);
 
         return new CreditNoteDto
         {
@@ -740,7 +744,8 @@ public class CreditNoteService : ICreditNoteService
             CardName = sap.CardName,
             Type = CreditNoteType.Return, // Default type for SAP credit notes
             Status = MapSAPStatusToLocal(sap.DocumentStatus, sap.Cancelled),
-            OriginalInvoiceDocEntry = sap.BaseEntry,
+            OriginalInvoiceDocEntry = originalInvoiceDocEntry,
+            OriginalInvoiceSAPDocEntry = originalInvoiceDocEntry,
             Reason = sap.Comments,
             Comments = sap.Comments,
             Currency = sap.DocCurrency,
@@ -765,6 +770,12 @@ public class CreditNoteService : ICreditNoteService
             }).ToList() ?? new List<CreditNoteLineDto>()
         };
     }
+
+    private static int? ResolveOriginalInvoiceDocEntry(SAPCreditNote sap)
+        => sap.BaseEntry
+        ?? sap.DocumentLines?
+            .FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)
+            ?.BaseEntry;
 
     private static DateTime? NormalizeUtcDateStart(DateTime? value)
     {

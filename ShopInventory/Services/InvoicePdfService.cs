@@ -20,6 +20,11 @@ public interface IInvoicePdfService
 
 public class InvoicePdfService : IInvoicePdfService
 {
+    private const float PdfTopMargin = 20f;
+    private const float PdfSideMargin = 30f;
+    private const float PdfFooterReservedHeight = 165f;
+    private const float PdfFooterBottomOffset = 24f;
+
     private readonly ILogger<InvoicePdfService> _logger;
     private PdfFont _boldFont = null!;
     private PdfFont _regularFont = null!;
@@ -56,35 +61,12 @@ public class InvoicePdfService : IInvoicePdfService
             var pdf = new PdfDocument(writer);
             var document = new Document(pdf, PageSize.A4);
 
-            // Margins matching the template
-            document.SetMargins(20, 30, 25, 30);
+            // Reserve a fixed footer band so the bottom summary always sits near the A4 page edge.
+            document.SetMargins(PdfTopMargin, PdfSideMargin, PdfFooterReservedHeight, PdfSideMargin);
 
-            // 1. "Fiscal Tax Invoice" + "PAGE 1 OF 1"
-            AddPageHeader(document);
-
-            // 2. Separator line
-            AddHorizontalRule(document);
-
-            // 3. Company header: Logo | Admin Office | Factory
-            AddCompanyHeader(document);
-
-            // 4. VAT/TIN (left) + DOC NUMBER/REF/DATE table (right)
-            AddVatAndDocInfo(document, invoice);
-
-            // 5. Invoice Address + Delivery Address boxes
-            AddAddressBoxes(document, invoice);
-
-            // 6. Line items table
-            AddLineItemsTable(document, invoice);
-
-            // 7. Bank details (left) + Totals table (right)
-            AddBankAndTotals(document, invoice);
-
-            // 8. "CUSTOMER COPY" label
-            AddCustomerCopyLabel(document);
-
-            // 9. REVMax fiscal QR code when available
-            AddFiscalQrCode(document, pdf, invoice.DocEntry, fiscalQrCode);
+            RenderInvoiceCopy(document, pdf, invoice, fiscalQrCode, "CUSTOMER COPY");
+            document.Add(new AreaBreak(AreaBreakType.NEXT_PAGE));
+            RenderInvoiceCopy(document, pdf, invoice, fiscalQrCode, "FILE COPY");
 
             document.Close();
 
@@ -96,6 +78,35 @@ public class InvoicePdfService : IInvoicePdfService
                 invoice.DocEntry, ex.Message);
             throw;
         }
+    }
+
+    private void RenderInvoiceCopy(
+        Document document,
+        PdfDocument pdf,
+        InvoiceDto invoice,
+        string? fiscalQrCode,
+        string copyLabel)
+    {
+        // 1. "Fiscal Tax Invoice" + "PAGE 1 OF 1"
+        AddPageHeader(document);
+
+        // 2. Separator line
+        AddHorizontalRule(document);
+
+        // 3. Company header: Logo | Admin Office | Factory
+        AddCompanyHeader(document);
+
+        // 4. VAT/TIN (left) + DOC NUMBER/REF/DATE table (right)
+        AddVatAndDocInfo(document, invoice);
+
+        // 5. Invoice Address + Delivery Address boxes
+        AddAddressBoxes(document, invoice);
+
+        // 6. Line items table
+        AddLineItemsTable(document, invoice);
+
+        // 7. Bottom footer row: bank details | copy label | fiscal QR | totals
+        AddFooterSection(document, pdf, invoice, fiscalQrCode, copyLabel);
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -400,22 +411,43 @@ public class InvoicePdfService : IInvoicePdfService
     }
 
     // ────────────────────────────────────────────────────────────────
-    // 7. BANK DETAILS + TOTALS
+    // 7. FIXED FOOTER ROW
     // ────────────────────────────────────────────────────────────────
-    private void AddBankAndTotals(Document document, InvoiceDto invoice)
+    private void AddFooterSection(
+        Document document,
+        PdfDocument pdf,
+        InvoiceDto invoice,
+        string? fiscalQrCode,
+        string copyLabel)
     {
-        var outer = new Table(new float[] { 1.6f, 1f })
-            .SetWidth(UnitValue.CreatePercentValue(100))
-            .SetMarginTop(4)
-            .SetMarginBottom(2);
+        var footerWidth = PageSize.A4.GetWidth() - (PdfSideMargin * 2);
+        var lastPageNumber = Math.Max(1, pdf.GetNumberOfPages());
+        var footer = new Table(new float[] { 0.95f, 1.95f, 1.35f })
+            .SetWidth(footerWidth)
+            .SetFixedPosition(lastPageNumber, PdfSideMargin, PdfFooterBottomOffset, footerWidth);
+
+        footer.AddCell(BuildFiscalQrCell(pdf, invoice.DocEntry, fiscalQrCode));
+        footer.AddCell(BuildBankDetailsCell());
+        footer.AddCell(BuildTotalsCell(invoice));
+
+        var copyLabelCell = BuildCopyLabelCell(copyLabel);
+        footer.AddCell(copyLabelCell);
+
+        document.Add(footer);
+    }
+
+    private Cell BuildBankDetailsCell()
+    {
+        var bankCell = NoBorderCell()
+            .SetPaddingLeft(8)
+            .SetPaddingRight(20)
+            .SetVerticalAlignment(VerticalAlignment.BOTTOM);
 
         // ── Left: bank deposit info ──
-        var bankCell = NoBorderCell().SetPaddingRight(15).SetPaddingTop(6);
-
         bankCell.Add(new Paragraph("Please deposit into:")
-            .SetFont(_boldFont).SetFontSize(8).SetFontColor(RedText).SetMarginBottom(4));
+            .SetFont(_boldFont).SetFontSize(8).SetFontColor(RedText).SetMarginBottom(5));
 
-        var bt = new Table(new float[] { 1.8f, 3f }).SetWidth(UnitValue.CreatePercentValue(75));
+        var bt = new Table(new float[] { 1.8f, 3f }).SetWidth(UnitValue.CreatePercentValue(100));
         BankRow(bt, "Bank:", "Stanbic Bank Zimbabwe");
         BankRow(bt, "Account Name:", "Kefalos Cheese Products");
         BankRow(bt, "Account Number:", "9140000966435");
@@ -423,11 +455,71 @@ public class InvoicePdfService : IInvoicePdfService
         BankRow(bt, "Currency:", "USD");
         bankCell.Add(bt);
 
-        outer.AddCell(bankCell);
+        return bankCell;
+    }
+
+    private Cell BuildCopyLabelCell(string copyLabel)
+    {
+        var copyLabelCell = new Cell(1, 3)
+            .SetBorder(Border.NO_BORDER)
+            .SetPaddingLeft(0)
+            .SetPaddingRight(0)
+            .SetPaddingTop(6)
+            .SetPaddingBottom(0)
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetVerticalAlignment(VerticalAlignment.MIDDLE);
+
+        copyLabelCell.Add(new Paragraph(copyLabel)
+            .SetFont(_boldFont)
+            .SetFontSize(14)
+            .SetFontColor(RedText)
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetMargin(0));
+
+        return copyLabelCell;
+    }
+
+    private Cell BuildFiscalQrCell(PdfDocument pdf, int docEntry, string? fiscalQrCode)
+    {
+        var qrCell = NoBorderCell()
+            .SetPaddingLeft(0)
+            .SetPaddingRight(10)
+            .SetTextAlignment(TextAlignment.CENTER)
+            .SetVerticalAlignment(VerticalAlignment.BOTTOM);
+
+        if (string.IsNullOrWhiteSpace(fiscalQrCode))
+        {
+            return qrCell;
+        }
+
+        try
+        {
+            var qrCode = new BarcodeQRCode(fiscalQrCode.Trim());
+            var qrImage = new Image(qrCode.CreateFormXObject(pdf))
+                .SetWidth(88)
+                .SetHeight(88)
+                .SetAutoScale(false)
+                .SetHorizontalAlignment(HorizontalAlignment.CENTER);
+
+            qrCell.Add(qrImage);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Could not render fiscal QR code on invoice PDF for DocEntry {DocEntry}",
+                docEntry);
+        }
+
+        return qrCell;
+    }
+
+    private Cell BuildTotalsCell(InvoiceDto invoice)
+    {
+        var totalsCell = NoBorderCell()
+            .SetPaddingLeft(18)
+            .SetVerticalAlignment(VerticalAlignment.BOTTOM);
 
         // ── Right: totals table ──
-        var totalsCell = NoBorderCell();
-
         var tt = new Table(new float[] { 2f, 1.5f }).SetWidth(UnitValue.CreatePercentValue(100));
 
         var netTotal = invoice.DocTotal - invoice.VatSum;
@@ -470,9 +562,7 @@ public class InvoicePdfService : IInvoicePdfService
         tt.AddCell(itValue);
 
         totalsCell.Add(tt);
-        outer.AddCell(totalsCell);
-
-        document.Add(outer);
+        return totalsCell;
     }
 
     private void BankRow(Table table, string label, string value)
@@ -498,43 +588,6 @@ public class InvoicePdfService : IInvoicePdfService
         vc.Add(new Paragraph(value).SetFont(_regularFont).SetFontSize(8).SetFontColor(Black)
             .SetTextAlignment(TextAlignment.RIGHT));
         table.AddCell(vc);
-    }
-
-    // ────────────────────────────────────────────────────────────────
-    // 8. CUSTOMER COPY LABEL
-    // ────────────────────────────────────────────────────────────────
-    private void AddCustomerCopyLabel(Document document)
-    {
-        document.Add(new Paragraph("CUSTOMER COPY")
-            .SetFont(_boldFont)
-            .SetFontSize(16)
-            .SetFontColor(RedText)
-            .SetTextAlignment(TextAlignment.CENTER)
-            .SetMarginTop(2));
-    }
-
-    private void AddFiscalQrCode(Document document, PdfDocument pdf, int docEntry, string? fiscalQrCode)
-    {
-        if (string.IsNullOrWhiteSpace(fiscalQrCode))
-        {
-            return;
-        }
-
-        try
-        {
-            var qrCode = new BarcodeQRCode(fiscalQrCode.Trim());
-            var qrImage = new Image(qrCode.CreateFormXObject(pdf))
-                .SetFixedPosition(1, 30, 24, 84)
-                .SetAutoScale(false);
-
-            document.Add(qrImage);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "Could not render fiscal QR code on invoice PDF for DocEntry {DocEntry}",
-                docEntry);
-        }
     }
 
     // ════════════════════════════════════════════════════════════════

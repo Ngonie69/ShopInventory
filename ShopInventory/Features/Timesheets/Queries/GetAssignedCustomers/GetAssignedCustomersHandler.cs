@@ -26,6 +26,29 @@ public sealed class GetAssignedCustomersHandler(
         if (user is null)
             return Common.Errors.Errors.Auth.UserNotFound;
 
+        if (VanSalesRouteCustomerScope.UsesLocalRouteCustomers(user))
+        {
+            var routeCustomers = await VanSalesRouteCustomerScope.GetAssignedRouteCustomersAsync(
+                db,
+                user,
+                cancellationToken);
+
+            var activeRouteCustomerCode = await db.TimesheetEntries
+                .AsNoTracking()
+                .Where(t => t.UserId == request.UserId && t.CheckOutTime == null)
+                .OrderByDescending(t => t.CheckInTime)
+                .ThenByDescending(t => t.Id)
+                .Select(t => t.CustomerCode)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return routeCustomers
+                .Select(customer => new AssignedCustomerDto(
+                    customer.Code,
+                    customer.Name,
+                    HasActiveCheckIn: customer.Code == activeRouteCustomerCode))
+                .ToList();
+        }
+
         var customerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
             db,
             user,

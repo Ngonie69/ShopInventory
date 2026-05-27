@@ -111,6 +111,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SalesOrderEntity> SalesOrders { get; set; }
   public DbSet<SalesOrderLineEntity> SalesOrderLines { get; set; }
 
+  // Route customer tables
+  public DbSet<RouteCustomerEntity> RouteCustomers { get; set; }
+
   // Purchase Order tables
   public DbSet<PurchaseOrderEntity> PurchaseOrders { get; set; }
   public DbSet<PurchaseOrderLineEntity> PurchaseOrderLines { get; set; }
@@ -215,8 +218,54 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(u => u.AssignedWarehouseCodes)
                 .HasMaxLength(500);
 
+      entity.Property(u => u.AssignedBusinessPartnerCode)
+                .HasMaxLength(100);
+
+      entity.Property(u => u.AssignedCostCentreCode)
+                .HasMaxLength(50);
+
       entity.Ignore(u => u.AssignedWarehouseCode);
     });
+
+        modelBuilder.Entity<RouteCustomerEntity>(entity =>
+        {
+      entity.ToTable("RouteCustomers");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.AssignedBusinessPartnerCode);
+      entity.HasIndex(e => new { e.AssignedBusinessPartnerCode, e.IsActive });
+      entity.HasIndex(e => new { e.AssignedBusinessPartnerCode, e.Code })
+        .IsUnique();
+
+      entity.Property(e => e.AssignedBusinessPartnerCode)
+        .IsRequired()
+        .HasMaxLength(100);
+
+      entity.Property(e => e.Code)
+        .IsRequired()
+        .HasMaxLength(50);
+
+      entity.Property(e => e.Name)
+        .IsRequired()
+        .HasMaxLength(200);
+
+      entity.Property(e => e.Phone)
+        .HasMaxLength(50);
+
+      entity.Property(e => e.Email)
+        .HasMaxLength(255);
+
+      entity.Property(e => e.Address)
+        .HasMaxLength(500);
+
+      entity.Property(e => e.VatNumber)
+        .HasMaxLength(100);
+
+      entity.HasOne(e => e.CreatedByUser)
+        .WithMany()
+        .HasForeignKey(e => e.CreatedByUserId)
+        .OnDelete(DeleteBehavior.SetNull);
+        });
 
     // RefreshToken configuration
     modelBuilder.Entity<RefreshToken>(entity =>

@@ -92,8 +92,8 @@ public sealed class GetInvoicesByCustomerHandler(
                 currentPageSize = Math.Clamp(request.PageSize ?? 20, 1, 100);
                 var skip = (currentPage - 1) * currentPageSize;
 
-                invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, request.CardCode, filterFromDate, filterToDate, cancellationToken);
-                totalCount = await sapClient.GetInvoicesCountAsync(null, request.CardCode, filterFromDate, filterToDate, cancellationToken);
+                invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, request.CardCode, filterFromDate, filterToDate, cancellationToken: cancellationToken);
+                totalCount = await sapClient.GetInvoicesCountAsync(null, request.CardCode, filterFromDate, filterToDate, cancellationToken: cancellationToken);
                 totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
                 hasMore = (currentPage * currentPageSize) < totalCount;
             }

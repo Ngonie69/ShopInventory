@@ -3657,6 +3657,71 @@ namespace ShopInventory.Migrations
                     b.ToTable("RolePermissions", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.RouteCustomerEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("AssignedBusinessPartnerCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VatNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedBusinessPartnerCode");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("AssignedBusinessPartnerCode", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("AssignedBusinessPartnerCode", "IsActive");
+
+                    b.ToTable("RouteCustomers", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SaleConsolidationEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -3917,6 +3982,10 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("CostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<decimal>("DiscountPercent")
                         .HasColumnType("decimal(5,2)");
 
@@ -4133,6 +4202,10 @@ namespace ShopInventory.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<decimal>("DiscountPercent")
                         .HasPrecision(5, 2)
@@ -5070,6 +5143,14 @@ namespace ShopInventory.Migrations
                     b.Property<string>("AllowedPaymentMethods")
                         .HasColumnType("text");
 
+                    b.Property<string>("AssignedBusinessPartnerCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("AssignedCostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("AssignedCustomerCodes")
                         .HasColumnType("text");
 
@@ -5708,6 +5789,16 @@ namespace ShopInventory.Migrations
                         .IsRequired();
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.RouteCustomerEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>

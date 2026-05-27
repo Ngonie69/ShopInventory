@@ -222,6 +222,12 @@ public class StockReservationLineEntity
     [Precision(5, 2)]
     public decimal DiscountPercent { get; set; }
 
+    /// <summary>
+    /// SAP dimension 1 cost centre code for the line.
+    /// </summary>
+    [MaxLength(50)]
+    public string? CostCentreCode { get; set; }
+
     // Navigation property
     [ForeignKey(nameof(ReservationId))]
     public StockReservationEntity Reservation { get; set; } = null!;

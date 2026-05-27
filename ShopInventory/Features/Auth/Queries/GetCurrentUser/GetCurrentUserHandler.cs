@@ -35,6 +35,7 @@ public sealed class GetCurrentUserHandler(
             Email = user.Email,
             AssignedWarehouseCode = user.AssignedWarehouseCode,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
+            AssignedSection = user.AssignedSection,
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             AssignedCustomerCodes = user.GetCustomerCodes()
         };

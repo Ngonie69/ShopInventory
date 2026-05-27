@@ -281,6 +281,7 @@ try
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+    builder.Services.AddScoped<IRouteCustomerService, RouteCustomerService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
     builder.Services.AddScoped<IPurchaseQuotationService, PurchaseQuotationService>();

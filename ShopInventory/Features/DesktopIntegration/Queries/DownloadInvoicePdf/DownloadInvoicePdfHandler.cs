@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
@@ -9,6 +11,7 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.DesktopIntegration.Queries.DownloadInvoicePdf;
 
 public sealed class DownloadInvoicePdfHandler(
+    ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
     IRevmaxClient revmaxClient,
     IInvoicePdfService invoicePdfService,
@@ -29,6 +32,7 @@ public sealed class DownloadInvoicePdfHandler(
             return Errors.DesktopIntegration.InvoiceNotFound(query.DocEntry);
 
         var invoiceDto = invoice.ToDto();
+        await FiscalDocumentStatusProjector.EnrichInvoiceAsync(dbContext, invoiceDto, cancellationToken);
 
         // Enrich with business partner details
         if (!string.IsNullOrEmpty(invoice.CardCode))
@@ -52,6 +56,11 @@ public sealed class DownloadInvoicePdfHandler(
         }
 
         var fiscalQrCode = query.FiscalQrCode;
+        if (string.IsNullOrWhiteSpace(fiscalQrCode))
+        {
+            fiscalQrCode = invoiceDto.FiscalQrCode;
+        }
+
         if (string.IsNullOrWhiteSpace(fiscalQrCode))
         {
             fiscalQrCode = await TryGetFiscalQrCodeAsync(invoiceDto.DocNum, cancellationToken);

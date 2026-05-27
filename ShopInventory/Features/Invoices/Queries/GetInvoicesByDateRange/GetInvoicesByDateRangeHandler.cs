@@ -42,8 +42,8 @@ public sealed class GetInvoicesByDateRangeHandler(
             currentPageSize = Math.Clamp(request.PageSize, 1, 100);
             var skip = (currentPage - 1) * currentPageSize;
 
-            invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, null, request.FromDate, request.ToDate, cancellationToken);
-            totalCount = await sapClient.GetInvoicesCountAsync(null, null, request.FromDate, request.ToDate, cancellationToken);
+            invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, null, request.FromDate, request.ToDate, cancellationToken: cancellationToken);
+            totalCount = await sapClient.GetInvoicesCountAsync(null, null, request.FromDate, request.ToDate, cancellationToken: cancellationToken);
             totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
             hasMore = (currentPage * currentPageSize) < totalCount;
             var invoiceDtos = invoices.ToDto();

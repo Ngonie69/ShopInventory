@@ -171,6 +171,8 @@ public static class AuditActions
 
     // Customer actions
     public const string ViewCustomers = "ViewCustomers";
+    public const string UpdateRouteCustomer = "UpdateRouteCustomer";
+    public const string DeleteRouteCustomer = "DeleteRouteCustomer";
     public const string GenerateStatement = "GenerateStatement";
 
     // Stock actions

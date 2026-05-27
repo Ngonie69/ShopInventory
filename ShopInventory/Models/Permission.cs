@@ -328,6 +328,26 @@ public static class Permissions
                 ViewPurchaseOrders, UploadPurchaseOrderDocuments,
                 ViewTimesheets, ManageTimesheets
             },
+            "ADR" => new List<string>
+            {
+                ViewDashboard,
+                ViewProducts,
+                ViewCustomers, CreateCustomers,
+                ViewStock, ViewInventory,
+                ViewSalesOrders, CreateSalesOrders,
+                ViewTimesheets, ManageTimesheets
+            },
+            "Sales" => new List<string>
+            {
+                ViewDashboard,
+                ViewProducts,
+                ViewCustomers, CreateCustomers,
+                ViewStock, ViewInventory,
+                ViewInvoices, CreateInvoices,
+                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
+                TransferStock, TransferInventory,
+                ViewTimesheets, ManageTimesheets
+            },
             "SalesRep" => new List<string>
             {
                 ViewDashboard,

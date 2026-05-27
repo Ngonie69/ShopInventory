@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
@@ -34,14 +35,36 @@ public sealed class GetPodUploadStatusHandler(
         {
             var currentUser = await context.Users
                 .AsNoTracking()
-                .Where(u => u.Id == request.UserId)
-                .Select(u => new { u.Role, u.AssignedSection, u.Username })
-                .FirstOrDefaultAsync(cancellationToken);
+                .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
 
             if (currentUser is null)
                 return Errors.Auth.UserNotFound;
 
             var isPodOperator = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase);
+            var restrictToAssignedCustomers = isPodOperator ||
+                string.Equals(currentUser.Role, "Driver", StringComparison.OrdinalIgnoreCase);
+            HashSet<string>? assignedCustomerCodes = null;
+
+            if (restrictToAssignedCustomers)
+            {
+                var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
+                    context,
+                    currentUser,
+                    logger,
+                    cancellationToken);
+
+                if (effectiveCustomerCodes.Count == 0)
+                {
+                    logger.LogWarning(
+                        "{Role} {Username} has no assigned customer codes; returning no POD report items",
+                        currentUser.Role,
+                        currentUser.Username);
+
+                    return BuildEmptyReport(request);
+                }
+
+                assignedCustomerCodes = effectiveCustomerCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
 
             var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(
                 request.FromDate,
@@ -49,6 +72,15 @@ public sealed class GetPodUploadStatusHandler(
                 PodExclusions.ExcludedCardCodes.ToList(),
                 includeDocumentLines: isPodOperator,
                 cancellationToken);
+
+            if (assignedCustomerCodes is not null)
+            {
+                invoices = invoices
+                    .Where(invoice =>
+                        !string.IsNullOrWhiteSpace(invoice.CardCode) &&
+                        assignedCustomerCodes.Contains(invoice.CardCode))
+                    .ToList();
+            }
 
             if (isPodOperator)
             {
@@ -120,6 +152,17 @@ public sealed class GetPodUploadStatusHandler(
             return Errors.Invoice.CreationFailed(ex.Message);
         }
     }
+
+    private static PodUploadStatusReportDto BuildEmptyReport(GetPodUploadStatusQuery request)
+        => new()
+        {
+            FromDate = request.FromDate.ToString("yyyy-MM-dd"),
+            ToDate = request.ToDate.ToString("yyyy-MM-dd"),
+            TotalInvoices = 0,
+            UploadedCount = 0,
+            PendingCount = 0,
+            Items = []
+        };
 
     private async Task<List<Invoice>> FilterInvoicesForPodOperatorAsync(
         List<Invoice> invoices,

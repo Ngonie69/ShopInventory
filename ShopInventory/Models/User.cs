@@ -195,6 +195,18 @@ public class User
     public string? AssignedSection { get; set; }
 
     /// <summary>
+    /// Assigned business partner code used by ADR and Sales users for van sales processing.
+    /// </summary>
+    [MaxLength(100)]
+    public string? AssignedBusinessPartnerCode { get; set; }
+
+    /// <summary>
+    /// Assigned cost centre code used by ADR and Sales users for van sales processing.
+    /// </summary>
+    [MaxLength(50)]
+    public string? AssignedCostCentreCode { get; set; }
+
+    /// <summary>
     /// JSON array of allowed payment methods (e.g. ["cash","transfer","check","credit"]).
     /// If null/empty, the user inherits the system default. Admin users always have all methods.
     /// </summary>

@@ -69,6 +69,9 @@ public class UserInfo
     public string? Email { get; set; }
     public string? AssignedWarehouseCode { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();
+    public string? AssignedSection { get; set; }
+    public string? AssignedBusinessPartnerCode { get; set; }
+    public string? AssignedCostCentreCode { get; set; }
     public List<string> AllowedPaymentMethods { get; set; } = new();
     public string? DefaultGLAccount { get; set; }
     public List<string> AllowedPaymentBusinessPartners { get; set; } = new();

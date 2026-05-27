@@ -11,6 +11,7 @@ namespace ShopInventory.Features.Products.Queries.GetPagedProductsInWarehouse;
 
 public sealed class GetPagedProductsInWarehouseHandler(
     ISAPServiceLayerClient sapClient,
+    ILocalPriceCatalogService localPriceCatalogService,
     IOptions<SAPSettings> settings,
     ILogger<GetPagedProductsInWarehouseHandler> logger
 ) : IRequestHandler<GetPagedProductsInWarehouseQuery, ErrorOr<WarehouseProductsPagedResponseDto>>
@@ -27,17 +28,27 @@ public sealed class GetPagedProductsInWarehouseHandler(
             var (items, hasMore) = await sapClient.GetPagedItemsInWarehouseAsync(
                 request.WarehouseCode, request.Page, request.PageSize, cancellationToken);
 
-            var itemCodes = items.Select(i => i.ItemCode).Where(c => c is not null).ToList();
+            var itemCodes = items
+                .Select(i => i.ItemCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(code => code!)
+                .ToList();
+
             var allBatches = itemCodes.Count == 0
                 ? []
-                : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(itemCodes!, request.WarehouseCode, cancellationToken);
+                : await sapClient.GetBatchNumbersForItemsInWarehouseAsync(itemCodes, request.WarehouseCode, cancellationToken);
 
-            var relevantBatches = allBatches.Where(b => itemCodes.Contains(b.ItemCode)).ToList();
+            var priceMap = await BuildPriceMapAsync(request, itemCodes, cancellationToken);
+
+            var itemCodeSet = itemCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var relevantBatches = allBatches
+                .Where(batch => batch.ItemCode is not null && itemCodeSet.Contains(batch.ItemCode))
+                .ToList();
             var batchesByItem = relevantBatches
                 .GroupBy(b => b.ItemCode ?? string.Empty)
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            var products = items.Select(item => MapToProductDto(item, batchesByItem)).ToList();
+            var products = items.Select(item => MapToProductDto(item, batchesByItem, priceMap)).ToList();
 
             var response = new WarehouseProductsPagedResponseDto
             {
@@ -66,11 +77,65 @@ public sealed class GetPagedProductsInWarehouseHandler(
         }
     }
 
-    private static ProductDto MapToProductDto(Item item, Dictionary<string, List<BatchNumber>> batchesByItem)
+    private async Task<Dictionary<string, decimal>> BuildPriceMapAsync(
+        GetPagedProductsInWarehouseQuery request,
+        IReadOnlyCollection<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        if (itemCodes.Count == 0)
+        {
+            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BusinessPartnerCode))
+        {
+            var pricing = await localPriceCatalogService.GetBusinessPartnerPricingAsync(
+                request.BusinessPartnerCode,
+                itemCodes,
+                cancellationToken);
+
+            if (pricing?.Prices.Prices is { Count: > 0 })
+            {
+                return pricing.Prices.Prices
+                    .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
+                    .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase);
+            }
+
+            logger.LogWarning(
+                "No locally stored BP pricing found for business partner {BusinessPartnerCode} in warehouse product page {Page}.",
+                request.BusinessPartnerCode,
+                request.Page);
+        }
+
+        if (request.PriceListNum is > 0)
+        {
+            var pricing = await localPriceCatalogService.GetPricesByPriceListAsync(
+                request.PriceListNum.Value,
+                itemCodes,
+                cancellationToken);
+
+            if (pricing.Prices is { Count: > 0 })
+            {
+                return pricing.Prices
+                    .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
+                    .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static ProductDto MapToProductDto(
+        Item item,
+        Dictionary<string, List<BatchNumber>> batchesByItem,
+        IReadOnlyDictionary<string, decimal> priceMap)
     {
         var itemBatches = batchesByItem.TryGetValue(item.ItemCode ?? string.Empty, out var batches)
             ? batches
             : [];
+        var price = item.ItemCode is not null && priceMap.TryGetValue(item.ItemCode, out var matchedPrice)
+            ? matchedPrice
+            : 0m;
 
         return new ProductDto
         {
@@ -82,6 +147,10 @@ public sealed class GetPagedProductsInWarehouseHandler(
             QuantityInStock = item.QuantityOnStock,
             QuantityAvailable = item.QuantityOnStock - item.QuantityOrderedByCustomers,
             QuantityCommitted = item.QuantityOrderedByCustomers,
+            QuantityOnStock = item.QuantityOnStock,
+            Price = price,
+            DefaultWarehouse = item.DefaultWarehouse,
+            Category = item.ItemsGroupCode?.ToString(),
             UoM = item.InventoryUOM,
             Batches = itemBatches.Select(MapToBatchDto).ToList()
         };

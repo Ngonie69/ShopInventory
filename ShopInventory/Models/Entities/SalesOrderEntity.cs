@@ -338,6 +338,12 @@ public class SalesOrderLineEntity
     public string? BatchNumber { get; set; }
 
     /// <summary>
+    /// SAP dimension 1 cost centre code for this line.
+    /// </summary>
+    [MaxLength(50)]
+    public string? CostCentreCode { get; set; }
+
+    /// <summary>
     /// Product ID reference
     /// </summary>
     public int? ProductId { get; set; }

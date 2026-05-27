@@ -9,7 +9,7 @@ namespace ShopInventory.Web.Services;
 
 public interface ISalesOrderService
 {
-    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null);
+    Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20, SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null);
     Task<SalesOrderDto?> GetSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetLocalSalesOrderByIdAsync(int id);
     Task<SalesOrderDto?> GetSalesOrderByNumberAsync(string orderNumber);
@@ -62,7 +62,7 @@ public class SalesOrderService : ISalesOrderService
     }
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
-        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null)
+        SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null)
     {
         try
         {
@@ -81,6 +81,8 @@ public class SalesOrderService : ISalesOrderService
                 queryParams.Add($"source={(int)source.Value}");
             if (!string.IsNullOrEmpty(search))
                 queryParams.Add($"search={Uri.EscapeDataString(search)}");
+            if (vanSalesUsersOnly.HasValue)
+                queryParams.Add($"vanSalesUsersOnly={vanSalesUsersOnly.Value.ToString().ToLowerInvariant()}");
 
             var url = $"api/salesorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching sales orders from API: {Url}", url);
@@ -205,8 +207,8 @@ public class SalesOrderService : ISalesOrderService
     private static bool ShouldLoadFromLocal(SalesOrderDto order)
     {
         return !order.IsSynced ||
-            (!string.IsNullOrWhiteSpace(order.OrderNumber) &&
-                !order.OrderNumber.StartsWith("SAP-", StringComparison.OrdinalIgnoreCase));
+            !order.SAPDocEntry.HasValue ||
+            order.SAPDocEntry.Value <= 0;
     }
 
     public async Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request)

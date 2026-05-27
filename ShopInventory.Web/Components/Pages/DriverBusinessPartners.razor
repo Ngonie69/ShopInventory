@@ -20,220 +20,81 @@
                 </div>
                 <div class="dbp-header-text">
                     <h1>Driver Shop Access</h1>
-                    <p>Set the business-partner allowlist that applies to every driver account — a blanket scope, not a per-driver assignment.</p>
-                    <p class="dbp-helper-sub">List loads from the local cache. Use <strong>Refresh from SAP</strong> when new BPs are created in SAP.</p>
-                </div>
-            </div>
-            <div class="dbp-header-actions">
-                @if (!isLoading)
-                {
-                    <div class="dbp-progress-pill">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24"
-                             stroke="currentColor" stroke-width="2.2">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span>@selectedCustomerCodes.Count / @customers.Count selected</span>
-                    </div>
-                }
-                <button type="button" class="dbp-refresh" disabled="@(isLoading || isSaving || isRefreshing)"
-                        @onclick="RefreshCustomersAsync">
-                    @if (isRefreshing)
-                    {
-                        <span class="dbp-btn-spinner"></span>
-                        <span>Refreshing&#8230;</span>
-                    }
-                    else
-                    {
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24"
-                             stroke="currentColor" stroke-width="2.2">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                        </svg>
-                        <span>Refresh from SAP</span>
-                    }
-                </button>
-            </div>
-        </div>
-
-        @if (isLoading)
-        {
-            <div class="dbp-state-card">
-                <div class="dbp-spinner"></div>
-                <span>Loading driver shop access&#8230;</span>
-            </div>
-        }
-        else
-        {
-            <div class="dbp-grid">
-
-                <!-- ─── LEFT: BP CATALOGUE ─── -->
-                <section class="dbp-card">
-                    <div class="dbp-card-header">
-                        <div class="dbp-card-title">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24"
-                                 stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
-                            </svg>
-                            <h2>Business Partners</h2>
+                    <p>Set the business-partner allowlist that applies to every driver account — a blanket scope, not a
+                        per-driver assignment.</p>
+                        <p class="dbp-helper-sub">List loads from the local cache. Use <strong>Refresh from SAP</strong>
+                            when new BPs are created in SAP.</p>
                         </div>
-                        <span class="dbp-badge dbp-badge-neutral">@customers.Count total</span>
                     </div>
-
-                    <div class="dbp-input-wrap">
-                        <svg class="dbp-input-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15"
-                             fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-                        </svg>
-                        <input id="driver-bp-search" class="dbp-input" @bind="customerSearchTerm" @bind:event="oninput"
-                               placeholder="Search by code or name&#8230;" autocomplete="off" />
-                        @if (!string.IsNullOrWhiteSpace(customerSearchTerm))
+                    <div class="dbp-header-actions">
+                        @if (!isLoading)
                         {
-                            <button type="button" class="dbp-input-clear" @onclick='() => customerSearchTerm = string.Empty' title="Clear">
+                            <div class="dbp-progress-pill">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24"
-                                     stroke="currentColor" stroke-width="2.5">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        }
-                    </div>
-
-                    <div class="dbp-filter-row">
-                        <label class="dbp-filter-group" for="driver-bp-status-filter">
-                            <span class="dbp-filter-label">Status</span>
-                            <select id="driver-bp-status-filter" class="dbp-select" @bind="customerStatusFilter">
-                                <option value="@StatusFilterAll">All</option>
-                                <option value="@StatusFilterActive">Active</option>
-                                <option value="@StatusFilterInactive">Inactive</option>
-                            </select>
-                        </label>
-
-                        <label class="dbp-filter-group" for="driver-bp-channel-filter">
-                            <span class="dbp-filter-label">Channel</span>
-                            <select id="driver-bp-channel-filter" class="dbp-select" @bind="customerChannelFilter">
-                                <option value="@ChannelFilterAll">All channels</option>
-                                @if (HasCustomersWithoutChannel)
-                                {
-                                    <option value="@ChannelFilterNone">No channel</option>
-                                }
-                                @foreach (var channel in AvailableChannels)
-                                {
-                                    <option value="@channel">@channel</option>
-                                }
-                            </select>
-                        </label>
-                    </div>
-
-                    @{
-                        var filtered = FilteredCustomers;
-                        var filteredCount = filtered.Count;
-                        var allSelected = AllFilteredSelected;
-                    }
-                    <div class="dbp-bulk-row">
-                        <span class="dbp-bulk-count">@filteredCount @(filteredCount == 1 ? "result" : "results")</span>
-                        <div class="dbp-bulk-actions">
-                            @if (!allSelected && filteredCount > 0)
-                            {
-                                <button type="button" class="dbp-bulk-btn dbp-bulk-btn--add" @onclick="SelectAllFiltered">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24"
-                                         stroke="currentColor" stroke-width="2.5">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                    </svg>
-                                    Add @(HasCustomerFilters ? "matching" : "all")
-                                </button>
-                            }
-                            @if (allSelected && filteredCount > 0)
-                            {
-                                <button type="button" class="dbp-bulk-btn dbp-bulk-btn--remove" @onclick="DeselectAllFiltered">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24"
-                                         stroke="currentColor" stroke-width="2.5">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
-                                    </svg>
-                                    Remove @(HasCustomerFilters ? "matching" : "all")
-                                </button>
-                            }
-                        </div>
-                    </div>
-
-                    <div class="dbp-customer-list">
-                        @if (filteredCount > 0)
-                        {
-                            @foreach (var customer in filtered)
-                            {
-                                var cardCode = customer.CardCode ?? string.Empty;
-                                var isSelected = selectedCustomerCodes.Contains(cardCode);
-                                <label class="dbp-customer-item @(isSelected ? "dbp-customer-item--checked" : "")">
-                                    <span class="dbp-item-check @(isSelected ? "dbp-item-check--on" : "")">
-                                        @if (isSelected)
-                                        {
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none" viewBox="0 0 24 24"
-                                                 stroke="currentColor" stroke-width="3">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                            </svg>
-                                        }
-                                    </span>
-                                    <input type="checkbox" checked="@isSelected" class="dbp-hidden-checkbox"
-                                           @onchange="args => ToggleCustomer(cardCode, args.Value as bool? == true)" />
-                                    <span class="dbp-customer-text">
-                                        <strong>@cardCode</strong>
-                                        <span>@GetBusinessPartnerDisplayName(customer)</span>
-                                    </span>
-                                </label>
-                            }
-                        }
-                        else
-                        {
-                            <div class="dbp-empty">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none" viewBox="0 0 24 24"
-                                     stroke="currentColor" stroke-width="1.4">
+                                     stroke="currentColor" stroke-width="2.2">
                                     <path stroke-linecap="round" stroke-linejoin="round"
-                                          d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                                          d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                                 </svg>
-                                <span>No business partners match the current filters.</span>
+                                <span>@selectedCustomerCodes.Count / @customers.Count selected</span>
                             </div>
                         }
-                    </div>
-                </section>
-
-                <!-- ─── RIGHT: SELECTED ─── -->
-                <section class="dbp-card dbp-card--right">
-                    <div class="dbp-card-header">
-                        <div class="dbp-card-title">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24"
-                                 stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                            </svg>
-                            <h2>Selected Shops</h2>
-                        </div>
-                        <div class="dbp-right-header-actions">
-                            <span class="dbp-badge dbp-badge-green">@selectedCustomerCodes.Count</span>
-                            @if (selectedCustomerCodes.Count > 0)
+                        <button type="button" class="dbp-refresh" disabled="@(isLoading || isSaving || isRefreshing)"
+                                @onclick="RefreshCustomersAsync">
+                            @if (isRefreshing)
                             {
-                                <button type="button" class="dbp-link-btn" @onclick="ClearAll">Clear all</button>
+                                <span class="dbp-btn-spinner"></span>
+                                <span>Refreshing&#8230;</span>
                             }
-                        </div>
+                            else
+                            {
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24"
+                                     stroke="currentColor" stroke-width="2.2">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                          d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                </svg>
+                                <span>Refresh from SAP</span>
+                            }
+                        </button>
                     </div>
+                </div>
 
-                    <p class="dbp-helper">Drivers inherit this scope after their next login or token refresh.</p>
+                @if (isLoading)
+                {
+                    <div class="dbp-state-card">
+                        <div class="dbp-spinner"></div>
+                        <span>Loading driver shop access&#8230;</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="dbp-grid">
 
-                    @if (selectedCustomerCodes.Count > 0)
-                    {
-                        @if (selectedCustomerCodes.Count > 8)
-                        {
+                        <!-- ─── LEFT: BP CATALOGUE ─── -->
+                        <section class="dbp-card">
+                            <div class="dbp-card-header">
+                                <div class="dbp-card-title">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24"
+                                         stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                              d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                                    </svg>
+                                    <h2>Business Partners</h2>
+                                </div>
+                                <span class="dbp-badge dbp-badge-neutral">@customers.Count total</span>
+                            </div>
+
                             <div class="dbp-input-wrap">
-                                <svg class="dbp-input-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15"
-                                     fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <svg class="dbp-input-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none"
+                                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round"
                                           d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
                                 </svg>
-                                <input class="dbp-input dbp-input--sm" @bind="selectedSearchTerm" @bind:event="oninput"
-                                       placeholder="Filter selected&#8230;" autocomplete="off" />
-                                @if (!string.IsNullOrWhiteSpace(selectedSearchTerm))
+                                <input id="driver-bp-search" class="dbp-input" @bind="customerSearchTerm" @bind:event="oninput"
+                                       placeholder="Search by code or name&#8230;" autocomplete="off" />
+                                @if (!string.IsNullOrWhiteSpace(customerSearchTerm))
                                 {
-                                    <button type="button" class="dbp-input-clear" @onclick='() => selectedSearchTerm = string.Empty'>
+                                    <button type="button" class="dbp-input-clear" @onclick='() => customerSearchTerm = string.Empty'
+                                            title="Clear">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24"
                                              stroke="currentColor" stroke-width="2.5">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -241,345 +102,1056 @@
                                     </button>
                                 }
                             </div>
-                        }
 
-                        <div class="dbp-chips-scroll">
-                            <div class="dbp-chips">
-                                @foreach (var code in FilteredSelectedCodes)
-                                {
-                                    <span class="dbp-chip">
-                                        <span class="dbp-chip-code">@(code)</span>
-                                        <span class="dbp-chip-name">@GetCustomerDisplayName(code)</span>
-                                        <button type="button" class="dbp-chip-remove"
-                                                @onclick="() => ToggleCustomer(code, false)" title="Remove">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none"
-                                                 viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            <div class="dbp-filter-row">
+                                <label class="dbp-filter-group" for="driver-bp-status-filter">
+                                    <span class="dbp-filter-label">Status</span>
+                                    <select id="driver-bp-status-filter" class="dbp-select" @bind="customerStatusFilter">
+                                        <option value="@StatusFilterAll">All</option>
+                                        <option value="@StatusFilterActive">Active</option>
+                                        <option value="@StatusFilterInactive">Inactive</option>
+                                    </select>
+                                </label>
+
+                                <label class="dbp-filter-group" for="driver-bp-channel-filter">
+                                    <span class="dbp-filter-label">Channel</span>
+                                    <select id="driver-bp-channel-filter" class="dbp-select" @bind="customerChannelFilter">
+                                        <option value="@ChannelFilterAll">All channels</option>
+                                        @if (HasCustomersWithoutChannel)
+                                        {
+                                            <option value="@ChannelFilterNone">No channel</option>
+                                        }
+                                        @foreach (var channel in AvailableChannels)
+                                        {
+                                            <option value="@channel">@channel</option>
+                                        }
+                                    </select>
+                                </label>
+                            </div>
+
+                            @{
+                                var filtered = FilteredCustomers;
+                                var filteredCount = filtered.Count;
+                                var allSelected = AllFilteredSelected;
+                            }
+                            <div class="dbp-bulk-row">
+                                <span class="dbp-bulk-count">@filteredCount @(filteredCount == 1 ? "result" : "results")</span>
+                                <div class="dbp-bulk-actions">
+                                    @if (!allSelected && filteredCount > 0)
+                                    {
+                                        <button type="button" class="dbp-bulk-btn dbp-bulk-btn--add" @onclick="SelectAllFiltered">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none"
+                                                 viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                                             </svg>
+                                            Add @(HasCustomerFilters ? "matching" : "all")
                                         </button>
-                                    </span>
+                                    }
+                                    @if (allSelected && filteredCount > 0)
+                                    {
+                                        <button type="button" class="dbp-bulk-btn dbp-bulk-btn--remove" @onclick="DeselectAllFiltered">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none"
+                                                 viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
+                                            </svg>
+                                            Remove @(HasCustomerFilters ? "matching" : "all")
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="dbp-customer-list">
+                                @if (filteredCount > 0)
+                                {
+                                    @foreach (var customer in filtered)
+                                    {
+                                        var cardCode = customer.CardCode ?? string.Empty;
+                                        var isSelected = selectedCustomerCodes.Contains(cardCode);
+                                        <label class="dbp-customer-item @(isSelected ? "dbp-customer-item--checked" : "")">
+                                            <span class="dbp-item-check @(isSelected ? "dbp-item-check--on" : "")">
+                                                @if (isSelected)
+                                                {
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none"
+                                                         viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                                                    </svg>
+                                                }
+                                            </span>
+                                            <input type="checkbox" checked="@isSelected" class="dbp-hidden-checkbox"
+                                                   @onchange="args => ToggleCustomer(cardCode, args.Value as bool? == true)" />
+                                            <span class="dbp-customer-text">
+                                                <strong>@cardCode</strong>
+                                                <span>@GetBusinessPartnerDisplayName(customer)</span>
+                                            </span>
+                                        </label>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="dbp-empty">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none" viewBox="0 0 24 24"
+                                             stroke="currentColor" stroke-width="1.4">
+                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                  d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                                        </svg>
+                                        <span>No business partners match the current filters.</span>
+                                    </div>
                                 }
                             </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="dbp-empty dbp-empty--tall">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="none" viewBox="0 0 24 24"
-                                 stroke="currentColor" stroke-width="1.3">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M13.5 21v-7.5A2.25 2.25 0 0 0 11.25 11.25h-1.5A2.25 2.25 0 0 0 7.5 13.5V21m6 0H21m-7.5 0H3M3 7.5h18M3 7.5A2.25 2.25 0 0 1 5.25 5.25h13.5A2.25 2.25 0 0 1 21 7.5M3 7.5v.75a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 8.25V7.5" />
-                            </svg>
-                            <span>No shops selected yet.</span>
-                            <small>Use the left panel to add shops to the allowlist.</small>
-                        </div>
-                    }
+                        </section>
 
-                    <div class="dbp-actions">
-                        <button type="button" class="dbp-submit" disabled="@(isSaving || isRefreshing)"
-                                @onclick="SaveAsync">
-                            @if (isSaving)
+                        <!-- ─── RIGHT: SELECTED ─── -->
+                        <section class="dbp-card dbp-card--right">
+                            <div class="dbp-card-header">
+                                <div class="dbp-card-title">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24"
+                                         stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                              d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                    <h2>Selected Shops</h2>
+                                </div>
+                                <div class="dbp-right-header-actions">
+                                    <span class="dbp-badge dbp-badge-green">@selectedCustomerCodes.Count</span>
+                                    @if (selectedCustomerCodes.Count > 0)
+                                    {
+                                        <button type="button" class="dbp-link-btn" @onclick="ClearAll">Clear all</button>
+                                    }
+                                </div>
+                            </div>
+
+                            <p class="dbp-helper">Drivers inherit this scope after their next login or token refresh.</p>
+
+                            @if (selectedCustomerCodes.Count > 0)
                             {
-                                <span class="dbp-btn-spinner"></span>
-                                <span>Saving&#8230;</span>
+                                @if (selectedCustomerCodes.Count > 8)
+                                {
+                                    <div class="dbp-input-wrap">
+                                        <svg class="dbp-input-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none"
+                                             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                                        </svg>
+                                        <input class="dbp-input dbp-input--sm" @bind="selectedSearchTerm" @bind:event="oninput"
+                                               placeholder="Filter selected&#8230;" autocomplete="off" />
+                                        @if (!string.IsNullOrWhiteSpace(selectedSearchTerm))
+                                        {
+                                            <button type="button" class="dbp-input-clear" @onclick='() => selectedSearchTerm = string.Empty'>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="none" viewBox="0 0 24 24"
+                                                     stroke="currentColor" stroke-width="2.5">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                                </svg>
+                                            </button>
+                                        }
+                                    </div>
+                                }
+
+                                <div class="dbp-chips-scroll">
+                                    <div class="dbp-chips">
+                                        @foreach (var code in FilteredSelectedCodes)
+                                        {
+                                            <span class="dbp-chip">
+                                                <span class="dbp-chip-code">@(code)</span>
+                                                <span class="dbp-chip-name">@GetCustomerDisplayName(code)</span>
+                                                <button type="button" class="dbp-chip-remove" @onclick="() => ToggleCustomer(code, false)"
+                                                        title="Remove">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="none"
+                                                         viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.8">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
                             }
                             else
                             {
-                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24"
-                                     stroke="currentColor" stroke-width="2.2">
-                                    <path stroke-linecap="round" stroke-linejoin="round"
-                                          d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                                </svg>
-                                <span>Save Driver Shop Access</span>
+                                <div class="dbp-empty dbp-empty--tall">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="none" viewBox="0 0 24 24"
+                                         stroke="currentColor" stroke-width="1.3">
+                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                              d="M13.5 21v-7.5A2.25 2.25 0 0 0 11.25 11.25h-1.5A2.25 2.25 0 0 0 7.5 13.5V21m6 0H21m-7.5 0H3M3 7.5h18M3 7.5A2.25 2.25 0 0 1 5.25 5.25h13.5A2.25 2.25 0 0 1 21 7.5M3 7.5v.75a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 8.25V7.5" />
+                                    </svg>
+                                    <span>No shops selected yet.</span>
+                                    <small>Use the left panel to add shops to the allowlist.</small>
+                                </div>
                             }
-                        </button>
+
+                            <div class="dbp-actions">
+                                <button type="button" class="dbp-submit" disabled="@(isSaving || isRefreshing)"
+                                        @onclick="SaveAsync">
+                                    @if (isSaving)
+                                    {
+                                        <span class="dbp-btn-spinner"></span>
+                                        <span>Saving&#8230;</span>
+                                    }
+                                    else
+                                    {
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24"
+                                             stroke="currentColor" stroke-width="2.2">
+                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                  d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                        </svg>
+                                        <span>Save Driver Shop Access</span>
+                                    }
+                                </button>
+                            </div>
+                        </section>
+
                     </div>
-                </section>
-
+                }
             </div>
-        }
-    </div>
-</div>
+        </div>
 
-<style>
-    .dbp-page {
-        min-height: 100vh;
-        padding: 1.5rem;
-        background:
-            radial-gradient(ellipse at top left, rgba(34, 197, 94, 0.08) 0%, transparent 50%),
-            radial-gradient(ellipse at bottom right, rgba(20, 184, 166, 0.06) 0%, transparent 50%),
-            linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-    }
+        <style>
+            .dbp-page {
+                min-height: 100vh;
+                padding: 1.5rem;
+                background:
+                    radial-gradient(ellipse at top left, rgba(34, 197, 94, 0.08) 0%, transparent 50%),
+                    radial-gradient(ellipse at bottom right, rgba(20, 184, 166, 0.06) 0%, transparent 50%),
+                    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+            }
 
-    .dbp-shell {
-        max-width: 1300px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-        gap: 1.25rem;
-    }
+            .dbp-shell {
+                max-width: 1300px;
+                margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+                gap: 1.25rem;
+            }
 
-    /* HEADER */
-    .dbp-header {
-        background: #fff;
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 20px;
-        box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 32px rgba(15,23,42,.07);
-        padding: 1.4rem 1.75rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 1rem;
-        flex-wrap: wrap;
-    }
+            /* HEADER */
+            .dbp-header {
+                background: #fff;
+                border: 1px solid rgba(148, 163, 184, 0.2);
+                border-radius: 20px;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 8px 32px rgba(15, 23, 42, .07);
+                padding: 1.4rem 1.75rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 1rem;
+                flex-wrap: wrap;
+            }
 
-    .dbp-header-body {
-        display: flex;
-        align-items: flex-start;
-        gap: 1.1rem;
-    }
+            .dbp-header-body {
+                display: flex;
+                align-items: flex-start;
+                gap: 1.1rem;
+            }
 
-    .dbp-header-icon {
-        flex-shrink: 0;
-        width: 50px;
-        height: 50px;
-        border-radius: 14px;
-        background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        box-shadow: 0 4px 14px rgba(22,163,74,.35);
-    }
+            .dbp-header-icon {
+                flex-shrink: 0;
+                width: 50px;
+                height: 50px;
+                border-radius: 14px;
+                background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #fff;
+                box-shadow: 0 4px 14px rgba(22, 163, 74, .35);
+            }
 
-    .dbp-header-text h1 {
-        margin: 0 0 .25rem;
-        font-size: 1.55rem;
-        font-weight: 700;
-        color: #0f172a;
-        letter-spacing: -.02em;
-    }
+            .dbp-header-text h1 {
+                margin: 0 0 .25rem;
+                font-size: 1.55rem;
+                font-weight: 700;
+                color: #0f172a;
+                letter-spacing: -.02em;
+            }
 
-    .dbp-header-text p { margin: 0; color: #475569; font-size: .9rem; line-height: 1.5; }
-    .dbp-helper-sub { margin-top: .3rem !important; font-size: .82rem !important; color: #64748b !important; }
+            .dbp-header-text p {
+                margin: 0;
+                color: #475569;
+                font-size: .9rem;
+                line-height: 1.5;
+            }
 
-    .dbp-header-actions {
-        display: flex;
-        align-items: center;
-        gap: .65rem;
-        flex-shrink: 0;
-    }
+            .dbp-helper-sub {
+                margin-top: .3rem !important;
+                font-size: .82rem !important;
+                color: #64748b !important;
+            }
 
-    .dbp-progress-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        background: rgba(22,163,74,.1);
-        color: #15803d;
-        border-radius: 999px;
-        padding: .35rem .85rem;
-        font-size: .82rem;
-        font-weight: 700;
-    }
+            .dbp-header-actions {
+                display: flex;
+                align-items: center;
+                gap: .65rem;
+                flex-shrink: 0;
+            }
 
-    /* GRID */
-    .dbp-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr);
-        gap: 1.25rem;
-        align-items: start;
-    }
+            .dbp-progress-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: .4rem;
+                background: rgba(22, 163, 74, .1);
+                color: #15803d;
+                border-radius: 999px;
+                padding: .35rem .85rem;
+                font-size: .82rem;
+                font-weight: 700;
+            }
 
-    /* CARDS */
-    .dbp-card, .dbp-state-card {
-        background: #fff;
-        border: 1px solid rgba(148,163,184,.18);
-        border-radius: 20px;
-        box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 32px rgba(15,23,42,.07);
-    }
+            /* GRID */
+            .dbp-grid {
+                display: grid;
+                grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr);
+                gap: 1.25rem;
+                align-items: start;
+            }
 
-    .dbp-card {
-        padding: 1.4rem;
-        display: flex;
-        flex-direction: column;
-        gap: .9rem;
-    }
+            /* CARDS */
+            .dbp-card,
+            .dbp-state-card {
+                background: #fff;
+                border: 1px solid rgba(148, 163, 184, .18);
+                border-radius: 20px;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 8px 32px rgba(15, 23, 42, .07);
+            }
 
-    .dbp-card--right { position: sticky; top: 1rem; }
+            .dbp-card {
+                padding: 1.4rem;
+                display: flex;
+                flex-direction: column;
+                gap: .9rem;
+            }
 
-    .dbp-card-header { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
-    .dbp-card-title { display: flex; align-items: center; gap: .5rem; color: #64748b; }
-    .dbp-card-title h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #0f172a; letter-spacing: -.01em; }
-    .dbp-right-header-actions { display: flex; align-items: center; gap: .55rem; }
+            .dbp-card--right {
+                position: sticky;
+                top: 1rem;
+            }
 
-    /* BADGES */
-    .dbp-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: .26rem .7rem;
-        border-radius: 999px;
-        font-size: .78rem;
-        font-weight: 700;
-        white-space: nowrap;
-    }
-    .dbp-badge-green { background: rgba(22,163,74,.12); color: #15803d; }
-    .dbp-badge-neutral { background: #f1f5f9; color: #64748b; }
+            .dbp-card-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: .75rem;
+            }
 
-    .dbp-link-btn {
-        background: none; border: none; padding: .2rem .3rem;
-        font-size: .8rem; font-weight: 600; color: #dc2626;
-        cursor: pointer; border-radius: 6px; transition: background .13s;
-    }
-    .dbp-link-btn:hover { background: rgba(239,68,68,.08); }
+            .dbp-card-title {
+                display: flex;
+                align-items: center;
+                gap: .5rem;
+                color: #64748b;
+            }
 
-    .dbp-helper { margin: 0; font-size: .86rem; color: #64748b; line-height: 1.5; }
+            .dbp-card-title h2 {
+                margin: 0;
+                font-size: 1rem;
+                font-weight: 700;
+                color: #0f172a;
+                letter-spacing: -.01em;
+            }
 
-    /* SEARCH */
-    .dbp-input-wrap { position: relative; }
-    .dbp-input-icon {
-        position: absolute; left: .85rem; top: 50%;
-        transform: translateY(-50%); color: #94a3b8; pointer-events: none;
-    }
-    .dbp-input-clear {
-        position: absolute; right: .7rem; top: 50%; transform: translateY(-50%);
-        background: none; border: none; padding: .25rem; border-radius: 6px;
-        cursor: pointer; color: #94a3b8; display: flex; align-items: center; transition: color .13s, background .13s;
-    }
-    .dbp-input-clear:hover { background: #f1f5f9; color: #475569; }
+            .dbp-right-header-actions {
+                display: flex;
+                align-items: center;
+                gap: .55rem;
+            }
 
-    .dbp-input {
-        width: 100%; border-radius: 12px; border: 1.5px solid #e2e8f0;
-        padding: .72rem 2.2rem .72rem 2.5rem;
-        background: #f8fafc; color: #0f172a; font-size: .9rem;
-        transition: border-color .15s, box-shadow .15s, background .15s; box-sizing: border-box;
-    }
-    .dbp-input--sm { padding-top: .58rem; padding-bottom: .58rem; font-size: .86rem; }
-    .dbp-input:focus { outline: none; border-color: #16a34a; background: #fff; box-shadow: 0 0 0 3px rgba(34,197,94,.13); }
-    .dbp-input::placeholder { color: #94a3b8; }
+            /* BADGES */
+            .dbp-badge {
+                display: inline-flex;
+                align-items: center;
+                padding: .26rem .7rem;
+                border-radius: 999px;
+                font-size: .78rem;
+                font-weight: 700;
+                white-space: nowrap;
+            }
 
-    .dbp-filter-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
-    .dbp-filter-group { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
-    .dbp-filter-label { font-size: .78rem; font-weight: 700; color: #64748b; }
-    .dbp-select {
-        width: 100%; border-radius: 12px; border: 1.5px solid #e2e8f0;
-        padding: .68rem .9rem;
-        background: #f8fafc; color: #0f172a; font-size: .88rem;
-        transition: border-color .15s, box-shadow .15s, background .15s; box-sizing: border-box;
-    }
-    .dbp-select:focus { outline: none; border-color: #16a34a; background: #fff; box-shadow: 0 0 0 3px rgba(34,197,94,.13); }
+            .dbp-badge-green {
+                background: rgba(22, 163, 74, .12);
+                color: #15803d;
+            }
 
-    /* BULK ROW */
-    .dbp-bulk-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; min-height: 1.75rem; }
-    .dbp-bulk-count { font-size: .8rem; color: #94a3b8; font-weight: 500; }
-    .dbp-bulk-actions { display: flex; gap: .4rem; }
-    .dbp-bulk-btn {
-        display: inline-flex; align-items: center; gap: .35rem;
-        border: 1.5px solid transparent; border-radius: 999px; padding: .3rem .8rem;
-        font-size: .79rem; font-weight: 600; cursor: pointer;
-        transition: background .13s, border-color .13s, box-shadow .13s; white-space: nowrap;
-    }
-    .dbp-bulk-btn--add { background: rgba(22,163,74,.1); color: #15803d; border-color: rgba(22,163,74,.25); }
-    .dbp-bulk-btn--add:hover { background: rgba(22,163,74,.18); box-shadow: 0 1px 6px rgba(22,163,74,.2); }
-    .dbp-bulk-btn--remove { background: rgba(239,68,68,.08); color: #dc2626; border-color: rgba(239,68,68,.2); }
-    .dbp-bulk-btn--remove:hover { background: rgba(239,68,68,.15); }
+            .dbp-badge-neutral {
+                background: #f1f5f9;
+                color: #64748b;
+            }
 
-    /* CUSTOMER LIST */
-    .dbp-customer-list {
-        display: flex; flex-direction: column; gap: .3rem;
-        max-height: 34rem; overflow-y: auto; padding-right: .15rem;
-    }
-    .dbp-customer-list::-webkit-scrollbar { width: 4px; }
-    .dbp-customer-list::-webkit-scrollbar-track { background: transparent; }
-    .dbp-customer-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+            .dbp-link-btn {
+                background: none;
+                border: none;
+                padding: .2rem .3rem;
+                font-size: .8rem;
+                font-weight: 600;
+                color: #dc2626;
+                cursor: pointer;
+                border-radius: 6px;
+                transition: background .13s;
+            }
 
-    .dbp-hidden-checkbox { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+            .dbp-link-btn:hover {
+                background: rgba(239, 68, 68, .08);
+            }
 
-    .dbp-customer-item {
-        display: flex; align-items: center; gap: .75rem;
-        padding: .6rem .85rem; border-radius: 11px;
-        border: 1.5px solid #f1f5f9; background: #fafafa;
-        cursor: pointer; transition: background .12s, border-color .12s; user-select: none;
-    }
-    .dbp-customer-item:hover { background: #f0fdf4; border-color: rgba(22,163,74,.22); }
-    .dbp-customer-item--checked { background: rgba(22,163,74,.07); border-color: rgba(22,163,74,.32); }
-    .dbp-customer-item--checked:hover { background: rgba(22,163,74,.11); }
+            .dbp-helper {
+                margin: 0;
+                font-size: .86rem;
+                color: #64748b;
+                line-height: 1.5;
+            }
 
-    .dbp-item-check {
-        flex-shrink: 0; width: 17px; height: 17px; border-radius: 5px;
-        border: 1.5px solid #cbd5e1; background: #fff;
-        display: flex; align-items: center; justify-content: center;
-        transition: background .12s, border-color .12s;
-    }
-    .dbp-item-check--on { background: #16a34a; border-color: #16a34a; color: #fff; }
+            /* SEARCH */
+            .dbp-input-wrap {
+                position: relative;
+            }
 
-    .dbp-customer-text { display: flex; align-items: baseline; gap: .5rem; min-width: 0; flex: 1; }
-    .dbp-customer-text strong { font-size: .84rem; font-weight: 700; color: #0f172a; flex-shrink: 0; }
-    .dbp-customer-text span { font-size: .8rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .dbp-input-icon {
+                position: absolute;
+                left: .85rem;
+                top: 50%;
+                transform: translateY(-50%);
+                color: #94a3b8;
+                pointer-events: none;
+            }
 
-    /* CHIPS */
-    .dbp-chips-scroll { max-height: 22rem; overflow-y: auto; padding-right: .1rem; }
-    .dbp-chips-scroll::-webkit-scrollbar { width: 4px; }
-    .dbp-chips-scroll::-webkit-scrollbar-track { background: transparent; }
-    .dbp-chips-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+            .dbp-input-clear {
+                position: absolute;
+                right: .7rem;
+                top: 50%;
+                transform: translateY(-50%);
+                background: none;
+                border: none;
+                padding: .25rem;
+                border-radius: 6px;
+                cursor: pointer;
+                color: #94a3b8;
+                display: flex;
+                align-items: center;
+                transition: color .13s, background .13s;
+            }
 
-    .dbp-chips { display: flex; flex-wrap: wrap; gap: .45rem; }
+            .dbp-input-clear:hover {
+                background: #f1f5f9;
+                color: #475569;
+            }
 
-    .dbp-chip {
-        display: inline-flex; align-items: center; gap: .35rem;
-        background: rgba(22,163,74,.09); border: 1.5px solid rgba(22,163,74,.28);
-        border-radius: 999px; padding: .3rem .5rem .3rem .75rem;
-        font-size: .78rem; color: #15803d; max-width: 100%;
-        transition: background .12s, border-color .12s;
-    }
-    .dbp-chip:hover { background: rgba(22,163,74,.15); border-color: rgba(22,163,74,.4); }
-    .dbp-chip-code { font-weight: 700; flex-shrink: 0; }
-    .dbp-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; color: #166534; opacity: .8; font-size: .75rem; }
-    .dbp-chip-remove {
-        flex-shrink: 0; background: none; border: none; padding: .2rem; border-radius: 50%;
-        cursor: pointer; color: #16a34a; display: flex; align-items: center;
-        transition: background .12s, color .12s; margin-left: .05rem;
-    }
-    .dbp-chip-remove:hover { background: rgba(239,68,68,.15); color: #dc2626; }
+            .dbp-input {
+                width: 100%;
+                border-radius: 12px;
+                border: 1.5px solid #e2e8f0;
+                padding: .72rem 2.2rem .72rem 2.5rem;
+                background: #f8fafc;
+                color: #0f172a;
+                font-size: .9rem;
+                transition: border-color .15s, box-shadow .15s, background .15s;
+                box-sizing: border-box;
+            }
 
-    /* EMPTY */
-    .dbp-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .55rem; padding: 2rem 1rem; color: #94a3b8; font-size: .88rem; text-align: center; }
-    .dbp-empty svg { color: #cbd5e1; }
-    .dbp-empty small { font-size: .77rem; color: #b0bec5; }
-    .dbp-empty--tall { padding: 3rem 1rem; }
+            .dbp-input--sm {
+                padding-top: .58rem;
+                padding-bottom: .58rem;
+                font-size: .86rem;
+            }
 
-    /* BUTTONS */
-    .dbp-refresh, .dbp-submit {
-        display: inline-flex; align-items: center; gap: .45rem; border: none;
-        border-radius: 999px; font-size: .86rem; font-weight: 600; cursor: pointer;
-        transition: background .15s, box-shadow .15s, transform .12s, opacity .15s; white-space: nowrap;
-    }
-    .dbp-refresh { padding: .62rem 1.1rem; background: #f1f5f9; color: #334155; border: 1.5px solid #e2e8f0; }
-    .dbp-refresh:hover:not(:disabled) { background: #e2e8f0; box-shadow: 0 2px 8px rgba(15,23,42,.1); transform: translateY(-1px); }
+            .dbp-input:focus {
+                outline: none;
+                border-color: #16a34a;
+                background: #fff;
+                box-shadow: 0 0 0 3px rgba(34, 197, 94, .13);
+            }
 
-    .dbp-actions { margin-top: auto; padding-top: .25rem; }
-    .dbp-submit { width: 100%; justify-content: center; padding: .78rem 1.4rem; background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%); color: #fff; box-shadow: 0 3px 12px rgba(22,163,74,.3); }
-    .dbp-submit:hover:not(:disabled) { background: linear-gradient(135deg, #15803d 0%, #0f766e 100%); box-shadow: 0 5px 18px rgba(22,163,74,.4); transform: translateY(-1px); }
-    .dbp-submit:disabled, .dbp-refresh:disabled { opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+            .dbp-input::placeholder {
+                color: #94a3b8;
+            }
 
-    /* LOADING */
-    .dbp-state-card { background: #fff; border: 1px solid rgba(148,163,184,.2); border-radius: 20px; box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 32px rgba(15,23,42,.07); display: flex; align-items: center; gap: .85rem; padding: 1.25rem 1.75rem; color: #475569; font-size: .9rem; }
+            .dbp-filter-row {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: .75rem;
+            }
 
-    .dbp-spinner, .dbp-btn-spinner { border-radius: 50%; border: 2.5px solid rgba(22,163,74,.18); border-top-color: #16a34a; animation: dbp-spin .8s linear infinite; flex-shrink: 0; }
-    .dbp-spinner { width: 18px; height: 18px; }
-    .dbp-btn-spinner { width: 13px; height: 13px; }
+            .dbp-filter-group {
+                display: flex;
+                flex-direction: column;
+                gap: .35rem;
+                min-width: 0;
+            }
 
-    @@keyframes dbp-spin { to { transform: rotate(360deg); } }
+            .dbp-filter-label {
+                font-size: .78rem;
+                font-weight: 700;
+                color: #64748b;
+            }
 
-    @@media (max-width: 980px) {
-        .dbp-header { flex-direction: column; align-items: stretch; }
-        .dbp-header-actions { justify-content: flex-start; }
-        .dbp-grid { grid-template-columns: 1fr; }
-        .dbp-card--right { position: static; }
-    }
+            .dbp-select {
+                width: 100%;
+                border-radius: 12px;
+                border: 1.5px solid #e2e8f0;
+                padding: .68rem .9rem;
+                background: #f8fafc;
+                color: #0f172a;
+                font-size: .88rem;
+                transition: border-color .15s, box-shadow .15s, background .15s;
+                box-sizing: border-box;
+            }
 
-    @@media (max-width: 600px) {
-        .dbp-page { padding: 1rem; }
-        .dbp-header-body { flex-direction: column; gap: .85rem; }
-        .dbp-filter-row { grid-template-columns: 1fr; }
-    }
-</style>
+            .dbp-select:focus {
+                outline: none;
+                border-color: #16a34a;
+                background: #fff;
+                box-shadow: 0 0 0 3px rgba(34, 197, 94, .13);
+            }
+
+            /* BULK ROW */
+            .dbp-bulk-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: .6rem;
+                min-height: 1.75rem;
+            }
+
+            .dbp-bulk-count {
+                font-size: .8rem;
+                color: #94a3b8;
+                font-weight: 500;
+            }
+
+            .dbp-bulk-actions {
+                display: flex;
+                gap: .4rem;
+            }
+
+            .dbp-bulk-btn {
+                display: inline-flex;
+                align-items: center;
+                gap: .35rem;
+                border: 1.5px solid transparent;
+                border-radius: 999px;
+                padding: .3rem .8rem;
+                font-size: .79rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background .13s, border-color .13s, box-shadow .13s;
+                white-space: nowrap;
+            }
+
+            .dbp-bulk-btn--add {
+                background: rgba(22, 163, 74, .1);
+                color: #15803d;
+                border-color: rgba(22, 163, 74, .25);
+            }
+
+            .dbp-bulk-btn--add:hover {
+                background: rgba(22, 163, 74, .18);
+                box-shadow: 0 1px 6px rgba(22, 163, 74, .2);
+            }
+
+            .dbp-bulk-btn--remove {
+                background: rgba(239, 68, 68, .08);
+                color: #dc2626;
+                border-color: rgba(239, 68, 68, .2);
+            }
+
+            .dbp-bulk-btn--remove:hover {
+                background: rgba(239, 68, 68, .15);
+            }
+
+            /* CUSTOMER LIST */
+            .dbp-customer-list {
+                display: flex;
+                flex-direction: column;
+                gap: .3rem;
+                max-height: 34rem;
+                overflow-y: auto;
+                padding-right: .15rem;
+            }
+
+            .dbp-customer-list::-webkit-scrollbar {
+                width: 4px;
+            }
+
+            .dbp-customer-list::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            .dbp-customer-list::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 99px;
+            }
+
+            .dbp-hidden-checkbox {
+                position: absolute;
+                opacity: 0;
+                width: 0;
+                height: 0;
+                pointer-events: none;
+            }
+
+            .dbp-customer-item {
+                display: flex;
+                align-items: center;
+                gap: .75rem;
+                padding: .6rem .85rem;
+                border-radius: 11px;
+                border: 1.5px solid #f1f5f9;
+                background: #fafafa;
+                cursor: pointer;
+                transition: background .12s, border-color .12s;
+                user-select: none;
+            }
+
+            .dbp-customer-item:hover {
+                background: #f0fdf4;
+                border-color: rgba(22, 163, 74, .22);
+            }
+
+            .dbp-customer-item--checked {
+                background: rgba(22, 163, 74, .07);
+                border-color: rgba(22, 163, 74, .32);
+            }
+
+            .dbp-customer-item--checked:hover {
+                background: rgba(22, 163, 74, .11);
+            }
+
+            .dbp-item-check {
+                flex-shrink: 0;
+                width: 17px;
+                height: 17px;
+                border-radius: 5px;
+                border: 1.5px solid #cbd5e1;
+                background: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background .12s, border-color .12s;
+            }
+
+            .dbp-item-check--on {
+                background: #16a34a;
+                border-color: #16a34a;
+                color: #fff;
+            }
+
+            .dbp-customer-text {
+                display: flex;
+                align-items: baseline;
+                gap: .5rem;
+                min-width: 0;
+                flex: 1;
+            }
+
+            .dbp-customer-text strong {
+                font-size: .84rem;
+                font-weight: 700;
+                color: #0f172a;
+                flex-shrink: 0;
+            }
+
+            .dbp-customer-text span {
+                font-size: .8rem;
+                color: #64748b;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            /* CHIPS */
+            .dbp-chips-scroll {
+                max-height: 22rem;
+                overflow-y: auto;
+                padding-right: .1rem;
+            }
+
+            .dbp-chips-scroll::-webkit-scrollbar {
+                width: 4px;
+            }
+
+            .dbp-chips-scroll::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            .dbp-chips-scroll::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 99px;
+            }
+
+            .dbp-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: .45rem;
+            }
+
+            .dbp-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: .35rem;
+                background: rgba(22, 163, 74, .09);
+                border: 1.5px solid rgba(22, 163, 74, .28);
+                border-radius: 999px;
+                padding: .3rem .5rem .3rem .75rem;
+                font-size: .78rem;
+                color: #15803d;
+                max-width: 100%;
+                transition: background .12s, border-color .12s;
+            }
+
+            .dbp-chip:hover {
+                background: rgba(22, 163, 74, .15);
+                border-color: rgba(22, 163, 74, .4);
+            }
+
+            .dbp-chip-code {
+                font-weight: 700;
+                flex-shrink: 0;
+            }
+
+            .dbp-chip-name {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                max-width: 180px;
+                color: #166534;
+                opacity: .8;
+                font-size: .75rem;
+            }
+
+            .dbp-chip-remove {
+                flex-shrink: 0;
+                background: none;
+                border: none;
+                padding: .2rem;
+                border-radius: 50%;
+                cursor: pointer;
+                color: #16a34a;
+                display: flex;
+                align-items: center;
+                transition: background .12s, color .12s;
+                margin-left: .05rem;
+            }
+
+            .dbp-chip-remove:hover {
+                background: rgba(239, 68, 68, .15);
+                color: #dc2626;
+            }
+
+            /* EMPTY */
+            .dbp-empty {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: .55rem;
+                padding: 2rem 1rem;
+                color: #94a3b8;
+                font-size: .88rem;
+                text-align: center;
+            }
+
+            .dbp-empty svg {
+                color: #cbd5e1;
+            }
+
+            .dbp-empty small {
+                font-size: .77rem;
+                color: #b0bec5;
+            }
+
+            .dbp-empty--tall {
+                padding: 3rem 1rem;
+            }
+
+            /* BUTTONS */
+            .dbp-refresh,
+            .dbp-submit {
+                display: inline-flex;
+                align-items: center;
+                gap: .45rem;
+                border: none;
+                border-radius: 999px;
+                font-size: .86rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: background .15s, box-shadow .15s, transform .12s, opacity .15s;
+                white-space: nowrap;
+            }
+
+            .dbp-refresh {
+                padding: .62rem 1.1rem;
+                background: #f1f5f9;
+                color: #334155;
+                border: 1.5px solid #e2e8f0;
+            }
+
+            .dbp-refresh:hover:not(:disabled) {
+                background: #e2e8f0;
+                box-shadow: 0 2px 8px rgba(15, 23, 42, .1);
+                transform: translateY(-1px);
+            }
+
+            .dbp-actions {
+                margin-top: auto;
+                padding-top: .25rem;
+            }
+
+            .dbp-submit {
+                width: 100%;
+                justify-content: center;
+                padding: .78rem 1.4rem;
+                background: linear-gradient(135deg, #16a34a 0%, #0d9488 100%);
+                color: #fff;
+                box-shadow: 0 3px 12px rgba(22, 163, 74, .3);
+            }
+
+            .dbp-submit:hover:not(:disabled) {
+                background: linear-gradient(135deg, #15803d 0%, #0f766e 100%);
+                box-shadow: 0 5px 18px rgba(22, 163, 74, .4);
+                transform: translateY(-1px);
+            }
+
+            .dbp-submit:disabled,
+            .dbp-refresh:disabled {
+                opacity: .5;
+                cursor: not-allowed;
+                transform: none !important;
+                box-shadow: none !important;
+            }
+
+            /* LOADING */
+            .dbp-state-card {
+                background: #fff;
+                border: 1px solid rgba(148, 163, 184, .2);
+                border-radius: 20px;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, .06), 0 8px 32px rgba(15, 23, 42, .07);
+                display: flex;
+                align-items: center;
+                gap: .85rem;
+                padding: 1.25rem 1.75rem;
+                color: #475569;
+                font-size: .9rem;
+            }
+
+            .dbp-spinner,
+            .dbp-btn-spinner {
+                border-radius: 50%;
+                border: 2.5px solid rgba(22, 163, 74, .18);
+                border-top-color: #16a34a;
+                animation: dbp-spin .8s linear infinite;
+                flex-shrink: 0;
+            }
+
+            .dbp-spinner {
+                width: 18px;
+                height: 18px;
+            }
+
+            .dbp-btn-spinner {
+                width: 13px;
+                height: 13px;
+            }
+
+            @@keyframes dbp-spin {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            @@media (max-width: 980px) {
+                .dbp-header {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .dbp-header-actions {
+                    justify-content: flex-start;
+                    width: 100%;
+                    flex-wrap: wrap;
+                }
+
+                .dbp-grid {
+                    grid-template-columns: 1fr;
+                }
+
+                .dbp-card--right {
+                    position: static;
+                }
+            }
+
+            @@media (max-width: 760px) {
+                .dbp-page {
+                    padding: 1rem;
+                }
+
+                .dbp-header {
+                    padding: 1rem 1.05rem;
+                    border-radius: 18px;
+                }
+
+                .dbp-header-body {
+                    flex-direction: column;
+                    gap: .85rem;
+                }
+
+                .dbp-header-text h1 {
+                    font-size: 1.35rem;
+                }
+
+                .dbp-header-actions {
+                    align-items: stretch;
+                }
+
+                .dbp-header-actions>* {
+                    width: 100%;
+                }
+
+                .dbp-progress-pill,
+                .dbp-refresh {
+                    justify-content: center;
+                }
+
+                .dbp-progress-pill {
+                    white-space: normal;
+                    text-align: center;
+                }
+
+                .dbp-card {
+                    padding: 1rem;
+                }
+
+                .dbp-card-header {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+
+                .dbp-right-header-actions {
+                    width: 100%;
+                    justify-content: space-between;
+                }
+
+                .dbp-bulk-row {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .dbp-bulk-actions {
+                    width: 100%;
+                    flex-direction: column;
+                }
+
+                .dbp-bulk-btn {
+                    width: 100%;
+                    justify-content: center;
+                }
+
+                .dbp-customer-list {
+                    max-height: 28rem;
+                }
+
+                .dbp-chips {
+                    flex-direction: column;
+                }
+
+                .dbp-chip {
+                    width: 100%;
+                    flex-wrap: wrap;
+                    align-items: flex-start;
+                    border-radius: 16px;
+                }
+
+                .dbp-chip-code {
+                    margin-right: .15rem;
+                }
+
+                .dbp-chip-name {
+                    flex: 1 1 100%;
+                    max-width: none;
+                    white-space: normal;
+                    overflow: visible;
+                }
+
+                .dbp-chip-remove {
+                    margin-left: auto;
+                }
+            }
+
+            @@media (max-width: 600px) {
+                .dbp-page {
+                    padding: .75rem;
+                }
+
+                .dbp-shell {
+                    gap: 1rem;
+                }
+
+                .dbp-header {
+                    padding: .95rem;
+                }
+
+                .dbp-header-body {
+                    flex-direction: column;
+                    gap: .85rem;
+                }
+
+                .dbp-header-icon {
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 12px;
+                }
+
+                .dbp-header-text h1 {
+                    font-size: 1.18rem;
+                }
+
+                .dbp-header-text p {
+                    font-size: .84rem;
+                }
+
+                .dbp-helper-sub {
+                    font-size: .78rem !important;
+                }
+
+                .dbp-card,
+                .dbp-state-card {
+                    border-radius: 16px;
+                }
+
+                .dbp-state-card {
+                    padding: 1rem;
+                    font-size: .85rem;
+                }
+
+                .dbp-filter-row {
+                    grid-template-columns: 1fr;
+                }
+
+                .dbp-input,
+                .dbp-select {
+                    font-size: 16px;
+                }
+
+                .dbp-customer-item {
+                    align-items: flex-start;
+                    padding: .7rem .75rem;
+                }
+
+                .dbp-customer-text {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: .15rem;
+                }
+
+                .dbp-customer-text span {
+                    white-space: normal;
+                }
+
+                .dbp-right-header-actions {
+                    gap: .45rem;
+                    flex-wrap: wrap;
+                }
+
+                .dbp-badge {
+                    justify-content: center;
+                }
+
+                .dbp-link-btn {
+                    padding: .35rem .45rem;
+                }
+            }
+        </style>

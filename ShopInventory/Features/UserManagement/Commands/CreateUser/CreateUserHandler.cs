@@ -83,7 +83,7 @@ public sealed class CreateUserHandler(
         var validRoles = new[]
         {
             "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController",
-            "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab"
+            "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab", "ADR", "Sales"
         };
 
         if (!validRoles.Contains(request.Role, StringComparer.Ordinal))
@@ -91,20 +91,32 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
         }
 
-        if ((request.Role == "StockController" || request.Role == "DepotController") &&
+        if ((request.Role == "StockController" || request.Role == "DepotController" || request.Role == "ADR" || request.Role == "Sales") &&
             (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return Errors.UserManagement.CreationFailed($"At least one assigned warehouse code is required for {request.Role} role");
         }
 
-        if (request.Role == "Merchandiser" && (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
+        if (request.Role == "Merchandiser" &&
+            (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
         {
-            return Errors.UserManagement.CreationFailed("At least one assigned customer code is required for Merchandiser role");
+            return Errors.UserManagement.CreationFailed($"At least one assigned customer code is required for {request.Role} role");
         }
 
-        if ((request.Role == "Driver" || request.Role == "PodOperator") && string.IsNullOrWhiteSpace(request.AssignedSection))
+        if ((request.Role == "Driver" || request.Role == "PodOperator") &&
+            string.IsNullOrWhiteSpace(request.AssignedSection))
         {
-            return Errors.UserManagement.CreationFailed("An assigned section is required for Driver and PodOperator roles");
+            return Errors.UserManagement.CreationFailed($"An assigned section is required for {request.Role} role");
+        }
+
+        if ((request.Role == "ADR" || request.Role == "Sales") && string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode))
+        {
+            return Errors.UserManagement.CreationFailed($"An assigned business partner code is required for {request.Role} role");
+        }
+
+        if ((request.Role == "ADR" || request.Role == "Sales") && string.IsNullOrWhiteSpace(request.AssignedCostCentreCode))
+        {
+            return Errors.UserManagement.CreationFailed($"An assigned cost centre code is required for {request.Role} role");
         }
 
         List<string> permissions;
@@ -140,7 +152,7 @@ public sealed class CreateUserHandler(
             CreatedAt = DateTime.UtcNow
         };
 
-        if (request.Role == "StockController" || request.Role == "DepotController" || request.Role == "Merchandiser")
+        if (request.Role == "StockController" || request.Role == "DepotController" || request.Role == "Merchandiser" || request.Role == "ADR" || request.Role == "Sales")
         {
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
         }
@@ -153,6 +165,12 @@ public sealed class CreateUserHandler(
         if (request.Role == "Driver" || request.Role == "PodOperator")
         {
             user.AssignedSection = request.AssignedSection;
+        }
+
+        if (request.Role == "ADR" || request.Role == "Sales")
+        {
+            user.AssignedBusinessPartnerCode = request.AssignedBusinessPartnerCode?.Trim();
+            user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
         }
 
         if (request.AllowedPaymentMethods is { Count: > 0 })
@@ -228,6 +246,8 @@ public sealed class CreateUserHandler(
             AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
+            AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = user.AssignedCostCentreCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt
