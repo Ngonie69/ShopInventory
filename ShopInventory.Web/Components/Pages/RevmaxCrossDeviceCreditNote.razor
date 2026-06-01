@@ -287,6 +287,26 @@
         line-height: 1.55;
     }
 
+    .rxcn-json-section {
+        margin-top: 1rem;
+    }
+
+    .rxcn-code-block {
+        margin: .55rem 0 0;
+        padding: .95rem 1rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        background: #f8fafc;
+        color: #0f172a;
+        font-family: 'Consolas', monospace;
+        font-size: .82rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 360px;
+        overflow: auto;
+    }
+
     /* ── Metadata panels ────────────────────────────── */
     .rxcn-meta {
         display: grid;
@@ -445,6 +465,10 @@
                         <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
                     }
                     Load Credit Note
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" Href="/revmax/cross-device-credit-note/history"
+                           StartIcon="@Icons.Material.Filled.History" Class="rxcn-hero-btn">
+                    History
                 </MudButton>
                 <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ClearForm"
                            Disabled="@(isLoadingDraft || isSubmitting)" StartIcon="@Icons.Material.Filled.ClearAll"
@@ -794,6 +818,12 @@
                                         fiscal day.
                                     </p>
 
+                                    <div class="rxcn-json-section">
+                                        <label class="rxcn-label">TransactMExt JSON preview</label>
+                                        <p class="rxcn-help">This is the exact request object ShopInventory will post when you click fiscalize.</p>
+                                        <pre class="rxcn-code-block">@GetRequestPreviewJson()</pre>
+                                    </div>
+
                                     <div class="d-flex gap-2 flex-wrap mt-3">
                                         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="FiscalizeAsync"
                                                    Disabled="@(!CanSubmit)" StartIcon="@Icons.Material.Filled.SendAndArchive" Class="pod-upload-btn">
@@ -809,6 +839,15 @@
                                             Reload Draft
                                         </MudButton>
                                     </div>
+
+                                    @if (submissionResult is not null)
+                                    {
+                                        <div class="rxcn-json-section">
+                                            <label class="rxcn-label">REVMax response JSON</label>
+                                            <p class="rxcn-help">Captured from the successful TransactMExt submission you just sent.</p>
+                                            <pre class="rxcn-code-block">@GetSubmissionResponseJson()</pre>
+                                        </div>
+                                    }
                                 </div>
                             </div>
 

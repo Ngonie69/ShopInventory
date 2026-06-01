@@ -222,6 +222,7 @@ public class CreditNoteLineDto
     public decimal UnitPrice { get; set; }
     public decimal DiscountPercent { get; set; }
     public decimal TaxPercent { get; set; }
+    public string? TaxCode { get; set; }
     public decimal LineTotal { get; set; }
     public string? WarehouseCode { get; set; }
     public string? ReturnReason { get; set; }

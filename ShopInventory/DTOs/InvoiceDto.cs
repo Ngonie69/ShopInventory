@@ -52,6 +52,7 @@ public class InvoiceLineDto
     public decimal UnitPrice { get; set; }
     public decimal GrossPrice { get; set; }
     public decimal LineTotal { get; set; }
+    public string? TaxCode { get; set; }
     public string? WarehouseCode { get; set; }
     public decimal DiscountPercent { get; set; }
     public string? UoMCode { get; set; }

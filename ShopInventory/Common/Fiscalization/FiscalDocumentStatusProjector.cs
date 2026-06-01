@@ -99,7 +99,7 @@ internal static class FiscalDocumentStatusProjector
 
         var transactionLookup = latestTransactions
             .GroupBy(transaction => transaction.DocNum)
-            .ToDictionary(group => group.Key, group => group.First());
+            .ToDictionary(group => group.Key, group => SelectPreferredTransaction(group));
 
         foreach (var document in documentList)
         {
@@ -141,6 +141,14 @@ internal static class FiscalDocumentStatusProjector
 
         return (false, NotFiscalisedStatus);
     }
+
+    private static DesktopFiscalTransactionEntity SelectPreferredTransaction(
+        IEnumerable<DesktopFiscalTransactionEntity> transactions)
+        => transactions
+            .OrderByDescending(HasFiscalEvidence)
+            .ThenByDescending(transaction => transaction.LastSyncedAtUtc)
+            .ThenByDescending(transaction => transaction.TimestampUtc)
+            .First();
 
     private static bool HasFiscalEvidence(DesktopFiscalTransactionEntity transaction)
         => string.Equals(transaction.Status, "Success", StringComparison.OrdinalIgnoreCase)

@@ -5,6 +5,7 @@ using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.Crates.Commands.UploadInvoiceCratePod;
 using ShopInventory.Features.Invoices.Commands.CreateInvoice;
+using ShopInventory.Features.Invoices.Commands.FiscalizeInvoice;
 using ShopInventory.Features.Invoices.Commands.UploadPod;
 using ShopInventory.Features.Invoices.Queries.DownloadInvoiceAttachment;
 using ShopInventory.Features.Invoices.Queries.DownloadInvoicePdf;
@@ -20,6 +21,7 @@ using ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
 using ShopInventory.Features.Invoices.Queries.ValidateInvoice;
 using ShopInventory.Features.Invoices.Queries.ValidateBulkPods;
+using ShopInventory.Services;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
@@ -109,6 +111,21 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
                 restrictToAssignedCustomers ? GetUserId() : null,
                 restrictToAssignedCustomers),
             cancellationToken);
+        return result.Match(Ok, Problem);
+    }
+
+    [HttpPost("{docEntry:int}/fiscalize")]
+    [Authorize(Roles = "Admin,Cashier")]
+    [ProducesResponseType(typeof(FiscalizationResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> FiscalizeInvoice(
+        int docEntry,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new FiscalizeInvoiceCommand(docEntry, GetUserId(), GetUsername()),
+            cancellationToken);
+
         return result.Match(Ok, Problem);
     }
 

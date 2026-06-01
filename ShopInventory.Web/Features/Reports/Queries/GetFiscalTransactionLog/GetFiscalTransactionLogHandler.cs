@@ -51,6 +51,11 @@ public sealed class GetFiscalTransactionLogHandler(
                 queryParts.Add($"sourceSystem={Uri.EscapeDataString(request.SourceSystem.Trim())}");
             }
 
+            if (!string.IsNullOrWhiteSpace(request.ClientTransactionPrefix))
+            {
+                queryParts.Add($"clientTransactionPrefix={Uri.EscapeDataString(request.ClientTransactionPrefix.Trim())}");
+            }
+
             var url = $"api/DesktopIntegration/fiscal-transactions?{string.Join("&", queryParts)}";
             var response = await httpClient.GetAsync(url, cancellationToken);
 

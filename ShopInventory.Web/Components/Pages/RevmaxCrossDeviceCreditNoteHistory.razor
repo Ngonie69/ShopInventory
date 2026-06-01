@@ -1,0 +1,1069 @@
+@page "/revmax/cross-device-credit-note/history"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>Cross-Device Credit Note History - Shop Inventory</PageTitle>
+
+<div class="cdnh-page">
+    <section class="cdnh-hero">
+        <div>
+            <span class="cdnh-kicker">REVMax Audit Trail</span>
+            <h1>Cross-device credit note history</h1>
+            <p>Review every TransactMExt credit-note submission routed through ShopInventory, inspect the returned QR data, and verify the fiscal details that REVMax accepted.</p>
+        </div>
+        <div class="cdnh-hero-actions">
+            <a class="cdnh-action" href="/revmax/cross-device-credit-note">Back to fiscalize</a>
+            <button type="button" class="cdnh-action cdnh-action--primary" @onclick="ReloadAsync" disabled="@isLoading">Refresh</button>
+            <button type="button" class="cdnh-action" @onclick="ClearFiltersAsync" disabled="@isLoading">Reset</button>
+        </div>
+    </section>
+
+    <section class="cdnh-summary-grid">
+        <article class="cdnh-summary-card">
+            <span>Total transactions</span>
+            <strong>@historyResult.Summary.TotalTransactions</strong>
+            <small>@PageSummary</small>
+        </article>
+        <article class="cdnh-summary-card cdnh-summary-card--success">
+            <span>Success</span>
+            <strong>@historyResult.Summary.SuccessCount</strong>
+            <small>New fiscalised credit notes</small>
+        </article>
+        <article class="cdnh-summary-card cdnh-summary-card--info">
+            <span>Already fiscalised</span>
+            <strong>@historyResult.Summary.FiscalisedCount</strong>
+            <small>REVMax already had a receipt</small>
+        </article>
+        <article class="cdnh-summary-card cdnh-summary-card--danger">
+            <span>Failed</span>
+            <strong>@historyResult.Summary.FailedCount</strong>
+            <small>Submission needs operator attention</small>
+        </article>
+        <article class="cdnh-summary-card">
+            <span>Operators</span>
+            <strong>@historyResult.Summary.UniqueOperators</strong>
+            <small>@LatestActivityText</small>
+        </article>
+    </section>
+
+    <section class="cdnh-filter-card">
+        <div class="cdnh-filter-grid">
+            <label>
+                <span>Search</span>
+                <input @bind="searchTerm" placeholder="Credit note, original invoice, verification code, operator" />
+            </label>
+            <label>
+                <span>Status</span>
+                <select @bind="selectedStatus">
+                    <option value="All">All</option>
+                    <option value="Success">Success</option>
+                    <option value="Fiscalised">Fiscalised</option>
+                    <option value="Failed">Failed</option>
+                </select>
+            </label>
+            <label>
+                <span>From</span>
+                <InputDate @bind-Value="fromDate" />
+            </label>
+            <label>
+                <span>To</span>
+                <InputDate @bind-Value="toDate" />
+            </label>
+        </div>
+        <div class="cdnh-filter-actions">
+            <button type="button" class="cdnh-action cdnh-action--primary" @onclick="ApplyFiltersAsync" disabled="@isLoading">Apply filters</button>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <section class="cdnh-empty">
+            <div class="spinner-border text-primary" role="status"></div>
+            <strong>Loading cross-device credit note history...</strong>
+            <p>Pulling the latest REVMax endpoint submissions from the API log.</p>
+        </section>
+    }
+    else
+    {
+        <section class="cdnh-table-card">
+            <div class="cdnh-table-toolbar">
+                <div>
+                    <h2>Transactions</h2>
+                    <p>@PageSummary</p>
+                </div>
+                <div class="cdnh-pagination">
+                    <button type="button" class="cdnh-action" @onclick="PreviousPageAsync" disabled="@(isLoading || currentPage <= 1)">Previous</button>
+                    <span>Page @currentPage</span>
+                    <button type="button" class="cdnh-action" @onclick="NextPageAsync" disabled="@(isLoading || !historyResult.HasMore)">Next</button>
+                </div>
+            </div>
+
+            @if (!historyResult.Transactions.Any())
+            {
+                <div class="cdnh-empty">
+                    <strong>No matching submissions found</strong>
+                    <p>Try widening the date range or clearing the search term.</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="cdnh-table">
+                        <thead>
+                            <tr>
+                                <th>Credit note</th>
+                                <th>Original invoice</th>
+                                <th>Status</th>
+                                <th>Response</th>
+                                <th>Operator</th>
+                                <th>When</th>
+                                <th class="cdnh-actions-column">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var transaction in historyResult.Transactions)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="cdnh-meta-title">Credit note #@transaction.DocNum</div>
+                                        <div class="cdnh-meta-sub">@DisplayCustomer(transaction)</div>
+                                    </td>
+                                    <td>
+                                        <div class="cdnh-meta-title">@(string.IsNullOrWhiteSpace(transaction.OriginalInvoiceNumber) ? "Not captured" : transaction.OriginalInvoiceNumber)</div>
+                                        <div class="cdnh-meta-sub">Request @FormatAmount(transaction.DocTotal, transaction.Currency)</div>
+                                    </td>
+                                    <td>
+                                        <span class="@GetStatusBadgeClass(transaction.Status)">@transaction.Status</span>
+                                    </td>
+                                    <td>
+                                        <div class="cdnh-meta-title">@DisplayVerification(transaction)</div>
+                                        <div class="cdnh-meta-sub">Receipt @DisplayReceiptGlobalNo(transaction)</div>
+                                    </td>
+                                    <td>
+                                        <div class="cdnh-meta-title">@DisplayOperator(transaction)</div>
+                                        <div class="cdnh-meta-sub">@transaction.ClientTransactionId</div>
+                                    </td>
+                                    <td>
+                                        <div class="cdnh-meta-title">@FormatTimestamp(transaction.TimestampUtc)</div>
+                                        <div class="cdnh-meta-sub">Synced @FormatTimestamp(transaction.LastSyncedAtUtc)</div>
+                                    </td>
+                                    <td class="cdnh-actions-cell">
+                                        <button type="button" class="cdnh-action" @onclick="() => OpenTransactionDetails(transaction)">View details</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+
+    @if (isDetailsOpen && selectedTransaction is not null)
+    {
+        <div class="cdnh-modal-backdrop" @onclick="CloseTransactionDetails">
+            <div class="cdnh-modal" role="dialog" aria-modal="true" aria-labelledby="cdnh-title" @onclick:stopPropagation="true">
+                <div class="cdnh-modal-hero">
+                    <div class="cdnh-modal-heading">
+                        <span class="cdnh-kicker cdnh-kicker--modal">Transaction detail</span>
+                        <h2 id="cdnh-title">Credit note #@selectedTransaction.DocNum</h2>
+                        <p class="cdnh-modal-subtitle">
+                            Original invoice @(selectedRequest?.OriginalInvoiceNumber ?? selectedTransaction.OriginalInvoiceNumber ?? "Not captured")
+                            <span class="cdnh-modal-divider">/</span>
+                            @DisplayCustomer(selectedTransaction)
+                        </p>
+                        <div class="cdnh-modal-meta">
+                            <span class="cdnh-modal-meta-chip">@selectedTransaction.ClientTransactionId</span>
+                            <span class="cdnh-modal-meta-chip">@DisplayOperator(selectedTransaction)</span>
+                            <span class="cdnh-modal-meta-chip">@FormatTimestamp(selectedTransaction.TimestampUtc)</span>
+                        </div>
+                    </div>
+                    <div class="cdnh-modal-hero-actions">
+                        <span class="@GetStatusBadgeClass(selectedTransaction.Status)">@selectedTransaction.Status</span>
+                        <button type="button" class="cdnh-modal-close" @onclick="CloseTransactionDetails" aria-label="Close details">Close</button>
+                    </div>
+                </div>
+
+                <div class="cdnh-modal-stats">
+                    <article class="cdnh-modal-stat">
+                        <span>Request total</span>
+                        <strong>@FormatAmount(selectedRequest?.InvoiceAmount ?? selectedTransaction.DocTotal, selectedRequest?.Currency ?? selectedTransaction.Currency)</strong>
+                        <small>VAT @FormatAmount(selectedRequest?.InvoiceTaxAmount ?? selectedTransaction.VatSum, selectedRequest?.Currency ?? selectedTransaction.Currency)</small>
+                    </article>
+                    <article class="cdnh-modal-stat">
+                        <span>Verification</span>
+                        <strong>@(selectedResponse?.VerificationCode ?? DisplayVerification(selectedTransaction))</strong>
+                        <small>Receipt @GetSelectedReceiptGlobalNoText()</small>
+                    </article>
+                    <article class="cdnh-modal-stat">
+                        <span>Device</span>
+                        <strong>@(selectedResponse?.DeviceID ?? selectedTransaction.DeviceId ?? "Not captured")</strong>
+                        <small>Fiscal day @GetSelectedFiscalDayText()</small>
+                    </article>
+                    <article class="cdnh-modal-stat">
+                        <span>Response code</span>
+                        <strong>@(selectedResponse?.Code ?? "Not captured")</strong>
+                        <small>@(selectedReceiptData?.ReceiptType ?? "Receipt type not captured")</small>
+                    </article>
+                </div>
+
+                <section class="cdnh-message-banner">
+                    <div class="cdnh-message-label">Fiscal response message</div>
+                    <p class="cdnh-message-copy">@selectedDisplayMessage</p>
+                </section>
+
+                <div class="cdnh-modal-grid">
+                    <section class="cdnh-panel cdnh-qr-card">
+                        <div class="cdnh-panel-title">QR and verification</div>
+                        @if (!string.IsNullOrWhiteSpace(selectedQrCodeImageSrc))
+                        {
+                            <div class="cdnh-qr-wrap">
+                                <img class="cdnh-qr-image" src="@selectedQrCodeImageSrc" alt="Fiscal QR code" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="cdnh-qr-empty">
+                                <p class="cdnh-section-copy">No QR code was returned for this transaction.</p>
+                            </div>
+                        }
+
+                        <div class="cdnh-kv-list">
+                            <div>
+                                <span class="cdnh-kv-label">Verification code</span>
+                                <span class="cdnh-kv-value">@(selectedResponse?.VerificationCode ?? DisplayVerification(selectedTransaction))</span>
+                            </div>
+                            <div>
+                                <span class="cdnh-kv-label">Receipt global no</span>
+                                <span class="cdnh-kv-value">@GetSelectedReceiptGlobalNoText()</span>
+                            </div>
+                            <div>
+                                <span class="cdnh-kv-label">Device ID</span>
+                                <span class="cdnh-kv-value">@(selectedResponse?.DeviceID ?? selectedTransaction.DeviceId ?? "Not captured")</span>
+                            </div>
+                            <div>
+                                <span class="cdnh-kv-label">Device serial</span>
+                                <span class="cdnh-kv-value">@(selectedResponse?.DeviceSerialNumber ?? selectedResponse?.DeviceSerial ?? selectedTransaction.DeviceSerialNumber ?? "Not captured")</span>
+                            </div>
+                            <div>
+                                <span class="cdnh-kv-label">Fiscal day</span>
+                                <span class="cdnh-kv-value">@GetSelectedFiscalDayText()</span>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(selectedResponse?.VerificationLink))
+                        {
+                            <a class="cdnh-link" href="@selectedResponse.VerificationLink" target="_blank" rel="noopener noreferrer">Open verification link</a>
+                        }
+                    </section>
+
+                    <section class="cdnh-panel">
+                        <div class="cdnh-panel-title">Request submitted to REVMax</div>
+                        <dl class="cdnh-detail-list">
+                            <div>
+                                <dt>Original invoice</dt>
+                                <dd>@(selectedRequest?.OriginalInvoiceNumber ?? selectedTransaction.OriginalInvoiceNumber ?? "Not captured")</dd>
+                            </div>
+                            <div>
+                                <dt>Customer</dt>
+                                <dd>@(selectedRequest?.CustomerName ?? DisplayCustomer(selectedTransaction))</dd>
+                            </div>
+                            <div>
+                                <dt>Currency</dt>
+                                <dd>@(selectedRequest?.Currency ?? selectedTransaction.Currency ?? "Not captured")</dd>
+                            </div>
+                            <div>
+                                <dt>Request total</dt>
+                                <dd>@FormatAmount(selectedRequest?.InvoiceAmount ?? selectedTransaction.DocTotal, selectedRequest?.Currency ?? selectedTransaction.Currency)</dd>
+                            </div>
+                            <div>
+                                <dt>Request VAT</dt>
+                                <dd>@FormatAmount(selectedRequest?.InvoiceTaxAmount ?? selectedTransaction.VatSum, selectedRequest?.Currency ?? selectedTransaction.Currency)</dd>
+                            </div>
+                            <div>
+                                <dt>Ref device ID</dt>
+                                <dd>@(selectedRequest?.refDeviceId?.ToString() ?? "Not supplied")</dd>
+                            </div>
+                            <div>
+                                <dt>Ref receipt global no</dt>
+                                <dd>@(selectedRequest?.refReceiptGlobalNo?.ToString() ?? "Not supplied")</dd>
+                            </div>
+                            <div>
+                                <dt>Ref fiscal day</dt>
+                                <dd>@(selectedRequest?.refFiscalDayNo?.ToString() ?? "Not supplied")</dd>
+                            </div>
+                            <div>
+                                <dt>Comment</dt>
+                                <dd>@(string.IsNullOrWhiteSpace(selectedRequest?.InvoiceComment) ? "Not supplied" : selectedRequest.InvoiceComment)</dd>
+                            </div>
+                        </dl>
+                    </section>
+
+                    <section class="cdnh-panel">
+                        @if (selectedHasFailurePayload && selectedReceiptData is null)
+                        {
+                            <div class="cdnh-panel-title">Failure summary</div>
+                            <dl class="cdnh-detail-list">
+                                <div>
+                                    <dt>Response code</dt>
+                                    <dd>@(selectedResponse?.Code ?? "Not captured")</dd>
+                                </div>
+                                <div>
+                                    <dt>Failure source</dt>
+                                    <dd>@(selectedFailureSource ?? "REVMaxUpstream")</dd>
+                                </div>
+                                <div>
+                                    <dt>Endpoint</dt>
+                                    <dd>@(selectedFailureEndpoint ?? "TransactMExt")</dd>
+                                </div>
+                                <div>
+                                    <dt>Document no</dt>
+                                    <dd>@GetSelectedFailureDocumentText()</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt data</dt>
+                                    <dd>REVMax did not return receipt totals, taxes, or payments for this submission.</dd>
+                                </div>
+                                <div>
+                                    <dt>Next step</dt>
+                                    <dd>Review the raw response below before retrying the fiscalisation.</dd>
+                                </div>
+                            </dl>
+                        }
+                        else
+                        {
+                            <div class="cdnh-panel-title">Fiscal response summary</div>
+                            <dl class="cdnh-detail-list">
+                                <div>
+                                    <dt>Response code</dt>
+                                    <dd>@(selectedResponse?.Code ?? "Not captured")</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt type</dt>
+                                    <dd>@(selectedReceiptData?.ReceiptType ?? "Not captured")</dd>
+                                </div>
+                                <div>
+                                    <dt>Invoice no</dt>
+                                    <dd>@(selectedReceiptData?.InvoiceNo ?? "Not captured")</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt currency</dt>
+                                    <dd>@(selectedReceiptData?.ReceiptCurrency ?? "Not captured")</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt counter</dt>
+                                    <dd>@(selectedReceiptData?.ReceiptCounter > 0 ? selectedReceiptData.ReceiptCounter.ToString() : "Not captured")</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt total</dt>
+                                    <dd>@(selectedReceiptData is null ? "Not captured" : FormatAmount(selectedReceiptData.ReceiptTotal, selectedReceiptData.ReceiptCurrency))</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt date</dt>
+                                    <dd>@(string.IsNullOrWhiteSpace(selectedReceiptData?.ReceiptDate) ? "Not captured" : selectedReceiptData.ReceiptDate)</dd>
+                                </div>
+                                <div>
+                                    <dt>Receipt notes</dt>
+                                    <dd>@(string.IsNullOrWhiteSpace(selectedReceiptData?.ReceiptNotes) ? "Not captured" : selectedReceiptData.ReceiptNotes)</dd>
+                                </div>
+                            </dl>
+                        }
+                    </section>
+                </div>
+
+                @if (selectedReceiptData?.ReceiptLines?.Count > 0)
+                {
+                    <section class="cdnh-panel">
+                        <div class="cdnh-panel-title">Fiscalised line items</div>
+                        <div class="table-responsive">
+                            <table class="cdnh-lines-table">
+                                <thead>
+                                    <tr>
+                                        <th>No</th>
+                                        <th>Item</th>
+                                        <th>Qty</th>
+                                        <th>Price</th>
+                                        <th>Total</th>
+                                        <th>Tax</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedReceiptData.ReceiptLines)
+                                    {
+                                        <tr>
+                                            <td>@line.ReceiptLineNo</td>
+                                            <td>@line.ReceiptLineName</td>
+                                            <td>@line.ReceiptLineQuantity.ToString("N2")</td>
+                                            <td>@line.ReceiptLinePrice.ToString("N2")</td>
+                                            <td>@line.ReceiptLineTotal.ToString("N2")</td>
+                                            <td>@(string.IsNullOrWhiteSpace(line.TaxCode) ? line.TaxPercent.ToString("N2") : $"{line.TaxCode} ({line.TaxPercent:N2}%)")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                }
+
+                <div class="cdnh-modal-grid cdnh-modal-grid--double">
+                    <section class="cdnh-panel">
+                        <div class="cdnh-panel-title">Taxes</div>
+                        @if (selectedReceiptData?.ReceiptTaxes?.Count > 0)
+                        {
+                            <ul class="cdnh-tax-list">
+                                @foreach (var tax in selectedReceiptData.ReceiptTaxes)
+                                {
+                                    <li>
+                                        <span>@(string.IsNullOrWhiteSpace(tax.TaxCode) ? $"Tax {tax.TaxID}" : $"{tax.TaxCode} ({tax.TaxPercent:N2}%)")</span>
+                                        <strong>@tax.TaxAmount.ToString("N2")</strong>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <p class="cdnh-section-copy">@GetTaxesEmptyText()</p>
+                        }
+                    </section>
+
+                    <section class="cdnh-panel">
+                        <div class="cdnh-panel-title">Payments</div>
+                        @if (selectedReceiptData?.ReceiptPayments?.Count > 0)
+                        {
+                            <ul class="cdnh-payment-list">
+                                @foreach (var payment in selectedReceiptData.ReceiptPayments)
+                                {
+                                    <li>
+                                        <span>@(string.IsNullOrWhiteSpace(payment.MoneyTypeCode) ? "Payment" : payment.MoneyTypeCode)</span>
+                                        <strong>@payment.PaymentAmount.ToString("N2")</strong>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                        else
+                        {
+                            <p class="cdnh-section-copy">@GetPaymentsEmptyText()</p>
+                        }
+                    </section>
+                </div>
+
+                <div class="cdnh-modal-grid cdnh-modal-grid--double">
+                    <section class="cdnh-panel">
+                        <div class="cdnh-panel-title">Raw request</div>
+                        <div class="cdnh-code-caption">The exact payload sent to `api/revmax/transact-ext`.</div>
+                        <pre class="cdnh-code-block">@(selectedRawRequestJson ?? "No raw request stored.")</pre>
+                    </section>
+                    <section class="cdnh-panel">
+                        <div class="cdnh-panel-title">Raw response</div>
+                        <div class="cdnh-code-caption">The full response returned by the API log for this submission.</div>
+                        <pre class="cdnh-code-block">@(selectedRawResponseJson ?? "No raw response stored.")</pre>
+                    </section>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .cdnh-page {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        padding: 1.25rem;
+    }
+
+    .cdnh-hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1.6rem;
+        border-radius: 24px;
+        background:
+            radial-gradient(circle at top right, rgba(45, 212, 191, 0.28), transparent 32%),
+            linear-gradient(135deg, #0f172a, #164e63 58%, #0f766e 100%);
+        color: #f8fafc;
+        box-shadow: 0 22px 48px rgba(15, 23, 42, 0.24);
+    }
+
+    .cdnh-kicker {
+        display: inline-flex;
+        margin-bottom: .65rem;
+        padding: .3rem .72rem;
+        border-radius: 999px;
+        background: rgba(226, 232, 240, 0.14);
+        font-size: .72rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }
+
+    .cdnh-hero h1 {
+        margin: 0;
+        font-size: clamp(1.9rem, 2.2vw, 2.5rem);
+        font-weight: 800;
+    }
+
+    .cdnh-hero p {
+        max-width: 52rem;
+        margin: .65rem 0 0;
+        color: rgba(226, 232, 240, .88);
+    }
+
+    .cdnh-hero-actions,
+    .cdnh-filter-actions,
+    .cdnh-pagination {
+        display: flex;
+        gap: .75rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .cdnh-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(15, 23, 42, .12);
+        border-radius: 999px;
+        padding: .72rem 1rem;
+        background: rgba(255, 255, 255, .08);
+        color: inherit;
+        font-weight: 700;
+        text-decoration: none;
+        transition: transform .18s ease, background .18s ease, border-color .18s ease;
+    }
+
+    .cdnh-action:hover:not(:disabled) {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, .14);
+    }
+
+    .cdnh-action:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+    }
+
+    .cdnh-action--primary {
+        background: #f8fafc;
+        color: #0f172a;
+        border-color: transparent;
+    }
+
+    .cdnh-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .cdnh-summary-card,
+    .cdnh-filter-card,
+    .cdnh-table-card,
+    .cdnh-panel,
+    .cdnh-modal {
+        background: var(--light-color);
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+    }
+
+    .cdnh-summary-card {
+        padding: 1rem 1.1rem;
+        display: flex;
+        flex-direction: column;
+        gap: .25rem;
+    }
+
+    .cdnh-summary-card span,
+    .cdnh-filter-grid label span,
+    .cdnh-meta-sub,
+    .cdnh-section-copy,
+    .cdnh-detail-list dt,
+    .cdnh-kv-label,
+    .cdnh-code-caption {
+        color: var(--text-secondary);
+        font-size: .84rem;
+    }
+
+    .cdnh-summary-card strong {
+        font-size: 1.8rem;
+        color: var(--text-primary);
+        line-height: 1.1;
+    }
+
+    .cdnh-summary-card small {
+        color: var(--text-primary);
+    }
+
+    .cdnh-summary-card--success { background: linear-gradient(180deg, rgba(16, 185, 129, .08), transparent), var(--light-color); }
+    .cdnh-summary-card--info { background: linear-gradient(180deg, rgba(59, 130, 246, .08), transparent), var(--light-color); }
+    .cdnh-summary-card--danger { background: linear-gradient(180deg, rgba(239, 68, 68, .08), transparent), var(--light-color); }
+
+    .cdnh-filter-card,
+    .cdnh-table-card {
+        padding: 1.2rem;
+    }
+
+    .cdnh-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: .95rem;
+    }
+
+    .cdnh-filter-grid label {
+        display: flex;
+        flex-direction: column;
+        gap: .35rem;
+        font-weight: 600;
+    }
+
+    .cdnh-filter-grid input,
+    .cdnh-filter-grid select {
+        width: 100%;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: .7rem .85rem;
+        background: var(--light-color);
+        color: var(--text-primary);
+    }
+
+    .cdnh-filter-actions {
+        margin-top: 1rem;
+    }
+
+    .cdnh-table-toolbar,
+    .cdnh-modal-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .cdnh-table-toolbar h2,
+    .cdnh-modal-header h2 {
+        margin: 0;
+    }
+
+    .cdnh-table-toolbar p {
+        margin: .3rem 0 0;
+        color: var(--text-secondary);
+    }
+
+    .cdnh-table {
+        width: 100%;
+        min-width: 980px;
+        border-collapse: collapse;
+        margin-top: 1rem;
+    }
+
+    .cdnh-lines-table {
+        width: 100%;
+        min-width: 720px;
+        border-collapse: collapse;
+    }
+
+    .cdnh-table thead th,
+    .cdnh-lines-table thead th {
+        padding: .85rem 1rem;
+        text-align: left;
+        text-transform: uppercase;
+        font-size: .72rem;
+        letter-spacing: .06em;
+        color: var(--text-secondary);
+        background: #f8fafc;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .cdnh-table tbody td,
+    .cdnh-lines-table tbody td {
+        padding: .9rem 1rem;
+        border-bottom: 1px solid var(--border-color);
+        vertical-align: top;
+        color: var(--text-primary);
+    }
+
+    .cdnh-table tbody tr:hover td,
+    .cdnh-lines-table tbody tr:hover td {
+        background: #f8fafc;
+    }
+
+    .cdnh-meta-title {
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .cdnh-actions-column,
+    .cdnh-actions-cell {
+        text-align: right;
+    }
+
+    .cdnh-status {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: .35rem .72rem;
+        font-size: .76rem;
+        font-weight: 800;
+    }
+
+    .cdnh-status--success { background: #dcfce7; color: #166534; }
+    .cdnh-status--info { background: #dbeafe; color: #1d4ed8; }
+    .cdnh-status--danger { background: #fee2e2; color: #b91c1c; }
+    .cdnh-status--muted { background: #e2e8f0; color: #475569; }
+
+    .cdnh-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: .7rem;
+        padding: 2rem 1rem;
+        border: 1px dashed var(--border-color);
+        border-radius: 20px;
+        background: rgba(248, 250, 252, .65);
+        text-align: center;
+    }
+
+    .cdnh-empty strong {
+        color: var(--text-primary);
+    }
+
+    .cdnh-empty p {
+        margin: 0;
+    }
+
+    .cdnh-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, .56);
+        backdrop-filter: blur(10px);
+        z-index: 1500;
+        padding: 1.25rem;
+        overflow-y: auto;
+    }
+
+    .cdnh-modal {
+        width: min(1320px, 100%);
+        margin: 0 auto;
+        padding: 1.35rem;
+        background:
+            radial-gradient(circle at top right, rgba(45, 212, 191, 0.08), transparent 28%),
+            linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+    }
+
+    .cdnh-modal-close {
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        padding: .7rem 1rem;
+        background: rgba(255, 255, 255, .78);
+        color: var(--text-primary);
+        font-weight: 700;
+    }
+
+    .cdnh-modal-hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 1.25rem;
+        align-items: flex-start;
+        padding: 1.35rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 24px;
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(22, 78, 99, 0.88) 58%, rgba(13, 148, 136, 0.78));
+        color: #f8fafc;
+        box-shadow: 0 20px 44px rgba(15, 23, 42, 0.18);
+    }
+
+    .cdnh-modal-heading h2 {
+        margin: 0;
+        font-size: clamp(1.85rem, 2.1vw, 2.4rem);
+        font-weight: 800;
+    }
+
+    .cdnh-kicker--modal {
+        background: rgba(255, 255, 255, 0.12);
+        color: #e2e8f0;
+    }
+
+    .cdnh-modal-subtitle {
+        margin: .55rem 0 0;
+        color: rgba(226, 232, 240, 0.88);
+        font-size: .96rem;
+    }
+
+    .cdnh-modal-divider {
+        display: inline-block;
+        margin: 0 .55rem;
+        opacity: .55;
+    }
+
+    .cdnh-modal-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .6rem;
+        margin-top: .85rem;
+    }
+
+    .cdnh-modal-meta-chip {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        padding: .4rem .72rem;
+        border: 1px solid rgba(226, 232, 240, 0.14);
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.2);
+        color: #f8fafc;
+        font-size: .82rem;
+        overflow-wrap: anywhere;
+    }
+
+    .cdnh-modal-hero-actions {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: .75rem;
+    }
+
+    .cdnh-modal-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .cdnh-modal-stat {
+        padding: 1rem 1.05rem;
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.92));
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+    }
+
+    .cdnh-modal-stat span,
+    .cdnh-modal-stat small {
+        display: block;
+        color: var(--text-secondary);
+    }
+
+    .cdnh-modal-stat strong {
+        display: block;
+        margin: .35rem 0;
+        font-size: 1.15rem;
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+    }
+
+    .cdnh-message-banner {
+        margin-top: 1rem;
+        padding: 1rem 1.1rem;
+        border: 1px solid rgba(14, 116, 144, 0.16);
+        border-radius: 20px;
+        background: linear-gradient(135deg, rgba(240, 249, 255, 0.92), rgba(236, 253, 245, 0.92));
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+    }
+
+    .cdnh-message-label {
+        margin-bottom: .45rem;
+        font-size: .78rem;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: #0f766e;
+    }
+
+    .cdnh-message-copy {
+        margin: 0;
+        color: var(--text-primary);
+        font-weight: 600;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        max-height: 220px;
+        overflow: auto;
+    }
+
+    .cdnh-modal-grid {
+        display: grid;
+        grid-template-columns: 1.05fr 1fr 1fr;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .cdnh-modal-grid--double {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cdnh-panel {
+        padding: 1.1rem;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+    }
+
+    .cdnh-panel-title {
+        margin-bottom: .9rem;
+        font-size: 1rem;
+        font-weight: 800;
+        color: var(--text-primary);
+    }
+
+    .cdnh-qr-card {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .cdnh-qr-wrap {
+        display: flex;
+        justify-content: center;
+        padding: 1rem;
+        border-radius: 18px;
+        background: #ffffff;
+    }
+
+    .cdnh-qr-empty {
+        display: flex;
+        align-items: center;
+        min-height: 140px;
+        padding: 1rem;
+        border: 1px dashed var(--border-color);
+        border-radius: 18px;
+        background: rgba(248, 250, 252, 0.7);
+    }
+
+    .cdnh-qr-image {
+        width: min(220px, 100%);
+        height: auto;
+    }
+
+    .cdnh-kv-list {
+        display: grid;
+        gap: .7rem;
+    }
+
+    .cdnh-kv-list > div {
+        display: flex;
+        justify-content: space-between;
+        gap: .75rem;
+        align-items: flex-start;
+    }
+
+    .cdnh-kv-value {
+        text-align: right;
+        font-weight: 700;
+        color: var(--text-primary);
+        overflow-wrap: anywhere;
+    }
+
+    .cdnh-detail-list {
+        display: grid;
+        gap: .75rem;
+        margin: 0;
+    }
+
+    .cdnh-detail-list > div {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: .85rem;
+        padding-bottom: .75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .cdnh-detail-list > div:last-child,
+    .cdnh-tax-list li:last-child,
+    .cdnh-payment-list li:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .cdnh-detail-list dt,
+    .cdnh-detail-list dd {
+        margin: 0;
+    }
+
+    .cdnh-detail-list dd {
+        color: var(--text-primary);
+        font-weight: 600;
+        overflow-wrap: anywhere;
+    }
+
+    .cdnh-tax-list,
+    .cdnh-payment-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .cdnh-tax-list li,
+    .cdnh-payment-list li {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: .75rem 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .cdnh-code-block {
+        margin: .85rem 0 0;
+        padding: 1rem;
+        border-radius: 16px;
+        border: 1px solid var(--border-color);
+        background: #f8fafc;
+        font-size: .8rem;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 420px;
+        overflow: auto;
+    }
+
+    .cdnh-link {
+        color: #0f766e;
+        font-weight: 700;
+    }
+
+    @@media (max-width: 991.98px) {
+        .cdnh-hero,
+        .cdnh-table-toolbar,
+        .cdnh-modal-hero,
+        .cdnh-kv-list > div,
+        .cdnh-detail-list > div {
+            flex-direction: column;
+        }
+
+        .cdnh-modal-stats,
+        .cdnh-modal-grid,
+        .cdnh-modal-grid--double {
+            grid-template-columns: 1fr;
+        }
+
+        .cdnh-modal-hero-actions {
+            align-items: flex-start;
+        }
+
+        .cdnh-detail-list > div {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @@media (max-width: 767.98px) {
+        .cdnh-page {
+            padding: .85rem;
+        }
+
+        .cdnh-hero,
+        .cdnh-filter-card,
+        .cdnh-table-card,
+        .cdnh-panel,
+        .cdnh-modal {
+            padding: 1rem;
+        }
+
+        .cdnh-summary-grid,
+        .cdnh-filter-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>

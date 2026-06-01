@@ -27,8 +27,15 @@ public sealed class GetCratePodsHandler(
             return Errors.Auth.UserNotFound;
         }
 
+        var activePodSubmissionIds = context.DocumentAttachments
+            .AsNoTracking()
+            .Where(a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission)
+            .Select(a => a.EntityId)
+            .Distinct();
+
         var query = context.CratePodSubmissions
             .AsNoTracking()
+            .Where(s => activePodSubmissionIds.Contains(s.Id))
             .Include(s => s.CrateTransaction)
             .Include(s => s.SubmittedByUser)
             .AsQueryable();

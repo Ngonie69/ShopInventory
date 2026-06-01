@@ -59,11 +59,6 @@ public interface IInventoryTransferQueueService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Get queue statistics
-    /// </summary>
-    Task<InventoryTransferQueueStatsDto> GetQueueStatsAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Update queue entry after SAP posting
     /// </summary>
     Task UpdateQueueEntryAsync(
@@ -306,47 +301,6 @@ public class InventoryTransferQueueService : IInventoryTransferQueueService
 
         _logger.LogInformation("Queued transfer marked for retry: {ExternalReference}", externalReference);
         return true;
-    }
-
-    public async Task<InventoryTransferQueueStatsDto> GetQueueStatsAsync(CancellationToken cancellationToken = default)
-    {
-        var stats = await _context.InventoryTransferQueue
-            .AsNoTracking()
-            .GroupBy(q => 1)
-            .Select(g => new InventoryTransferQueueStatsDto
-            {
-                TotalQueued = g.Count(),
-                Pending = g.Count(q => q.Status == InventoryTransferQueueStatus.Pending),
-                Processing = g.Count(q => q.Status == InventoryTransferQueueStatus.Processing),
-                Completed = g.Count(q => q.Status == InventoryTransferQueueStatus.Completed),
-                Failed = g.Count(q => q.Status == InventoryTransferQueueStatus.Failed),
-                RequiresReview = g.Count(q => q.Status == InventoryTransferQueueStatus.RequiresReview),
-                Cancelled = g.Count(q => q.Status == InventoryTransferQueueStatus.Cancelled)
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (stats == null)
-        {
-            return new InventoryTransferQueueStatsDto();
-        }
-
-        // Get oldest pending
-        var oldestPending = await _context.InventoryTransferQueue
-            .AsNoTracking()
-            .Where(q => q.Status == InventoryTransferQueueStatus.Pending)
-            .OrderBy(q => q.CreatedAt)
-            .Select(q => q.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        stats.OldestPendingAge = oldestPending != default ? oldestPending : null;
-
-        // Get total quantity pending
-        stats.TotalQuantityPending = await _context.InventoryTransferQueue
-            .AsNoTracking()
-            .Where(q => q.Status == InventoryTransferQueueStatus.Pending)
-            .SumAsync(q => q.TotalQuantity, cancellationToken);
-
-        return stats;
     }
 
     public async Task UpdateQueueEntryAsync(

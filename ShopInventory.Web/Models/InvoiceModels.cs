@@ -170,4 +170,6 @@ public class FiscalizationResult
     public string? InvoiceNumber { get; set; }
     public bool Skipped { get; set; }
     public bool Queued { get; set; }
+    public string? RawRequestJson { get; set; }
+    public string? RawResponseJson { get; set; }
 }

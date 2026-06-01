@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
@@ -107,6 +110,10 @@ public class FiscalizationResult
     /// Whether fiscalization was accepted for background processing.
     /// </summary>
     public bool Queued { get; set; }
+
+    public string? RawRequestJson { get; set; }
+
+    public string? RawResponseJson { get; set; }
 }
 
 /// <summary>
@@ -114,6 +121,14 @@ public class FiscalizationResult
 /// </summary>
 public class FiscalizationService : IFiscalizationService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = null,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = false
+    };
+
     private readonly IRevmaxClient _revmaxClient;
     private readonly RevmaxSettings _settings;
     private readonly ILogger<FiscalizationService> _logger;
@@ -147,6 +162,9 @@ public class FiscalizationService : IFiscalizationService
         CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default)
     {
+        string? rawRequestJson = null;
+        string? rawResponseJson = null;
+
         if (invoice == null)
         {
             throw new ArgumentNullException(nameof(invoice));
@@ -182,9 +200,11 @@ public class FiscalizationService : IFiscalizationService
             // Build the TransactM request
             var request = BuildTransactMRequest(invoice, customerDetails);
             request.InvoiceNumber = invoiceNumber;
+            rawRequestJson = Serialize(request);
 
             // Post to REVMax
             var response = await _revmaxClient.TransactMAsync(request, cancellationToken);
+            rawResponseJson = Serialize(response);
 
             if (response == null)
             {
@@ -195,7 +215,9 @@ public class FiscalizationService : IFiscalizationService
                     Success = false,
                     Message = "REVMax returned no response",
                     InvoiceNumber = invoiceNumber,
-                    ErrorCode = "NO_RESPONSE"
+                    ErrorCode = "NO_RESPONSE",
+                    RawRequestJson = rawRequestJson,
+                    RawResponseJson = rawResponseJson
                 };
             }
 
@@ -215,7 +237,9 @@ public class FiscalizationService : IFiscalizationService
                     ReceiptGlobalNo = response.ReceiptGlobalNo,
                     ReceiptCounter = response.ReceiptCounter,
                     DeviceSerial = response.DeviceSerial,
-                    VerificationCode = response.VerificationCode
+                    VerificationCode = response.VerificationCode,
+                    RawRequestJson = rawRequestJson,
+                    RawResponseJson = rawResponseJson
                 };
             }
             else
@@ -229,7 +253,9 @@ public class FiscalizationService : IFiscalizationService
                     Success = false,
                     Message = response.Message ?? "Fiscalization failed",
                     InvoiceNumber = invoiceNumber,
-                    ErrorCode = "REVMAX_ERROR"
+                    ErrorCode = "REVMAX_ERROR",
+                    RawRequestJson = rawRequestJson,
+                    RawResponseJson = rawResponseJson
                 };
             }
         }
@@ -245,7 +271,9 @@ public class FiscalizationService : IFiscalizationService
                 Message = "Failed to connect to REVMax fiscal device",
                 InvoiceNumber = invoiceNumber,
                 ErrorCode = "CONNECTION_ERROR",
-                ErrorDetails = ex.Message
+                ErrorDetails = ex.Message,
+                RawRequestJson = rawRequestJson,
+                RawResponseJson = rawResponseJson
             };
         }
         catch (Exception ex)
@@ -260,7 +288,9 @@ public class FiscalizationService : IFiscalizationService
                 Message = "Fiscalization error",
                 InvoiceNumber = invoiceNumber,
                 ErrorCode = "UNEXPECTED_ERROR",
-                ErrorDetails = ex.Message
+                ErrorDetails = ex.Message,
+                RawRequestJson = rawRequestJson,
+                RawResponseJson = rawResponseJson
             };
         }
     }
@@ -271,6 +301,9 @@ public class FiscalizationService : IFiscalizationService
         CustomerFiscalDetails? customerDetails = null,
         CancellationToken cancellationToken = default)
     {
+        string? rawRequestJson = null;
+        string? rawResponseJson = null;
+
         if (creditNote == null)
         {
             throw new ArgumentNullException(nameof(creditNote));
@@ -330,9 +363,11 @@ public class FiscalizationService : IFiscalizationService
 
             // Build the TransactMExt request for credit note
             var request = BuildCreditNoteRequest(creditNote, originalInvoiceNumber, originalInvoice, customerDetails);
+            rawRequestJson = Serialize(request);
 
             // Post to REVMax
             var response = await _revmaxClient.TransactMExtAsync(request, cancellationToken);
+            rawResponseJson = Serialize(response);
 
             if (response == null)
             {
@@ -343,7 +378,9 @@ public class FiscalizationService : IFiscalizationService
                     Success = false,
                     Message = "REVMax returned no response",
                     InvoiceNumber = creditNoteNumber,
-                    ErrorCode = "NO_RESPONSE"
+                    ErrorCode = "NO_RESPONSE",
+                    RawRequestJson = rawRequestJson,
+                    RawResponseJson = rawResponseJson
                 };
             }
 
@@ -363,7 +400,9 @@ public class FiscalizationService : IFiscalizationService
                     ReceiptGlobalNo = response.ReceiptGlobalNo,
                     ReceiptCounter = response.ReceiptCounter,
                     DeviceSerial = response.DeviceSerial,
-                    VerificationCode = response.VerificationCode
+                    VerificationCode = response.VerificationCode,
+                    RawRequestJson = rawRequestJson,
+                    RawResponseJson = rawResponseJson
                 };
             }
             else
@@ -377,7 +416,9 @@ public class FiscalizationService : IFiscalizationService
                     Success = false,
                     Message = response.Message ?? "Credit note fiscalization failed",
                     InvoiceNumber = creditNoteNumber,
-                    ErrorCode = "REVMAX_ERROR"
+                    ErrorCode = "REVMAX_ERROR",
+                    RawRequestJson = rawRequestJson,
+                    RawResponseJson = rawResponseJson
                 };
             }
         }
@@ -393,7 +434,9 @@ public class FiscalizationService : IFiscalizationService
                 Message = "Failed to connect to REVMax fiscal device",
                 InvoiceNumber = creditNoteNumber,
                 ErrorCode = "CONNECTION_ERROR",
-                ErrorDetails = ex.Message
+                ErrorDetails = ex.Message,
+                RawRequestJson = rawRequestJson,
+                RawResponseJson = rawResponseJson
             };
         }
         catch (Exception ex)
@@ -408,7 +451,9 @@ public class FiscalizationService : IFiscalizationService
                 Message = "Credit note fiscalization error",
                 InvoiceNumber = creditNoteNumber,
                 ErrorCode = "UNEXPECTED_ERROR",
-                ErrorDetails = ex.Message
+                ErrorDetails = ex.Message,
+                RawRequestJson = rawRequestJson,
+                RawResponseJson = rawResponseJson
             };
         }
     }
@@ -459,7 +504,7 @@ public class FiscalizationService : IFiscalizationService
             InvoiceAmount = invoice.DocTotal,
             InvoiceTaxAmount = invoice.VatSum,
             Istatus = "01", // Normal invoice
-            Cashier = "System",
+            Cashier = invoice.CardCode,
             InvoiceComment = invoice.Comments,
             ItemsXml = itemsXml,
             CurrenciesXml = currenciesXml
@@ -490,7 +535,7 @@ public class FiscalizationService : IFiscalizationService
             InvoiceAmount = Math.Abs(creditNote.DocTotal), // Credit notes often have negative amounts
             InvoiceTaxAmount = Math.Abs(creditNote.VatSum),
             Istatus = "02", // Credit note
-            Cashier = "System",
+            Cashier = creditNote.CardCode,
             InvoiceComment = creditNote.Comments ?? creditNote.Remarks,
             ItemsXml = itemsXml,
             CurrenciesXml = currenciesXml,
@@ -500,54 +545,214 @@ public class FiscalizationService : IFiscalizationService
         };
     }
 
-    private string BuildItemsXml(InvoiceDto invoice)
+    private List<RevmaxRequestItem> BuildItemsXml(InvoiceDto invoice)
     {
-        var items = new XElement("items");
-
         if (invoice.Lines == null || invoice.Lines.Count == 0)
         {
-            return items.ToString(SaveOptions.DisableFormatting);
+            return new List<RevmaxRequestItem>();
         }
 
-        int lineNum = 1;
-        foreach (var line in invoice.Lines)
+        return invoice.Lines.Select(line =>
         {
-            var qty = Math.Abs(line.Quantity);
-            var price = line.UnitPrice;
-            var amt = qty * price; // CRITICAL: Calculate AMT = QTY × PRICE
+            var quantity = Math.Abs(line.Quantity);
+            var price = GetPriceAfterVat(line);
+            var amount = GetLineAmount(line, quantity, price);
+            var itemDescription = line.ItemDescription ?? string.Empty;
+            var taxCode = NormalizeTaxCode(line.TaxCode);
 
-            // Determine TAXR - use configured VAT rate (15.5%)
-            var taxRate = _settings.VatRate;
+            return new RevmaxRequestItem
+            {
+                HH = line.LineNum.ToString(CultureInfo.InvariantCulture),
+                ItemCode = line.ItemCode ?? string.Empty,
+                ItemName1 = itemDescription,
+                ItemName2 = itemDescription,
+                Qty = quantity.ToString(CultureInfo.InvariantCulture),
+                Price = price.ToString(CultureInfo.InvariantCulture),
+                Amt = amount.ToString(CultureInfo.InvariantCulture),
+                Tax = GetTaxId(taxCode).ToString(CultureInfo.InvariantCulture),
+                TaxR = GetTaxRateString(taxCode)
+            };
+        }).ToList();
+    }
 
-            var item = new XElement("item",
-                new XElement("HH", lineNum.ToString()),
-                new XElement("ITEMCODE", line.ItemCode ?? ""),
-                new XElement("ITEMNAME1", line.ItemDescription ?? ""),
-                new XElement("ITEMNAME2", ""),
-                new XElement("QTY", qty.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("PRICE", price.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("AMT", amt.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("TAX", "0"),
-                new XElement("TAXR", taxRate.ToString("F4", CultureInfo.InvariantCulture))
-            );
+    private List<RevmaxRequestCurrency> BuildCurrenciesXml(InvoiceDto invoice)
+        => new()
+        {
+            new RevmaxRequestCurrency
+            {
+                Name = invoice.DocCurrency ?? _settings.DefaultCurrency,
+                Amount = Math.Abs(invoice.DocTotal).ToString(CultureInfo.InvariantCulture),
+                Rate = "1"
+            }
+        };
 
-            items.Add(item);
-            lineNum++;
+    private static decimal GetPriceAfterVat(InvoiceLineDto line)
+    {
+        var grossPrice = Math.Abs(line.GrossPrice);
+        return grossPrice > 0m ? grossPrice : Math.Abs(line.UnitPrice);
+    }
+
+    private static decimal GetLineAmount(InvoiceLineDto line, decimal quantity, decimal price)
+    {
+        var lineTotal = Math.Abs(line.LineTotal);
+        return lineTotal > 0m ? lineTotal : quantity * price;
+    }
+
+    private static string? NormalizeTaxCode(string? taxCode)
+        => string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
+
+    private static int GetTaxId(string? taxCode)
+        => taxCode switch
+        {
+            "A1" or "X1" => 1,
+            "B1" or "X0" => 2,
+            "C1" => 3,
+            "E1" => 5,
+            _ => 1
+        };
+
+    private string GetTaxRateString(string? taxCode)
+        => taxCode switch
+        {
+            "A1" or "X1" => FormatTaxRate(ResolveConfiguredTaxRate()),
+            "B1" or "X0" or "C1" or "E1" => "0",
+            _ => FormatTaxRate(ResolveConfiguredTaxRate())
+        };
+
+    private decimal ResolveGrossMultiplier(InvoiceDto invoice)
+    {
+        if (invoice.Lines == null || invoice.Lines.Count == 0)
+        {
+            return 1m;
         }
 
-        return items.ToString(SaveOptions.DisableFormatting);
+        var docTotal = Math.Abs(invoice.DocTotal);
+        var netLineTotal = invoice.Lines.Sum(line => GetNetLineTotal(line));
+
+        if (docTotal <= 0m || netLineTotal <= 0m || docTotal <= netLineTotal)
+        {
+            return 1m;
+        }
+
+        return docTotal / netLineTotal;
     }
 
-    private string BuildCurrenciesXml(InvoiceDto invoice)
+    private decimal GetRevmaxUnitPrice(InvoiceLineDto line, decimal grossMultiplier)
     {
-        var currencies = new XElement("currencies",
-            new XElement("currency",
-                new XElement("Name", invoice.DocCurrency ?? _settings.DefaultCurrency),
-                new XElement("Amount", invoice.DocTotal.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("Rate", "1.00")
-            )
-        );
+        var unitPrice = Math.Abs(line.UnitPrice);
+        var grossPrice = Math.Abs(line.GrossPrice);
 
-        return currencies.ToString(SaveOptions.DisableFormatting);
+        if (grossPrice > 0m && grossPrice > unitPrice)
+        {
+            return RoundCurrency(grossPrice);
+        }
+
+        if (grossMultiplier > 1m && unitPrice > 0m)
+        {
+            return RoundCurrency(unitPrice * grossMultiplier);
+        }
+
+        return RoundCurrency(grossPrice > 0m ? grossPrice : unitPrice);
     }
+
+    private decimal GetRevmaxLineAmount(
+        InvoiceLineDto line,
+        decimal grossMultiplier,
+        decimal quantity,
+        decimal unitPrice)
+    {
+        var grossTotal = GetGrossTotal(line);
+        var netLineTotal = GetNetLineTotal(line);
+
+        if (grossTotal > 0m && grossTotal > netLineTotal)
+        {
+            return RoundCurrency(grossTotal);
+        }
+
+        if (grossMultiplier > 1m && netLineTotal > 0m)
+        {
+            return RoundCurrency(netLineTotal * grossMultiplier);
+        }
+
+        if (unitPrice > 0m && quantity > 0m)
+        {
+            return RoundCurrency(unitPrice * quantity);
+        }
+
+        return RoundCurrency(netLineTotal);
+    }
+
+    private static decimal GetNetLineTotal(InvoiceLineDto line)
+    {
+        var lineTotal = Math.Abs(line.LineTotal);
+        if (lineTotal > 0m)
+        {
+            return lineTotal;
+        }
+
+        return RoundCurrency(Math.Abs(line.Quantity) * Math.Abs(line.UnitPrice));
+    }
+
+    private static decimal GetGrossTotal(InvoiceLineDto line)
+    {
+        var unitPrice = Math.Abs(line.UnitPrice);
+        var grossPrice = Math.Abs(line.GrossPrice);
+
+        if (grossPrice <= 0m || grossPrice <= unitPrice)
+        {
+            return 0m;
+        }
+
+        return RoundCurrency(Math.Abs(line.Quantity) * grossPrice);
+    }
+
+    private static bool IsTaxable(InvoiceLineDto line, decimal grossMultiplier)
+        => Math.Abs(line.GrossPrice) > Math.Abs(line.UnitPrice) || grossMultiplier > 1.0005m;
+
+    private decimal ResolveConfiguredTaxRate()
+    {
+        var configuredRate = _settings.VatRate > 1m ? _settings.VatRate / 100m : _settings.VatRate;
+        return RoundTaxRate(configuredRate > 0m ? configuredRate : 0.155m);
+    }
+
+    private static void NormalizeItemAmountTotal(
+        List<(InvoiceLineDto Line, int Index, decimal Quantity, decimal UnitPrice, decimal Amount, bool IsTaxable)> items,
+        decimal targetTotal)
+    {
+        if (items.Count == 0 || targetTotal <= 0m)
+        {
+            return;
+        }
+
+        var amountTotal = items.Sum(item => item.Amount);
+        var difference = RoundCurrency(targetTotal - amountTotal);
+
+        if (Math.Abs(difference) < 0.01m || Math.Abs(difference) > 0.10m)
+        {
+            return;
+        }
+
+        var lastItem = items[^1];
+        var adjustedAmount = RoundCurrency(lastItem.Amount + difference);
+        var adjustedPrice = lastItem.Quantity > 0m
+            ? RoundCurrency(adjustedAmount / lastItem.Quantity)
+            : lastItem.UnitPrice;
+
+        items[^1] = (lastItem.Line, lastItem.Index, lastItem.Quantity, adjustedPrice, adjustedAmount, lastItem.IsTaxable);
+    }
+
+    private static decimal RoundCurrency(decimal value)
+        => Math.Round(value, 2, MidpointRounding.AwayFromZero);
+
+    private static decimal RoundTaxRate(decimal value)
+        => Math.Round(value, 4, MidpointRounding.AwayFromZero);
+
+    private static string FormatItemNumber(decimal value)
+        => RoundCurrency(value).ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string FormatTaxRate(decimal value)
+        => RoundTaxRate(value).ToString("0.####", CultureInfo.InvariantCulture);
+
+    private static string? Serialize(object? value)
+        => value is null ? null : JsonSerializer.Serialize(value, JsonOptions);
 }

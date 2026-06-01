@@ -16,7 +16,7 @@ public interface ICrateTrackingService
     Task<(bool Success, string Message, CrateTransactionDto? Transaction)> UpdateOpeningBalanceAsync(int crateTransactionId, string shopCardCode, decimal quantity, DateTime effectiveDate, IBrowserFile? file, string? notes = null, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message)> DeleteOpeningBalanceAsync(int crateTransactionId, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CratePodSubmissionDto? Submission)> UploadCratePodAsync(int crateTransactionId, decimal quantity, IBrowserFile file, string? submissionRole = null, string? notes = null, CancellationToken cancellationToken = default);
-    Task<(bool Success, string Message)> DeleteAttachmentAsync(int attachmentId, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message)> DeletePodAsync(int cratePodSubmissionId, CancellationToken cancellationToken = default);
     Task<(bool Success, string Message, CrateGrvDto? Grv)> CreateCrateGrvAsync(int crateTransactionId, string reason, IBrowserFile file, CancellationToken cancellationToken = default);
 }
 
@@ -294,19 +294,19 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
         }
     }
 
-    public async Task<(bool Success, string Message)> DeleteAttachmentAsync(
-        int attachmentId,
+    public async Task<(bool Success, string Message)> DeletePodAsync(
+        int cratePodSubmissionId,
         CancellationToken cancellationToken = default)
     {
         try
         {
             await EnsureAuthenticationAsync();
-            var response = await httpClient.DeleteAsync($"api/document/attachments/{attachmentId}", cancellationToken);
+            var response = await httpClient.DeleteAsync($"api/crates/pods/{cratePodSubmissionId}", cancellationToken);
             var payload = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
-                return (true, "Attachment deleted successfully.");
+                return (true, "Crate POD deleted successfully.");
             }
 
             return (
@@ -314,12 +314,12 @@ public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingSe
                 ApiErrorResponse.GetFriendlyMessage(
                     response.StatusCode,
                     payload,
-                    "We couldn't delete this attachment right now. Please try again."));
+                    "We couldn't delete this crate POD right now. Please try again."));
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error deleting crate attachment {AttachmentId}", attachmentId);
-            return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't delete this attachment right now. Please try again."));
+            logger.LogError(ex, "Error deleting crate POD {CratePodSubmissionId}", cratePodSubmissionId);
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, "We couldn't delete this crate POD right now. Please try again."));
         }
     }
 

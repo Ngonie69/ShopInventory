@@ -1,6 +1,8 @@
 @page "/invoices"
 @page "/van-sales-invoices"
+@using System.Text.Encodings.Web
 @using System.Text
+@using System.Text.Json
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
 @using QRCoder
@@ -390,6 +392,83 @@
 
     .alert-banner .alert-close:hover {
         opacity: 1;
+    }
+
+    .inv-fiscal-json-panel {
+        background: var(--light-color);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .inv-fiscal-json-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        background: var(--primary-light);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .inv-fiscal-json-eyebrow {
+        font-size: .72rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        margin-bottom: .2rem;
+    }
+
+    .inv-fiscal-json-header h6 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .inv-fiscal-json-header p {
+        margin: .2rem 0 0;
+        font-size: .82rem;
+        color: var(--text-secondary);
+    }
+
+    .inv-fiscal-json-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1rem;
+        padding: 1rem 1.25rem 1.25rem;
+    }
+
+    .inv-fiscal-json-card {
+        min-width: 0;
+    }
+
+    .inv-fiscal-json-caption {
+        font-size: .75rem;
+        font-weight: 700;
+        color: var(--text-secondary);
+        margin-bottom: .45rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+    }
+
+    .inv-fiscal-json-code {
+        margin: 0;
+        padding: .9rem 1rem;
+        border-radius: 10px;
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, .25);
+        font-size: .78rem;
+        line-height: 1.5;
+        max-height: 420px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
     }
 
     /* ── Empty State ─────────────────────────────────── */
@@ -1146,6 +1225,39 @@
                                Size="Size.Small" />
             </div>
         }
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div class="alert-body">@successMessage</div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => successMessage = null"
+                               Size="Size.Small" />
+            </div>
+        }
+        @if (HasLatestFiscalizationPayload)
+        {
+            <div class="inv-fiscal-json-panel">
+                <div class="inv-fiscal-json-header">
+                    <div>
+                        <div class="inv-fiscal-json-eyebrow">Most Recent TransactM Payload</div>
+                        <h6>Invoice #@(latestFiscalizationInvoiceNumber ?? "Unknown")</h6>
+                        <p>Captured from the last invoice fiscalisation request sent from this page.</p>
+                    </div>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="ClearLatestFiscalizationPayload"
+                                   Size="Size.Small" />
+                </div>
+                <div class="inv-fiscal-json-grid">
+                    <div class="inv-fiscal-json-card">
+                        <div class="inv-fiscal-json-caption">Request JSON</div>
+                        <pre class="inv-fiscal-json-code">@(latestFiscalizationRequestJson ?? "No raw request returned.")</pre>
+                    </div>
+                    <div class="inv-fiscal-json-card">
+                        <div class="inv-fiscal-json-caption">Response JSON</div>
+                        <pre class="inv-fiscal-json-code">@(latestFiscalizationResponseJson ?? "No raw response returned.")</pre>
+                    </div>
+                </div>
+            </div>
+        }
 
         <!-- ━━━ Stat Cards ━━━ -->
         <div class="stat-row">
@@ -1260,6 +1372,7 @@
                         <MudTh>Currency</MudTh>
                         <MudTh Style="text-align:right">VAT</MudTh>
                         <MudTh Style="text-align:right">Total</MudTh>
+                        <MudTh Style="width:140px;text-align:center;">Action</MudTh>
                         <MudTh Style="width:60px;text-align:center;">View</MudTh>
                     </HeaderContent>
                     <RowTemplate>
@@ -1283,9 +1396,32 @@
                             class="vat-cell">@context.VatSum.ToString("N2")</span></MudTd>
                             <MudTd DataLabel="Total" Style="text-align:right"><span
                                 class="amount-cell">@context.DocTotal.ToString("N2")</span></MudTd>
+                                <MudTd DataLabel="Action" Style="text-align:center;">
+                                    @if (CanFiscalize(context) || IsInvoiceFiscalizeBusy(context.DocEntry))
+                                    {
+                                        <div @onclick:stopPropagation="true">
+                                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                                       Disabled="@isFiscalizingInvoice"
+                                                       OnClick="@(() => FiscalizeInvoiceAsync(context))">
+                                                @if (IsInvoiceFiscalizeBusy(context.DocEntry))
+                                                {
+                                                    <span class="spinner-border spinner-border-sm"></span>
+                                                    <span>Fiscalising...</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-receipt-cutoff me-1"></i>
+                                                    <span>Fiscalise</span>
+                                                }
+                                            </MudButton>
+                                        </div>
+                                    }
+                                </MudTd>
                                 <MudTd DataLabel="View" Style="text-align:center;">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
-                                                   OnClick="@(() => ViewInvoice(context.DocEntry))" />
+                                    <div @onclick:stopPropagation="true">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
+                                                       OnClick="@(() => ViewInvoice(context.DocEntry))" />
+                                    </div>
                                 </MudTd>
                             </RowTemplate>
                             <PagerContent>
@@ -1701,7 +1837,13 @@
     private List<InvoiceDto>? allInvoices;
     private InvoiceDto? selectedInvoice;
     private bool isLoading = true;
+    private bool isFiscalizingInvoice;
+    private int? fiscalizingInvoiceDocEntry;
     private string? errorMessage;
+    private string? successMessage;
+    private string? latestFiscalizationInvoiceNumber;
+    private string? latestFiscalizationRequestJson;
+    private string? latestFiscalizationResponseJson;
     private int currentPage = 1;
     private int pageSize = 20;
     private int totalPages = 1;
@@ -1716,6 +1858,11 @@
 
     private CancellationTokenSource? _debounceTokenSource;
     private const int DebounceDelayMs = 300;
+    private static readonly JsonSerializerOptions FiscalJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true
+    };
 
     // PDF state
     private bool isPdfLoading = false;
@@ -1924,6 +2071,13 @@
             _ => "unknown"
         };
 
+    private static bool CanFiscalize(InvoiceDto? invoice)
+        => invoice is { DocEntry: > 0 }
+           && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised";
+
+    private bool IsInvoiceFiscalizeBusy(int docEntry)
+        => isFiscalizingInvoice && fiscalizingInvoiceDocEntry == docEntry;
+
     private async Task ViewInvoice(int docEntry)
     {
         selectedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
@@ -1931,6 +2085,140 @@
         {
             existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(docEntry);
             await AuditService.LogAsync(AuditActions.ViewInvoice, "Invoice", docEntry.ToString());
+        }
+    }
+
+    private async Task FiscalizeInvoiceAsync(InvoiceDto invoice)
+    {
+        if (invoice == null || isFiscalizingInvoice)
+        {
+            return;
+        }
+
+        var docEntry = invoice.DocEntry;
+        var docNum = invoice.DocNum;
+
+        isFiscalizingInvoice = true;
+        fiscalizingInvoiceDocEntry = docEntry;
+        errorMessage = null;
+        successMessage = null;
+        ClearLatestFiscalizationPayload();
+
+        try
+        {
+            var result = await InvoiceService.FiscalizeInvoiceAsync(docEntry);
+            CaptureFiscalizationPayload(docNum.ToString(), result);
+            if (result.Success || result.Skipped)
+            {
+                var refreshedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
+                if (refreshedInvoice != null)
+                {
+                    if (selectedInvoice?.DocEntry == docEntry)
+                    {
+                        selectedInvoice = refreshedInvoice;
+                    }
+
+                    UpsertInvoice(refreshedInvoice);
+                }
+                else
+                {
+                    await LoadInvoices();
+                }
+
+                successMessage = result.Message ?? $"Invoice #{docNum} fiscalised successfully.";
+                await AuditService.LogAsync(
+                    AuditActions.FiscalizeInvoice,
+                    "Invoice",
+                    docEntry.ToString(),
+                    successMessage,
+                    true);
+            }
+            else
+            {
+                errorMessage = result.Message ?? $"Failed to fiscalise invoice #{docNum}.";
+                await AuditService.LogAsync(
+                    AuditActions.FiscalizeInvoice,
+                    "Invoice",
+                    docEntry.ToString(),
+                    errorMessage,
+                    false,
+                    errorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorResponse.GetFriendlyMessage(ex, $"Failed to fiscalise invoice #{docNum}.");
+            await AuditService.LogAsync(
+                AuditActions.FiscalizeInvoice,
+                "Invoice",
+                docEntry.ToString(),
+                errorMessage,
+                false,
+                errorMessage);
+        }
+        finally
+        {
+            isFiscalizingInvoice = false;
+            fiscalizingInvoiceDocEntry = null;
+        }
+    }
+
+    private void UpsertInvoice(InvoiceDto updatedInvoice)
+    {
+        if (allInvoices != null)
+        {
+            var existingIndex = allInvoices.FindIndex(invoice => invoice.DocEntry == updatedInvoice.DocEntry);
+            if (existingIndex >= 0)
+            {
+                allInvoices[existingIndex] = updatedInvoice;
+            }
+        }
+
+        invoices = ApplyFiscalStatusFilter(allInvoices ?? new List<InvoiceDto>());
+        totalCount = invoices.Count;
+        totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
+    }
+
+    private bool HasLatestFiscalizationPayload
+        => !string.IsNullOrWhiteSpace(latestFiscalizationRequestJson)
+           || !string.IsNullOrWhiteSpace(latestFiscalizationResponseJson);
+
+    private void CaptureFiscalizationPayload(string fallbackInvoiceNumber, FiscalizationResult? result)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        latestFiscalizationInvoiceNumber = string.IsNullOrWhiteSpace(result.InvoiceNumber)
+            ? fallbackInvoiceNumber
+            : result.InvoiceNumber;
+        latestFiscalizationRequestJson = PrettyPrintJson(result.RawRequestJson);
+        latestFiscalizationResponseJson = PrettyPrintJson(result.RawResponseJson);
+    }
+
+    private void ClearLatestFiscalizationPayload()
+    {
+        latestFiscalizationInvoiceNumber = null;
+        latestFiscalizationRequestJson = null;
+        latestFiscalizationResponseJson = null;
+    }
+
+    private static string? PrettyPrintJson(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return JsonSerializer.Serialize(document.RootElement, FiscalJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return value;
         }
     }
 

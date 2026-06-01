@@ -21,6 +21,8 @@ public sealed class FiscalTransactionLogItemModel
     public decimal VatSum { get; init; }
     public string? Currency { get; init; }
     public string? OriginalInvoiceNumber { get; init; }
+    public string? RawRequest { get; init; }
+    public string? RawResponse { get; init; }
     public string SourceSystem { get; init; } = string.Empty;
     public string? CreatedByUserId { get; init; }
     public string? CreatedByUsername { get; init; }

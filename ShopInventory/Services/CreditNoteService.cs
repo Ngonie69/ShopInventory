@@ -342,6 +342,7 @@ public class CreditNoteService : ICreditNoteService
                         Quantity = Math.Abs(l.Quantity),
                         UnitPrice = l.UnitPrice,
                         LineTotal = Math.Abs(l.LineTotal),
+                        TaxCode = l.TaxCode,
                         WarehouseCode = l.WarehouseCode
                     }).ToList()
                 };
@@ -764,6 +765,7 @@ public class CreditNoteService : ICreditNoteService
                 Quantity = l.Quantity,
                 UnitPrice = l.UnitPrice,
                 DiscountPercent = l.DiscountPercent ?? 0,
+                TaxCode = l.TaxCode,
                 LineTotal = l.LineTotal,
                 WarehouseCode = l.WarehouseCode,
                 IsRestocked = false

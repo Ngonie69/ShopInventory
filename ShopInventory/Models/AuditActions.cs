@@ -21,6 +21,7 @@ public static class AuditActions
 
     // Invoice actions
     public const string CreateInvoice = "CreateInvoice";
+    public const string FiscalizeInvoice = "FiscalizeInvoice";
     public const string ViewInvoices = "ViewInvoices";
 
     // Payment actions
@@ -72,6 +73,7 @@ public static class AuditActions
     public const string UpdateCrateOpeningBalance = "UpdateCrateOpeningBalance";
     public const string DeleteCrateOpeningBalance = "DeleteCrateOpeningBalance";
     public const string UploadCratePod = "UploadCratePod";
+    public const string DeleteCratePod = "DeleteCratePod";
     public const string CreateCrateGrv = "CreateCrateGrv";
 
     // Inventory Transfer actions

@@ -90,6 +90,7 @@ public static class MappingExtensions
             UnitPrice = model.UnitPrice,
             GrossPrice = model.GrossPrice,
             LineTotal = model.LineTotal,
+            TaxCode = model.TaxCode,
             WarehouseCode = model.WarehouseCode,
             DiscountPercent = model.DiscountPercent,
             UoMCode = model.UoMCode

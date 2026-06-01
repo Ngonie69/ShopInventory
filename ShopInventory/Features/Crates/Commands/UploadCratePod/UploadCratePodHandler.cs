@@ -77,7 +77,15 @@ public sealed class UploadCratePodHandler(
         var existingSubmission = transaction.PodSubmissions
             .FirstOrDefault(s => string.Equals(s.SubmissionRole, submissionRole, StringComparison.OrdinalIgnoreCase));
 
+        var existingSubmissionHasDocument = existingSubmission is not null && await context.DocumentAttachments
+            .AsNoTracking()
+            .AnyAsync(
+                a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission &&
+                     a.EntityId == existingSubmission.Id,
+                cancellationToken);
+
         if (existingSubmission is not null &&
+            existingSubmissionHasDocument &&
             string.Equals(currentUser.Role, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase) &&
             existingSubmission.SubmittedByUserId != command.UserId)
         {

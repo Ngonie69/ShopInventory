@@ -93,6 +93,7 @@ public static class AuditActions
     public const string ViewInvoices = "ViewInvoices";
     public const string ViewInvoice = "ViewInvoice";
     public const string CreateInvoice = "CreateInvoice";
+    public const string FiscalizeInvoice = "FiscalizeInvoice";
     public const string UpdateInvoice = "UpdateInvoice";
     public const string DeleteInvoice = "DeleteInvoice";
 

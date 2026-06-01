@@ -705,20 +705,25 @@
         <div class="crpod-modal" @onclick:stopPropagation="true">
             <div class="crpod-modal-header">
                 <div>
-                    <h4 class="crpod-modal-title">Delete Attachment</h4>
-                    <p class="crpod-card-note mb-0">This permanently removes the selected crate POD file.</p>
+                    <h4 class="crpod-modal-title">Delete Crate POD</h4>
+                    <p class="crpod-card-note mb-0">This permanently removes the selected crate POD submission and its supporting documents.</p>
                 </div>
                 <button type="button" class="crpod-modal-close" @onclick="CancelDeleteAttachment">
                     <i class="bi bi-x-lg"></i>
                 </button>
             </div>
             <div class="crpod-modal-body">
-                <p class="crpod-delete-copy">Delete <strong>@attachmentToDelete?.FileName</strong> from @attachmentDeleteContext?</p>
+                <p class="crpod-delete-copy">
+                    Remove the @attachmentDeleteContext record@if (attachmentToDelete is not null)
+                    {
+                        <span> and delete <strong>@(attachmentToDelete?.FileName)</strong></span>
+                    }?
+                </p>
             </div>
             <div class="crpod-modal-actions">
                 <button type="button" class="crpod-secondary-btn" @onclick="CancelDeleteAttachment" disabled="@isDeletingAttachment">Cancel</button>
-                <button type="button" class="crpod-danger-btn" @onclick="DeleteAttachmentAsync" disabled="@isDeletingAttachment">
-                    @(isDeletingAttachment ? "Deleting..." : "Delete attachment")
+                <button type="button" class="crpod-danger-btn" @onclick="DeletePodAsync" disabled="@isDeletingAttachment">
+                    @(isDeletingAttachment ? "Deleting..." : "Delete record")
                 </button>
             </div>
         </div>
@@ -1962,6 +1967,7 @@
 
     private bool showDeleteAttachmentConfirm;
     private bool isDeletingAttachment;
+    private CratePodSubmissionDto? podToDelete;
     private DocumentAttachmentDto? attachmentToDelete;
     private string? attachmentDeleteContext;
 
@@ -2467,6 +2473,7 @@
 
     private void BeginDeleteAttachment(CratePodSubmissionDto pod, DocumentAttachmentDto attachment)
     {
+        podToDelete = pod;
         attachmentToDelete = attachment;
         attachmentDeleteContext = $"{GetPodReferenceLabel(pod)} {pod.SubmissionRole} submission";
         showDeleteAttachmentConfirm = true;
@@ -2475,13 +2482,14 @@
     private void CancelDeleteAttachment()
     {
         showDeleteAttachmentConfirm = false;
+        podToDelete = null;
         attachmentToDelete = null;
         attachmentDeleteContext = null;
     }
 
-    private async Task DeleteAttachmentAsync()
+    private async Task DeletePodAsync()
     {
-        if (attachmentToDelete is null || isDeletingAttachment)
+        if (podToDelete is null || isDeletingAttachment)
         {
             return;
         }
@@ -2490,12 +2498,13 @@
 
         try
         {
-            var deletedAttachmentId = attachmentToDelete.Id;
-            var (success, message) = await CrateTrackingService.DeleteAttachmentAsync(deletedAttachmentId);
+            var deletedAttachmentId = attachmentToDelete?.Id;
+            var deletedPodId = podToDelete.Id;
+            var (success, message) = await CrateTrackingService.DeletePodAsync(deletedPodId);
 
             if (success)
             {
-                if (attachmentViewer?.Id == deletedAttachmentId)
+                if (deletedAttachmentId.HasValue && attachmentViewer?.Id == deletedAttachmentId.Value)
                 {
                     await CloseAttachmentViewerAsync();
                 }

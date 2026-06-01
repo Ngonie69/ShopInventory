@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Xml.Linq;
 using ErrorOr;
 using MediatR;
@@ -18,7 +20,13 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
     ILogger<FiscalizeCrossDeviceCreditNoteHandler> logger
 ) : IRequestHandler<FiscalizeCrossDeviceCreditNoteCommand, ErrorOr<FiscalizeCrossDeviceCreditNoteResult>>
 {
-    private const decimal DefaultVatRate = 0.155m;
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = null,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = false
+    };
 
     public async Task<ErrorOr<FiscalizeCrossDeviceCreditNoteResult>> Handle(
         FiscalizeCrossDeviceCreditNoteCommand request,
@@ -50,11 +58,12 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
 
             var originalInvoice = await LoadOriginalInvoiceAsync(creditNote, cancellationToken);
             var fiscalInvoiceNumber = GetFiscalInvoiceNumber(creditNote);
+            var currency = NormalizeOrNull(request.Currency) ?? NormalizeOrNull(creditNote.Currency);
             var payload = new RevmaxTransactExtApiRequest
             {
                 InvoiceNumber = fiscalInvoiceNumber,
                 OriginalInvoiceNumber = originalInvoiceNumber,
-                Currency = NormalizeOrNull(request.Currency) ?? NormalizeOrNull(creditNote.Currency),
+                Currency = currency,
                 BranchName = NormalizeOrNull(request.BranchName),
                 CustomerName = FirstNonEmpty(request.CustomerName, originalInvoice?.CardName, creditNote.CardName),
                 CustomerVatNumber = NormalizeOrNull(request.CustomerVatNumber),
@@ -65,10 +74,10 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
                 InvoiceAmount = Math.Abs(creditNote.DocTotal),
                 InvoiceTaxAmount = Math.Abs(creditNote.TaxAmount),
                 Istatus = "02",
-                Cashier = "Web",
+                Cashier = NormalizeOrNull(creditNote.CardCode),
                 InvoiceComment = NormalizeOrNull(request.InvoiceComment) ?? FirstNonEmpty(creditNote.Comments, creditNote.Reason),
                 ItemsXml = BuildItemsXml(creditNote),
-                CurrenciesXml = BuildCurrenciesXml(creditNote),
+                CurrenciesXml = BuildCurrenciesXml(creditNote, currency),
                 refDeviceId = request.RefDeviceId,
                 refReceiptGlobalNo = request.RefReceiptGlobalNo,
                 refFiscalDayNo = request.RefFiscalDayNo
@@ -77,6 +86,7 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
             using var response = await httpClient.PostAsJsonAsync(
                 "api/revmax/transact-ext",
                 payload,
+                JsonOptions,
                 cancellationToken);
 
             if (!response.IsSuccessStatusCode)
@@ -217,62 +227,101 @@ public sealed class FiscalizeCrossDeviceCreditNoteHandler(
     private static string GetFiscalInvoiceNumber(CreditNoteDto creditNote)
         => creditNote.SAPDocNum?.ToString() ?? creditNote.CreditNoteNumber;
 
-    private static string BuildItemsXml(CreditNoteDto creditNote)
+    internal static List<object> BuildItemsXml(CreditNoteDto creditNote)
     {
-        var items = new XElement("items");
+        if (creditNote.Lines.Count == 0)
+        {
+            return new List<object>();
+        }
 
-        var lineNumber = 1;
+        var items = new List<object>(creditNote.Lines.Count);
+
         foreach (var line in creditNote.Lines)
         {
             var quantity = Math.Abs(line.Quantity);
-            var price = Math.Abs(line.UnitPrice);
-            var amount = quantity * price;
+            var price = GetPriceAfterVat(line);
+            var amount = GetLineAmount(line, quantity, price);
+            var itemDescription = line.ItemDescription ?? string.Empty;
+            var taxCode = NormalizeTaxCode(line.TaxCode);
+            var taxId = taxCode is null ? ResolveTaxId(line.TaxPercent) : ResolveTaxId(taxCode);
+            var taxRate = taxCode is null ? GetTaxRateString(line.TaxPercent) : GetTaxRateString(taxCode);
 
-            var item = new XElement("item",
-                new XElement("HH", lineNumber.ToString(CultureInfo.InvariantCulture)),
-                new XElement("ITEMCODE", line.ItemCode ?? string.Empty),
-                new XElement("ITEMNAME1", line.ItemDescription ?? string.Empty),
-                new XElement("ITEMNAME2", string.Empty),
-                new XElement("QTY", quantity.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("PRICE", price.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("AMT", amount.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("TAX", "0"),
-                new XElement("TAXR", NormalizeTaxRate(line.TaxPercent).ToString("F4", CultureInfo.InvariantCulture))
-            );
-
-            items.Add(item);
-            lineNumber++;
+            items.Add(new
+            {
+                HH = line.LineNum.ToString(CultureInfo.InvariantCulture),
+                ItemCode = line.ItemCode ?? string.Empty,
+                ItemName1 = itemDescription,
+                ItemName2 = itemDescription,
+                Qty = quantity.ToString(CultureInfo.InvariantCulture),
+                Price = price.ToString(CultureInfo.InvariantCulture),
+                Amt = amount.ToString(CultureInfo.InvariantCulture),
+                Tax = taxId.ToString(CultureInfo.InvariantCulture),
+                TaxR = taxRate
+            });
         }
 
-        return items.ToString(SaveOptions.DisableFormatting);
+        return items;
     }
 
-    private static string BuildCurrenciesXml(CreditNoteDto creditNote)
+    internal static List<object> BuildCurrenciesXml(CreditNoteDto creditNote, string? currency)
     {
-        var rate = creditNote.ExchangeRate <= 0 ? 1m : creditNote.ExchangeRate;
-        var currencyName = string.IsNullOrWhiteSpace(creditNote.Currency) ? "USD" : creditNote.Currency.Trim();
+        var currencyName = string.IsNullOrWhiteSpace(currency) ? "USD" : currency.Trim();
         var total = Math.Abs(creditNote.DocTotal);
 
-        var currencies = new XElement("currencies",
-            new XElement("currency",
-                new XElement("Name", currencyName),
-                new XElement("Amount", total.ToString("F2", CultureInfo.InvariantCulture)),
-                new XElement("Rate", rate.ToString("F2", CultureInfo.InvariantCulture))
-            )
-        );
-
-        return currencies.ToString(SaveOptions.DisableFormatting);
+        return new List<object>
+        {
+            new
+            {
+                Name = currencyName,
+                Amount = total.ToString(CultureInfo.InvariantCulture),
+                Rate = "1"
+            }
+        };
     }
 
-    private static decimal NormalizeTaxRate(decimal taxPercent)
+    private static decimal GetPriceAfterVat(CreditNoteLineDto line)
+        => Math.Abs(line.UnitPrice);
+
+    private static decimal GetLineAmount(CreditNoteLineDto line, decimal quantity, decimal price)
     {
-        if (taxPercent <= 0)
+        var lineTotal = Math.Abs(line.LineTotal);
+        return lineTotal > 0m ? lineTotal : quantity * price;
+    }
+
+    private static int ResolveTaxId(decimal taxPercent)
+        => taxPercent > 0m ? 1 : 2;
+
+    private static string GetTaxRateString(decimal taxPercent)
+    {
+        if (taxPercent <= 0m)
         {
-            return DefaultVatRate;
+            return "0";
         }
 
-        return taxPercent > 1 ? taxPercent / 100m : taxPercent;
+        var normalizedTaxRate = taxPercent > 1m ? taxPercent / 100m : taxPercent;
+        return normalizedTaxRate.ToString(CultureInfo.InvariantCulture);
     }
+
+    private static string? NormalizeTaxCode(string? taxCode)
+        => string.IsNullOrWhiteSpace(taxCode) ? null : taxCode.Trim().ToUpperInvariant();
+
+    private static int ResolveTaxId(string taxCode)
+        => taxCode switch
+        {
+            "A1" or "X1" => 1,
+            "B1" or "X0" => 2,
+            "C1" => 3,
+            "E1" => 5,
+            _ => 1
+        };
+
+    private static string GetTaxRateString(string taxCode)
+        => taxCode switch
+        {
+            "A1" or "X1" => "0.155",
+            "B1" or "X0" or "C1" or "E1" => "0",
+            _ => "0.155"
+        };
 
     private static string ExtractFailureMessage(HttpStatusCode statusCode, string? responseBody)
     {

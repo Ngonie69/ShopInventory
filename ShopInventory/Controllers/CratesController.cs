@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Crates.Commands.CreateCrateGrv;
 using ShopInventory.Features.Crates.Commands.CreateCrateOpeningBalance;
+using ShopInventory.Features.Crates.Commands.DeleteCratePod;
 using ShopInventory.Features.Crates.Commands.DeleteCrateOpeningBalance;
 using ShopInventory.Features.Crates.Commands.EnsureInvoiceCrateTransaction;
 using ShopInventory.Features.Crates.Commands.UpdateCrateOpeningBalance;
@@ -252,6 +253,20 @@ public class CratesController(ISender mediator) : ApiControllerBase
             cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    [HttpDelete("pods/{cratePodSubmissionId:int}")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DeletePod(
+        int cratePodSubmissionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new DeleteCratePodCommand(cratePodSubmissionId, GetUserId()),
+            cancellationToken);
+
+        return result.Match(_ => NoContent(), Problem);
     }
 
     [HttpPost("transactions/{crateTransactionId:int}/grvs")]

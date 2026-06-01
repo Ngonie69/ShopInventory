@@ -288,6 +288,19 @@
                         <span>Operator message</span>
                         <p>@DisplayMessage(selectedTransaction)</p>
                     </div>
+
+                    <div class="ftr-json-grid">
+                        <section class="ftr-json-card">
+                            <span>Raw request JSON</span>
+                            <p class="ftr-code-caption">Captured from the payload ShopInventory sent for this fiscalisation attempt.</p>
+                            <pre class="ftr-code-block">@(selectedRawRequestJson ?? "No raw request stored for this transaction.")</pre>
+                        </section>
+                        <section class="ftr-json-card">
+                            <span>Raw response JSON</span>
+                            <p class="ftr-code-caption">Captured from the fiscal response or upstream failure details saved with this row.</p>
+                            <pre class="ftr-code-block">@(selectedRawResponseJson ?? "No raw response stored for this transaction.")</pre>
+                        </section>
+                    </div>
                 </div>
             </div>
         </div>
@@ -637,6 +650,41 @@
         background: color-mix(in srgb, var(--mud-palette-background) 84%, transparent);
     }
 
+    .ftr-json-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+    }
+
+    .ftr-json-card {
+        padding: 1rem;
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--mud-palette-background) 84%, transparent);
+    }
+
+    .ftr-code-caption {
+        margin: 0.5rem 0 0;
+        color: var(--mud-palette-text-secondary);
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    .ftr-code-block {
+        margin: 0.75rem 0 0;
+        padding: 0.95rem 1rem;
+        border: 1px solid color-mix(in srgb, var(--mud-palette-divider) 86%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--mud-palette-surface) 92%, transparent);
+        color: var(--mud-palette-text-primary);
+        font-family: 'Consolas', monospace;
+        font-size: 0.82rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 360px;
+        overflow: auto;
+    }
+
     .ftr-message-card p,
     .ftr-empty-state p,
     .ftr-empty-detail,
@@ -710,6 +758,10 @@
         .ftr-detail-header {
             flex-direction: column;
             align-items: flex-start;
+        }
+
+        .ftr-json-grid {
+            grid-template-columns: 1fr;
         }
 
         .ftr-pagination {

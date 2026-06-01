@@ -8,6 +8,7 @@ public sealed record GetFiscalTransactionsQuery(
     string? Status,
     string? DocumentType,
     string? SourceSystem,
+    string? ClientTransactionPrefix,
     DateTime? FromUtc,
     DateTime? ToUtc,
     int Page = 1,

@@ -9,6 +9,7 @@ public interface IInvoiceService
     Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null);
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
+    Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry);
     Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null);
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
@@ -74,6 +75,44 @@ public class InvoiceService : IInvoiceService
         catch
         {
             return null;
+        }
+    }
+
+    public async Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync($"api/invoice/{docEntry}/fiscalize", null);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<FiscalizationResult>()
+                    ?? new FiscalizationResult
+                    {
+                        Success = false,
+                        Message = "The server returned an empty fiscalization response."
+                    };
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError(
+                "Invoice fiscalization failed for DocEntry {DocEntry}. Status: {StatusCode}, Response: {ErrorContent}",
+                docEntry,
+                response.StatusCode,
+                ApiErrorResponse.SanitizeForLog(errorContent));
+
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorContent,
+                "Failed to fiscalise invoice.");
+        }
+        catch (HttpRequestException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error fiscalizing invoice {DocEntry}", docEntry);
+            throw;
         }
     }
 

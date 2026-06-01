@@ -123,23 +123,11 @@ public static partial class VanSalesCompatibilityMapper
             Comments = BuildInvoiceComments(request),
             DocCurrency = string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim(),
             Fiscalize = true,
-            Lines = request.Items.Select((item, index) => new CreateDesktopInvoiceLineRequest
-            {
-                LineNum = index,
-                ItemCode = item.Code.Trim(),
-                Quantity = item.Quantity,
-                UnitPrice = Convert.ToDecimal(item.Price, CultureInfo.InvariantCulture),
-                WarehouseCode = warehouseCode,
-                CostCentreCode = costCentreCode,
-                AutoAllocateBatches = item.Batches.Count == 0,
-                BatchNumbers = item.Batches.Count == 0
-                    ? null
-                    : item.Batches.Select(batch => new DesktopBatchRequest
-                    {
-                        BatchNumber = batch.Batch.Trim(),
-                        Quantity = batch.Quantity
-                    }).ToList()
-            }).ToList()
+            Lines = request.Items.Select((item, index) => MapServerAllocatedInvoiceLine(
+                item,
+                index,
+                warehouseCode,
+                costCentreCode)).ToList()
         };
     }
 
@@ -164,23 +152,30 @@ public static partial class VanSalesCompatibilityMapper
             Fiscalize = true,
             Lines = request.Items.Count == 0
                 ? null
-                : request.Items.Select((item, index) => new CreateDesktopInvoiceLineRequest
-                {
-                    LineNum = index,
-                    ItemCode = item.Code.Trim(),
-                    Quantity = item.Quantity,
-                    UnitPrice = Convert.ToDecimal(item.Price, CultureInfo.InvariantCulture),
-                    WarehouseCode = warehouseCode,
-                    CostCentreCode = costCentreCode,
-                    AutoAllocateBatches = item.Batches.Count == 0,
-                    BatchNumbers = item.Batches.Count == 0
-                        ? null
-                        : item.Batches.Select(batch => new DesktopBatchRequest
-                        {
-                            BatchNumber = batch.Batch.Trim(),
-                            Quantity = batch.Quantity
-                        }).ToList()
-                }).ToList()
+                : request.Items.Select((item, index) => MapServerAllocatedInvoiceLine(
+                    item,
+                    index,
+                    warehouseCode,
+                    costCentreCode)).ToList()
+        };
+    }
+
+    private static CreateDesktopInvoiceLineRequest MapServerAllocatedInvoiceLine(
+        VanSalesOrderItemRequest item,
+        int index,
+        string warehouseCode,
+        string costCentreCode)
+    {
+        return new CreateDesktopInvoiceLineRequest
+        {
+            LineNum = index,
+            ItemCode = item.Code.Trim(),
+            Quantity = item.Quantity,
+            UnitPrice = Convert.ToDecimal(item.Price, CultureInfo.InvariantCulture),
+            WarehouseCode = warehouseCode,
+            CostCentreCode = costCentreCode,
+            AutoAllocateBatches = true,
+            BatchNumbers = null
         };
     }
 

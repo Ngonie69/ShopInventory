@@ -36,6 +36,9 @@ public static partial class Errors
         public static Error AccessDenied(string message) =>
             Error.Forbidden("CrateTracking.AccessDenied", message);
 
+        public static Error DeleteBlocked(string message) =>
+            Error.Validation("CrateTracking.DeleteBlocked", message);
+
         public static Error OpeningBalanceDocumentRequired =>
             Error.Validation("CrateTracking.OpeningBalanceDocumentRequired", "Opening balances require an accompanying document.");
 

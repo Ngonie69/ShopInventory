@@ -61,11 +61,13 @@ public class TransactMRequest
     /// <summary>
     /// Total invoice amount (VAT inclusive).
     /// </summary>
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString)]
     public decimal InvoiceAmount { get; set; }
 
     /// <summary>
     /// Total tax amount.
     /// </summary>
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString)]
     public decimal InvoiceTaxAmount { get; set; }
 
     /// <summary>
@@ -84,14 +86,16 @@ public class TransactMRequest
     public string? InvoiceComment { get; set; }
 
     /// <summary>
-    /// XML string containing line items.
+    /// Structured line item payload retained under the legacy ItemsXml field name.
     /// </summary>
-    public string? ItemsXml { get; set; }
+    [JsonPropertyOrder(4)]
+    public object? ItemsXml { get; set; }
 
     /// <summary>
-    /// XML string containing currencies received.
+    /// Structured currency payload retained under the legacy CurrenciesXml field name.
     /// </summary>
-    public string? CurrenciesXml { get; set; }
+    [JsonPropertyOrder(5)]
+    public object? CurrenciesXml { get; set; }
 }
 
 /// <summary>

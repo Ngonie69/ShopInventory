@@ -5,6 +5,7 @@ using ShopInventory.Common.Crates;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Common.Errors;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.Crates.Queries.GetCrateTransactions;
 
@@ -27,11 +28,15 @@ public sealed class GetCrateTransactionsHandler(
             return Errors.Auth.UserNotFound;
         }
 
+        var activePodSubmissionIds = context.DocumentAttachments
+            .AsNoTracking()
+            .Where(a => a.EntityType == CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission)
+            .Select(a => a.EntityId)
+            .Distinct();
+
         var query = context.CrateTransactions
             .AsNoTracking()
             .Include(t => t.CreatedByUser)
-            .Include(t => t.PodSubmissions)
-                .ThenInclude(s => s.SubmittedByUser)
             .Include(t => t.Grv)
             .AsQueryable();
 
@@ -39,8 +44,15 @@ public sealed class GetCrateTransactionsHandler(
         {
             query = query.Where(t =>
                 EF.Functions.ILike(t.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
-                (!t.PodSubmissions.Any(s => s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver) ||
-                 t.PodSubmissions.Any(s => s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver && s.SubmittedByUserId == request.UserId)));
+                (!context.CratePodSubmissions.Any(s =>
+                    s.CrateTransactionId == t.Id &&
+                    activePodSubmissionIds.Contains(s.Id) &&
+                    s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver) ||
+                 context.CratePodSubmissions.Any(s =>
+                    s.CrateTransactionId == t.Id &&
+                    activePodSubmissionIds.Contains(s.Id) &&
+                    s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver &&
+                    s.SubmittedByUserId == request.UserId)));
         }
 
         if (!string.IsNullOrWhiteSpace(request.TransactionType))
@@ -65,10 +77,17 @@ public sealed class GetCrateTransactionsHandler(
             .ToListAsync(cancellationToken);
 
         var transactionIds = transactions.Select(t => t.Id).ToList();
-        var podSubmissionIds = transactions
-            .SelectMany(t => t.PodSubmissions)
-            .Select(s => s.Id)
-            .ToList();
+        var activePodSubmissions = await context.CratePodSubmissions
+            .AsNoTracking()
+            .Include(s => s.SubmittedByUser)
+            .Where(s => transactionIds.Contains(s.CrateTransactionId) && activePodSubmissionIds.Contains(s.Id))
+            .ToListAsync(cancellationToken);
+
+        var activePodSubmissionsByTransactionId = activePodSubmissions
+            .GroupBy(s => s.CrateTransactionId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var podSubmissionIds = activePodSubmissions.Select(s => s.Id).ToList();
 
         var transactionAttachmentCounts = await context.DocumentAttachments
             .AsNoTracking()
@@ -87,9 +106,11 @@ public sealed class GetCrateTransactionsHandler(
         var items = transactions
             .Select(transaction =>
             {
-                var driverSubmission = transaction.PodSubmissions
+                List<CratePodSubmissionEntity> submissionsForTransaction = activePodSubmissionsByTransactionId.GetValueOrDefault(transaction.Id) ?? [];
+
+                var driverSubmission = submissionsForTransaction
                     .FirstOrDefault(s => string.Equals(s.SubmissionRole, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase));
-                var merchandiserSubmission = transaction.PodSubmissions
+                var merchandiserSubmission = submissionsForTransaction
                     .FirstOrDefault(s => string.Equals(s.SubmissionRole, CrateTrackingConstants.SubmissionRoleMerchandiser, StringComparison.OrdinalIgnoreCase));
 
                 return CrateDtoMapping.MapTransaction(

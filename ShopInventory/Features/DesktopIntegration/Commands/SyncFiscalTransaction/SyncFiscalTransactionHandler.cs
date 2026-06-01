@@ -115,6 +115,8 @@ public sealed class SyncFiscalTransactionHandler(
             VatSum = entity.VatSum,
             Currency = entity.Currency,
             OriginalInvoiceNumber = entity.OriginalInvoiceNumber,
+            RawRequest = entity.RawRequest,
+            RawResponse = entity.RawResponse,
             SourceSystem = entity.SourceSystem,
             CreatedByUserId = entity.CreatedByUserId,
             CreatedByUsername = entity.CreatedByUsername,

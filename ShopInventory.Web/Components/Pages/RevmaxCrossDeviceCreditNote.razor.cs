@@ -1,14 +1,27 @@
+using System.Globalization;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using ShopInventory.Web.Features.Revmax.Commands.FiscalizeCrossDeviceCreditNote;
 using ShopInventory.Web.Features.Revmax.Queries.GetCrossDeviceCreditNoteDraft;
+using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Components.Pages;
 
 public partial class RevmaxCrossDeviceCreditNote : ComponentBase
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = null,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true
+    };
+
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private ISnackbar Snackbar { get; set; } = default!;
     [Inject] private ILogger<RevmaxCrossDeviceCreditNote> Logger { get; set; } = default!;
@@ -35,7 +48,6 @@ public partial class RevmaxCrossDeviceCreditNote : ComponentBase
     private string? errorMessage;
     private string? warningMessage;
     private string? LookupGuidanceMessage => BuildLookupGuidanceMessage();
-
     private bool HasReferenceOverrides => refDeviceId.HasValue && refReceiptGlobalNo.HasValue && refFiscalDayNo.HasValue;
 
     private bool CanSubmit => draft is not null
@@ -43,8 +55,7 @@ public partial class RevmaxCrossDeviceCreditNote : ComponentBase
         && !isSubmitting
         && !string.IsNullOrWhiteSpace(creditNoteNumber)
         && !string.IsNullOrWhiteSpace(originalInvoiceNumber)
-        && !string.IsNullOrWhiteSpace(invoiceComment)
-        && (draft.SourceFiscalInvoice?.Success == true || HasReferenceOverrides);
+        && !string.IsNullOrWhiteSpace(invoiceComment);
 
     private async Task LoadDraftAsync()
     {
@@ -339,7 +350,7 @@ public partial class RevmaxCrossDeviceCreditNote : ComponentBase
             return "Manual";
         }
 
-        return draft is null ? "Waiting" : "Needed";
+        return draft is null ? "Waiting" : "Optional";
     }
 
     private string GetReferenceStatusClass()
@@ -349,7 +360,7 @@ public partial class RevmaxCrossDeviceCreditNote : ComponentBase
             return "rxcn-status-ok";
         }
 
-        return draft is null ? "rxcn-status-muted" : "rxcn-status-warn";
+        return "rxcn-status-muted";
     }
 
     private string GetReferenceStepCopy()
@@ -364,7 +375,53 @@ public partial class RevmaxCrossDeviceCreditNote : ComponentBase
             return "Manual cross-device reference values are present and ready for submission.";
         }
 
-        return "Needs the source REVMax invoice or manual reference values from the original device.";
+        return "Reference values are optional for TransactMExt. Provide them only when the operator needs a specific source device, receipt global number, or fiscal day.";
+    }
+
+    private string GetRequestPreviewJson()
+        => PrettyPrintJson(Serialize(BuildRequestPreview()))
+           ?? "Load a credit note to preview the TransactMExt JSON payload.";
+
+    private string GetSubmissionResponseJson()
+        => submissionResult is null
+            ? "Submit the request to capture the REVMax response JSON."
+            : PrettyPrintJson(Serialize(submissionResult.Response)) ?? "REVMax returned a non-JSON response.";
+
+    private RevmaxTransactExtApiRequest? BuildRequestPreview()
+    {
+        if (draft is null)
+        {
+            return null;
+        }
+
+        var requestCurrency = NormalizeOrNull(currency) ?? NormalizeOrNull(draft.SuggestedCurrency) ?? NormalizeOrNull(draft.CreditNote.Currency);
+        var fiscalInvoiceNumber = draft.CreditNoteFiscalInvoiceNumber
+            ?? draft.CreditNote.SAPDocNum?.ToString(CultureInfo.InvariantCulture)
+            ?? creditNoteNumber.Trim();
+
+        return new RevmaxTransactExtApiRequest
+        {
+            InvoiceNumber = fiscalInvoiceNumber,
+            OriginalInvoiceNumber = NormalizeOrNull(originalInvoiceNumber),
+            Currency = requestCurrency,
+            BranchName = NormalizeOrNull(branchName),
+            CustomerName = FirstNonEmpty(customerName, draft.OriginalInvoice?.CardName, draft.CreditNote.CardName),
+            CustomerVatNumber = NormalizeOrNull(customerVatNumber),
+            CustomerAddress = NormalizeOrNull(customerAddress),
+            CustomerTelephone = NormalizeOrNull(customerTelephone),
+            CustomerEmail = NormalizeOrNull(customerEmail),
+            CustomerBPN = NormalizeOrNull(customerBpn),
+            InvoiceAmount = Math.Abs(draft.CreditNote.DocTotal),
+            InvoiceTaxAmount = Math.Abs(draft.CreditNote.TaxAmount),
+            Istatus = "02",
+            Cashier = NormalizeOrNull(draft.CreditNote.CardCode),
+            InvoiceComment = NormalizeOrNull(invoiceComment) ?? FirstNonEmpty(draft.CreditNote.Comments, draft.CreditNote.Reason),
+            ItemsXml = FiscalizeCrossDeviceCreditNoteHandler.BuildItemsXml(draft.CreditNote),
+            CurrenciesXml = FiscalizeCrossDeviceCreditNoteHandler.BuildCurrenciesXml(draft.CreditNote, requestCurrency),
+            refDeviceId = refDeviceId,
+            refReceiptGlobalNo = refReceiptGlobalNo,
+            refFiscalDayNo = refFiscalDayNo
+        };
     }
 
     private string GetResolvedCreditNoteCopy()
@@ -414,5 +471,32 @@ public partial class RevmaxCrossDeviceCreditNote : ComponentBase
         }
 
         return null;
+    }
+
+    private static string? NormalizeOrNull(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private static string? Serialize(object? value)
+        => value is null ? null : JsonSerializer.Serialize(value, JsonOptions);
+
+    private static string? PrettyPrintJson(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return JsonSerializer.Serialize(document.RootElement, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return value;
+        }
     }
 }

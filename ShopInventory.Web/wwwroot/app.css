@@ -284,6 +284,112 @@ a:hover {
 .dark-theme .rxcn-link:hover { color: #5eead4; }
 .dark-theme .rxcn-breadcrumb { opacity: .7; }
 
+/* ═══════════════════════════════════════════════════
+   CDNH (Cross-Device Credit Note History) – dark mode
+   ═══════════════════════════════════════════════════ */
+.dark-theme .cdnh-summary-card,
+.dark-theme .cdnh-filter-card,
+.dark-theme .cdnh-table-card,
+.dark-theme .cdnh-panel,
+.dark-theme .cdnh-modal {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.32);
+}
+.dark-theme .cdnh-summary-card span,
+.dark-theme .cdnh-filter-grid label span,
+.dark-theme .cdnh-empty p,
+.dark-theme .cdnh-section-copy,
+.dark-theme .cdnh-detail-list dt,
+.dark-theme .cdnh-kv-label,
+.dark-theme .cdnh-meta-sub,
+.dark-theme .cdnh-code-caption,
+.dark-theme .cdnh-modal-stat span,
+.dark-theme .cdnh-modal-stat small,
+.dark-theme .cdnh-modal-subtitle {
+    color: #94a3b8;
+}
+.dark-theme .cdnh-summary-card strong,
+.dark-theme .cdnh-summary-card small,
+.dark-theme .cdnh-empty strong,
+.dark-theme .cdnh-panel-title,
+.dark-theme .cdnh-detail-list dd,
+.dark-theme .cdnh-kv-value,
+.dark-theme .cdnh-meta-title,
+.dark-theme .cdnh-code-block,
+.dark-theme .cdnh-modal-stat strong,
+.dark-theme .cdnh-message-copy,
+.dark-theme .cdnh-modal-meta-chip {
+    color: #f1f5f9;
+}
+.dark-theme .cdnh-modal {
+    background:
+        radial-gradient(circle at top right, rgba(45, 212, 191, 0.12), transparent 30%),
+        linear-gradient(180deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+}
+.dark-theme .cdnh-filter-grid input,
+.dark-theme .cdnh-filter-grid select {
+    background: #0f172a;
+    border-color: #334155;
+    color: #f1f5f9;
+}
+.dark-theme .cdnh-filter-grid input::placeholder { color: #64748b; }
+.dark-theme .cdnh-table thead th,
+.dark-theme .cdnh-lines-table thead th {
+    background: #0f172a;
+    color: #94a3b8;
+    border-bottom-color: #334155;
+}
+.dark-theme .cdnh-table tbody td,
+.dark-theme .cdnh-lines-table tbody td,
+.dark-theme .cdnh-detail-list > div,
+.dark-theme .cdnh-tax-list li,
+.dark-theme .cdnh-payment-list li {
+    border-bottom-color: #334155;
+    color: #e2e8f0;
+}
+.dark-theme .cdnh-table tbody tr:hover td,
+.dark-theme .cdnh-lines-table tbody tr:hover td {
+    background: #334155;
+}
+.dark-theme .cdnh-empty,
+.dark-theme .cdnh-code-block,
+.dark-theme .cdnh-qr-card,
+.dark-theme .cdnh-qr-empty {
+    background: #0f172a;
+    border-color: #334155;
+}
+.dark-theme .cdnh-panel,
+.dark-theme .cdnh-modal-stat {
+    background: linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.98));
+}
+.dark-theme .cdnh-modal-hero {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(17, 94, 89, 0.9) 58%, rgba(8, 145, 178, 0.78));
+    border-color: rgba(148, 163, 184, 0.2);
+    box-shadow: 0 22px 48px rgba(2, 6, 23, 0.42);
+}
+.dark-theme .cdnh-modal-meta-chip {
+    background: rgba(15, 23, 42, 0.36);
+    border-color: rgba(148, 163, 184, 0.18);
+}
+.dark-theme .cdnh-message-banner {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(17, 94, 89, 0.2));
+    border-color: rgba(45, 212, 191, 0.22);
+    box-shadow: 0 14px 30px rgba(2, 6, 23, 0.22);
+}
+.dark-theme .cdnh-message-label { color: #5eead4; }
+.dark-theme .cdnh-modal-backdrop { background: rgba(2, 6, 23, 0.82); }
+.dark-theme .cdnh-modal-close,
+.dark-theme .cdnh-link { color: #5eead4; }
+.dark-theme .cdnh-modal-close {
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.26);
+}
+.dark-theme .cdnh-link:hover { color: #99f6e4; }
+.dark-theme .cdnh-action { border-color: rgba(148, 163, 184, 0.26); color: #e2e8f0; }
+.dark-theme .cdnh-action:not(.cdnh-action--primary) { background: rgba(15, 23, 42, 0.68); }
+.dark-theme .cdnh-action:not(.cdnh-action--primary):hover:not(:disabled) { background: rgba(30, 41, 59, 0.92); }
+
 /* ========================================
    Gradient Page Shell (Create Invoice style)
    ======================================== */
@@ -3968,6 +4074,11 @@ html.dark-theme {
 }
 .dark-theme .sec-label {
     color: #94a3b8 !important;
+.dark-theme .rxcn-code-block {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
 }
 .dark-theme .sec-input-group .btn-copy {
     background: #0f172a !important;

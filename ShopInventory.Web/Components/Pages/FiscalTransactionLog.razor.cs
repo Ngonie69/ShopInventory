@@ -1,9 +1,12 @@
+using System.Text.Json;
+using System.Text.Encodings.Web;
 using MediatR;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Features.Reports.Commands.BackfillFiscalTransactionLog;
 using ShopInventory.Web.Features.Reports.Queries.GetFiscalTransactionLog;
+using ShopInventory.Web.Features.Revmax;
 using ShopInventory.Web.Services;
 
 namespace ShopInventory.Web.Components.Pages;
@@ -12,6 +15,12 @@ public partial class FiscalTransactionLog : IDisposable
 {
     private const int TransactionsPerPage = 25;
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true
+    };
+
     [Inject] private IMediator Mediator { get; set; } = default!;
     [Inject] private IAuditService AuditService { get; set; } = default!;
     [Inject] private AuthenticationStateProvider AuthStateProvider { get; set; } = default!;
@@ -19,6 +28,8 @@ public partial class FiscalTransactionLog : IDisposable
 
     private GetFiscalTransactionLogResult reportResult = new();
     private FiscalTransactionLogItemModel? selectedTransaction;
+    private string? selectedRawRequestJson;
+    private string? selectedRawResponseJson;
     private bool isDetailsModalOpen;
     private bool isLoading = true;
     private bool hasInitialized;
@@ -96,6 +107,7 @@ public partial class FiscalTransactionLog : IDisposable
                 NormalizeFilter(selectedStatus),
                 NormalizeFilter(selectedDocumentType),
                 NormalizeFilter(selectedSourceSystem),
+                null,
                 currentPage,
                 TransactionsPerPage));
 
@@ -103,13 +115,13 @@ public partial class FiscalTransactionLog : IDisposable
                 value =>
                 {
                     reportResult = value;
-                    selectedTransaction = value.Transactions.FirstOrDefault(transaction => transaction.Id == selectedTransactionId);
+                    SetSelectedTransaction(value.Transactions.FirstOrDefault(transaction => transaction.Id == selectedTransactionId));
                     isDetailsModalOpen = isDetailsModalOpen && selectedTransaction is not null;
                 },
                 error =>
                 {
                     reportResult = new GetFiscalTransactionLogResult();
-                    selectedTransaction = null;
+                    SetSelectedTransaction(null);
                     isDetailsModalOpen = false;
                     errorMessage = error.Description;
                 });
@@ -124,7 +136,7 @@ public partial class FiscalTransactionLog : IDisposable
         {
             Logger.LogError(ex, "Failed to load fiscal transaction log page");
             reportResult = new GetFiscalTransactionLogResult();
-            selectedTransaction = null;
+            SetSelectedTransaction(null);
             isDetailsModalOpen = false;
             errorMessage = "Failed to load fiscal transaction log.";
         }
@@ -242,7 +254,7 @@ public partial class FiscalTransactionLog : IDisposable
 
     private void OpenTransactionDetails(FiscalTransactionLogItemModel transaction)
     {
-        selectedTransaction = transaction;
+        SetSelectedTransaction(transaction);
         isDetailsModalOpen = true;
     }
 
@@ -308,7 +320,27 @@ public partial class FiscalTransactionLog : IDisposable
         => string.IsNullOrWhiteSpace(transaction.FiscalDay) ? "Not captured" : transaction.FiscalDay;
 
     private static string DisplayMessage(FiscalTransactionLogItemModel transaction)
-        => string.IsNullOrWhiteSpace(transaction.Message) ? "No operator message captured." : transaction.Message;
+    {
+        if (RevmaxFailurePayloadReader.TryReadFailureDetails(
+            transaction.RawResponse,
+            out _,
+            out _,
+            out _,
+            out var failureMessage)
+            && !string.IsNullOrWhiteSpace(failureMessage))
+        {
+            return failureMessage;
+        }
+
+        return RevmaxFailurePayloadReader.CleanOperatorMessage(transaction.Message) ?? "No operator message captured.";
+    }
+
+    private void SetSelectedTransaction(FiscalTransactionLogItemModel? transaction)
+    {
+        selectedTransaction = transaction;
+        selectedRawRequestJson = PrettyPrintJson(transaction?.RawRequest);
+        selectedRawResponseJson = PrettyPrintJson(transaction?.RawResponse);
+    }
 
     private static string DisplaySourceSystem(string? sourceSystem)
         => (sourceSystem ?? string.Empty).Trim() switch
@@ -334,6 +366,24 @@ public partial class FiscalTransactionLog : IDisposable
 
     private static string FormatTimestamp(DateTime timestampUtc)
         => IAuditService.ToCAT(timestampUtc).ToString("yyyy-MM-dd HH:mm");
+
+    private static string? PrettyPrintJson(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return JsonSerializer.Serialize(document.RootElement, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return value;
+        }
+    }
 
     public void Dispose()
     {

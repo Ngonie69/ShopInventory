@@ -68,6 +68,8 @@ public sealed class GetFiscalTransactionsHandler(
                     VatSum = transaction.VatSum,
                     Currency = transaction.Currency,
                     OriginalInvoiceNumber = transaction.OriginalInvoiceNumber,
+                    RawRequest = transaction.RawRequest,
+                    RawResponse = transaction.RawResponse,
                     SourceSystem = transaction.SourceSystem,
                     CreatedByUserId = transaction.CreatedByUserId,
                     CreatedByUsername = transaction.CreatedByUsername,
@@ -116,6 +118,12 @@ public sealed class GetFiscalTransactionsHandler(
         {
             var sourceSystem = request.SourceSystem.Trim();
             query = query.Where(transaction => EF.Functions.ILike(transaction.SourceSystem, sourceSystem));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ClientTransactionPrefix))
+        {
+            var clientTransactionPrefix = request.ClientTransactionPrefix.Trim();
+            query = query.Where(transaction => EF.Functions.ILike(transaction.ClientTransactionId, $"{clientTransactionPrefix}%"));
         }
 
         if (!string.IsNullOrWhiteSpace(request.Status))

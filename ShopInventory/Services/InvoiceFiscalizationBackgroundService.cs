@@ -125,14 +125,14 @@ public sealed class InvoiceFiscalizationBackgroundService(
             DocTotal = workItem.Invoice.DocTotal,
             VatSum = workItem.Invoice.VatSum,
             Currency = workItem.Invoice.DocCurrency,
-            RawRequest = Serialize(new
+            RawRequest = result.RawRequestJson ?? Serialize(new
             {
                 Invoice = workItem.Invoice,
                 CustomerDetails = workItem.CustomerDetails,
                 InitiatedByUserId = workItem.InitiatedByUserId,
                 InitiatedByUsername = workItem.InitiatedByUsername
             }),
-            RawResponse = Serialize(result),
+            RawResponse = result.RawResponseJson ?? Serialize(result),
             SourceSystem = SourceSystem
         };
     }

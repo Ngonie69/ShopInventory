@@ -320,6 +320,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         [FromQuery] string? status = null,
         [FromQuery] string? documentType = null,
         [FromQuery] string? sourceSystem = null,
+        [FromQuery] string? clientTransactionPrefix = null,
         [FromQuery] DateTime? fromUtc = null,
         [FromQuery] DateTime? toUtc = null,
         [FromQuery] int page = 1,
@@ -327,7 +328,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetFiscalTransactionsQuery(search, status, documentType, sourceSystem, fromUtc, toUtc, page, pageSize),
+            new GetFiscalTransactionsQuery(search, status, documentType, sourceSystem, clientTransactionPrefix, fromUtc, toUtc, page, pageSize),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }

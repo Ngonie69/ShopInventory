@@ -44,10 +44,14 @@ public sealed class ValidateBulkCratePodsHandler(
             return new BulkCratePodValidationResponseDto();
         }
 
+        var activePodSubmissionIds = context.DocumentAttachments
+            .AsNoTracking()
+            .Where(attachment => attachment.EntityType == CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission)
+            .Select(attachment => attachment.EntityId)
+            .Distinct();
+
         var transactions = await context.CrateTransactions
             .AsNoTracking()
-            .Include(transaction => transaction.PodSubmissions)
-                .ThenInclude(submission => submission.SubmittedByUser)
             .Include(transaction => transaction.Grv)
             .Where(transaction =>
                 EF.Functions.ILike(transaction.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
@@ -61,8 +65,22 @@ public sealed class ValidateBulkCratePodsHandler(
             .GroupBy(transaction => transaction.InvoiceDocNum!.Value)
             .ToDictionary(group => group.Key, group => group.First());
 
+        var transactionIds = latestTransactionsByDocNum.Values
+            .Select(transaction => transaction.Id)
+            .ToList();
+
+        var activePodSubmissions = await context.CratePodSubmissions
+            .AsNoTracking()
+            .Include(submission => submission.SubmittedByUser)
+            .Where(submission => transactionIds.Contains(submission.CrateTransactionId) && activePodSubmissionIds.Contains(submission.Id))
+            .ToListAsync(cancellationToken);
+
+        var activePodSubmissionsByTransactionId = activePodSubmissions
+            .GroupBy(submission => submission.CrateTransactionId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
         var selectedRoleSubmissionIds = latestTransactionsByDocNum.Values
-            .Select(transaction => GetSubmissionForRole(transaction, submissionRole)?.Id)
+            .Select(transaction => GetSubmissionForRole(activePodSubmissionsByTransactionId.GetValueOrDefault(transaction.Id) ?? [], submissionRole)?.Id)
             .OfType<int>()
             .Distinct()
             .ToList();
@@ -77,13 +95,22 @@ public sealed class ValidateBulkCratePodsHandler(
             .ToDictionaryAsync(item => item.Key, item => item.Count, cancellationToken);
 
         var results = requestedDocNums
-            .Select(invoiceDocNum => BuildResult(
-                invoiceDocNum,
-                latestTransactionsByDocNum.GetValueOrDefault(invoiceDocNum),
-                currentUser.Role,
-                request.UserId,
-                submissionRole,
-                attachmentCountsBySubmissionId))
+            .Select(invoiceDocNum =>
+            {
+                var transaction = latestTransactionsByDocNum.GetValueOrDefault(invoiceDocNum);
+                List<CratePodSubmissionEntity> submissionsForTransaction = transaction is null
+                    ? []
+                    : activePodSubmissionsByTransactionId.GetValueOrDefault(transaction.Id) ?? [];
+
+                return BuildResult(
+                    invoiceDocNum,
+                    transaction,
+                    submissionsForTransaction,
+                    currentUser.Role,
+                    request.UserId,
+                    submissionRole,
+                    attachmentCountsBySubmissionId);
+            })
             .ToList();
 
         return new BulkCratePodValidationResponseDto
@@ -95,6 +122,7 @@ public sealed class ValidateBulkCratePodsHandler(
     private static BulkCratePodValidationResultDto BuildResult(
         int invoiceDocNum,
         CrateTransactionEntity? transaction,
+        IEnumerable<CratePodSubmissionEntity> submissions,
         string currentUserRole,
         Guid currentUserId,
         string submissionRole,
@@ -111,9 +139,9 @@ public sealed class ValidateBulkCratePodsHandler(
             };
         }
 
-        var driverSubmission = GetSubmissionForRole(transaction, CrateTrackingConstants.SubmissionRoleDriver);
-        var merchandiserSubmission = GetSubmissionForRole(transaction, CrateTrackingConstants.SubmissionRoleMerchandiser);
-        var selectedRoleSubmission = GetSubmissionForRole(transaction, submissionRole);
+        var driverSubmission = GetSubmissionForRole(submissions, CrateTrackingConstants.SubmissionRoleDriver);
+        var merchandiserSubmission = GetSubmissionForRole(submissions, CrateTrackingConstants.SubmissionRoleMerchandiser);
+        var selectedRoleSubmission = GetSubmissionForRole(submissions, submissionRole);
         var canUpload = CanUpload(currentUserRole, submissionRole, selectedRoleSubmission, currentUserId);
 
         return new BulkCratePodValidationResultDto
@@ -137,9 +165,9 @@ public sealed class ValidateBulkCratePodsHandler(
         };
     }
 
-    private static CratePodSubmissionEntity? GetSubmissionForRole(CrateTransactionEntity transaction, string submissionRole)
+    private static CratePodSubmissionEntity? GetSubmissionForRole(IEnumerable<CratePodSubmissionEntity> submissions, string submissionRole)
     {
-        return transaction.PodSubmissions.FirstOrDefault(submission =>
+        return submissions.FirstOrDefault(submission =>
             string.Equals(submission.SubmissionRole, submissionRole, StringComparison.OrdinalIgnoreCase));
     }
 
