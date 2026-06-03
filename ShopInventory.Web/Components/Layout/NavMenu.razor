@@ -584,6 +584,16 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
+            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="accountSalesPaymentsCtx">
+                <Authorized>
+                    <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Payments" />
+                        </span>
+                        <span class="snav-text">Account Sales & Payments</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
 
             <AuthorizeView Roles="Admin,Manager,Merchandiser" Context="timesheetsAdminCtx">
                 <Authorized>
@@ -681,7 +691,7 @@
                     </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Driver" Context="crateCtx">
+            <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep" Context="crateCtx">
                 <Authorized>
                     <div class="nav-section-label">Crates</div>
                     <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">

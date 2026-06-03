@@ -5,11 +5,13 @@ using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.Crates.Queries.GetCratePods;
 
 public sealed class GetCratePodsHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IDocumentService documentService
 ) : IRequestHandler<GetCratePodsQuery, ErrorOr<List<CratePodSubmissionDto>>>
 {
     public async Task<ErrorOr<List<CratePodSubmissionDto>>> Handle(
@@ -19,7 +21,7 @@ public sealed class GetCratePodsHandler(
         var currentUser = await context.Users
             .AsNoTracking()
             .Where(u => u.Id == request.UserId)
-            .Select(u => new { u.Role, u.IsActive })
+            .Select(u => new { u.Role, u.AssignedSection, u.IsActive })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (currentUser is null || !currentUser.IsActive)
@@ -60,6 +62,39 @@ public sealed class GetCratePodsHandler(
                 (s.CrateTransaction.ShopName != null && EF.Functions.ILike(s.CrateTransaction.ShopName, pattern)) ||
                 (s.CrateTransaction.InvoiceDocNum != null && s.CrateTransaction.InvoiceDocNum.ToString()!.Contains(term)) ||
                 (s.SubmittedByUser != null && s.SubmittedByUser.Username != null && EF.Functions.ILike(s.SubmittedByUser.Username, pattern)));
+        }
+
+        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+            {
+                return new List<CratePodSubmissionDto>();
+            }
+
+            var candidateInvoiceDocEntries = await query
+                .Where(s => s.CrateTransaction.InvoiceDocEntry.HasValue)
+                .Select(s => s.CrateTransaction.InvoiceDocEntry!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (candidateInvoiceDocEntries.Count == 0)
+            {
+                return new List<CratePodSubmissionDto>();
+            }
+
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                candidateInvoiceDocEntries,
+                currentUser.AssignedSection,
+                cancellationToken);
+
+            if (scopedDocEntries.Count == 0)
+            {
+                return new List<CratePodSubmissionDto>();
+            }
+
+            query = query.Where(s =>
+                s.CrateTransaction.InvoiceDocEntry.HasValue &&
+                scopedDocEntries.Contains(s.CrateTransaction.InvoiceDocEntry.Value));
         }
 
         var submissions = await query

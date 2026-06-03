@@ -1,7 +1,14 @@
 using ClosedXML.Excel;
+using ClosedXML.Excel.Drawings;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
+using ShopInventory.Web.Features.Reports.Queries.GetAccountSalesPaymentReport;
 using ShopInventory.Web.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
 using ShopInventory.Web.Models;
 using System.Text;
+using A = DocumentFormat.OpenXml.Drawing;
+using C = DocumentFormat.OpenXml.Drawing.Charts;
+using Xdr = DocumentFormat.OpenXml.Drawing.Spreadsheet;
 
 namespace ShopInventory.Web.Services;
 
@@ -26,6 +33,7 @@ public interface IReportExportService
     byte[] ExportTimesheetReportToExcel(TimesheetReportResponse report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
+    byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
@@ -34,6 +42,7 @@ public class ReportExportService : IReportExportService
 {
     private const string CompanyName = "KEFALOS CHEESE (PVT) LTD";
     private const string SystemName = "Shop Inventory Management System";
+    private const string BrandLogoRelativePath = "wwwroot/images/kefalos-logo.jpg";
     private static readonly XLColor NavyBlue = XLColor.FromHtml("#1a237e");
     private static readonly XLColor LightNavy = XLColor.FromHtml("#283593");
     private static readonly XLColor AccentBlue = XLColor.FromHtml("#e8eaf6");
@@ -45,6 +54,25 @@ public class ReportExportService : IReportExportService
     private static readonly XLColor SuccessGreen = XLColor.FromHtml("#2e7d32");
     private static readonly XLColor DangerRed = XLColor.FromHtml("#c62828");
     private static readonly XLColor WarningOrange = XLColor.FromHtml("#e65100");
+    private static readonly XLColor ExecutiveIndigo = XLColor.FromHtml("#312E81");
+    private static readonly XLColor ExecutiveRoyalBlue = XLColor.FromHtml("#2563EB");
+    private static readonly XLColor ExecutiveCyan = XLColor.FromHtml("#06B6D4");
+    private static readonly XLColor ExecutiveEmerald = XLColor.FromHtml("#10B981");
+    private static readonly XLColor ExecutiveAmber = XLColor.FromHtml("#F59E0B");
+    private static readonly XLColor ExecutiveRose = XLColor.FromHtml("#F43F5E");
+    private static readonly XLColor ExecutiveCanvas = XLColor.FromHtml("#F8FAFC");
+    private static readonly XLColor ExecutiveSurface = XLColor.FromHtml("#FFFFFF");
+    private static readonly XLColor ExecutiveSection = XLColor.FromHtml("#EEF2FF");
+    private static readonly XLColor ExecutiveTextPrimary = XLColor.FromHtml("#0F172A");
+    private static readonly XLColor ExecutiveTextSecondary = XLColor.FromHtml("#475569");
+    private static readonly XLColor ExecutiveTextMuted = XLColor.FromHtml("#94A3B8");
+    private static readonly XLColor ExecutiveBorder = XLColor.FromHtml("#D9E2F2");
+    private static readonly XLColor ExecutiveSoftBlue = XLColor.FromHtml("#DBEAFE");
+    private static readonly XLColor ExecutiveSoftCyan = XLColor.FromHtml("#CFFAFE");
+    private static readonly XLColor ExecutiveSoftEmerald = XLColor.FromHtml("#D1FAE5");
+    private static readonly XLColor ExecutiveSoftAmber = XLColor.FromHtml("#FEF3C7");
+    private static readonly XLColor ExecutiveSoftRose = XLColor.FromHtml("#FFE4E6");
+    private static readonly XLColor ExecutiveSoftIndigo = XLColor.FromHtml("#E0E7FF");
 
     private static DateTime EnsureUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
@@ -2900,6 +2928,1507 @@ public class ReportExportService : IReportExportService
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    public byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report)
+    {
+        using var workbook = new XLWorkbook();
+
+        workbook.Style.Font.FontName = "Segoe UI";
+        workbook.Style.Font.FontColor = ExecutiveTextPrimary;
+
+        var logoPath = ResolveExecutiveLogoPath();
+
+        var totalOutstandingUsd = report.Summary.TotalSalesUsd - report.Summary.TotalIncomingPaymentsUsd;
+        var totalOutstandingZig = report.Summary.TotalSalesZig - report.Summary.TotalIncomingPaymentsZig;
+        var totalTransactions = report.Summary.TotalInvoices + report.Summary.TotalPayments;
+        var averageTransactionUsd = report.Summary.TotalInvoices > 0
+            ? report.Summary.TotalSalesUsd / report.Summary.TotalInvoices
+            : 0m;
+        var averageTransactionZig = report.Summary.TotalInvoices > 0
+            ? report.Summary.TotalSalesZig / report.Summary.TotalInvoices
+            : 0m;
+
+        var orderedAccounts = report.AccountTotals
+            .OrderByDescending(account => account.TotalSalesUsd + account.TotalSalesZig + account.IncomingPaymentsUsd + account.IncomingPaymentsZig)
+            .ThenBy(account => account.CardCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var orderedPeriods = report.Periods
+            .OrderBy(period => period.PeriodStartUtc)
+            .ToList();
+
+        var topExposure = orderedAccounts
+            .Select(account => new
+            {
+                account.CardCode,
+                account.CardName,
+                OutstandingUsd = account.TotalSalesUsd - account.IncomingPaymentsUsd,
+                OutstandingZig = account.TotalSalesZig - account.IncomingPaymentsZig
+            })
+            .OrderByDescending(account => Math.Max(Math.Abs(account.OutstandingUsd), Math.Abs(account.OutstandingZig)))
+            .FirstOrDefault();
+
+        var periodSalesUsdMax = Math.Max(1m, orderedPeriods.Any() ? orderedPeriods.Max(period => period.TotalSalesUsd) : 0m);
+        var periodPaymentsUsdMax = Math.Max(1m, orderedPeriods.Any() ? orderedPeriods.Max(period => period.IncomingPaymentsUsd) : 0m);
+        var accountSalesUsdMax = Math.Max(1m, orderedAccounts.Any() ? orderedAccounts.Max(account => account.TotalSalesUsd) : 0m);
+
+        var distinctInvoiceTotals = report.InvoiceDetails
+            .GroupBy(invoice => $"{invoice.Source}|{invoice.DocumentEntry}|{invoice.DocumentNumber}", StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Max(invoice => invoice.DocumentTotal))
+            .ToList();
+        var invoiceHighValueThreshold = CalculateExecutiveHighValueThreshold(distinctInvoiceTotals);
+
+        var paymentHighValueThreshold = CalculateExecutiveHighValueThreshold(report.PaymentDetails.Select(payment => payment.TotalAmount));
+
+        var dashboard = workbook.Worksheets.Add("Dashboard");
+        ConfigureExecutiveSheet(dashboard, 15, ExecutiveIndigo);
+        int row = WriteExecutiveBanner(
+            dashboard,
+            "Sales and Incoming Payments",
+            "Executive accounting workbook for reconciliation, collections, and customer-level transaction analysis.",
+            report,
+            15);
+        TryAddExecutiveLogo(dashboard, logoPath, 2, 13, 0.14);
+
+        WriteExecutiveKpiCard(dashboard, row, 1, 3, ExecutiveRoyalBlue, "TOTAL SALES", FormatExecutiveMoneyPair(report.Summary.TotalSalesUsd, report.Summary.TotalSalesZig), "Gross invoiced value across the selected accounts.");
+        WriteExecutiveKpiCard(dashboard, row, 4, 6, ExecutiveEmerald, "TOTAL PAYMENTS", FormatExecutiveMoneyPair(report.Summary.TotalIncomingPaymentsUsd, report.Summary.TotalIncomingPaymentsZig), "Cash collections grouped by payment date.");
+        WriteExecutiveKpiCard(dashboard, row, 7, 9, ExecutiveAmber, "OUTSTANDING BALANCE", FormatExecutiveMoneyPair(totalOutstandingUsd, totalOutstandingZig), "Open exposure after collections are applied.");
+        WriteExecutiveKpiCard(dashboard, row, 10, 12, ExecutiveCyan, "TRANSACTIONS", totalTransactions.ToString("N0"), $"Invoices {report.Summary.TotalInvoices:N0}  |  Payments {report.Summary.TotalPayments:N0}");
+        WriteExecutiveKpiCard(dashboard, row, 13, 15, ExecutiveRose, "AVG TRANSACTION", FormatExecutiveMoneyPair(averageTransactionUsd, averageTransactionZig), "Average invoice value for the selected range.");
+        row += 7;
+
+        WriteExecutiveCallout(
+            dashboard,
+            row,
+            15,
+            "EXECUTIVE SUMMARY",
+            $"Active accounts: {report.Summary.ActiveAccountCount:N0} of {report.Summary.RequestedAccountCount:N0}. " +
+            $"Collection performance sits at USD {report.Summary.CollectionRatePercentUsd:N2}% and ZiG {report.Summary.CollectionRatePercentZig:N2}%. " +
+            (topExposure is null
+                ? "No customer exposure was returned for this report."
+                : $"Highest exposure currently sits with {topExposure.CardCode} {topExposure.CardName} at {FormatExecutiveMoneyPair(topExposure.OutstandingUsd, topExposure.OutstandingZig)}."));
+        row += 4;
+
+        WriteExecutiveSectionHeader(
+            dashboard,
+            row,
+            15,
+            "TREND SNAPSHOT",
+            "A quick scan of grouped sales, collections, and outstanding balances over the selected reporting periods.",
+            ExecutiveCyan);
+        row += 2;
+
+        var trendHeaderRow = row;
+        var trendHeaders = new[] { "Period", "Invoices", "Payments", "Sales USD", "Payments USD", "Outstanding USD", "Collection %", "Sales Pulse", "Sales ZiG", "Payments ZiG", "Outstanding ZiG", "ZiG Pulse" };
+        for (var index = 0; index < trendHeaders.Length; index++)
+        {
+            dashboard.Cell(trendHeaderRow, index + 1).Value = trendHeaders[index];
+        }
+        StyleExecutiveTableHeader(dashboard, trendHeaderRow, trendHeaders.Length, ExecutiveIndigo);
+        row++;
+
+        var previewPeriods = orderedPeriods.TakeLast(8).ToList();
+        if (previewPeriods.Any())
+        {
+            var dataStart = row;
+            foreach (var period in previewPeriods)
+            {
+                var outstandingUsd = period.TotalSalesUsd - period.IncomingPaymentsUsd;
+                var outstandingZig = period.TotalSalesZig - period.IncomingPaymentsZig;
+
+                dashboard.Cell(row, 1).Value = period.Label;
+                dashboard.Cell(row, 2).Value = period.InvoiceCount;
+                dashboard.Cell(row, 3).Value = period.PaymentCount;
+                dashboard.Cell(row, 4).Value = period.TotalSalesUsd;
+                dashboard.Cell(row, 5).Value = period.IncomingPaymentsUsd;
+                dashboard.Cell(row, 6).Value = outstandingUsd;
+                dashboard.Cell(row, 7).Value = FormatExecutivePercent(CalculateExecutivePercent(period.IncomingPaymentsUsd, period.TotalSalesUsd));
+                dashboard.Cell(row, 8).Value = BuildExecutiveSignalBar(period.TotalSalesUsd, periodSalesUsdMax);
+                dashboard.Cell(row, 9).Value = period.TotalSalesZig;
+                dashboard.Cell(row, 10).Value = period.IncomingPaymentsZig;
+                dashboard.Cell(row, 11).Value = outstandingZig;
+                dashboard.Cell(row, 12).Value = BuildExecutiveSignalBar(period.IncomingPaymentsUsd, periodPaymentsUsdMax);
+
+                dashboard.Range(row, 4, row, 6).Style.NumberFormat.Format = "#,##0.00";
+                dashboard.Range(row, 9, row, 11).Style.NumberFormat.Format = "#,##0.00";
+                dashboard.Cell(row, 8).Style.Font.FontName = "Consolas";
+                dashboard.Cell(row, 12).Style.Font.FontName = "Consolas";
+                ApplyExecutiveOutstandingStyle(dashboard.Cell(row, 6), outstandingUsd);
+                ApplyExecutiveOutstandingStyle(dashboard.Cell(row, 11), outstandingZig);
+                row++;
+            }
+
+            StyleExecutiveTableRows(dashboard, dataStart, row - 1, trendHeaders.Length);
+        }
+        else
+        {
+            dashboard.Range(row, 1, row, trendHeaders.Length).Merge();
+            dashboard.Cell(row, 1).Value = "No grouped periods were returned for this report.";
+            dashboard.Cell(row, 1).Style.Font.Italic = true;
+            dashboard.Cell(row, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            row++;
+        }
+
+        row += 2;
+
+        WriteExecutiveSectionHeader(
+            dashboard,
+            row,
+            15,
+            "CUSTOMER CONTRIBUTION",
+            "Top accounts ranked by invoiced value, outstanding exposure, and collection quality.",
+            ExecutiveRose);
+        row += 2;
+
+        var accountHeaderRow = row;
+        var accountHeaders = new[] { "Card Code", "Card Name", "Sales USD", "Payments USD", "Outstanding USD", "Share USD %", "Sales ZiG", "Payments ZiG", "Outstanding ZiG", "Share ZiG %", "Pulse", "Status" };
+        for (var index = 0; index < accountHeaders.Length; index++)
+        {
+            dashboard.Cell(accountHeaderRow, index + 1).Value = accountHeaders[index];
+        }
+        StyleExecutiveTableHeader(dashboard, accountHeaderRow, accountHeaders.Length, ExecutiveIndigo);
+        row++;
+
+        var previewAccounts = orderedAccounts.Take(8).ToList();
+        if (previewAccounts.Any())
+        {
+            var dataStart = row;
+            foreach (var account in previewAccounts)
+            {
+                var outstandingUsd = account.TotalSalesUsd - account.IncomingPaymentsUsd;
+                var outstandingZig = account.TotalSalesZig - account.IncomingPaymentsZig;
+                var usdShare = CalculateExecutivePercent(account.TotalSalesUsd, report.Summary.TotalSalesUsd);
+                var zigShare = CalculateExecutivePercent(account.TotalSalesZig, report.Summary.TotalSalesZig);
+                var pulseRatio = Math.Max(
+                    report.Summary.TotalSalesUsd > 0 ? account.TotalSalesUsd / report.Summary.TotalSalesUsd : 0m,
+                    report.Summary.TotalSalesZig > 0 ? account.TotalSalesZig / report.Summary.TotalSalesZig : 0m);
+
+                dashboard.Cell(row, 1).Value = account.CardCode;
+                dashboard.Cell(row, 2).Value = account.CardName;
+                dashboard.Cell(row, 3).Value = account.TotalSalesUsd;
+                dashboard.Cell(row, 4).Value = account.IncomingPaymentsUsd;
+                dashboard.Cell(row, 5).Value = outstandingUsd;
+                dashboard.Cell(row, 6).Value = FormatExecutivePercent(usdShare);
+                dashboard.Cell(row, 7).Value = account.TotalSalesZig;
+                dashboard.Cell(row, 8).Value = account.IncomingPaymentsZig;
+                dashboard.Cell(row, 9).Value = outstandingZig;
+                dashboard.Cell(row, 10).Value = FormatExecutivePercent(zigShare);
+                dashboard.Cell(row, 11).Value = BuildExecutiveSignalBar(pulseRatio, 1m);
+                dashboard.Cell(row, 11).Style.Font.FontName = "Consolas";
+                dashboard.Cell(row, 12).Value = ResolveExecutiveCollectionStatus(outstandingUsd, outstandingZig, account.CollectionRatePercentUsd, account.CollectionRatePercentZig);
+
+                dashboard.Range(row, 3, row, 5).Style.NumberFormat.Format = "#,##0.00";
+                dashboard.Range(row, 7, row, 9).Style.NumberFormat.Format = "#,##0.00";
+                ApplyExecutiveOutstandingStyle(dashboard.Cell(row, 5), outstandingUsd);
+                ApplyExecutiveOutstandingStyle(dashboard.Cell(row, 9), outstandingZig);
+                ApplyExecutiveStatusBadge(dashboard.Cell(row, 12));
+                row++;
+            }
+
+            StyleExecutiveTableRows(dashboard, dataStart, row - 1, accountHeaders.Length);
+        }
+        else
+        {
+            dashboard.Range(row, 1, row, accountHeaders.Length).Merge();
+            dashboard.Cell(row, 1).Value = "No customer contribution rows were returned for this report.";
+            dashboard.Cell(row, 1).Style.Font.Italic = true;
+            dashboard.Cell(row, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            row++;
+        }
+
+        WriteExecutiveFooter(dashboard, row + 1, 15);
+        FinalizeExecutiveSheet(dashboard, 15, landscape: true);
+
+        var visualsSheet = workbook.Worksheets.Add("Visuals");
+        ConfigureExecutiveSheet(visualsSheet, 14, ExecutiveIndigo);
+        var visualsRow = WriteExecutiveBannerSimple(
+            visualsSheet,
+            "Executive Visuals",
+            "Native Excel charts for management packs, review meetings, and accounting narration.",
+            report,
+            14,
+            ExecutiveIndigo);
+        WriteExecutiveCallout(
+            visualsSheet,
+            visualsRow,
+            14,
+            "NATIVE CHART OBJECTS",
+            "These visuals are embedded as real Excel charts, so finance and operations can resize, move, or reuse them directly in presentation packs without rebuilding the workbook.");
+        visualsRow += 5;
+        WriteExecutiveChartContainer(
+            visualsSheet,
+            visualsRow,
+            1,
+            visualsRow + 16,
+            7,
+            "PERIOD SALES VS COLLECTIONS",
+            "Clustered USD chart sourced from the Trend Analysis sheet.",
+            ExecutiveRoyalBlue);
+        WriteExecutiveChartContainer(
+            visualsSheet,
+            visualsRow,
+            8,
+            visualsRow + 16,
+            14,
+            "TOP ACCOUNTS: SALES VS OUTSTANDING",
+            "Clustered USD chart sourced from the Customer Analysis sheet.",
+            ExecutiveRose);
+        WriteExecutiveFooter(visualsSheet, visualsRow + 18, 14);
+        FinalizeExecutiveSheet(visualsSheet, 14, landscape: true);
+
+        var trendSheet = workbook.Worksheets.Add("Trend Analysis");
+        ConfigureExecutiveSheet(trendSheet, 14, ExecutiveRoyalBlue);
+        var trendRow = WriteExecutiveBannerSimple(
+            trendSheet,
+            "Trend Analysis",
+            "Sales, collections, and outstanding balances by reporting bucket.",
+            report,
+            14,
+            ExecutiveRoyalBlue);
+
+        var trendDetailHeaders = new[] { "Period", "Start (CAT)", "End (CAT)", "Accounts", "Invoices", "Payments", "Sales USD", "Payments USD", "Outstanding USD", "Collection USD %", "USD Pulse", "Sales ZiG", "Payments ZiG", "Outstanding ZiG" };
+        for (var index = 0; index < trendDetailHeaders.Length; index++)
+        {
+            trendSheet.Cell(trendRow, index + 1).Value = trendDetailHeaders[index];
+        }
+        StyleExecutiveTableHeader(trendSheet, trendRow, trendDetailHeaders.Length, ExecutiveRoyalBlue);
+        var trendFreeze = trendRow;
+        trendRow++;
+
+        if (orderedPeriods.Any())
+        {
+            var dataStart = trendRow;
+            foreach (var period in orderedPeriods)
+            {
+                var outstandingUsd = period.TotalSalesUsd - period.IncomingPaymentsUsd;
+                var outstandingZig = period.TotalSalesZig - period.IncomingPaymentsZig;
+
+                trendSheet.Cell(trendRow, 1).Value = period.Label;
+                trendSheet.Cell(trendRow, 2).Value = FormatCatDate(period.PeriodStartUtc);
+                trendSheet.Cell(trendRow, 3).Value = FormatCatDate(period.PeriodEndUtc);
+                trendSheet.Cell(trendRow, 4).Value = period.Accounts.Count;
+                trendSheet.Cell(trendRow, 5).Value = period.InvoiceCount;
+                trendSheet.Cell(trendRow, 6).Value = period.PaymentCount;
+                trendSheet.Cell(trendRow, 7).Value = period.TotalSalesUsd;
+                trendSheet.Cell(trendRow, 8).Value = period.IncomingPaymentsUsd;
+                trendSheet.Cell(trendRow, 9).Value = outstandingUsd;
+                trendSheet.Cell(trendRow, 10).Value = FormatExecutivePercent(CalculateExecutivePercent(period.IncomingPaymentsUsd, period.TotalSalesUsd));
+                trendSheet.Cell(trendRow, 11).Value = BuildExecutiveSignalBar(period.TotalSalesUsd, periodSalesUsdMax);
+                trendSheet.Cell(trendRow, 12).Value = period.TotalSalesZig;
+                trendSheet.Cell(trendRow, 13).Value = period.IncomingPaymentsZig;
+                trendSheet.Cell(trendRow, 14).Value = outstandingZig;
+
+                trendSheet.Range(trendRow, 7, trendRow, 9).Style.NumberFormat.Format = "#,##0.00";
+                trendSheet.Range(trendRow, 12, trendRow, 14).Style.NumberFormat.Format = "#,##0.00";
+                trendSheet.Cell(trendRow, 11).Style.Font.FontName = "Consolas";
+                ApplyExecutiveOutstandingStyle(trendSheet.Cell(trendRow, 9), outstandingUsd);
+                ApplyExecutiveOutstandingStyle(trendSheet.Cell(trendRow, 14), outstandingZig);
+                trendRow++;
+            }
+
+            StyleExecutiveTableRows(trendSheet, dataStart, trendRow - 1, trendDetailHeaders.Length);
+        }
+        else
+        {
+            trendSheet.Range(trendRow, 1, trendRow, trendDetailHeaders.Length).Merge();
+            trendSheet.Cell(trendRow, 1).Value = "No trend data is available for the selected filters.";
+            trendSheet.Cell(trendRow, 1).Style.Font.Italic = true;
+            trendSheet.Cell(trendRow, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            trendRow++;
+        }
+
+        var trendDataStartRow = trendFreeze + 1;
+        var trendDataEndRow = orderedPeriods.Any() ? trendRow - 1 : trendDataStartRow - 1;
+
+        WriteExecutiveFooter(trendSheet, trendRow + 1, 14);
+        FinalizeExecutiveSheet(trendSheet, 14, trendFreeze, landscape: true);
+
+        var accountSheet = workbook.Worksheets.Add("Customer Analysis");
+        ConfigureExecutiveSheet(accountSheet, 14, ExecutiveCyan);
+        var accountRow = WriteExecutiveBannerSimple(
+            accountSheet,
+            "Customer Analysis",
+            "Contribution, outstanding balances, and settlement posture by requested account.",
+            report,
+            14,
+            ExecutiveCyan);
+
+        var accountDetailHeaders = new[] { "Card Code", "Card Name", "Invoices", "Payments", "Sales USD", "Collections USD", "Outstanding USD", "Share USD %", "Sales ZiG", "Collections ZiG", "Outstanding ZiG", "Share ZiG %", "Pulse", "Status" };
+        for (var index = 0; index < accountDetailHeaders.Length; index++)
+        {
+            accountSheet.Cell(accountRow, index + 1).Value = accountDetailHeaders[index];
+        }
+        StyleExecutiveTableHeader(accountSheet, accountRow, accountDetailHeaders.Length, ExecutiveCyan);
+        var accountFreeze = accountRow;
+        accountRow++;
+
+        if (orderedAccounts.Any())
+        {
+            var dataStart = accountRow;
+            foreach (var account in orderedAccounts)
+            {
+                var outstandingUsd = account.TotalSalesUsd - account.IncomingPaymentsUsd;
+                var outstandingZig = account.TotalSalesZig - account.IncomingPaymentsZig;
+                var usdShare = CalculateExecutivePercent(account.TotalSalesUsd, report.Summary.TotalSalesUsd);
+                var zigShare = CalculateExecutivePercent(account.TotalSalesZig, report.Summary.TotalSalesZig);
+
+                accountSheet.Cell(accountRow, 1).Value = account.CardCode;
+                accountSheet.Cell(accountRow, 2).Value = account.CardName;
+                accountSheet.Cell(accountRow, 3).Value = account.InvoiceCount;
+                accountSheet.Cell(accountRow, 4).Value = account.PaymentCount;
+                accountSheet.Cell(accountRow, 5).Value = account.TotalSalesUsd;
+                accountSheet.Cell(accountRow, 6).Value = account.IncomingPaymentsUsd;
+                accountSheet.Cell(accountRow, 7).Value = outstandingUsd;
+                accountSheet.Cell(accountRow, 8).Value = FormatExecutivePercent(usdShare);
+                accountSheet.Cell(accountRow, 9).Value = account.TotalSalesZig;
+                accountSheet.Cell(accountRow, 10).Value = account.IncomingPaymentsZig;
+                accountSheet.Cell(accountRow, 11).Value = outstandingZig;
+                accountSheet.Cell(accountRow, 12).Value = FormatExecutivePercent(zigShare);
+                accountSheet.Cell(accountRow, 13).Value = BuildExecutiveSignalBar(account.TotalSalesUsd, accountSalesUsdMax);
+                accountSheet.Cell(accountRow, 13).Style.Font.FontName = "Consolas";
+                accountSheet.Cell(accountRow, 14).Value = ResolveExecutiveCollectionStatus(outstandingUsd, outstandingZig, account.CollectionRatePercentUsd, account.CollectionRatePercentZig);
+
+                accountSheet.Range(accountRow, 5, accountRow, 7).Style.NumberFormat.Format = "#,##0.00";
+                accountSheet.Range(accountRow, 9, accountRow, 11).Style.NumberFormat.Format = "#,##0.00";
+                ApplyExecutiveOutstandingStyle(accountSheet.Cell(accountRow, 7), outstandingUsd);
+                ApplyExecutiveOutstandingStyle(accountSheet.Cell(accountRow, 11), outstandingZig);
+                ApplyExecutiveStatusBadge(accountSheet.Cell(accountRow, 14));
+                accountRow++;
+            }
+
+            StyleExecutiveTableRows(accountSheet, dataStart, accountRow - 1, accountDetailHeaders.Length);
+        }
+        else
+        {
+            accountSheet.Range(accountRow, 1, accountRow, accountDetailHeaders.Length).Merge();
+            accountSheet.Cell(accountRow, 1).Value = "No customer analysis rows are available for this report.";
+            accountSheet.Cell(accountRow, 1).Style.Font.Italic = true;
+            accountSheet.Cell(accountRow, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            accountRow++;
+        }
+
+        var accountDataStartRow = accountFreeze + 1;
+        var accountDataEndRow = orderedAccounts.Any() ? accountRow - 1 : accountDataStartRow - 1;
+        var accountChartDataEndRow = accountDataEndRow >= accountDataStartRow
+            ? Math.Min(accountDataStartRow + 7, accountDataEndRow)
+            : accountDataStartRow - 1;
+
+        WriteExecutiveFooter(accountSheet, accountRow + 1, 14);
+        FinalizeExecutiveSheet(accountSheet, 14, accountFreeze, landscape: true);
+
+        var itemSheet = workbook.Worksheets.Add("Item Summary");
+        ConfigureExecutiveSheet(itemSheet, 9, ExecutiveEmerald);
+        var itemRow = WriteExecutiveBannerSimple(
+            itemSheet,
+            "Item Summary",
+            "Item-level rollup suitable for audit tracing and sales mix review.",
+            report,
+            9,
+            ExecutiveEmerald);
+
+        var itemHeaders = new[] { "Card Code", "Card Name", "Item Code", "Item Name", "Invoices", "Qty Sold", "Sales USD", "Sales ZiG", "Value Pulse" };
+        for (var index = 0; index < itemHeaders.Length; index++)
+        {
+            itemSheet.Cell(itemRow, index + 1).Value = itemHeaders[index];
+        }
+        StyleExecutiveTableHeader(itemSheet, itemRow, itemHeaders.Length, ExecutiveEmerald);
+        var itemFreeze = itemRow;
+        itemRow++;
+
+        var itemRows = orderedAccounts
+            .SelectMany(account => account.Items.Select(item => new
+            {
+                account.CardCode,
+                account.CardName,
+                item.ItemCode,
+                item.ItemName,
+                item.InvoiceCount,
+                item.TotalQuantitySold,
+                item.TotalSalesUsd,
+                item.TotalSalesZig
+            }))
+            .OrderBy(rowItem => rowItem.CardCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(rowItem => rowItem.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var itemSalesMax = Math.Max(1m, itemRows.Any() ? itemRows.Max(item => item.TotalSalesUsd) : 0m);
+        if (itemRows.Any())
+        {
+            var dataStart = itemRow;
+            foreach (var item in itemRows)
+            {
+                itemSheet.Cell(itemRow, 1).Value = item.CardCode;
+                itemSheet.Cell(itemRow, 2).Value = item.CardName;
+                itemSheet.Cell(itemRow, 3).Value = item.ItemCode;
+                itemSheet.Cell(itemRow, 4).Value = item.ItemName;
+                itemSheet.Cell(itemRow, 5).Value = item.InvoiceCount;
+                itemSheet.Cell(itemRow, 6).Value = item.TotalQuantitySold;
+                itemSheet.Cell(itemRow, 7).Value = item.TotalSalesUsd;
+                itemSheet.Cell(itemRow, 8).Value = item.TotalSalesZig;
+                itemSheet.Cell(itemRow, 9).Value = BuildExecutiveSignalBar(item.TotalSalesUsd, itemSalesMax);
+                itemSheet.Cell(itemRow, 9).Style.Font.FontName = "Consolas";
+                itemSheet.Range(itemRow, 6, itemRow, 8).Style.NumberFormat.Format = "#,##0.00";
+                itemRow++;
+            }
+
+            StyleExecutiveTableRows(itemSheet, dataStart, itemRow - 1, itemHeaders.Length);
+        }
+        else
+        {
+            itemSheet.Range(itemRow, 1, itemRow, itemHeaders.Length).Merge();
+            itemSheet.Cell(itemRow, 1).Value = "No item summary rows are available for this report.";
+            itemSheet.Cell(itemRow, 1).Style.Font.Italic = true;
+            itemSheet.Cell(itemRow, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            itemRow++;
+        }
+
+        WriteExecutiveFooter(itemSheet, itemRow + 1, 9);
+        FinalizeExecutiveSheet(itemSheet, 9, itemFreeze, landscape: true);
+
+        var invoiceSheet = workbook.Worksheets.Add("Invoice Register");
+        ConfigureExecutiveSheet(invoiceSheet, 18, ExecutiveAmber);
+        var invoiceRow = WriteExecutiveBannerSimple(
+            invoiceSheet,
+            "Invoice Register",
+            "Full invoice-line drilldown with high-value highlighting and accounting-friendly alignment.",
+            report,
+            18,
+            ExecutiveAmber);
+
+        var invoiceHeaders = new[] { "Period", "Source", "Doc Date (CAT)", "Card Code", "Card Name", "Invoice #", "DocEntry", "Status", "Currency", "Invoice Total", "Value Band", "Line #", "Item Code", "Item Name", "Quantity", "Line Amount", "Sales USD", "Sales ZiG" };
+        for (var index = 0; index < invoiceHeaders.Length; index++)
+        {
+            invoiceSheet.Cell(invoiceRow, index + 1).Value = invoiceHeaders[index];
+        }
+        StyleExecutiveTableHeader(invoiceSheet, invoiceRow, invoiceHeaders.Length, ExecutiveAmber);
+        var invoiceFreeze = invoiceRow;
+        invoiceRow++;
+
+        if (report.InvoiceDetails.Any())
+        {
+            var dataStart = invoiceRow;
+            foreach (var invoice in report.InvoiceDetails
+                         .OrderBy(invoice => invoice.DocumentDateUtc)
+                         .ThenBy(invoice => invoice.CardCode, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(invoice => invoice.DocumentNumber, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(invoice => invoice.LineNumber))
+            {
+                var isHighValue = invoice.DocumentTotal >= invoiceHighValueThreshold && invoiceHighValueThreshold > 0;
+
+                invoiceSheet.Cell(invoiceRow, 1).Value = invoice.PeriodLabel;
+                invoiceSheet.Cell(invoiceRow, 2).Value = invoice.Source;
+                invoiceSheet.Cell(invoiceRow, 3).Value = FormatCatDate(invoice.DocumentDateUtc);
+                invoiceSheet.Cell(invoiceRow, 4).Value = invoice.CardCode;
+                invoiceSheet.Cell(invoiceRow, 5).Value = invoice.CardName;
+                invoiceSheet.Cell(invoiceRow, 6).Value = invoice.DocumentNumber;
+                invoiceSheet.Cell(invoiceRow, 7).Value = invoice.DocumentEntry;
+                invoiceSheet.Cell(invoiceRow, 8).Value = invoice.Status;
+                invoiceSheet.Cell(invoiceRow, 9).Value = invoice.Currency;
+                invoiceSheet.Cell(invoiceRow, 10).Value = invoice.DocumentTotal;
+                invoiceSheet.Cell(invoiceRow, 11).Value = isHighValue ? "High Value" : "Standard";
+                invoiceSheet.Cell(invoiceRow, 12).Value = invoice.LineNumber;
+                invoiceSheet.Cell(invoiceRow, 13).Value = invoice.ItemCode;
+                invoiceSheet.Cell(invoiceRow, 14).Value = invoice.ItemName;
+                invoiceSheet.Cell(invoiceRow, 15).Value = invoice.QuantitySold;
+                invoiceSheet.Cell(invoiceRow, 16).Value = invoice.LineAmount;
+                invoiceSheet.Cell(invoiceRow, 17).Value = invoice.SalesUsd;
+                invoiceSheet.Cell(invoiceRow, 18).Value = invoice.SalesZig;
+
+                if (isHighValue)
+                {
+                    invoiceSheet.Range(invoiceRow, 1, invoiceRow, invoiceHeaders.Length).Style.Fill.BackgroundColor = ExecutiveSoftRose;
+                }
+
+                invoiceSheet.Range(invoiceRow, 10, invoiceRow, 18).Style.NumberFormat.Format = "#,##0.00";
+                ApplyExecutiveSourceBadge(invoiceSheet.Cell(invoiceRow, 2));
+                ApplyExecutiveStatusBadge(invoiceSheet.Cell(invoiceRow, 8));
+                ApplyExecutiveValueBandBadge(invoiceSheet.Cell(invoiceRow, 11));
+                invoiceRow++;
+            }
+
+            StyleExecutiveTableRows(invoiceSheet, dataStart, invoiceRow - 1, invoiceHeaders.Length, preserveExistingFill: true);
+        }
+        else
+        {
+            invoiceSheet.Range(invoiceRow, 1, invoiceRow, invoiceHeaders.Length).Merge();
+            invoiceSheet.Cell(invoiceRow, 1).Value = "No invoice line detail is available for this report.";
+            invoiceSheet.Cell(invoiceRow, 1).Style.Font.Italic = true;
+            invoiceSheet.Cell(invoiceRow, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            invoiceRow++;
+        }
+
+        WriteExecutiveFooter(invoiceSheet, invoiceRow + 1, 18);
+        FinalizeExecutiveSheet(invoiceSheet, 18, invoiceFreeze, landscape: true);
+
+        var paymentSheet = workbook.Worksheets.Add("Payment Register");
+        ConfigureExecutiveSheet(paymentSheet, 15, ExecutiveRose);
+        var paymentRow = WriteExecutiveBannerSimple(
+            paymentSheet,
+            "Payment Register",
+            "Incoming payment drilldown with reference tracking, settlement posture, and value highlighting.",
+            report,
+            15,
+            ExecutiveRose);
+
+        var paymentHeaders = new[] { "Period", "Source", "Payment Date (CAT)", "Card Code", "Card Name", "Payment #", "DocEntry", "Status", "Currency", "Total Amount", "Incoming USD", "Incoming ZiG", "Applied Invoices", "Reference", "Value Band" };
+        for (var index = 0; index < paymentHeaders.Length; index++)
+        {
+            paymentSheet.Cell(paymentRow, index + 1).Value = paymentHeaders[index];
+        }
+        StyleExecutiveTableHeader(paymentSheet, paymentRow, paymentHeaders.Length, ExecutiveRose);
+        var paymentFreeze = paymentRow;
+        paymentRow++;
+
+        if (report.PaymentDetails.Any())
+        {
+            var dataStart = paymentRow;
+            foreach (var payment in report.PaymentDetails
+                         .OrderBy(payment => payment.PaymentDateUtc)
+                         .ThenBy(payment => payment.CardCode, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(payment => payment.PaymentNumber, StringComparer.OrdinalIgnoreCase))
+            {
+                var isHighValue = payment.TotalAmount >= paymentHighValueThreshold && paymentHighValueThreshold > 0;
+
+                paymentSheet.Cell(paymentRow, 1).Value = payment.PeriodLabel;
+                paymentSheet.Cell(paymentRow, 2).Value = payment.Source;
+                paymentSheet.Cell(paymentRow, 3).Value = FormatCatDate(payment.PaymentDateUtc);
+                paymentSheet.Cell(paymentRow, 4).Value = payment.CardCode;
+                paymentSheet.Cell(paymentRow, 5).Value = payment.CardName;
+                paymentSheet.Cell(paymentRow, 6).Value = payment.PaymentNumber;
+                paymentSheet.Cell(paymentRow, 7).Value = payment.PaymentEntry;
+                paymentSheet.Cell(paymentRow, 8).Value = payment.Status;
+                paymentSheet.Cell(paymentRow, 9).Value = payment.Currency;
+                paymentSheet.Cell(paymentRow, 10).Value = payment.TotalAmount;
+                paymentSheet.Cell(paymentRow, 11).Value = payment.IncomingPaymentsUsd;
+                paymentSheet.Cell(paymentRow, 12).Value = payment.IncomingPaymentsZig;
+                paymentSheet.Cell(paymentRow, 13).Value = payment.AppliedInvoiceCount;
+                paymentSheet.Cell(paymentRow, 14).Value = payment.Reference;
+                paymentSheet.Cell(paymentRow, 15).Value = isHighValue ? "High Value" : "Standard";
+
+                if (isHighValue)
+                {
+                    paymentSheet.Range(paymentRow, 1, paymentRow, paymentHeaders.Length).Style.Fill.BackgroundColor = ExecutiveSoftBlue;
+                }
+
+                paymentSheet.Range(paymentRow, 10, paymentRow, 12).Style.NumberFormat.Format = "#,##0.00";
+                ApplyExecutiveSourceBadge(paymentSheet.Cell(paymentRow, 2));
+                ApplyExecutiveStatusBadge(paymentSheet.Cell(paymentRow, 8));
+                ApplyExecutiveValueBandBadge(paymentSheet.Cell(paymentRow, 15));
+                paymentRow++;
+            }
+
+            StyleExecutiveTableRows(paymentSheet, dataStart, paymentRow - 1, paymentHeaders.Length, preserveExistingFill: true);
+        }
+        else
+        {
+            paymentSheet.Range(paymentRow, 1, paymentRow, paymentHeaders.Length).Merge();
+            paymentSheet.Cell(paymentRow, 1).Value = "No incoming payment detail is available for this report.";
+            paymentSheet.Cell(paymentRow, 1).Style.Font.Italic = true;
+            paymentSheet.Cell(paymentRow, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            paymentRow++;
+        }
+
+        WriteExecutiveFooter(paymentSheet, paymentRow + 1, 15);
+        FinalizeExecutiveSheet(paymentSheet, 15, paymentFreeze, landscape: true);
+
+        var applicationSheet = workbook.Worksheets.Add("Application Map");
+        ConfigureExecutiveSheet(applicationSheet, 12, ExecutiveRoyalBlue);
+        var applicationRow = WriteExecutiveBannerSimple(
+            applicationSheet,
+            "Payment Application Map",
+            "Document-to-payment application breakdown for allocation review and reconciliation.",
+            report,
+            12,
+            ExecutiveRoyalBlue);
+
+        var applicationHeaders = new[] { "Period", "Source", "Payment Date (CAT)", "Card Code", "Card Name", "Payment #", "DocEntry", "Status", "Applied Invoice", "Invoice Type", "Currency", "Applied Amount" };
+        for (var index = 0; index < applicationHeaders.Length; index++)
+        {
+            applicationSheet.Cell(applicationRow, index + 1).Value = applicationHeaders[index];
+        }
+        StyleExecutiveTableHeader(applicationSheet, applicationRow, applicationHeaders.Length, ExecutiveRoyalBlue);
+        var applicationFreeze = applicationRow;
+        applicationRow++;
+
+        if (report.PaymentApplications.Any())
+        {
+            var dataStart = applicationRow;
+            foreach (var application in report.PaymentApplications
+                         .OrderBy(application => application.PaymentDateUtc)
+                         .ThenBy(application => application.CardCode, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(application => application.PaymentNumber, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(application => application.AppliedInvoiceReference, StringComparer.OrdinalIgnoreCase))
+            {
+                applicationSheet.Cell(applicationRow, 1).Value = application.PeriodLabel;
+                applicationSheet.Cell(applicationRow, 2).Value = application.Source;
+                applicationSheet.Cell(applicationRow, 3).Value = FormatCatDate(application.PaymentDateUtc);
+                applicationSheet.Cell(applicationRow, 4).Value = application.CardCode;
+                applicationSheet.Cell(applicationRow, 5).Value = application.CardName;
+                applicationSheet.Cell(applicationRow, 6).Value = application.PaymentNumber;
+                applicationSheet.Cell(applicationRow, 7).Value = application.PaymentEntry;
+                applicationSheet.Cell(applicationRow, 8).Value = application.Status;
+                applicationSheet.Cell(applicationRow, 9).Value = application.AppliedInvoiceReference;
+                applicationSheet.Cell(applicationRow, 10).Value = application.InvoiceType;
+                applicationSheet.Cell(applicationRow, 11).Value = application.Currency;
+                applicationSheet.Cell(applicationRow, 12).Value = application.AppliedAmount;
+                applicationSheet.Cell(applicationRow, 12).Style.NumberFormat.Format = "#,##0.00";
+                ApplyExecutiveSourceBadge(applicationSheet.Cell(applicationRow, 2));
+                ApplyExecutiveStatusBadge(applicationSheet.Cell(applicationRow, 8));
+                applicationRow++;
+            }
+
+            StyleExecutiveTableRows(applicationSheet, dataStart, applicationRow - 1, applicationHeaders.Length, preserveExistingFill: true);
+        }
+        else
+        {
+            applicationSheet.Range(applicationRow, 1, applicationRow, applicationHeaders.Length).Merge();
+            applicationSheet.Cell(applicationRow, 1).Value = "No payment application detail is available for this report.";
+            applicationSheet.Cell(applicationRow, 1).Style.Font.Italic = true;
+            applicationSheet.Cell(applicationRow, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+            applicationRow++;
+        }
+
+        WriteExecutiveFooter(applicationSheet, applicationRow + 1, 12);
+        FinalizeExecutiveSheet(applicationSheet, 12, applicationFreeze, landscape: true);
+
+        var workbookBytes = WorkbookToBytes(workbook);
+        return AddExecutiveChartsToAccountSalesWorkbook(
+            workbookBytes,
+            trendFreeze,
+            trendDataStartRow,
+            trendDataEndRow,
+            accountFreeze,
+            accountDataStartRow,
+            accountChartDataEndRow);
+    }
+
+    private static void ConfigureExecutiveSheet(IXLWorksheet ws, int lastCol, XLColor tabColor)
+    {
+        ws.TabColor = tabColor;
+        ws.ShowGridLines = false;
+        ws.Columns(1, lastCol).Style.Fill.BackgroundColor = ExecutiveCanvas;
+        ws.Columns(1, lastCol).Style.Font.FontName = "Segoe UI";
+        ws.Columns(1, lastCol).Style.Font.FontColor = ExecutiveTextPrimary;
+        ws.Columns(1, lastCol).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+    }
+
+    private static int WriteExecutiveBanner(
+        IXLWorksheet ws,
+        string title,
+        string subtitle,
+        GetAccountSalesPaymentReportResult report,
+        int lastCol)
+    {
+        var generatedAt = report.GeneratedAtUtc == default ? CurrentCatNow() : IAuditService.ToCAT(report.GeneratedAtUtc);
+        var sourceLabel = report.Sources.Any() ? string.Join(", ", report.Sources) : "SAP";
+
+        ws.Range(1, 1, 1, 3).Style.Fill.BackgroundColor = ExecutiveIndigo;
+        ws.Range(1, 4, 1, 6).Style.Fill.BackgroundColor = ExecutiveRoyalBlue;
+        ws.Range(1, 7, 1, 9).Style.Fill.BackgroundColor = ExecutiveCyan;
+        ws.Range(1, 10, 1, 12).Style.Fill.BackgroundColor = ExecutiveEmerald;
+        ws.Range(1, 13, 1, lastCol).Style.Fill.BackgroundColor = ExecutiveRose;
+        ws.Row(1).Height = 8;
+
+        ws.Range(2, 1, 6, lastCol).Style.Fill.BackgroundColor = ExecutiveIndigo;
+        ws.Range(2, 1, 6, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(2, 1, 6, lastCol).Style.Border.OutsideBorderColor = ExecutiveRoyalBlue;
+
+        ws.Range(2, 1, 6, 9).Merge();
+        ws.Cell(3, 1).Value = title;
+        ws.Cell(3, 1).Style.Font.Bold = true;
+        ws.Cell(3, 1).Style.Font.FontName = "Segoe UI";
+        ws.Cell(3, 1).Style.Font.FontSize = 24;
+        ws.Cell(3, 1).Style.Font.FontColor = XLColor.White;
+        ws.Cell(3, 1).Style.Alignment.Vertical = XLAlignmentVerticalValues.Bottom;
+
+        ws.Cell(4, 1).Value = subtitle;
+        ws.Cell(4, 1).Style.Font.FontSize = 11;
+        ws.Cell(4, 1).Style.Font.FontColor = XLColor.FromHtml("#C7D2FE");
+        ws.Cell(4, 1).Style.Alignment.WrapText = true;
+
+        ws.Range(5, 1, 5, 4).Merge();
+        ws.Cell(5, 1).Value = string.Empty;
+        ws.Range(5, 1, 5, 4).Style.Fill.BackgroundColor = ExecutiveCyan;
+        ws.Row(5).Height = 6;
+
+        ws.Range(6, 1, 6, 9).Merge();
+        ws.Cell(6, 1).Value = $"DATE RANGE  {FormatCatDate(report.FromDateUtc)}  TO  {FormatCatDate(report.ToDateUtc)}";
+        ws.Cell(6, 1).Style.Font.FontSize = 10;
+        ws.Cell(6, 1).Style.Font.Bold = true;
+        ws.Cell(6, 1).Style.Font.FontColor = XLColor.White;
+
+        ws.Range(2, 10, 6, 12).Style.Fill.BackgroundColor = XLColor.FromHtml("#1D4ED8");
+        ws.Range(2, 10, 6, 12).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(2, 10, 6, 12).Style.Border.OutsideBorderColor = XLColor.FromHtml("#93C5FD");
+        ws.Range(2, 13, 6, lastCol).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Range(2, 13, 6, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(2, 13, 6, lastCol).Style.Border.OutsideBorderColor = XLColor.FromHtml("#93C5FD");
+
+        ws.Range(2, 10, 2, 12).Merge();
+        ws.Cell(2, 10).Value = "EXECUTIVE SNAPSHOT";
+        ws.Cell(2, 10).Style.Font.Bold = true;
+        ws.Cell(2, 10).Style.Font.FontSize = 10;
+        ws.Cell(2, 10).Style.Font.FontColor = XLColor.White;
+        ws.Cell(2, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+
+        ws.Range(3, 10, 3, 12).Merge();
+        ws.Cell(3, 10).Value = $"Requested accounts: {report.Summary.RequestedAccountCount:N0}  |  Active: {report.Summary.ActiveAccountCount:N0}";
+        ws.Cell(3, 10).Style.Font.FontSize = 11;
+        ws.Cell(3, 10).Style.Font.FontColor = XLColor.White;
+        ws.Cell(3, 10).Style.Alignment.WrapText = true;
+
+        ws.Range(4, 10, 4, 12).Merge();
+        ws.Cell(4, 10).Value = $"Sources: {sourceLabel}  |  Grouping: {report.Grouping}";
+        ws.Cell(4, 10).Style.Font.FontSize = 10;
+        ws.Cell(4, 10).Style.Font.FontColor = XLColor.FromHtml("#DBEAFE");
+        ws.Cell(4, 10).Style.Alignment.WrapText = true;
+
+        ws.Range(5, 10, 5, 12).Merge();
+        ws.Cell(5, 10).Value = $"Company: {CompanyName}";
+        ws.Cell(5, 10).Style.Font.FontSize = 10;
+        ws.Cell(5, 10).Style.Font.FontColor = XLColor.FromHtml("#DBEAFE");
+
+        ws.Range(6, 10, 6, 12).Merge();
+        ws.Cell(6, 10).Value = $"Generated: {generatedAt:dd MMM yyyy HH:mm} CAT";
+        ws.Cell(6, 10).Style.Font.FontSize = 10;
+        ws.Cell(6, 10).Style.Font.Bold = true;
+        ws.Cell(6, 10).Style.Font.FontColor = XLColor.White;
+
+        ws.Range(2, 13, 2, lastCol).Merge();
+        ws.Cell(2, 13).Value = "KEFALOS BRAND MARK";
+        ws.Cell(2, 13).Style.Font.Bold = true;
+        ws.Cell(2, 13).Style.Font.FontSize = 9;
+        ws.Cell(2, 13).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Cell(2, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        ws.Range(6, 13, 6, lastCol).Merge();
+        ws.Cell(6, 13).Value = "Accounting-grade executive workbook";
+        ws.Cell(6, 13).Style.Font.FontSize = 9;
+        ws.Cell(6, 13).Style.Font.FontColor = ExecutiveTextMuted;
+        ws.Cell(6, 13).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        ws.Rows(2, 6).Height = 24;
+        return 8;
+    }
+
+    private static int WriteExecutiveBannerSimple(
+        IXLWorksheet ws,
+        string title,
+        string subtitle,
+        GetAccountSalesPaymentReportResult report,
+        int lastCol,
+        XLColor accentColor)
+    {
+        ws.Range(1, 1, 1, lastCol).Style.Fill.BackgroundColor = accentColor;
+        ws.Row(1).Height = 6;
+
+        ws.Range(2, 1, 5, lastCol).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Range(2, 1, 5, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(2, 1, 5, lastCol).Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        ws.Range(2, 1, 2, lastCol).Merge();
+        ws.Cell(2, 1).Value = title;
+        ws.Cell(2, 1).Style.Font.Bold = true;
+        ws.Cell(2, 1).Style.Font.FontSize = 18;
+        ws.Cell(2, 1).Style.Font.FontColor = ExecutiveTextPrimary;
+
+        ws.Range(3, 1, 3, lastCol).Merge();
+        ws.Cell(3, 1).Value = subtitle;
+        ws.Cell(3, 1).Style.Font.FontSize = 10;
+        ws.Cell(3, 1).Style.Font.FontColor = ExecutiveTextSecondary;
+
+        ws.Range(4, 1, 4, lastCol).Merge();
+        ws.Cell(4, 1).Value = $"Report window {FormatCatDate(report.FromDateUtc)} to {FormatCatDate(report.ToDateUtc)}  |  Grouping {report.Grouping}  |  Generated {FormatCatDateTime(report.GeneratedAtUtc == default ? DateTime.UtcNow : report.GeneratedAtUtc)} CAT";
+        ws.Cell(4, 1).Style.Font.FontSize = 9;
+        ws.Cell(4, 1).Style.Font.FontColor = ExecutiveTextMuted;
+
+        ws.Range(5, 1, 5, lastCol).Style.Fill.BackgroundColor = ExecutiveSection;
+        ws.Row(5).Height = 4;
+        return 7;
+    }
+
+    private static void WriteExecutiveKpiCard(
+        IXLWorksheet ws,
+        int topRow,
+        int startCol,
+        int endCol,
+        XLColor accentColor,
+        string label,
+        string value,
+        string supportingText)
+    {
+        ws.Range(topRow, startCol, topRow + 4, endCol).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Range(topRow, startCol, topRow + 4, endCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(topRow, startCol, topRow + 4, endCol).Style.Border.OutsideBorderColor = ExecutiveBorder;
+        ws.Range(topRow, startCol, topRow, endCol).Style.Fill.BackgroundColor = accentColor;
+        ws.Row(topRow).Height = 8;
+
+        ws.Range(topRow + 1, startCol, topRow + 1, endCol).Merge();
+        ws.Cell(topRow + 1, startCol).Value = label;
+        ws.Cell(topRow + 1, startCol).Style.Font.Bold = true;
+        ws.Cell(topRow + 1, startCol).Style.Font.FontSize = 9;
+        ws.Cell(topRow + 1, startCol).Style.Font.FontColor = ExecutiveTextMuted;
+        ws.Cell(topRow + 1, startCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+
+        ws.Range(topRow + 2, startCol, topRow + 3, endCol).Merge();
+        ws.Cell(topRow + 2, startCol).Value = value;
+        ws.Cell(topRow + 2, startCol).Style.Font.Bold = true;
+        ws.Cell(topRow + 2, startCol).Style.Font.FontSize = 17;
+        ws.Cell(topRow + 2, startCol).Style.Font.FontColor = ExecutiveTextPrimary;
+        ws.Cell(topRow + 2, startCol).Style.Alignment.WrapText = true;
+        ws.Cell(topRow + 2, startCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
+        ws.Cell(topRow + 2, startCol).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        ws.Range(topRow + 4, startCol, topRow + 4, endCol).Merge();
+        ws.Cell(topRow + 4, startCol).Value = supportingText;
+        ws.Cell(topRow + 4, startCol).Style.Font.FontSize = 9;
+        ws.Cell(topRow + 4, startCol).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Cell(topRow + 4, startCol).Style.Alignment.WrapText = true;
+        ws.Row(topRow + 2).Height = 22;
+        ws.Row(topRow + 3).Height = 22;
+        ws.Row(topRow + 4).Height = 28;
+    }
+
+    private static void WriteExecutiveCallout(IXLWorksheet ws, int topRow, int lastCol, string label, string narrative)
+    {
+        ws.Range(topRow, 1, topRow + 2, lastCol).Style.Fill.BackgroundColor = ExecutiveSection;
+        ws.Range(topRow, 1, topRow + 2, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(topRow, 1, topRow + 2, lastCol).Style.Border.OutsideBorderColor = ExecutiveBorder;
+        ws.Range(topRow, 1, topRow, 1).Style.Fill.BackgroundColor = ExecutiveRoyalBlue;
+        ws.Range(topRow + 1, 1, topRow + 2, 1).Style.Fill.BackgroundColor = ExecutiveRoyalBlue;
+
+        ws.Range(topRow, 2, topRow, lastCol).Merge();
+        ws.Cell(topRow, 2).Value = label;
+        ws.Cell(topRow, 2).Style.Font.Bold = true;
+        ws.Cell(topRow, 2).Style.Font.FontSize = 11;
+        ws.Cell(topRow, 2).Style.Font.FontColor = ExecutiveIndigo;
+
+        ws.Range(topRow + 1, 2, topRow + 2, lastCol).Merge();
+        ws.Cell(topRow + 1, 2).Value = narrative;
+        ws.Cell(topRow + 1, 2).Style.Font.FontSize = 10;
+        ws.Cell(topRow + 1, 2).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Cell(topRow + 1, 2).Style.Alignment.WrapText = true;
+        ws.Rows(topRow, topRow + 2).Height = 26;
+    }
+
+    private static void WriteExecutiveSectionHeader(IXLWorksheet ws, int row, int lastCol, string title, string subtitle, XLColor accentColor)
+    {
+        ws.Range(row, 1, row + 1, lastCol).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Range(row, 1, row + 1, lastCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(row, 1, row + 1, lastCol).Style.Border.OutsideBorderColor = ExecutiveBorder;
+        ws.Range(row, 1, row + 1, 1).Style.Fill.BackgroundColor = accentColor;
+
+        ws.Range(row, 2, row, lastCol).Merge();
+        ws.Cell(row, 2).Value = title;
+        ws.Cell(row, 2).Style.Font.Bold = true;
+        ws.Cell(row, 2).Style.Font.FontSize = 12;
+        ws.Cell(row, 2).Style.Font.FontColor = ExecutiveTextPrimary;
+
+        ws.Range(row + 1, 2, row + 1, lastCol).Merge();
+        ws.Cell(row + 1, 2).Value = subtitle;
+        ws.Cell(row + 1, 2).Style.Font.FontSize = 9;
+        ws.Cell(row + 1, 2).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Row(row).Height = 20;
+        ws.Row(row + 1).Height = 18;
+    }
+
+    private static void WriteExecutiveChartContainer(
+        IXLWorksheet ws,
+        int topRow,
+        int leftCol,
+        int bottomRow,
+        int rightCol,
+        string title,
+        string subtitle,
+        XLColor accentColor)
+    {
+        ws.Range(topRow, leftCol, bottomRow, rightCol).Style.Fill.BackgroundColor = ExecutiveSurface;
+        ws.Range(topRow, leftCol, bottomRow, rightCol).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        ws.Range(topRow, leftCol, bottomRow, rightCol).Style.Border.OutsideBorderColor = ExecutiveBorder;
+        ws.Range(topRow, leftCol, topRow, rightCol).Merge();
+        ws.Range(topRow, leftCol, topRow, rightCol).Style.Fill.BackgroundColor = accentColor;
+        ws.Cell(topRow, leftCol).Value = title;
+        ws.Cell(topRow, leftCol).Style.Font.Bold = true;
+        ws.Cell(topRow, leftCol).Style.Font.FontSize = 10;
+        ws.Cell(topRow, leftCol).Style.Font.FontColor = XLColor.White;
+        ws.Cell(topRow, leftCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+
+        ws.Range(topRow + 1, leftCol, topRow + 1, rightCol).Merge();
+        ws.Cell(topRow + 1, leftCol).Value = subtitle;
+        ws.Cell(topRow + 1, leftCol).Style.Font.FontSize = 9;
+        ws.Cell(topRow + 1, leftCol).Style.Font.FontColor = ExecutiveTextSecondary;
+        ws.Cell(topRow + 1, leftCol).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(topRow + 1, leftCol).Style.Alignment.WrapText = true;
+    }
+
+    private static void StyleExecutiveTableHeader(IXLWorksheet ws, int headerRow, int lastCol, XLColor accentColor)
+    {
+        var headerRange = ws.Range(headerRow, 1, headerRow, lastCol);
+        headerRange.Style.Fill.BackgroundColor = accentColor;
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Font.FontSize = 10;
+        headerRange.Style.Font.FontColor = XLColor.White;
+        headerRange.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        headerRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        headerRange.Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+        headerRange.Style.Border.BottomBorderColor = XLColor.White;
+        ws.Row(headerRow).Height = 24;
+    }
+
+    private static void StyleExecutiveTableRows(IXLWorksheet ws, int firstRow, int lastRow, int lastCol, bool preserveExistingFill = false)
+    {
+        if (lastRow < firstRow)
+        {
+            return;
+        }
+
+        for (var row = firstRow; row <= lastRow; row++)
+        {
+            var rowRange = ws.Range(row, 1, row, lastCol);
+            if (!preserveExistingFill || rowRange.Style.Fill.BackgroundColor == XLColor.NoColor || rowRange.Style.Fill.BackgroundColor == XLColor.Transparent)
+            {
+                rowRange.Style.Fill.BackgroundColor = (row - firstRow) % 2 == 0 ? ExecutiveSurface : ExecutiveCanvas;
+            }
+
+            rowRange.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
+            rowRange.Style.Border.BottomBorderColor = ExecutiveBorder;
+            rowRange.Style.Font.FontSize = 10;
+            rowRange.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        }
+    }
+
+    private static void FinalizeExecutiveSheet(IXLWorksheet ws, int lastCol, int freezeRow = 0, bool landscape = false)
+    {
+        ws.Columns(1, lastCol).AdjustToContents();
+        for (var col = 1; col <= lastCol; col++)
+        {
+            if (ws.Column(col).Width > 34)
+            {
+                ws.Column(col).Width = 34;
+            }
+
+            if (ws.Column(col).Width < 10)
+            {
+                ws.Column(col).Width = 10;
+            }
+        }
+
+        if (freezeRow > 0)
+        {
+            ws.SheetView.FreezeRows(freezeRow);
+        }
+
+        ws.PageSetup.PageOrientation = landscape ? XLPageOrientation.Landscape : XLPageOrientation.Portrait;
+        ws.PageSetup.FitToPages(1, 0);
+        ws.PageSetup.Margins.SetLeft(0.35);
+        ws.PageSetup.Margins.SetRight(0.35);
+        ws.PageSetup.Margins.SetTop(0.45);
+        ws.PageSetup.Margins.SetBottom(0.45);
+    }
+
+    private static void WriteExecutiveFooter(IXLWorksheet ws, int row, int colSpan)
+    {
+        var generatedAt = CurrentCatNow();
+        ws.Range(row, 1, row, colSpan).Merge();
+        ws.Range(row, 1, row, colSpan).Style.Fill.BackgroundColor = ExecutiveSection;
+        ws.Range(row, 1, row, colSpan).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+        ws.Range(row, 1, row, colSpan).Style.Border.TopBorderColor = ExecutiveBorder;
+        ws.Cell(row, 1).Value = $"CONFIDENTIAL  |  {CompanyName}  |  {SystemName}  |  Generated {generatedAt:dd MMM yyyy HH:mm} CAT";
+        ws.Cell(row, 1).Style.Font.FontSize = 8;
+        ws.Cell(row, 1).Style.Font.FontColor = ExecutiveTextMuted;
+        ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+    }
+
+    private static string FormatExecutiveMoneyPair(decimal usd, decimal zig) =>
+        $"USD {usd:N2}\nZiG {zig:N2}";
+
+    private static string FormatExecutivePercent(decimal value) => $"{value:N2}%";
+
+    private static decimal CalculateExecutivePercent(decimal numerator, decimal denominator) =>
+        denominator <= 0 ? 0m : Math.Round((numerator / denominator) * 100m, 2);
+
+    private static string BuildExecutiveSignalBar(decimal value, decimal maxValue, int width = 12)
+    {
+        if (maxValue <= 0)
+        {
+            return new string('-', width);
+        }
+
+        var ratio = Math.Max(0m, Math.Min(1m, value / maxValue));
+        var filled = (int)Math.Round(ratio * width, MidpointRounding.AwayFromZero);
+        return new string('#', filled).PadRight(width, '-');
+    }
+
+    private static string ResolveExecutiveCollectionStatus(decimal outstandingUsd, decimal outstandingZig, decimal collectionUsd, decimal collectionZig)
+    {
+        if (outstandingUsd <= 0 && outstandingZig <= 0)
+        {
+            return "Paid";
+        }
+
+        if (collectionUsd >= 85m || collectionZig >= 85m)
+        {
+            return "Watch";
+        }
+
+        return "Outstanding";
+    }
+
+    private static void ApplyExecutiveSourceBadge(IXLCell cell)
+    {
+        var source = cell.GetString().Trim();
+        cell.Style.Font.Bold = true;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        if (source.Equals("API", StringComparison.OrdinalIgnoreCase))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftIndigo;
+            cell.Style.Font.FontColor = ExecutiveIndigo;
+        }
+        else
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftBlue;
+            cell.Style.Font.FontColor = ExecutiveRoyalBlue;
+        }
+    }
+
+    private static void ApplyExecutiveStatusBadge(IXLCell cell)
+    {
+        var status = cell.GetString().Trim();
+        var normalizedStatus = status.ToUpperInvariant();
+
+        cell.Style.Font.Bold = true;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        if (normalizedStatus.Contains("PAID") || normalizedStatus.Contains("COMPLETED") || normalizedStatus.Contains("POSTED") || normalizedStatus.Contains("SYNCED"))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftEmerald;
+            cell.Style.Font.FontColor = ExecutiveEmerald;
+        }
+        else if (normalizedStatus.Contains("OUTSTANDING") || normalizedStatus.Contains("FAILED") || normalizedStatus.Contains("VOID") || normalizedStatus.Contains("CANCEL"))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftRose;
+            cell.Style.Font.FontColor = ExecutiveRose;
+        }
+        else
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftAmber;
+            cell.Style.Font.FontColor = ExecutiveAmber;
+        }
+    }
+
+    private static void ApplyExecutiveValueBandBadge(IXLCell cell)
+    {
+        var band = cell.GetString().Trim();
+        cell.Style.Font.Bold = true;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        if (band.Equals("High Value", StringComparison.OrdinalIgnoreCase))
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftRose;
+            cell.Style.Font.FontColor = ExecutiveRose;
+        }
+        else
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftBlue;
+            cell.Style.Font.FontColor = ExecutiveRoyalBlue;
+        }
+    }
+
+    private static void ApplyExecutiveOutstandingStyle(IXLCell cell, decimal value)
+    {
+        cell.Style.Font.Bold = true;
+        cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        cell.Style.Border.OutsideBorderColor = ExecutiveBorder;
+
+        if (value <= 0)
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftEmerald;
+            cell.Style.Font.FontColor = ExecutiveEmerald;
+        }
+        else if (value < 1000m)
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftAmber;
+            cell.Style.Font.FontColor = ExecutiveAmber;
+        }
+        else
+        {
+            cell.Style.Fill.BackgroundColor = ExecutiveSoftRose;
+            cell.Style.Font.FontColor = ExecutiveRose;
+        }
+    }
+
+    private static decimal CalculateExecutiveHighValueThreshold(IEnumerable<decimal> values)
+    {
+        var orderedValues = values
+            .Where(value => value > 0)
+            .OrderBy(value => value)
+            .ToList();
+
+        if (orderedValues.Count == 0)
+        {
+            return 0m;
+        }
+
+        var percentileIndex = (int)Math.Floor((orderedValues.Count - 1) * 0.85m);
+        return orderedValues[Math.Clamp(percentileIndex, 0, orderedValues.Count - 1)];
+    }
+
+    private static string? ResolveExecutiveLogoPath()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, BrandLogoRelativePath),
+            Path.Combine(Directory.GetCurrentDirectory(), BrandLogoRelativePath),
+            Path.Combine(Directory.GetCurrentDirectory(), "ShopInventory.Web", BrandLogoRelativePath),
+            Path.Combine(AppContext.BaseDirectory, "images", "kefalos-logo.jpg")
+        };
+
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static void TryAddExecutiveLogo(IXLWorksheet ws, string? logoPath, int row, int col, double scale)
+    {
+        if (string.IsNullOrWhiteSpace(logoPath) || !File.Exists(logoPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var picture = ws.AddPicture(logoPath, $"Kefalos_{ws.Name}_{row}_{col}");
+            picture.MoveTo(ws.Cell(row, col), 10, 10);
+            picture.Scale(scale, true);
+            picture.WithPlacement(XLPicturePlacement.FreeFloating);
+        }
+        catch
+        {
+            // Branding is decorative. Export should still succeed if the asset cannot be loaded.
+        }
+    }
+
+    private static byte[] AddExecutiveChartsToAccountSalesWorkbook(
+        byte[] workbookBytes,
+        int trendHeaderRow,
+        int trendDataStartRow,
+        int trendDataEndRow,
+        int accountHeaderRow,
+        int accountDataStartRow,
+        int accountDataEndRow)
+    {
+        if (trendDataEndRow < trendDataStartRow && accountDataEndRow < accountDataStartRow)
+        {
+            return workbookBytes;
+        }
+
+        using var stream = new MemoryStream();
+        stream.Write(workbookBytes, 0, workbookBytes.Length);
+        stream.Position = 0;
+
+        using (var document = SpreadsheetDocument.Open(stream, true))
+        {
+            if (trendDataEndRow >= trendDataStartRow)
+            {
+                AddExecutiveClusteredColumnChart(
+                    document,
+                    targetSheetName: "Visuals",
+                    chartName: "Period Sales Collections",
+                    sourceSheetName: "Trend Analysis",
+                    headerRow: trendHeaderRow,
+                    categoryColumn: 1,
+                    dataStartRow: trendDataStartRow,
+                    dataEndRow: trendDataEndRow,
+                    seriesColumns: new[] { 7, 8 },
+                    seriesColors: new[] { "2563EB", "10B981" },
+                    fromColumn: 0,
+                    fromRow: 13,
+                    toColumn: 7,
+                    toRow: 29);
+            }
+
+            if (accountDataEndRow >= accountDataStartRow)
+            {
+                AddExecutiveClusteredColumnChart(
+                    document,
+                    targetSheetName: "Visuals",
+                    chartName: "Top Accounts Sales Outstanding",
+                    sourceSheetName: "Customer Analysis",
+                    headerRow: accountHeaderRow,
+                    categoryColumn: 1,
+                    dataStartRow: accountDataStartRow,
+                    dataEndRow: accountDataEndRow,
+                    seriesColumns: new[] { 5, 7 },
+                    seriesColors: new[] { "2563EB", "F43F5E" },
+                    fromColumn: 7,
+                    fromRow: 13,
+                    toColumn: 14,
+                    toRow: 29);
+            }
+        }
+
+        return stream.ToArray();
+    }
+
+    private static void AddExecutiveClusteredColumnChart(
+        SpreadsheetDocument document,
+        string targetSheetName,
+        string chartName,
+        string sourceSheetName,
+        int headerRow,
+        int categoryColumn,
+        int dataStartRow,
+        int dataEndRow,
+        IReadOnlyList<int> seriesColumns,
+        IReadOnlyList<string> seriesColors,
+        int fromColumn,
+        int fromRow,
+        int toColumn,
+        int toRow)
+    {
+        if (seriesColumns.Count == 0 || seriesColumns.Count != seriesColors.Count)
+        {
+            return;
+        }
+
+        var workbookPart = document.WorkbookPart;
+        if (workbookPart is null)
+        {
+            return;
+        }
+
+        var targetWorksheetPart = GetWorksheetPartByName(workbookPart, targetSheetName);
+        if (targetWorksheetPart is null)
+        {
+            return;
+        }
+
+        var drawingsPart = EnsureDrawingsPart(targetWorksheetPart);
+        var chartPart = drawingsPart.AddNewPart<ChartPart>();
+
+        BuildExecutiveClusteredColumnChart(
+            chartPart,
+            sourceSheetName,
+            headerRow,
+            categoryColumn,
+            dataStartRow,
+            dataEndRow,
+            seriesColumns,
+            seriesColors);
+
+        AppendChartAnchor(drawingsPart, chartPart, chartName, fromColumn, fromRow, toColumn, toRow);
+    }
+
+    private static void BuildExecutiveClusteredColumnChart(
+        ChartPart chartPart,
+        string sourceSheetName,
+        int headerRow,
+        int categoryColumn,
+        int dataStartRow,
+        int dataEndRow,
+        IReadOnlyList<int> seriesColumns,
+        IReadOnlyList<string> seriesColors)
+    {
+        var chartSpace = new C.ChartSpace();
+        chartSpace.Append(new C.EditingLanguage { Val = "en-US" });
+
+        var chart = chartSpace.AppendChild(new C.Chart());
+        chart.Append(new C.AutoTitleDeleted { Val = true });
+
+        var plotArea = chart.AppendChild(new C.PlotArea());
+        plotArea.AppendChild(new C.Layout());
+
+        var barChart = plotArea.AppendChild(new C.BarChart());
+        barChart.Append(new C.BarDirection { Val = C.BarDirectionValues.Column });
+        barChart.Append(new C.BarGrouping { Val = C.BarGroupingValues.Clustered });
+        barChart.Append(new C.VaryColors { Val = false });
+
+        var categoryFormula = BuildSheetRangeFormula(sourceSheetName, dataStartRow, categoryColumn, dataEndRow, categoryColumn);
+
+        for (var index = 0; index < seriesColumns.Count; index++)
+        {
+            var series = new C.BarChartSeries();
+            series.Append(new C.Index { Val = (uint)index });
+            series.Append(new C.Order { Val = (uint)index });
+
+            var seriesText = new C.SeriesText();
+            var stringReference = new C.StringReference();
+            stringReference.Append(new C.Formula(BuildSheetCellFormula(sourceSheetName, headerRow, seriesColumns[index])));
+            seriesText.Append(stringReference);
+            series.Append(seriesText);
+
+            series.Append(new C.InvertIfNegative { Val = false });
+            series.Append(new C.ChartShapeProperties(
+                new A.SolidFill(new A.RgbColorModelHex { Val = seriesColors[index] }),
+                new A.Outline(new A.NoFill())));
+
+            var categoryAxisData = new C.CategoryAxisData();
+            var categoryReference = new C.StringReference();
+            categoryReference.Append(new C.Formula(categoryFormula));
+            categoryAxisData.Append(categoryReference);
+            series.Append(categoryAxisData);
+
+            var values = new C.Values();
+            var numberReference = new C.NumberReference();
+            numberReference.Append(new C.Formula(BuildSheetRangeFormula(sourceSheetName, dataStartRow, seriesColumns[index], dataEndRow, seriesColumns[index])));
+            values.Append(numberReference);
+            series.Append(values);
+
+            barChart.Append(series);
+        }
+
+        barChart.Append(new C.DataLabels(
+            new C.ShowLegendKey { Val = false },
+            new C.ShowValue { Val = false },
+            new C.ShowCategoryName { Val = false },
+            new C.ShowSeriesName { Val = false },
+            new C.ShowPercent { Val = false },
+            new C.ShowBubbleSize { Val = false }));
+        barChart.Append(new C.GapWidth { Val = 65 });
+
+        var categoryAxisId = (uint)(48650112 + (Math.Abs(sourceSheetName.GetHashCode()) % 1000) * 2);
+        var valueAxisId = categoryAxisId + 1;
+
+        barChart.Append(new C.AxisId { Val = categoryAxisId });
+        barChart.Append(new C.AxisId { Val = valueAxisId });
+
+        var categoryAxis = new C.CategoryAxis();
+        categoryAxis.Append(new C.AxisId { Val = categoryAxisId });
+        categoryAxis.Append(new C.Scaling(new C.Orientation { Val = C.OrientationValues.MinMax }));
+        categoryAxis.Append(new C.Delete { Val = false });
+        categoryAxis.Append(new C.AxisPosition { Val = C.AxisPositionValues.Bottom });
+        categoryAxis.Append(new C.NumberingFormat { FormatCode = "General", SourceLinked = true });
+        categoryAxis.Append(new C.MajorTickMark { Val = C.TickMarkValues.None });
+        categoryAxis.Append(new C.MinorTickMark { Val = C.TickMarkValues.None });
+        categoryAxis.Append(new C.TickLabelPosition { Val = C.TickLabelPositionValues.NextTo });
+        categoryAxis.Append(new C.CrossingAxis { Val = valueAxisId });
+        categoryAxis.Append(new C.Crosses { Val = C.CrossesValues.AutoZero });
+        categoryAxis.Append(new C.AutoLabeled { Val = true });
+        categoryAxis.Append(new C.LabelAlignment { Val = C.LabelAlignmentValues.Center });
+        categoryAxis.Append(new C.LabelOffset { Val = 100 });
+
+        var valueAxis = new C.ValueAxis();
+        valueAxis.Append(new C.AxisId { Val = valueAxisId });
+        valueAxis.Append(new C.Scaling(new C.Orientation { Val = C.OrientationValues.MinMax }));
+        valueAxis.Append(new C.Delete { Val = false });
+        valueAxis.Append(new C.AxisPosition { Val = C.AxisPositionValues.Left });
+        valueAxis.Append(new C.MajorGridlines());
+        valueAxis.Append(new C.NumberingFormat { FormatCode = "#,##0.00", SourceLinked = false });
+        valueAxis.Append(new C.MajorTickMark { Val = C.TickMarkValues.None });
+        valueAxis.Append(new C.MinorTickMark { Val = C.TickMarkValues.None });
+        valueAxis.Append(new C.TickLabelPosition { Val = C.TickLabelPositionValues.NextTo });
+        valueAxis.Append(new C.CrossingAxis { Val = categoryAxisId });
+        valueAxis.Append(new C.Crosses { Val = C.CrossesValues.AutoZero });
+        valueAxis.Append(new C.CrossBetween { Val = C.CrossBetweenValues.Between });
+
+        plotArea.Append(categoryAxis);
+        plotArea.Append(valueAxis);
+
+        chart.Append(new C.Legend(new C.LegendPosition { Val = C.LegendPositionValues.Bottom }, new C.Layout()));
+        chart.Append(new C.PlotVisibleOnly { Val = true });
+        chart.Append(new C.DisplayBlanksAs { Val = C.DisplayBlanksAsValues.Gap });
+
+        chartPart.ChartSpace = chartSpace;
+        chartPart.ChartSpace.Save();
+    }
+
+    private static WorksheetPart? GetWorksheetPartByName(WorkbookPart workbookPart, string worksheetName)
+    {
+        var sheet = workbookPart.Workbook.Descendants<Sheet>()
+            .FirstOrDefault(candidate => string.Equals(candidate.Name?.Value, worksheetName, StringComparison.OrdinalIgnoreCase));
+
+        return sheet?.Id?.Value is { Length: > 0 } relationshipId
+            ? (WorksheetPart)workbookPart.GetPartById(relationshipId)
+            : null;
+    }
+
+    private static DrawingsPart EnsureDrawingsPart(WorksheetPart worksheetPart)
+    {
+        if (worksheetPart.DrawingsPart is not null)
+        {
+            worksheetPart.DrawingsPart.WorksheetDrawing ??= new Xdr.WorksheetDrawing();
+            return worksheetPart.DrawingsPart;
+        }
+
+        var drawingsPart = worksheetPart.AddNewPart<DrawingsPart>();
+        drawingsPart.WorksheetDrawing = new Xdr.WorksheetDrawing();
+        worksheetPart.Worksheet.Append(new DocumentFormat.OpenXml.Spreadsheet.Drawing { Id = worksheetPart.GetIdOfPart(drawingsPart) });
+        worksheetPart.Worksheet.Save();
+        return drawingsPart;
+    }
+
+    private static void AppendChartAnchor(
+        DrawingsPart drawingsPart,
+        ChartPart chartPart,
+        string chartName,
+        int fromColumn,
+        int fromRow,
+        int toColumn,
+        int toRow)
+    {
+        drawingsPart.WorksheetDrawing ??= new Xdr.WorksheetDrawing();
+
+        var drawingId = (uint)(drawingsPart.WorksheetDrawing.ChildElements.Count + 2);
+        var chartRelationshipId = drawingsPart.GetIdOfPart(chartPart);
+
+        var twoCellAnchor = drawingsPart.WorksheetDrawing.AppendChild(new Xdr.TwoCellAnchor());
+        twoCellAnchor.Append(new Xdr.FromMarker(
+            new Xdr.ColumnId(fromColumn.ToString()),
+            new Xdr.ColumnOffset("0"),
+            new Xdr.RowId(fromRow.ToString()),
+            new Xdr.RowOffset("0")));
+        twoCellAnchor.Append(new Xdr.ToMarker(
+            new Xdr.ColumnId(toColumn.ToString()),
+            new Xdr.ColumnOffset("0"),
+            new Xdr.RowId(toRow.ToString()),
+            new Xdr.RowOffset("0")));
+
+        var graphicFrame = twoCellAnchor.AppendChild(new Xdr.GraphicFrame { Macro = string.Empty });
+        graphicFrame.Append(new Xdr.NonVisualGraphicFrameProperties(
+            new Xdr.NonVisualDrawingProperties { Id = drawingId, Name = chartName },
+            new Xdr.NonVisualGraphicFrameDrawingProperties()));
+
+        var transform = new Xdr.Transform();
+        transform.Append(new A.Offset { X = 0L, Y = 0L });
+        transform.Append(new A.Extents { Cx = 0L, Cy = 0L });
+        graphicFrame.Append(transform);
+
+        var graphic = new A.Graphic();
+        var graphicData = new A.GraphicData { Uri = "http://schemas.openxmlformats.org/drawingml/2006/chart" };
+        graphicData.Append(new C.ChartReference { Id = chartRelationshipId });
+        graphic.Append(graphicData);
+        graphicFrame.Append(graphic);
+
+        twoCellAnchor.Append(new Xdr.ClientData());
+        drawingsPart.WorksheetDrawing.Save();
+    }
+
+    private static string BuildSheetRangeFormula(string sheetName, int startRow, int startColumn, int endRow, int endColumn) =>
+        $"'{sheetName.Replace("'", "''")}'!${ToExcelColumnName(startColumn)}${startRow}:${ToExcelColumnName(endColumn)}${endRow}";
+
+    private static string BuildSheetCellFormula(string sheetName, int row, int column) =>
+        $"'{sheetName.Replace("'", "''")}'!${ToExcelColumnName(column)}${row}";
+
+    private static string ToExcelColumnName(int columnNumber)
+    {
+        var dividend = columnNumber;
+        var columnName = string.Empty;
+
+        while (dividend > 0)
+        {
+            var modulo = (dividend - 1) % 26;
+            columnName = Convert.ToChar(65 + modulo) + columnName;
+            dividend = (dividend - modulo) / 26;
+        }
+
+        return columnName;
     }
 
     // ─── Desktop Sales Export ─────────────────────────────────────

@@ -125,7 +125,7 @@ public sealed class DocumentAttachmentAccessService(
 
         if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission, StringComparison.OrdinalIgnoreCase))
         {
-            return await EnsureCratePodSubmissionAccessAsync(entityId, userId, role, uploadedByUserId, isWriteOperation, cancellationToken);
+            return await EnsureCratePodSubmissionAccessAsync(entityId, userId, role, assignedSection, uploadedByUserId, isWriteOperation, cancellationToken);
         }
 
         if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCrateGrv, StringComparison.OrdinalIgnoreCase))
@@ -256,12 +256,14 @@ public sealed class DocumentAttachmentAccessService(
         int entityId,
         Guid userId,
         string role,
+        string? assignedSection,
         Guid? uploadedByUserId,
         bool isWriteOperation,
         CancellationToken cancellationToken)
     {
         var submission = await context.CratePodSubmissions
             .AsNoTracking()
+            .Include(s => s.CrateTransaction)
             .FirstOrDefaultAsync(s => s.Id == entityId, cancellationToken);
 
         if (submission is null)
@@ -272,6 +274,32 @@ public sealed class DocumentAttachmentAccessService(
         if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
         {
             return true;
+        }
+
+        if (!isWriteOperation && IsRole(role, "SalesRep"))
+        {
+            return true;
+        }
+
+        if (!isWriteOperation && IsRole(role, "PodOperator"))
+        {
+            if (string.IsNullOrWhiteSpace(assignedSection))
+            {
+                return Errors.Document.AccessDenied("Pod operators must have an assigned section to view crate POD attachments.");
+            }
+
+            if (submission.CrateTransaction?.InvoiceDocEntry is not int invoiceDocEntry)
+            {
+                return Errors.Document.AccessDenied("This crate POD is not linked to an invoice in your assigned POD section.");
+            }
+
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync([invoiceDocEntry], assignedSection, cancellationToken);
+            if (scopedDocEntries.Contains(invoiceDocEntry))
+            {
+                return true;
+            }
+
+            return Errors.Document.AccessDenied("This crate POD is outside your assigned POD section.");
         }
 
         if (IsRole(role, "Driver") && (submission.SubmittedByUserId == userId || uploadedByUserId == userId))
@@ -303,7 +331,7 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.CrateTracking.GrvNotFound(entityId);
         }
 
-        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser") || (!isWriteOperation && IsRole(role, "SalesRep")))
         {
             return true;
         }

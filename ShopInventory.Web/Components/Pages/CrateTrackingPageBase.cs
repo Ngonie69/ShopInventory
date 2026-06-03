@@ -105,14 +105,16 @@ public abstract class CrateTrackingPageBase : ComponentBase
         var isAdmin = user.IsInRole("Admin");
         var isManager = user.IsInRole("Manager");
         var isMerchandiser = user.IsInRole("Merchandiser");
+        var isPodOperator = user.IsInRole("PodOperator");
         var isDriver = user.IsInRole("Driver");
+        var isSalesRep = user.IsInRole("SalesRep");
 
         canManageOpeningBalances = isAdmin;
         canRaiseGrvs = isAdmin || isManager || isMerchandiser;
         canChoosePodRole = isAdmin || isManager;
         canSubmitPods = isAdmin || isManager || isMerchandiser || isDriver;
-        canViewCrateTransactions = canSubmitPods;
-        canViewCrateGrvs = canRaiseGrvs || isDriver;
+        canViewCrateTransactions = canSubmitPods || isPodOperator || isSalesRep;
+        canViewCrateGrvs = canRaiseGrvs || isDriver || isSalesRep;
 
         selectedPodRole = isMerchandiser
             ? "Merchandiser"

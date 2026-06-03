@@ -2,7 +2,7 @@
 @using System.Text.RegularExpressions
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Models
-@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver")]
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep")]
 @inherits CrateTrackingPageBase
 @rendermode InteractiveServer
 
@@ -392,7 +392,7 @@
                 </div>
                 <div>
                     <h3 class="crpod-card-title mb-1">Read-only crate POD access</h3>
-                    <p class="crpod-card-note mb-0">You can review crate POD history and download attachments from this page, but uploads remain limited to the crate field roles.</p>
+                    <p class="crpod-card-note mb-0">You can review invoice-linked crate transactions, crate POD history, and download attachments from this page, but uploads remain limited to the crate field roles.</p>
                 </div>
             </div>
         </div>
@@ -458,7 +458,11 @@
         <div class="crpod-card-header">
             <div>
                 <h3 class="crpod-card-title">Invoice Crate Transactions</h3>
-                <p class="crpod-card-note">@(uploadMode == CratePodUploadMode.Single ? "Browse the invoice-linked crate register, then push the chosen row into the upload form above." : "Browse the invoice-linked crate register and confirm which invoices are eligible before bulk upload.")</p>
+                <p class="crpod-card-note">@(canSubmitPods
+                    ? (uploadMode == CratePodUploadMode.Single
+                        ? "Browse the invoice-linked crate register, then push the chosen row into the upload form above."
+                        : "Browse the invoice-linked crate register and confirm which invoices are eligible before bulk upload.")
+                    : "Browse the invoice-linked crate register, review driver and merchandiser counts, and use the history below for document follow-up.")</p>
             </div>
             <span class="crpod-header-count">@filteredTransactions.Count matching transactions</span>
         </div>
@@ -481,7 +485,7 @@
 
         @if (!canViewCrateTransactions)
         {
-            <div class="crpod-empty-state">Pod operators can review crate POD history here, but invoice crate transactions stay hidden because they are upload-only work items.</div>
+            <div class="crpod-empty-state">Invoice-linked crate transactions are not available for your account.</div>
         }
         else if (!filteredTransactions.Any())
         {

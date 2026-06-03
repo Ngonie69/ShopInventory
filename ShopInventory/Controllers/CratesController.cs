@@ -30,7 +30,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     };
 
     [HttpGet("transactions")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CrateTransactionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTransactions(
         [FromQuery] string? search = null,
@@ -52,7 +52,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CratePodSubmissionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPods(
         [FromQuery] string? search = null,
@@ -115,7 +115,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("grvs")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CrateGrvDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetGrvs(
         [FromQuery] string? search = null,

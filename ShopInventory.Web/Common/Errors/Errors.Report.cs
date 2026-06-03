@@ -6,6 +6,9 @@ public static partial class Errors
 {
     public static class Report
     {
+        public static Error LoadAccountSalesPaymentsFailed(string message) =>
+            Error.Failure("Report.LoadAccountSalesPaymentsFailed", message);
+
         public static Error LoadMerchandiserPurchaseOrdersFailed(string message) =>
             Error.Failure("Report.LoadMerchandiserPurchaseOrdersFailed", message);
 

@@ -1710,6 +1710,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var allInvoices = new List<Invoice>();
         int skip = 0;
         const int pageSize = 500;
+        const int sapDefaultPageSize = 20;
         bool hasMore = true;
 
         while (hasMore)
@@ -1718,6 +1719,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -1728,6 +1730,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -1752,9 +1755,11 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 allInvoices.AddRange(pageItems);
                 skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
+                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                                  doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+                hasMore = hasNextLink ||
+                          pageItems.Count == pageSize ||
+                          pageItems.Count >= sapDefaultPageSize;
             }
         }
 
@@ -3600,7 +3605,19 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     /// Falls back to OData Items API if SQL query returns empty.
     /// </summary>
     public async Task<List<ItemPriceByListDto>> GetPricesByPriceListAsync(int priceListNum, CancellationToken cancellationToken = default)
+        => await GetPricesByPriceListAsync(priceListNum, new HashSet<int>(), cancellationToken);
+
+    private async Task<List<ItemPriceByListDto>> GetPricesByPriceListAsync(
+        int priceListNum,
+        ISet<int> visitedPriceLists,
+        CancellationToken cancellationToken)
     {
+        if (!visitedPriceLists.Add(priceListNum))
+        {
+            _logger.LogWarning("Detected circular price list derivation while resolving price list {PriceListNum}", priceListNum);
+            return [];
+        }
+
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
@@ -3615,7 +3632,7 @@ SELECT X.""ItemCode"",
        P.""ListNum"" AS ""PriceList"",
        CASE
            WHEN T0.""Price"" > 0 THEN T0.""Price""
-           WHEN B.""Price"" > 0 AND COALESCE(P.""Factor"", 1) > 0 THEN B.""Price"" * COALESCE(P.""Factor"", 1)
+           WHEN B.""Price"" > 0 AND IFNULL(""Factor"", 1) > 0 THEN B.""Price"" * IFNULL(""Factor"", 1)
            ELSE 0
        END AS ""Price"",
        CASE
@@ -3646,16 +3663,33 @@ LEFT JOIN ""ITM1"" T0 ON T0.""ItemCode"" = X.""ItemCode"" AND T0.""PriceList"" =
 LEFT JOIN ""ITM1"" B ON B.""ItemCode"" = X.""ItemCode"" AND B.""PriceList"" = P.""BASE_NUM""
 WHERE CASE
           WHEN T0.""Price"" > 0 THEN T0.""Price""
-          WHEN B.""Price"" > 0 AND COALESCE(P.""Factor"", 1) > 0 THEN B.""Price"" * COALESCE(P.""Factor"", 1)
+          WHEN B.""Price"" > 0 AND IFNULL(""Factor"", 1) > 0 THEN B.""Price"" * IFNULL(""Factor"", 1)
           ELSE 0
       END > 0
 ORDER BY X.""ItemCode""";
 
         List<ItemPriceByListDto> prices;
+        var sqlQueryFailed = false;
         try
         {
-            await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, cancellationToken);
-            prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, cancellationToken);
+            try
+            {
+                await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, cancellationToken);
+                prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                sqlQueryFailed = true;
+                _logger.LogWarning(
+                    ex,
+                    "SQL query path failed for price list {PriceListNum}; falling back to OData Items API",
+                    priceListNum);
+                prices = [];
+            }
         }
         finally
         {
@@ -3666,14 +3700,131 @@ ORDER BY X.""ItemCode""";
         // This handles derived price lists and race conditions with SQL queries
         if (prices.Count == 0)
         {
-            _logger.LogWarning("SQL query returned 0 prices for price list {PriceListNum}, falling back to OData Items API", priceListNum);
+            if (sqlQueryFailed)
+            {
+                _logger.LogInformation("Using OData Items API fallback for price list {PriceListNum} after SQL query failure", priceListNum);
+            }
+            else
+            {
+                _logger.LogWarning("SQL query returned 0 prices for price list {PriceListNum}, falling back to OData Items API", priceListNum);
+            }
+
             prices = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
         }
 
-        _logger.LogInformation("Retrieved {Count} item prices from price list {ListNum}",
-            prices.Count, priceListNum);
+        try
+        {
+            prices = await MergeDerivedPriceListItemsAsync(priceListNum, prices, visitedPriceLists, cancellationToken);
 
-        return prices;
+            _logger.LogInformation("Retrieved {Count} item prices from price list {ListNum}",
+                prices.Count, priceListNum);
+
+            return prices;
+        }
+        finally
+        {
+            visitedPriceLists.Remove(priceListNum);
+        }
+    }
+
+    private async Task<List<ItemPriceByListDto>> MergeDerivedPriceListItemsAsync(
+        int priceListNum,
+        List<ItemPriceByListDto> prices,
+        ISet<int> visitedPriceLists,
+        CancellationToken cancellationToken)
+    {
+        var priceLists = await GetPriceListsAsync(cancellationToken);
+        var priceList = priceLists.FirstOrDefault(list => list.ListNum == priceListNum);
+        if (priceList is null ||
+            !int.TryParse(priceList.BasePriceList, NumberStyles.Integer, CultureInfo.InvariantCulture, out var basePriceList) ||
+            basePriceList <= 0 ||
+            basePriceList == priceListNum)
+        {
+            return prices;
+        }
+
+        if (visitedPriceLists.Contains(basePriceList))
+        {
+            _logger.LogWarning(
+                "Skipping circular price list derivation from {PriceListNum} to base list {BasePriceList}",
+                priceListNum,
+                basePriceList);
+            return prices;
+        }
+
+        var factor = priceList.Factor.GetValueOrDefault(1m);
+        if (factor <= 0)
+        {
+            _logger.LogWarning(
+                "Skipping derived prices for price list {PriceListNum} because factor {Factor} is not positive",
+                priceListNum,
+                factor);
+            return prices;
+        }
+
+        var priceListName = priceList.ListName ?? prices.FirstOrDefault()?.PriceListName ?? $"Price List {priceListNum}";
+        var mergedPrices = new Dictionary<string, ItemPriceByListDto>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var price in prices)
+        {
+            if (string.IsNullOrWhiteSpace(price.ItemCode))
+            {
+                continue;
+            }
+
+            price.PriceListNum = priceListNum;
+            price.PriceListName ??= priceListName;
+            price.BasePriceList ??= basePriceList;
+            price.Factor ??= factor;
+            mergedPrices[price.ItemCode] = price;
+        }
+
+        var basePrices = await GetPricesByPriceListAsync(basePriceList, visitedPriceLists, cancellationToken);
+        var addedCount = 0;
+
+        foreach (var basePrice in basePrices)
+        {
+            if (string.IsNullOrWhiteSpace(basePrice.ItemCode) ||
+                mergedPrices.ContainsKey(basePrice.ItemCode) ||
+                basePrice.Price <= 0)
+            {
+                continue;
+            }
+
+            var derivedPrice = basePrice.Price * factor;
+            if (derivedPrice <= 0)
+            {
+                continue;
+            }
+
+            mergedPrices[basePrice.ItemCode] = new ItemPriceByListDto
+            {
+                ItemCode = basePrice.ItemCode,
+                ItemName = basePrice.ItemName,
+                ForeignName = basePrice.ForeignName,
+                Price = derivedPrice,
+                PriceListNum = priceListNum,
+                PriceListName = priceListName,
+                Currency = basePrice.Currency,
+                BasePriceList = basePriceList,
+                Factor = factor
+            };
+            addedCount++;
+        }
+
+        if (addedCount > 0)
+        {
+            _logger.LogInformation(
+                "Derived {Count} missing item prices for price list {PriceListNum} from base price list {BasePriceList} with factor {Factor}",
+                addedCount,
+                priceListNum,
+                basePriceList,
+                factor);
+        }
+
+        return mergedPrices.Values
+            .OrderBy(price => price.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     /// <summary>
@@ -5016,6 +5167,7 @@ ORDER BY X.""ItemCode""";
         var allPayments = new List<IncomingPayment>();
         int skip = 0;
         const int pageSize = 500;
+        const int sapDefaultPageSize = 20;
         bool hasMore = true;
 
         while (hasMore)
@@ -5024,6 +5176,7 @@ ORDER BY X.""ItemCode""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -5034,6 +5187,7 @@ ORDER BY X.""ItemCode""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -5058,9 +5212,11 @@ ORDER BY X.""ItemCode""";
             {
                 allPayments.AddRange(pageItems);
                 skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
+                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                                  doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+                hasMore = hasNextLink ||
+                          pageItems.Count == pageSize ||
+                          pageItems.Count >= sapDefaultPageSize;
             }
         }
 

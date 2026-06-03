@@ -6,11 +6,13 @@ using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Common.Errors;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.Crates.Queries.GetCrateTransactions;
 
 public sealed class GetCrateTransactionsHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IDocumentService documentService
 ) : IRequestHandler<GetCrateTransactionsQuery, ErrorOr<List<CrateTransactionDto>>>
 {
     public async Task<ErrorOr<List<CrateTransactionDto>>> Handle(
@@ -20,7 +22,7 @@ public sealed class GetCrateTransactionsHandler(
         var currentUser = await context.Users
             .AsNoTracking()
             .Where(u => u.Id == request.UserId)
-            .Select(u => new { u.Role, u.IsActive })
+            .Select(u => new { u.Role, u.AssignedSection, u.IsActive })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (currentUser is null || !currentUser.IsActive)
@@ -36,8 +38,6 @@ public sealed class GetCrateTransactionsHandler(
 
         var query = context.CrateTransactions
             .AsNoTracking()
-            .Include(t => t.CreatedByUser)
-            .Include(t => t.Grv)
             .AsQueryable();
 
         if (string.Equals(currentUser.Role, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase))
@@ -70,6 +70,46 @@ public sealed class GetCrateTransactionsHandler(
                 (t.ShopName != null && EF.Functions.ILike(t.ShopName, pattern)) ||
                 (t.InvoiceDocNum != null && t.InvoiceDocNum.ToString()!.Contains(term)));
         }
+
+        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+            {
+                return new List<CrateTransactionDto>();
+            }
+
+            var candidateInvoiceDocEntries = await query
+                .Where(t =>
+                    t.InvoiceDocEntry.HasValue &&
+                    EF.Functions.ILike(t.TransactionType, CrateTrackingConstants.TransactionTypeInvoice))
+                .Select(t => t.InvoiceDocEntry!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            if (candidateInvoiceDocEntries.Count == 0)
+            {
+                return new List<CrateTransactionDto>();
+            }
+
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                candidateInvoiceDocEntries,
+                currentUser.AssignedSection,
+                cancellationToken);
+
+            if (scopedDocEntries.Count == 0)
+            {
+                return new List<CrateTransactionDto>();
+            }
+
+            query = query.Where(t =>
+                t.InvoiceDocEntry.HasValue &&
+                EF.Functions.ILike(t.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
+                scopedDocEntries.Contains(t.InvoiceDocEntry.Value));
+        }
+
+        query = query
+            .Include(t => t.CreatedByUser)
+            .Include(t => t.Grv);
 
         var transactions = await query
             .OrderByDescending(t => t.EffectiveDate)

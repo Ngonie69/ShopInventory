@@ -41,11 +41,10 @@ public sealed class GetPodUploadStatusHandler(
                 return Errors.Auth.UserNotFound;
 
             var isPodOperator = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase);
-            var restrictToAssignedCustomers = isPodOperator ||
-                string.Equals(currentUser.Role, "Driver", StringComparison.OrdinalIgnoreCase);
+            var isDriver = string.Equals(currentUser.Role, "Driver", StringComparison.OrdinalIgnoreCase);
             HashSet<string>? assignedCustomerCodes = null;
 
-            if (restrictToAssignedCustomers)
+            if (isDriver)
             {
                 var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
                     context,
@@ -56,8 +55,7 @@ public sealed class GetPodUploadStatusHandler(
                 if (effectiveCustomerCodes.Count == 0)
                 {
                     logger.LogWarning(
-                        "{Role} {Username} has no assigned customer codes; returning no POD report items",
-                        currentUser.Role,
+                        "Driver {Username} has no assigned customer codes; returning no POD report items",
                         currentUser.Username);
 
                     return BuildEmptyReport(request);

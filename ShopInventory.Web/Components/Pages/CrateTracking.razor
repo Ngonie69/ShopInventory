@@ -1,7 +1,7 @@
 @page "/crates"
 @page "/crates/opening-balances"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,Driver,SalesRep")]
 @inherits CrateTrackingPageBase
 @rendermode InteractiveServer
 
@@ -11,7 +11,7 @@
 
 <div class="container-fluid fade-in staff-dashboard staff-shell crt-page">
     <CratePageHeader Title="Crate Opening Balances"
-                     Subtitle="Upload shop opening balances and review the full crate register, including invoice-linked transactions and historical support documents."
+                     Subtitle="@(canManageOpeningBalances ? "Upload shop opening balances and review the full crate register, including invoice-linked transactions and historical support documents." : "Review the full crate register, including invoice-linked transactions, opening balance history, and supporting documents.")"
                      IsLoading="isLoading" OnRefresh="RefreshAllAsync" TransactionCount="transactions.Count"
                      PendingPodCount="PendingPodCount" VariancePendingCount="VariancePendingCount" GrvCount="grvs.Count"
                      StatusMessage="@statusMessage" StatusIsSuccess="statusIsSuccess" />

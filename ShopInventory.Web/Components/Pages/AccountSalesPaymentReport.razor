@@ -1,0 +1,330 @@
+@page "/reports/account-sales-payments"
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using ShopInventory.Web.Features.Reports.Queries.GetAccountSalesPaymentReport
+@attribute [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+@rendermode InteractiveServer
+
+<PageTitle>Account Sales and Incoming Payments - Shop Inventory</PageTitle>
+
+<div class="aspr-page">
+    <section class="aspr-hero">
+        <div>
+            <span class="aspr-kicker">Account Performance</span>
+            <h1>Sales and incoming payments</h1>
+            <p>Track item movement, invoice value, and cash collections for selected accounts across daily, weekly, or
+                monthly buckets.</p>
+            </div>
+            <div class="aspr-hero-meta">
+                @if (hasRequestedReport)
+                {
+                    <span class="aspr-meta-chip">@reportResult.Summary.ActiveAccountCount active of
+                        @reportResult.Summary.RequestedAccountCount requested</span>
+                    @if (reportResult.GeneratedAtUtc != default)
+                    {
+                        <span class="aspr-meta-chip">Updated @FormatGeneratedAt()</span>
+                    }
+                }
+                else
+                {
+                    <span class="aspr-meta-chip">Waiting for your first load</span>
+                }
+                </div>
+            </section>
+
+            <section class="aspr-card aspr-filter-card">
+                <div class="aspr-grouping" role="tablist" aria-label="Grouping">
+                    <button type="button" class="@GetGroupingButtonClass(AccountSalesPaymentGrouping.Daily)"
+                            @onclick="() => SetGroupingAsync(AccountSalesPaymentGrouping.Daily)"
+                            disabled="@isLoading">Daily</button>
+                    <button type="button" class="@GetGroupingButtonClass(AccountSalesPaymentGrouping.Weekly)"
+                            @onclick="() => SetGroupingAsync(AccountSalesPaymentGrouping.Weekly)"
+                            disabled="@isLoading">Weekly</button>
+                    <button type="button" class="@GetGroupingButtonClass(AccountSalesPaymentGrouping.Monthly)"
+                            @onclick="() => SetGroupingAsync(AccountSalesPaymentGrouping.Monthly)"
+                            disabled="@isLoading">Monthly</button>
+                </div>
+
+                <div class="aspr-filter-grid">
+                    <label>
+                        <span>From</span>
+                        <InputDate class="form-control" @bind-Value="fromDate" />
+                    </label>
+                    <label>
+                        <span>To</span>
+                        <InputDate class="form-control" @bind-Value="toDate" />
+                    </label>
+                    <label class="aspr-account-field">
+                        <span>Accounts</span>
+                        <textarea class="form-control aspr-account-input" @bind="accountCodesText" rows="3"></textarea>
+                        <small>Use commas or new lines. Range syntax like VAN008-019 is supported.</small>
+                    </label>
+                </div>
+
+                <div class="aspr-filter-actions">
+                    <button class="aspr-action aspr-action--primary" @onclick="ApplyFiltersAsync"
+                            disabled="@isLoading">@(isLoading ? "Loading..." : PrimaryActionLabel)</button>
+                    <button class="aspr-action" @onclick="ResetFiltersAsync" disabled="@isLoading">Reset</button>
+                    <button class="aspr-action" @onclick="ExportToExcelAsync"
+                        disabled="@(isLoading || isExporting || !CanExportReport)">@(isExporting ? "Exporting..." : "Export Excel")</button>
+                </div>
+
+                <div class="aspr-pill-row">
+                    @foreach (var accountCode in DisplayedRequestedAccounts)
+                    {
+                        <span class="aspr-pill">@accountCode</span>
+                    }
+                </div>
+            </section>
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="alert alert-danger aspr-alert" role="alert">@errorMessage</div>
+            }
+
+            @if (isLoading)
+            {
+                <section class="aspr-loading-card">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <span>Loading account sales and incoming payments…</span>
+                </section>
+            }
+            else if (!hasRequestedReport)
+            {
+                <section class="aspr-card">
+                    <div class="aspr-empty-state">
+                        <strong>Report is ready to load</strong>
+                        <p>Choose the date range, grouping, and accounts, then click Load report.</p>
+                    </div>
+                </section>
+            }
+            else
+            {
+                <section class="aspr-summary-grid">
+                    <article class="aspr-summary-card">
+                        <span>Accounts</span>
+                        <strong>@reportResult.Summary.RequestedAccountCount</strong>
+                        <small>@reportResult.Summary.ActiveAccountCount with activity in range</small>
+                    </article>
+                    <article class="aspr-summary-card">
+                        <span>Invoices</span>
+                        <strong>@reportResult.Summary.TotalInvoices</strong>
+                        <small>@reportResult.Summary.TotalPayments incoming payments</small>
+                    </article>
+                    <article class="aspr-summary-card">
+                        <span>Quantity sold</span>
+                        <strong>@reportResult.Summary.TotalQuantitySold.ToString("N2")</strong>
+                        <small>@reportResult.Summary.TotalPeriods @GroupingPeriodNoun</small>
+                    </article>
+                    <article class="aspr-summary-card aspr-summary-card--accent">
+                        <span>Sales value</span>
+                        <strong>@FormatAmounts(reportResult.Summary.TotalSalesUsd, reportResult.Summary.TotalSalesZig)</strong>
+                        <small>Collection rate @FormatRates(reportResult.Summary.CollectionRatePercentUsd,
+                                            reportResult.Summary.CollectionRatePercentZig)</small>
+                        </article>
+                        <article class="aspr-summary-card aspr-summary-card--success">
+                            <span>Incoming payments</span>
+                            <strong>@FormatAmounts(reportResult.Summary.TotalIncomingPaymentsUsd,
+                                                reportResult.Summary.TotalIncomingPaymentsZig)</strong>
+                                <small>Grouped by payment date within the selected range</small>
+                            </article>
+                        </section>
+
+                        <section class="aspr-card">
+                            <div class="aspr-section-header">
+                                <div>
+                                    <h2>Account totals</h2>
+                                    <p>Full-window totals for each requested account.</p>
+                                </div>
+                            </div>
+
+                            @if (!reportResult.AccountTotals.Any())
+                            {
+                                <div class="aspr-empty-state">
+                                    <strong>No account activity found</strong>
+                                    <p>Adjust the accounts or date range and try again.</p>
+                                </div>
+                            }
+                            else
+                            {
+                                var orderedAccounts = GetOrderedAccounts(reportResult.AccountTotals, includeZeroActivity: true).ToList();
+
+                                <div class="aspr-details-list">
+                                    @foreach (var account in orderedAccounts)
+                                    {
+                                        <details class="aspr-detail" open="@(account == orderedAccounts.First())">
+                                            <summary class="aspr-detail-summary">
+                                                <div>
+                                                    <strong>@account.CardCode</strong>
+                                                    <span>@account.CardName</span>
+                                                </div>
+                                                <div class="aspr-detail-metrics">
+                                                    <span>Qty @account.TotalQuantitySold.ToString("N2")</span>
+                                                    <span>Sales @FormatAmounts(account.TotalSalesUsd, account.TotalSalesZig)</span>
+                                                    <span>Payments @FormatAmounts(account.IncomingPaymentsUsd, account.IncomingPaymentsZig)</span>
+                                                </div>
+                                            </summary>
+
+                                            <div class="aspr-detail-body">
+                                                <div class="aspr-kv-grid">
+                                                    <div>
+                                                        <span>Invoices</span>
+                                                        <strong>@account.InvoiceCount</strong>
+                                                    </div>
+                                                    <div>
+                                                        <span>Incoming payments</span>
+                                                        <strong>@account.PaymentCount</strong>
+                                                    </div>
+                                                    <div>
+                                                        <span>Collection</span>
+                                                        <strong>@FormatRates(account.CollectionRatePercentUsd,
+                                                                                            account.CollectionRatePercentZig)</strong>
+                                                        </div>
+                                                    </div>
+
+                                                    @if (account.Items.Any())
+                                                    {
+                                                        <div class="table-responsive">
+                                                            <table class="table aspr-table">
+                                                                <thead>
+                                                                    <tr>
+                                                                        <th>Item</th>
+                                                                        <th>Invoices</th>
+                                                                        <th>Quantity</th>
+                                                                        <th>Sales value</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    @foreach (var item in account.Items)
+                                                                    {
+                                                                        <tr>
+                                                                            <td>
+                                                                                <div class="aspr-cell-title">@item.ItemCode</div>
+                                                                                <div class="aspr-cell-subtitle">@item.ItemName</div>
+                                                                            </td>
+                                                                            <td>@item.InvoiceCount</td>
+                                                                            <td>@item.TotalQuantitySold.ToString("N2")</td>
+                                                                            <td>@FormatAmounts(item.TotalSalesUsd, item.TotalSalesZig)</td>
+                                                                        </tr>
+                                                                    }
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="aspr-empty-inline">No item sales in the selected range.</div>
+                                                    }
+                                                </div>
+                                            </details>
+                                        }
+                                    </div>
+                                }
+                            </section>
+
+                            <section class="aspr-card">
+                                <div class="aspr-section-header">
+                                    <div>
+                                        <h2>@SelectedGroupingLabel breakdown</h2>
+                                        <p>Only @GroupingPeriodNoun with activity are shown below.</p>
+                                    </div>
+                                </div>
+
+                                @if (!VisiblePeriods.Any())
+                                {
+                                    <div class="aspr-empty-state">
+                                        <strong>No grouped activity available</strong>
+                                        <p>The selected range returned no sales or incoming payments for the requested accounts.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="aspr-period-list">
+                                        @for (var periodIndex = 0; periodIndex < VisiblePeriods.Count; periodIndex++)
+                                        {
+                                            var period = VisiblePeriods[periodIndex];
+                                            var periodAccounts = GetOrderedAccounts(period.Accounts).ToList();
+
+                                            <details class="aspr-period" open="@(periodIndex == 0)">
+                                                <summary class="aspr-period-summary">
+                                                    <div>
+                                                        <strong>@period.Label</strong>
+                                                        <span>@period.InvoiceCount invoices • @period.PaymentCount payments</span>
+                                                    </div>
+                                                    <div class="aspr-detail-metrics">
+                                                        <span>Qty @period.TotalQuantitySold.ToString("N2")</span>
+                                                        <span>Sales @FormatAmounts(period.TotalSalesUsd, period.TotalSalesZig)</span>
+                                                        <span>Payments @FormatAmounts(period.IncomingPaymentsUsd, period.IncomingPaymentsZig)</span>
+                                                    </div>
+                                                </summary>
+
+                                                <div class="aspr-period-body">
+                                                    @if (!periodAccounts.Any())
+                                                    {
+                                                        <div class="aspr-empty-inline">No account activity in this @GroupingPeriodSingular.</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var account in periodAccounts)
+                                                        {
+                                                            <details class="aspr-nested-detail">
+                                                                <summary class="aspr-detail-summary aspr-detail-summary--nested">
+                                                                    <div>
+                                                                        <strong>@account.CardCode</strong>
+                                                                        <span>@account.CardName</span>
+                                                                    </div>
+                                                                    <div class="aspr-detail-metrics">
+                                                                        <span>Qty @account.TotalQuantitySold.ToString("N2")</span>
+                                                                        <span>Sales @FormatAmounts(account.TotalSalesUsd, account.TotalSalesZig)</span>
+                                                                        <span>Payments @FormatAmounts(account.IncomingPaymentsUsd,
+                                                                                                                account.IncomingPaymentsZig)</span>
+                                                                        </div>
+                                                                    </summary>
+
+                                                                    <div class="aspr-detail-body">
+                                                                        @if (account.Items.Any())
+                                                                        {
+                                                                            <div class="table-responsive">
+                                                                                <table class="table aspr-table">
+                                                                                    <thead>
+                                                                                        <tr>
+                                                                                            <th>Item</th>
+                                                                                            <th>Invoices</th>
+                                                                                            <th>Quantity</th>
+                                                                                            <th>Sales value</th>
+                                                                                        </tr>
+                                                                                    </thead>
+                                                                                    <tbody>
+                                                                                        @foreach (var item in account.Items)
+                                                                                        {
+                                                                                            <tr>
+                                                                                                <td>
+                                                                                                    <div class="aspr-cell-title">@item.ItemCode</div>
+                                                                                                    <div class="aspr-cell-subtitle">@item.ItemName</div>
+                                                                                                </td>
+                                                                                                <td>@item.InvoiceCount</td>
+                                                                                                <td>@item.TotalQuantitySold.ToString("N2")</td>
+                                                                                                <td>@FormatAmounts(item.TotalSalesUsd, item.TotalSalesZig)</td>
+                                                                                            </tr>
+                                                                                        }
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            </div>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <div class="aspr-empty-inline">No item sales in this @GroupingPeriodSingular.</div>
+                                                                        }
+                                                                    </div>
+                                                                </details>
+                                                            }
+                                                        }
+                                                    </div>
+                                                </details>
+                                            }
+                                        </div>
+                                    }
+                                </section>
+                            }
+                        </div>
