@@ -7,6 +7,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -17,16 +18,24 @@ namespace ShopInventory.Features.WhatsApp.Commands.ReceiveOpenWAWebhook;
 public sealed class ReceiveOpenWAWebhookHandler(
     ApplicationDbContext dbContext,
     IOptions<OpenWASettings> settings,
+    IIdempotencyRequestStore idempotencyRequestStore,
     ILogger<ReceiveOpenWAWebhookHandler> logger) : IRequestHandler<ReceiveOpenWAWebhookCommand, ErrorOr<WhatsAppWebhookReceiptDto>>
 {
     private readonly ApplicationDbContext _dbContext = dbContext;
     private readonly OpenWASettings _settings = settings.Value;
+    private readonly IIdempotencyRequestStore _idempotencyRequestStore = idempotencyRequestStore;
     private readonly ILogger<ReceiveOpenWAWebhookHandler> _logger = logger;
 
     public async Task<ErrorOr<WhatsAppWebhookReceiptDto>> Handle(
         ReceiveOpenWAWebhookCommand command,
         CancellationToken cancellationToken)
     {
+        var normalizedIdempotencyKey = string.IsNullOrWhiteSpace(command.ProvidedIdempotencyKey)
+            ? null
+            : command.ProvidedIdempotencyKey.Trim();
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+
         if (!_settings.Enabled)
         {
             return Errors.WhatsApp.Disabled;
@@ -47,43 +56,119 @@ public sealed class ReceiveOpenWAWebhookHandler(
             return Errors.WhatsApp.InvalidWebhookSignature;
         }
 
-        if (!string.IsNullOrWhiteSpace(command.ProvidedIdempotencyKey))
+        try
         {
-            var existing = await _dbContext.WhatsAppWebhookEvents
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    message => message.IdempotencyKey == command.ProvidedIdempotencyKey,
+            if (!string.IsNullOrWhiteSpace(normalizedIdempotencyKey))
+            {
+                var acquireResult = await _idempotencyRequestStore.TryAcquireAsync<WhatsAppWebhookReceiptDto>(
+                    "whatsapp.webhook.receive",
+                    normalizedIdempotencyKey,
+                    new
+                    {
+                        command.RawPayload,
+                        command.ProvidedEventType,
+                        command.ProvidedDeliveryId,
+                        command.SourcePath
+                    },
                     cancellationToken);
 
-            if (existing is not null)
-            {
-                return new WhatsAppWebhookReceiptDto
+                switch (acquireResult.Outcome)
                 {
-                    Id = existing.Id,
-                    EventType = existing.EventType,
-                    ReceivedAtUtc = existing.ReceivedAtUtc
-                };
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("WhatsApp webhook receipt");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("WhatsApp webhook receipt");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedIdempotencyKey))
+            {
+                var existing = await _dbContext.WhatsAppWebhookEvents
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        message => message.IdempotencyKey == normalizedIdempotencyKey,
+                        cancellationToken);
+
+                if (existing is not null)
+                {
+                    var existingResponse = new WhatsAppWebhookReceiptDto
+                    {
+                        Id = existing.Id,
+                        EventType = existing.EventType,
+                        ReceivedAtUtc = existing.ReceivedAtUtc
+                    };
+
+                    if (idempotencyRequestId.HasValue)
+                    {
+                        try
+                        {
+                            await _idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, existingResponse, cancellationToken);
+                            releaseIdempotencyRequest = false;
+                        }
+                        catch (Exception completeException)
+                        {
+                            _logger.LogWarning(completeException, "Failed to persist WhatsApp webhook idempotency replay for request {RequestId}", idempotencyRequestId.Value);
+                        }
+                    }
+
+                    return existingResponse;
+                }
+            }
+
+            var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath);
+            entity.IdempotencyKey = normalizedIdempotencyKey;
+            entity.DeliveryId = command.ProvidedDeliveryId;
+            _dbContext.WhatsAppWebhookEvents.Add(entity);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "Stored OpenWA webhook event {EventType} for sender {SenderNumber} at {ReceivedAtUtc}",
+                entity.EventType,
+                entity.SenderNumber,
+                entity.ReceivedAtUtc);
+
+            var response = new WhatsAppWebhookReceiptDto
+            {
+                Id = entity.Id,
+                EventType = entity.EventType,
+                ReceivedAtUtc = entity.ReceivedAtUtc
+            };
+
+            if (idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await _idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    _logger.LogWarning(completeException, "Failed to persist WhatsApp webhook idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return response;
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await _idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    _logger.LogWarning(releaseException, "Failed to release WhatsApp webhook idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
             }
         }
-
-        var entity = ParsePayload(command.RawPayload, command.ProvidedEventType, command.SourcePath);
-        entity.IdempotencyKey = command.ProvidedIdempotencyKey;
-        entity.DeliveryId = command.ProvidedDeliveryId;
-        _dbContext.WhatsAppWebhookEvents.Add(entity);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        _logger.LogInformation(
-            "Stored OpenWA webhook event {EventType} for sender {SenderNumber} at {ReceivedAtUtc}",
-            entity.EventType,
-            entity.SenderNumber,
-            entity.ReceivedAtUtc);
-
-        return new WhatsAppWebhookReceiptDto
-        {
-            Id = entity.Id,
-            EventType = entity.EventType,
-            ReceivedAtUtc = entity.ReceivedAtUtc
-        };
     }
 
     private WhatsAppWebhookEventEntity ParsePayload(string rawPayload, string? providedEventType, string? sourcePath)

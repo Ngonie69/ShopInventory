@@ -190,7 +190,9 @@ public sealed class LocalPriceCatalogService(
                 Price = price.Price,
                 PriceListNum = price.PriceList,
                 PriceListName = price.PriceListName,
-                Currency = price.Currency
+                Currency = price.Currency,
+                BasePriceList = price.BasePriceList,
+                Factor = price.Factor
             })
             .ToListAsync(cancellationToken);
 
@@ -225,7 +227,9 @@ public sealed class LocalPriceCatalogService(
                 Price = price.Price,
                 PriceListNum = price.PriceList,
                 PriceListName = price.PriceListName,
-                Currency = price.Currency
+                Currency = price.Currency,
+                BasePriceList = price.BasePriceList,
+                Factor = price.Factor
             })
             .SingleOrDefaultAsync(cancellationToken);
     }

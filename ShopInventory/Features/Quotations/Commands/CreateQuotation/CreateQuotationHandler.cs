@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -13,6 +14,7 @@ namespace ShopInventory.Features.Quotations.Commands.CreateQuotation;
 public sealed class CreateQuotationHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IIdempotencyRequestStore idempotencyRequestStore,
     ILogger<CreateQuotationHandler> logger
 ) : IRequestHandler<CreateQuotationCommand, ErrorOr<QuotationDto>>
 {
@@ -20,12 +22,35 @@ public sealed class CreateQuotationHandler(
         CreateQuotationCommand command,
         CancellationToken cancellationToken)
     {
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+
         try
         {
             await ValidateAndNormalizeQuotationRequestAsync(command.Request, cancellationToken);
 
             if (!string.IsNullOrWhiteSpace(command.Request.ClientRequestId))
             {
+                var acquireResult = await idempotencyRequestStore.TryAcquireAsync<QuotationDto>(
+                    "quotations.create",
+                    command.Request.ClientRequestId,
+                    command.Request,
+                    cancellationToken);
+
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("quotation creation");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("quotation creation");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+
                 var existingQuotationByRequestId = await context.Quotations
                     .AsNoTracking()
                     .Include(item => item.Lines)
@@ -35,7 +60,22 @@ public sealed class CreateQuotationHandler(
 
                 if (existingQuotationByRequestId != null)
                 {
-                    return MapToDto(existingQuotationByRequestId);
+                    var existingResponse = MapToDto(existingQuotationByRequestId);
+
+                    if (idempotencyRequestId.HasValue)
+                    {
+                        try
+                        {
+                            await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, existingResponse, cancellationToken);
+                            releaseIdempotencyRequest = false;
+                        }
+                        catch (Exception completeException)
+                        {
+                            logger.LogWarning(completeException, "Failed to persist quotation idempotency replay for request {RequestId}", idempotencyRequestId.Value);
+                        }
+                    }
+
+                    return existingResponse;
                 }
             }
 
@@ -63,7 +103,22 @@ public sealed class CreateQuotationHandler(
 
             if (existingQuotation != null)
             {
-                return MapToDto(existingQuotation);
+                var existingResponse = MapToDto(existingQuotation);
+
+                if (idempotencyRequestId.HasValue)
+                {
+                    try
+                    {
+                        await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, existingResponse, cancellationToken);
+                        releaseIdempotencyRequest = false;
+                    }
+                    catch (Exception completeException)
+                    {
+                        logger.LogWarning(completeException, "Failed to persist quotation idempotency replay for request {RequestId}", idempotencyRequestId.Value);
+                    }
+                }
+
+                return existingResponse;
             }
 
             quotation.SAPDocEntry = sapQuotation.DocEntry;
@@ -84,13 +139,42 @@ public sealed class CreateQuotationHandler(
                 quotation.SAPDocEntry,
                 quotation.SAPDocNum);
 
-            return MapToDto(quotation);
+            var response = MapToDto(quotation);
+
+            if (idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist quotation idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return response;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating quotation");
             var message = ex.InnerException?.Message ?? ex.Message;
             return Errors.Quotation.CreationFailed(message);
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release quotation idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
         }
     }
 

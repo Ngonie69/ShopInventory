@@ -1568,7 +1568,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
-        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocStatus,DocumentStatus,Cancelled";
+        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
         var allInvoices = new List<Invoice>();
         int skip = 0;
         const int pageSize = 500;
@@ -1638,7 +1638,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         var safeCardCode = SanitizeODataValue(cardCode);
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocStatus,DocumentStatus,Cancelled";
+        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
         var allInvoices = new List<Invoice>();
         int skip = 0;
         const int pageSize = 500;
@@ -3416,11 +3416,13 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // Create SQL query to fetch price lists from OPLN table
-        // Standard OPLN columns: ListNum, ListName, Factor, ValidFor
+        // BASE_NUM and Factor are needed for price lists derived from another list.
         var sqlText = @"SELECT 
             T0.""ListNum"", 
             T0.""ListName"",
+            T0.""BASE_NUM"" AS ""BasePriceList"",
             T0.""Factor"",
+            T0.""RoundSys"",
             T0.""ValidFor""
         FROM OPLN T0
         ORDER BY T0.""ListNum""";
@@ -3519,18 +3521,22 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 {
                     var listNum = item.TryGetProperty("ListNum", out var ln) ? ln.GetInt32() : 0;
                     var listName = item.TryGetProperty("ListName", out var lname) ? lname.GetString() : null;
+                    var basePriceList = item.TryGetProperty("BasePriceList", out var bpl) ? GetIntOrString(bpl) : null;
                     var factor = item.TryGetProperty("Factor", out var f) ? GetDecimalOrNull(f) : null;
+                    var roundSys = item.TryGetProperty("RoundSys", out var rs) ? GetIntOrString(rs) : null;
                     var validFor = item.TryGetProperty("ValidFor", out var vf) ? vf.GetString() : "Y";
 
                     var priceList = new PriceListDto
                     {
                         ListNum = listNum,
                         ListName = listName,
-                        BasePriceList = null,  // Not available in standard OPLN
+                        BasePriceList = basePriceList is > 0 && basePriceList != listNum
+                            ? basePriceList.Value.ToString(CultureInfo.InvariantCulture)
+                            : null,
                         Currency = null,       // Not directly available, determined by prices
                         IsActive = validFor == "Y" || validFor == "tYES",
                         Factor = factor,
-                        RoundingMethod = null
+                        RoundingMethod = FormatPriceListRoundingMethod(roundSys)
                     };
                     priceLists.Add(priceList);
                 }
@@ -3541,6 +3547,21 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             _logger.LogWarning(ex, "Failed to parse price lists from SQL response");
         }
         return priceLists;
+    }
+
+    private static string? FormatPriceListRoundingMethod(int? roundSys)
+    {
+        return roundSys switch
+        {
+            null => null,
+            0 => "No Rounding",
+            1 => "Round to Full Decimal Amount",
+            2 => "Round to Full Amount",
+            3 => "Round to Full Tens Amount",
+            4 => "Fixed Ending",
+            5 => "Fixed Interval",
+            _ => roundSys.Value.ToString(CultureInfo.InvariantCulture)
+        };
     }
 
     private static int? GetIntOrString(JsonElement element)
@@ -3587,7 +3608,48 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         var suffix = Random.Shared.Next(100000, 999999);
         var queryCode = $"SH_PL{priceListNum}_{suffix}";
 
-        var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""Price"" > 0 ORDER BY T0.""ItemCode""";
+        var sqlText = $@"
+SELECT X.""ItemCode"",
+       T1.""ItemName"",
+       T1.""FrgnName"",
+       P.""ListNum"" AS ""PriceList"",
+       CASE
+           WHEN T0.""Price"" > 0 THEN T0.""Price""
+           WHEN B.""Price"" > 0 AND COALESCE(P.""Factor"", 1) > 0 THEN B.""Price"" * COALESCE(P.""Factor"", 1)
+           ELSE 0
+       END AS ""Price"",
+       CASE
+           WHEN T0.""Price"" > 0 THEN T0.""Currency""
+           ELSE B.""Currency""
+       END AS ""Currency"",
+       P.""ListName"",
+       P.""BASE_NUM"" AS ""BasePriceList"",
+       P.""Factor""
+FROM (
+    SELECT T0.""ItemCode""
+    FROM ""ITM1"" T0
+    WHERE T0.""PriceList"" = {priceListNum}
+
+    UNION
+
+    SELECT B0.""ItemCode""
+    FROM ""OPLN"" P0
+    INNER JOIN ""ITM1"" B0 ON B0.""PriceList"" = P0.""BASE_NUM""
+    WHERE P0.""ListNum"" = {priceListNum}
+      AND P0.""BASE_NUM"" IS NOT NULL
+      AND P0.""BASE_NUM"" > 0
+      AND P0.""BASE_NUM"" <> P0.""ListNum""
+) X
+INNER JOIN ""OITM"" T1 ON X.""ItemCode"" = T1.""ItemCode""
+INNER JOIN ""OPLN"" P ON P.""ListNum"" = {priceListNum}
+LEFT JOIN ""ITM1"" T0 ON T0.""ItemCode"" = X.""ItemCode"" AND T0.""PriceList"" = P.""ListNum""
+LEFT JOIN ""ITM1"" B ON B.""ItemCode"" = X.""ItemCode"" AND B.""PriceList"" = P.""BASE_NUM""
+WHERE CASE
+          WHEN T0.""Price"" > 0 THEN T0.""Price""
+          WHEN B.""Price"" > 0 AND COALESCE(P.""Factor"", 1) > 0 THEN B.""Price"" * COALESCE(P.""Factor"", 1)
+          ELSE 0
+      END > 0
+ORDER BY X.""ItemCode""";
 
         List<ItemPriceByListDto> prices;
         try
@@ -3867,15 +3929,23 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             {
                 foreach (var item in valueArray.EnumerateArray())
                 {
+                    var priceValue = item.TryGetProperty("Price", out var p) ? GetDecimalOrNull(p) : null;
+                    if (!priceValue.HasValue || priceValue.Value <= 0)
+                    {
+                        continue;
+                    }
+
                     var price = new ItemPriceByListDto
                     {
                         ItemCode = item.TryGetProperty("ItemCode", out var ic) ? ic.GetString() : null,
                         ItemName = item.TryGetProperty("ItemName", out var name) ? name.GetString() : null,
                         ForeignName = item.TryGetProperty("FrgnName", out var frgnName) ? frgnName.GetString() : null,
-                        Price = item.TryGetProperty("Price", out var p) ? p.GetDecimal() : 0,
-                        PriceListNum = item.TryGetProperty("PriceList", out var pl) ? pl.GetInt32() : priceListNum,
-                        PriceListName = $"Price List {priceListNum}",
-                        Currency = item.TryGetProperty("Currency", out var curr) ? curr.GetString() : null
+                        Price = priceValue.Value,
+                        PriceListNum = item.TryGetProperty("PriceList", out var pl) ? GetIntOrString(pl) ?? priceListNum : priceListNum,
+                        PriceListName = item.TryGetProperty("ListName", out var listName) ? listName.GetString() : $"Price List {priceListNum}",
+                        Currency = item.TryGetProperty("Currency", out var curr) ? curr.GetString() : null,
+                        BasePriceList = item.TryGetProperty("BasePriceList", out var basePriceList) ? GetIntOrString(basePriceList) : null,
+                        Factor = item.TryGetProperty("Factor", out var factor) ? GetDecimalOrNull(factor) : null
                     };
                     prices.Add(price);
                 }

@@ -40,6 +40,7 @@ public sealed class SyncPriceListsHandler(
                 if (existingPriceLists.TryGetValue(sapList.ListNum, out var existing))
                 {
                     existing.ListName = sapList.ListName;
+                    existing.BasePriceList = int.TryParse(sapList.BasePriceList, out var basePriceList) ? basePriceList : null;
                     existing.Currency = sapList.Currency;
                     existing.Factor = sapList.Factor;
                     existing.RoundingMethod = sapList.RoundingMethod;
@@ -53,6 +54,7 @@ public sealed class SyncPriceListsHandler(
                     {
                         ListNum = sapList.ListNum,
                         ListName = sapList.ListName,
+                        BasePriceList = int.TryParse(sapList.BasePriceList, out var basePriceList) ? basePriceList : null,
                         Currency = sapList.Currency,
                         Factor = sapList.Factor,
                         RoundingMethod = sapList.RoundingMethod,

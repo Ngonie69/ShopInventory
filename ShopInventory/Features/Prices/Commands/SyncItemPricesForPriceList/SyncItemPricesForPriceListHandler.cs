@@ -60,6 +60,8 @@ public sealed class SyncItemPricesForPriceListHandler(
                     existing.Price = sapPrice.Price;
                     existing.PriceListName = sapPrice.PriceListName;
                     existing.Currency = sapPrice.Currency;
+                    existing.BasePriceList = sapPrice.BasePriceList;
+                    existing.Factor = sapPrice.Factor;
                     existing.LastSyncedAt = syncTime;
                     existing.UpdatedAt = syncTime;
                 }
@@ -74,6 +76,8 @@ public sealed class SyncItemPricesForPriceListHandler(
                         Price = sapPrice.Price,
                         PriceListName = sapPrice.PriceListName,
                         Currency = sapPrice.Currency,
+                        BasePriceList = sapPrice.BasePriceList,
+                        Factor = sapPrice.Factor,
                         SyncedFromSAP = true,
                         CreatedAt = syncTime,
                         LastSyncedAt = syncTime

@@ -145,7 +145,8 @@ public class CustomerStatementRequest
     public DateTime ToDate { get; set; } = IAuditService.ToCAT(DateTime.UtcNow);
 
     public string? Currency { get; set; }
-    public bool IncludeClosedInvoices { get; set; } = false;
+    public bool IncludeClosedInvoices { get; set; } = true;
+    public List<string> CardCodes { get; set; } = new();
 }
 
 /// <summary>
@@ -159,6 +160,8 @@ public class CustomerStatementResponse
     public DateTime GeneratedAt { get; set; } = IAuditService.ToCAT(DateTime.UtcNow);
 
     public decimal OpeningBalance { get; set; }
+    public decimal TotalDebits { get; set; }
+    public decimal TotalCredits { get; set; }
     public decimal TotalInvoices { get; set; }
     public decimal TotalPayments { get; set; }
     public decimal TotalCreditNotes { get; set; }
@@ -176,15 +179,21 @@ public class CustomerStatementResponse
 public class StatementLine
 {
     public DateTime Date { get; set; }
+    public int TransactionNumber { get; set; }
+    public string OriginCode { get; set; } = string.Empty;
+    public string? OriginNumber { get; set; }
     public string DocumentType { get; set; } = string.Empty;
     public string DocumentNumber { get; set; } = string.Empty;
     public string? Reference { get; set; }
+    public string? OffsetAccount { get; set; }
     public string? Description { get; set; }
     public decimal Debit { get; set; }
     public decimal Credit { get; set; }
+    public decimal BalanceDue { get; set; }
     public decimal Balance { get; set; }
     public string? Currency { get; set; }
     public string? Status { get; set; }
+    public string? CreatedBy { get; set; }
     public int? DaysOverdue { get; set; }
 }
 

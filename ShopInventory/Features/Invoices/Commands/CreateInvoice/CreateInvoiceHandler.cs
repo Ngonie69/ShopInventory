@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -22,6 +23,7 @@ public sealed class CreateInvoiceHandler(
     IInventoryLockService lockService,
     IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
     ILogger<CreateInvoiceHandler> logger
@@ -35,10 +37,39 @@ public sealed class CreateInvoiceHandler(
             return Errors.Invoice.SapDisabled;
 
         var request = command.Request;
+        request.U_Van_saleorder = string.IsNullOrWhiteSpace(request.U_Van_saleorder)
+            ? null
+            : request.U_Van_saleorder.Trim();
+
         List<string>? acquiredLockTokens = null;
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
 
         try
         {
+            if (!string.IsNullOrWhiteSpace(request.U_Van_saleorder))
+            {
+                var acquireResult = await idempotencyRequestStore.TryAcquireAsync<InvoiceCreatedResponseDto>(
+                    "invoices.create",
+                    request.U_Van_saleorder,
+                    request,
+                    cancellationToken);
+
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("invoice creation");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("invoice creation");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+            }
+
             // Step 1b: Check for duplicate invoice by U_Van_saleorder
             if (!string.IsNullOrWhiteSpace(request.U_Van_saleorder))
             {
@@ -48,7 +79,28 @@ public sealed class CreateInvoiceHandler(
                     logger.LogWarning(
                         "Duplicate invoice detected. U_Van_saleorder '{VanSaleOrder}' already exists as DocEntry {DocEntry}, DocNum {DocNum}",
                         request.U_Van_saleorder, existingInvoice.DocEntry, existingInvoice.DocNum);
-                    return Errors.Invoice.DuplicateVanSaleOrder(request.U_Van_saleorder, existingInvoice.DocNum);
+
+                    var existingResponse = new InvoiceCreatedResponseDto
+                    {
+                        Message = "Invoice already exists; returning existing document",
+                        Invoice = existingInvoice.ToDto(),
+                        Fiscalization = null
+                    };
+
+                    if (idempotencyRequestId.HasValue)
+                    {
+                        try
+                        {
+                            await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, existingResponse, cancellationToken);
+                            releaseIdempotencyRequest = false;
+                        }
+                        catch (Exception completeException)
+                        {
+                            logger.LogWarning(completeException, "Failed to persist invoice idempotency replay for request {RequestId}", idempotencyRequestId.Value);
+                        }
+                    }
+
+                    return existingResponse;
                 }
             }
 
@@ -136,7 +188,7 @@ public sealed class CreateInvoiceHandler(
             var invoiceDto = invoice.ToDto();
             var fiscalizationResult = QueueFiscalization(invoiceDto, command.UserId, command.Username);
 
-            return new InvoiceCreatedResponseDto
+            var response = new InvoiceCreatedResponseDto
             {
                 Message = fiscalizationResult.Queued
                     ? "Invoice created successfully; fiscalization is running in the background"
@@ -144,6 +196,21 @@ public sealed class CreateInvoiceHandler(
                 Invoice = invoiceDto,
                 Fiscalization = fiscalizationResult
             };
+
+            if (idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist invoice idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return response;
         }
         catch (ArgumentException ex)
         {
@@ -187,6 +254,18 @@ public sealed class CreateInvoiceHandler(
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Failed to release inventory locks - they will expire automatically");
+                }
+            }
+
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release invoice idempotency request {RequestId}", idempotencyRequestId.Value);
                 }
             }
         }

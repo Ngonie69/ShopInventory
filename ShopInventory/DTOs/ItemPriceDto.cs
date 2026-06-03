@@ -82,6 +82,8 @@ public class ItemPriceByListDto
     public int PriceListNum { get; set; }
     public string? PriceListName { get; set; }
     public string? Currency { get; set; }
+    public int? BasePriceList { get; set; }
+    public decimal? Factor { get; set; }
 }
 
 /// <summary>

@@ -13,6 +13,7 @@ using Microsoft.OpenApi.Models;
 using FluentValidation;
 using MediatR;
 using Serilog;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Authentication;
 using ShopInventory.Behaviors;
 using ShopInventory.Common.Caching;
@@ -471,6 +472,7 @@ try
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
     builder.Services.AddScoped<IQuotationService, QuotationService>();
+    builder.Services.AddScoped<IIdempotencyRequestStore, IdempotencyRequestStore>();
 
     // Register rate limit service
     builder.Services.AddScoped<IRateLimitService, RateLimitService>();

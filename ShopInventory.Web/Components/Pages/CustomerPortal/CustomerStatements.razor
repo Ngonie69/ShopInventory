@@ -68,7 +68,7 @@
                         {
                             <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                                                                                                                    ?? selectedAccountFilter)
+                                                                                                                                                                                                                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -114,6 +114,13 @@
             </div>
         </div>
 
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger" role="alert">
+                @errorMessage
+            </div>
+        }
+
         <!-- Filters -->
         <div class="card dashboard-panel mb-3">
             <div class="card-header dashboard-panel-header">
@@ -136,7 +143,7 @@
                     </div>
                     @if (isMultiAccount && linkedAccounts.Any())
                     {
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
                                        ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
                                        AnchorOrigin="Origin.BottomCenter">
@@ -150,11 +157,7 @@
                                 }
                             </MudSelect>
                         </div>
-                        <div class="col-md-2 d-flex align-items-center" style="padding-top: 0.5rem;">
-                            <MudCheckBox T="bool" @bind-Value="includeClosedInvoices" Label="Include Closed" Color="Color.Dark"
-                                         Dense="true" />
-                        </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="GenerateStatement"
                                        Disabled="@isLoading">
                                 @if (isLoading)
@@ -171,11 +174,7 @@
                     }
                     else
                     {
-                        <div class="col-md-3 d-flex align-items-center" style="padding-top: 0.5rem;">
-                            <MudCheckBox T="bool" @bind-Value="includeClosedInvoices" Label="Include Closed Invoices"
-                                         Color="Color.Dark" Dense="true" />
-                        </div>
-                        <div class="col-md-3">
+                        <div class="col-md-6">
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="GenerateStatement"
                                        Disabled="@isLoading">
                                 @if (isLoading)
@@ -210,9 +209,9 @@
                 <div class="col-6 col-xl-3">
                     <div class="card stat-card staff-stat-card bg-primary">
                         <div class="card-body">
-                            <div class="stat-title">Total Invoices</div>
-                            <div class="stat-value">@FormatCurrency(statement.TotalInvoices)</div>
-                            <div class="stat-sub">Debits in period</div>
+                            <div class="stat-title">Total Debits</div>
+                            <div class="stat-value">@FormatCurrency(statement.TotalDebits)</div>
+                            <div class="stat-sub">Ledger debits in period</div>
                         </div>
                     </div>
                 </div>
@@ -220,8 +219,8 @@
                     <div class="card stat-card staff-stat-card bg-success">
                         <div class="card-body">
                             <div class="stat-title">Total Credits</div>
-                            <div class="stat-value">@FormatCurrency(statement.TotalPayments + statement.TotalCreditNotes)</div>
-                            <div class="stat-sub">Payments and credit notes</div>
+                            <div class="stat-value">@FormatCurrency(statement.TotalCredits)</div>
+                            <div class="stat-sub">Ledger credits in period</div>
                         </div>
                     </div>
                 </div>
@@ -259,9 +258,10 @@
                                 <thead>
                                     <tr>
                                         <th>Date</th>
-                                        <th>Type</th>
-                                        <th>Document #</th>
-                                        <th>Description</th>
+                                        <th>Origin</th>
+                                        <th>Origin No.</th>
+                                        <th>Offset Account</th>
+                                        <th>Details</th>
                                         <th class="text-end">Debit</th>
                                         <th class="text-end">Credit</th>
                                         <th class="text-end">Balance</th>
@@ -270,7 +270,7 @@
                                 <tbody>
                                     <tr class="table-light mobile-table-summary">
                                         <td data-label="Date">@statement.FromDate.ToString("MMM dd, yyyy")</td>
-                                        <td colspan="3" data-label="Summary"><strong>Opening Balance</strong></td>
+                                        <td colspan="4" data-label="Summary"><strong>Opening Balance</strong></td>
                                         <td data-label="Debit" class="text-end">-</td>
                                         <td data-label="Credit" class="text-end">-</td>
                                         <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(statement.OpeningBalance)
@@ -281,48 +281,56 @@
                                     {
                                         <tr>
                                             <td data-label="Date">@line.Date.ToString("MMM dd, yyyy")</td>
-                                            <td data-label="Type">
+                                            <td data-label="Origin">
                                                 @{
-                                                    var badgeClass = line.DocumentType switch
+                                                    var badgeClass = line.OriginCode switch
                                                     {
-                                                        "Payment" => "bg-success",
-                                                        "Credit Note" => "bg-warning text-dark",
+                                                        "RC" => "bg-success",
+                                                        "CN" => "bg-warning text-dark",
+                                                        "OB" => "bg-secondary",
+                                                        "JE" => "bg-info text-dark",
                                                         _ => "bg-primary"
                                                     };
                                                 }
-                                                <span class="badge @badgeClass">@line.DocumentType</span>
-                                            </td>
-                                            <td data-label="Document #">@line.DocumentNumber</td>
-                                            <td data-label="Description">
-                                                @line.Description
-                                                @if (!string.IsNullOrEmpty(line.Reference))
-                                                {
-                                                    <small class="d-block text-muted">Ref: @line.Reference</small>
-                                                }
-                                                @if (line.DaysOverdue > 0)
-                                                {
-                                                    <span class="badge bg-danger ms-1" style="font-size: 0.65rem;">@line.DaysOverdue days
-                                                        overdue</span>
+                                                <span class="badge @badgeClass">@(string.IsNullOrWhiteSpace(line.OriginCode) ?
+                                                                                                                                                                                                line.DocumentType : line.OriginCode)</span>
+                                                </td>
+                                                <td data-label="Origin No.">@(line.OriginNumber ?? line.DocumentNumber)</td>
+                                                <td data-label="Offset Account">@(line.OffsetAccount ?? "-")</td>
+                                                <td data-label="Details">
+                                                    @(line.Description ?? line.DocumentType)
+                                                    @if (line.TransactionNumber > 0)
+                                                    {
+                                                        <small class="d-block text-muted">Txn: @line.TransactionNumber</small>
                                                     }
-                                                </td>
-                                                <td data-label="Debit" class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
-                                                    @(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")
-                                                </td>
-                                                <td data-label="Credit"
-                                                    class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
-                                                    @(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")
-                                                </td>
-                                                <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
-                                            </tr>
-                                        }
+                                                    @if (!string.IsNullOrEmpty(line.CreatedBy))
+                                                    {
+                                                        <small class="d-block text-muted">By: @line.CreatedBy</small>
+                                                    }
+                                                    @if (line.DaysOverdue > 0)
+                                                    {
+                                                        <span class="badge bg-danger ms-1" style="font-size: 0.65rem;">@line.DaysOverdue days
+                                                            overdue</span>
+                                                        }
+                                                    </td>
+                                                    <td data-label="Debit" class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
+                                                        @(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")
+                                                    </td>
+                                                    <td data-label="Credit"
+                                                        class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
+                                                        @(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")
+                                                    </td>
+                                                    <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
+                                                </tr>
+                                            }
 
-                                        <tr class="table-dark mobile-table-summary mobile-table-summary--closing">
-                                            <td data-label="Date">@statement.ToDate.ToString("MMM dd, yyyy")</td>
-                                            <td colspan="3" data-label="Summary"><strong>Closing Balance</strong></td>
-                                            <td data-label="Debit" class="text-end fw-bold">@FormatCurrency(statement.TotalInvoices)
-                                            </td>
-                                            <td data-label="Credit" class="text-end fw-bold">@FormatCurrency(statement.TotalPayments +
-                                                                                                                                statement.TotalCreditNotes)</td>
+                                            <tr class="table-dark mobile-table-summary mobile-table-summary--closing">
+                                                <td data-label="Date">@statement.ToDate.ToString("MMM dd, yyyy")</td>
+                                                <td colspan="4" data-label="Summary"><strong>Closing Balance</strong></td>
+                                                <td data-label="Debit" class="text-end fw-bold">@FormatCurrency(statement.TotalDebits)
+                                                </td>
+                                                <td data-label="Credit" class="text-end fw-bold">@FormatCurrency(statement.TotalCredits)
+                                                </td>
                                                 <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(statement.ClosingBalance)
                                                 </td>
                                             </tr>
@@ -472,10 +480,10 @@
     private CustomerStatementResponse? statement;
     private DateTime? fromDate = IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3);
     private DateTime? toDate = IAuditService.ToCAT(DateTime.UtcNow);
-    private bool includeClosedInvoices = false;
     private bool isLoading = true;
     private bool isDownloading = false;
     private bool isMultiAccount;
+    private string? errorMessage;
     private string selectedAccountFilter = "";
     private List<LinkedAccountInfo> linkedAccounts = new();
 
@@ -483,7 +491,8 @@
     {
         FromDate = fromDate ?? IAuditService.ToCAT(DateTime.UtcNow).AddMonths(-3),
         ToDate = toDate ?? IAuditService.ToCAT(DateTime.UtcNow),
-        IncludeClosedInvoices = includeClosedInvoices
+        IncludeClosedInvoices = true,
+        CardCodes = ResolveRequestedCardCodes()
     };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -491,7 +500,16 @@
         if (firstRender)
         {
             await LoadCustomerInfo();
-            isLoading = false;
+
+            if (customerInfo != null)
+            {
+                await GenerateStatement();
+            }
+            else
+            {
+                isLoading = false;
+            }
+
             StateHasChanged();
         }
     }
@@ -542,17 +560,25 @@
         if (customerInfo == null) return;
 
         isLoading = true;
+        errorMessage = null;
 
         try
         {
             var request = BuildRequest();
-            var cardCode = ResolveSelectedCardCode();
-            if (cardCode == null) return;
+            var cardCode = ResolvePrimaryCardCode();
+            if (cardCode == null || request.CardCodes.Count == 0)
+            {
+                statement = null;
+                errorMessage = "We couldn't determine which account statement to load for this portal user.";
+                return;
+            }
 
             statement = await StatementService.GetStatementAsync(cardCode, request);
         }
         catch (Exception ex)
         {
+            statement = null;
+            errorMessage = ex.Message;
             Logger.LogError(ex, "Error generating statement");
         }
         finally
@@ -571,8 +597,8 @@
         try
         {
             var request = BuildRequest();
-            var cardCode = ResolveSelectedCardCode();
-            if (cardCode == null) return;
+            var cardCode = ResolvePrimaryCardCode();
+            if (cardCode == null || request.CardCodes.Count == 0) return;
 
             var pdfBytes = await StatementService.GenerateStatementPdfAsync(cardCode, request);
 
@@ -597,7 +623,8 @@
             }
 
             var base64 = Convert.ToBase64String(pdfBytes);
-            var fileName = $"Statement_{cardCode}_{IAuditService.ToCAT(DateTime.UtcNow):yyyyMMdd}.pdf";
+            var fileCardCode = string.IsNullOrWhiteSpace(selectedAccountFilter) ? cardCode : selectedAccountFilter;
+            var fileName = $"Statement_{fileCardCode}_{IAuditService.ToCAT(DateTime.UtcNow):yyyyMMdd}.pdf";
 
             await JSRuntime.InvokeVoidAsync("downloadFile", fileName, base64);
         }
@@ -613,22 +640,45 @@
         }
     }
 
-    private string? ResolveSelectedCardCode()
+    private string? ResolvePrimaryCardCode()
     {
         if (customerInfo == null)
         {
             return null;
         }
 
-        var cardCode = string.IsNullOrEmpty(selectedAccountFilter) ? customerInfo.CardCode : selectedAccountFilter;
-        if (CustomerSession.CanAccessCardCode(portalSession, cardCode))
+        if (!string.IsNullOrWhiteSpace(customerInfo.CardCode) && CustomerSession.CanAccessCardCode(portalSession,
+customerInfo.CardCode))
         {
-            return cardCode;
+            return customerInfo.CardCode;
         }
 
-        Logger.LogWarning("Rejected unauthorized customer statement account access {CardCode}", cardCode);
-        selectedAccountFilter = string.Empty;
+        Logger.LogWarning("Rejected unauthorized customer statement primary account access {CardCode}", customerInfo.CardCode);
         return null;
+    }
+
+    private List<string> ResolveRequestedCardCodes()
+    {
+        if (portalSession == null)
+        {
+            return new List<string>();
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedAccountFilter))
+        {
+            if (CustomerSession.CanAccessCardCode(portalSession, selectedAccountFilter))
+            {
+                return new List<string> { selectedAccountFilter };
+            }
+
+            Logger.LogWarning("Rejected unauthorized customer statement account filter {CardCode}", selectedAccountFilter);
+            selectedAccountFilter = string.Empty;
+        }
+
+        return CustomerSession.ResolveAccessibleCardCodes(portalSession, selectedAccountFilter)
+            .Where(cardCode => !string.IsNullOrWhiteSpace(cardCode))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private string FormatCurrency(decimal amount)

@@ -133,6 +133,9 @@ public class SalesOrderDto
     [JsonPropertyName("isSynced")]
     public bool IsSynced { get; set; }
 
+    [JsonPropertyName("syncError")]
+    public string? SyncError { get; set; }
+
     [JsonPropertyName("source")]
     public SalesOrderSource Source { get; set; }
 

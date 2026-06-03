@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Hubs;
@@ -17,6 +18,7 @@ public sealed class CreateDesktopSaleHandler(
     IFiscalizationService fiscalizationService,
     IInventoryLockService lockService,
     IHubContext<NotificationHub> hubContext,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<RevmaxSettings> revmaxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
@@ -29,57 +31,135 @@ public sealed class CreateDesktopSaleHandler(
         CancellationToken cancellationToken)
     {
         var req = command.Request;
-        var externalRef = req.ExternalReferenceId ??
+        var normalizedExternalReference = string.IsNullOrWhiteSpace(req.ExternalReferenceId)
+            ? null
+            : req.ExternalReferenceId.Trim();
+        req.ExternalReferenceId = normalizedExternalReference;
+
+        var externalRef = normalizedExternalReference ??
             $"DS-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}";
-
-        // Idempotency check
-        var existing = await context.DesktopSales
-            .AsNoTracking()
-            .FirstOrDefaultAsync(s => s.ExternalReferenceId == externalRef, cancellationToken);
-
-        if (existing != null)
-            return Errors.DesktopSales.DuplicateSale(externalRef);
-
-        var today = DateTime.UtcNow.Date;
-        var docDate = !string.IsNullOrEmpty(req.DocDate)
-            ? DateTime.Parse(req.DocDate).Date
-            : today;
-
-        var vatRate = revmaxSettings.Value.VatRate;
-
-        // Acquire per-item/warehouse locks to serialize concurrent sales affecting the same stock
-        var lockRequests = req.Lines
-            .Select(l => new InventoryLockRequest
-            {
-                ItemCode = l.ItemCode,
-                WarehouseCode = l.WarehouseCode
-            })
-            .DistinctBy(l => $"{l.ItemCode}:{l.WarehouseCode}")
-            .ToList();
-
-        var lockResult = await lockService.TryAcquireMultipleLocksAsync(
-            lockRequests, LockDuration, cancellationToken);
-
-        if (!lockResult.AllAcquired)
-        {
-            var failedItems = string.Join(", ",
-                lockResult.FailedLocks.Select(f => $"{f.ItemCode}@{f.WarehouseCode}"));
-            logger.LogWarning("Could not acquire stock locks for items: {Items}", failedItems);
-            return Error.Conflict(
-                "DesktopSales.StockLocked",
-                $"Stock is currently being modified by another sale. Retry shortly. Affected: {failedItems}");
-        }
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
 
         try
         {
-            // Validate + deduct inside the lock with retry on concurrency conflict
-            return await ValidateDeductAndCreateSaleAsync(
-                req, externalRef, today, docDate, vatRate, command.CreatedBy, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(normalizedExternalReference))
+            {
+                var acquireResult = await idempotencyRequestStore.TryAcquireAsync<DesktopSaleResponseDto>(
+                    "desktop-sales.create",
+                    normalizedExternalReference,
+                    req,
+                    cancellationToken);
+
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("desktop sale creation");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("desktop sale creation");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+            }
+
+            var existing = await context.DesktopSales
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.ExternalReferenceId == externalRef, cancellationToken);
+
+            if (existing != null)
+            {
+                var existingResponse = MapToResponse(existing);
+
+                if (idempotencyRequestId.HasValue)
+                {
+                    try
+                    {
+                        await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, existingResponse, cancellationToken);
+                        releaseIdempotencyRequest = false;
+                    }
+                    catch (Exception completeException)
+                    {
+                        logger.LogWarning(completeException, "Failed to persist desktop sale idempotency replay for request {RequestId}", idempotencyRequestId.Value);
+                    }
+                }
+
+                return existingResponse;
+            }
+
+            var today = DateTime.UtcNow.Date;
+            var docDate = !string.IsNullOrEmpty(req.DocDate)
+                ? DateTime.Parse(req.DocDate).Date
+                : today;
+
+            var vatRate = revmaxSettings.Value.VatRate;
+
+            // Acquire per-item/warehouse locks to serialize concurrent sales affecting the same stock
+            var lockRequests = req.Lines
+                .Select(l => new InventoryLockRequest
+                {
+                    ItemCode = l.ItemCode,
+                    WarehouseCode = l.WarehouseCode
+                })
+                .DistinctBy(l => $"{l.ItemCode}:{l.WarehouseCode}")
+                .ToList();
+
+            var lockResult = await lockService.TryAcquireMultipleLocksAsync(
+                lockRequests, LockDuration, cancellationToken);
+
+            if (!lockResult.AllAcquired)
+            {
+                var failedItems = string.Join(", ",
+                    lockResult.FailedLocks.Select(f => $"{f.ItemCode}@{f.WarehouseCode}"));
+                logger.LogWarning("Could not acquire stock locks for items: {Items}", failedItems);
+                return Error.Conflict(
+                    "DesktopSales.StockLocked",
+                    $"Stock is currently being modified by another sale. Retry shortly. Affected: {failedItems}");
+            }
+
+            try
+            {
+                // Validate + deduct inside the lock with retry on concurrency conflict
+                var result = await ValidateDeductAndCreateSaleAsync(
+                    req, externalRef, today, docDate, vatRate, command.CreatedBy, cancellationToken);
+
+                if (!result.IsError && idempotencyRequestId.HasValue)
+                {
+                    try
+                    {
+                        await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                        releaseIdempotencyRequest = false;
+                    }
+                    catch (Exception completeException)
+                    {
+                        logger.LogWarning(completeException, "Failed to persist desktop sale idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                // Always release locks
+                await lockService.ReleaseMultipleLocksAsync(lockResult.LockTokens);
+            }
         }
         finally
         {
-            // Always release locks
-            await lockService.ReleaseMultipleLocksAsync(lockResult.LockTokens);
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release desktop sale idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
         }
     }
 
@@ -213,6 +293,24 @@ public sealed class CreateDesktopSaleHandler(
         });
 
         return result;
+    }
+
+    private static DesktopSaleResponseDto MapToResponse(DesktopSaleEntity sale)
+    {
+        return new DesktopSaleResponseDto
+        {
+            SaleId = sale.Id,
+            ExternalReferenceId = sale.ExternalReferenceId,
+            CardCode = sale.CardCode,
+            TotalAmount = sale.TotalAmount,
+            VatAmount = sale.VatAmount,
+            FiscalizationStatus = sale.FiscalizationStatus.ToString(),
+            FiscalReceiptNumber = sale.FiscalReceiptNumber,
+            FiscalQRCode = sale.FiscalQRCode,
+            FiscalVerificationCode = sale.FiscalVerificationCode,
+            FiscalError = sale.FiscalError,
+            CreatedAt = sale.CreatedAt
+        };
     }
 
     private async Task<List<Error>> ValidateLocalStockAsync(

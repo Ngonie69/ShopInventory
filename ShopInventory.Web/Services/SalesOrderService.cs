@@ -109,7 +109,7 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogInformation("Deserialized {OrderCount} orders, TotalCount: {TotalCount}",
                 result?.Orders?.Count ?? 0, result?.TotalCount ?? 0);
 
-            return result;
+            return NormalizeOrderListResponse(result);
         }
         catch (Exception ex)
         {
@@ -123,7 +123,7 @@ public class SalesOrderService : ISalesOrderService
         try
         {
             await EnsureAuthenticationAsync();
-            return await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/{id}");
+            return NormalizeOrder(await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/{id}"));
         }
         catch (Exception ex)
         {
@@ -137,7 +137,7 @@ public class SalesOrderService : ISalesOrderService
         try
         {
             await EnsureAuthenticationAsync();
-            return await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/local/{id}");
+            return NormalizeOrder(await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/local/{id}"));
         }
         catch (Exception ex)
         {
@@ -151,7 +151,7 @@ public class SalesOrderService : ISalesOrderService
         try
         {
             await EnsureAuthenticationAsync();
-            return await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/number/{Uri.EscapeDataString(orderNumber)}");
+            return NormalizeOrder(await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/number/{Uri.EscapeDataString(orderNumber)}"));
         }
         catch (Exception ex)
         {
@@ -217,7 +217,7 @@ public class SalesOrderService : ISalesOrderService
         var response = await _httpClient.PostAsJsonAsync("api/salesorder", request);
         if (response.IsSuccessStatusCode)
         {
-            return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
+            return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
         }
 
         var errorBody = await response.Content.ReadAsStringAsync();
@@ -236,7 +236,7 @@ public class SalesOrderService : ISalesOrderService
             var response = await _httpClient.PutAsJsonAsync($"api/salesorder/{id}", request);
             if (response.IsSuccessStatusCode)
             {
-                return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
+                return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
             }
             if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
             {
@@ -269,7 +269,7 @@ public class SalesOrderService : ISalesOrderService
             var response = await _httpClient.PatchAsJsonAsync($"api/salesorder/{id}/status", request);
             if (response.IsSuccessStatusCode)
             {
-                return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
+                return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
             }
             _logger.LogWarning("Failed to update sales order status {Id}: {StatusCode}", id, response.StatusCode);
             return null;
@@ -287,7 +287,7 @@ public class SalesOrderService : ISalesOrderService
         var response = await _httpClient.PostAsync($"api/salesorder/{id}/approve", null);
         if (response.IsSuccessStatusCode)
         {
-            return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
+            return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
         }
 
         var body = await response.Content.ReadAsStringAsync();
@@ -458,7 +458,7 @@ public class SalesOrderService : ISalesOrderService
             var response = await _httpClient.PostAsync($"api/salesorder/{id}/post-to-sap", null);
             if (response.IsSuccessStatusCode)
             {
-                return await response.Content.ReadFromJsonAsync<SalesOrderDto>();
+                return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
             }
             var errorBody = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to post sales order to SAP {Id}: {StatusCode} - {Error}", id, response.StatusCode, errorBody);
@@ -476,5 +476,35 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogError(ex, "Error posting sales order to SAP {Id}", id);
             throw;
         }
+    }
+
+    private static SalesOrderListResponse? NormalizeOrderListResponse(SalesOrderListResponse? response)
+    {
+        if (response?.Orders == null)
+        {
+            return response;
+        }
+
+        foreach (var order in response.Orders)
+        {
+            NormalizeOrder(order);
+        }
+
+        return response;
+    }
+
+    private static SalesOrderDto? NormalizeOrder(SalesOrderDto? order)
+    {
+        if (order == null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(order.SyncError))
+        {
+            order.SyncError = ApiErrorResponse.NormalizeUserMessage(order.SyncError) ?? order.SyncError.Trim();
+        }
+
+        return order;
     }
 }

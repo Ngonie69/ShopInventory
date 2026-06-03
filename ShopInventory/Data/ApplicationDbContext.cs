@@ -134,6 +134,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<UserPermissionEntity> UserPermissions { get; set; }
   public DbSet<RoleEntity> Roles { get; set; }
   public DbSet<RolePermissionEntity> RolePermissions { get; set; }
+  public DbSet<IdempotencyRequestEntity> IdempotencyRequests { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -189,6 +190,36 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.ToTable("DataProtectionKeys");
     });
 
+    modelBuilder.Entity<IdempotencyRequestEntity>(entity =>
+    {
+      entity.ToTable("IdempotencyRequests");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.Scope, e.IdempotencyKey })
+            .IsUnique();
+
+      entity.HasIndex(e => e.ExpiresAtUtc);
+
+      entity.Property(e => e.Scope)
+            .IsRequired()
+            .HasMaxLength(120);
+
+      entity.Property(e => e.IdempotencyKey)
+            .IsRequired()
+            .HasMaxLength(200);
+
+      entity.Property(e => e.RequestHash)
+            .IsRequired()
+            .HasMaxLength(64);
+
+      entity.Property(e => e.Status)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.ResponsePayload)
+            .HasColumnType("text");
+    });
+
     // User configuration
     modelBuilder.Entity<User>(entity =>
     {
@@ -227,45 +258,45 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Ignore(u => u.AssignedWarehouseCode);
     });
 
-        modelBuilder.Entity<RouteCustomerEntity>(entity =>
-        {
+    modelBuilder.Entity<RouteCustomerEntity>(entity =>
+    {
       entity.ToTable("RouteCustomers");
       entity.HasKey(e => e.Id);
 
       entity.HasIndex(e => e.AssignedBusinessPartnerCode);
       entity.HasIndex(e => new { e.AssignedBusinessPartnerCode, e.IsActive });
       entity.HasIndex(e => new { e.AssignedBusinessPartnerCode, e.Code })
-        .IsUnique();
+            .IsUnique();
 
       entity.Property(e => e.AssignedBusinessPartnerCode)
-        .IsRequired()
-        .HasMaxLength(100);
+            .IsRequired()
+            .HasMaxLength(100);
 
       entity.Property(e => e.Code)
-        .IsRequired()
-        .HasMaxLength(50);
+            .IsRequired()
+            .HasMaxLength(50);
 
       entity.Property(e => e.Name)
-        .IsRequired()
-        .HasMaxLength(200);
+            .IsRequired()
+            .HasMaxLength(200);
 
       entity.Property(e => e.Phone)
-        .HasMaxLength(50);
+            .HasMaxLength(50);
 
       entity.Property(e => e.Email)
-        .HasMaxLength(255);
+            .HasMaxLength(255);
 
       entity.Property(e => e.Address)
-        .HasMaxLength(500);
+            .HasMaxLength(500);
 
       entity.Property(e => e.VatNumber)
-        .HasMaxLength(100);
+            .HasMaxLength(100);
 
       entity.HasOne(e => e.CreatedByUser)
-        .WithMany()
-        .HasForeignKey(e => e.CreatedByUserId)
-        .OnDelete(DeleteBehavior.SetNull);
-        });
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+    });
 
     // RefreshToken configuration
     modelBuilder.Entity<RefreshToken>(entity =>

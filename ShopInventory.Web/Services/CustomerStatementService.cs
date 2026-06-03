@@ -60,166 +60,26 @@ public class CustomerStatementService : ICustomerStatementService
     {
         try
         {
-            var customerTask = _businessPartnerService.GetBusinessPartnerByCodeAsync(cardCode);
-            var invoiceCardCodesTask = _linkedAccountService.GetAllCardCodesAsync(cardCode);
+            var url = BuildStatementUrl($"api/statement/{Uri.EscapeDataString(cardCode)}", request);
+            var response = await _httpClient.GetAsync(url);
 
-            await Task.WhenAll(customerTask, invoiceCardCodesTask);
-
-            var customer = customerTask.Result;
-            if (customer == null)
+            if (response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException("Customer not found");
-            }
-
-            var invoiceCardCodes = invoiceCardCodesTask.Result
-                .Where(code => !string.IsNullOrWhiteSpace(code))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var accountStructure = invoiceCardCodes.Count > 1 ? "Multi" : "Single";
-
-            var response = new CustomerStatementResponse
-            {
-                Customer = new CustomerInfo
+                var statement = await response.Content.ReadFromJsonAsync<CustomerStatementResponse>();
+                if (statement == null)
                 {
-                    CardCode = customer.CardCode ?? cardCode,
-                    CardName = customer.CardName ?? "",
-                    Email = customer.Email,
-                    Phone = customer.Phone1,
-                    Balance = customer.Balance ?? 0,
-                    Currency = customer.Currency,
-                    AccountStructure = accountStructure
-                },
-                FromDate = request.FromDate,
-                ToDate = request.ToDate,
-                GeneratedAt = IAuditService.ToCAT(DateTime.UtcNow),
-                Lines = new List<StatementLine>()
-            };
+                    throw new InvalidOperationException("The server returned an empty statement response.");
+                }
 
-            var paymentTermsTask = customer.PayTermGrpCode.HasValue
-                ? _businessPartnerService.GetPaymentTermsAsync(customer.PayTermGrpCode.Value)
-                : Task.FromResult<PaymentTermsDto?>(null);
-
-            var agingTask = GetAgingSummaryAsync(cardCode);
-
-            var invoiceTasksByCardCode = invoiceCardCodes.ToDictionary(
-                invoiceCardCode => invoiceCardCode,
-                invoiceCardCode => GetInvoicesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate, request.IncludeClosedInvoices),
-                StringComparer.OrdinalIgnoreCase);
-
-            var creditNoteTasksByCardCode = invoiceCardCodes.ToDictionary(
-                invoiceCardCode => invoiceCardCode,
-                invoiceCardCode => GetCreditNotesForPeriodAsync(invoiceCardCode, request.FromDate, request.ToDate),
-                StringComparer.OrdinalIgnoreCase);
-
-            var paymentsTask = GetPaymentHistoryForCardCodesAsync(invoiceCardCodes, request.FromDate, request.ToDate);
-
-            await Task.WhenAll(
-                invoiceTasksByCardCode.Values.Cast<Task>()
-                    .Concat(creditNoteTasksByCardCode.Values.Cast<Task>())
-                    .Append(paymentsTask)
-                    .Append(paymentTermsTask)
-                    .Append(agingTask));
-
-            var paymentTerms = paymentTermsTask.Result;
-            if (paymentTerms != null)
-            {
-                response.Customer.PaymentTermsName = paymentTerms.PaymentTermsGroupName;
-                response.Customer.PaymentTermsDays = (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
+                return statement;
             }
 
-            var allInvoices = invoiceTasksByCardCode.Values.SelectMany(task => task.Result).ToList();
-            var allCreditNotes = creditNoteTasksByCardCode.Values.SelectMany(task => task.Result).ToList();
-            var allPayments = paymentsTask.Result;
-
-            // Combine and sort transactions
-            var allTransactions = new List<(DateTime Date, int SortOrder, StatementLine Line)>();
-
-            foreach (var invoice in allInvoices)
-            {
-                allTransactions.Add((invoice.DocDate, 10, new StatementLine
-                {
-                    Date = invoice.DocDate,
-                    DocumentType = "Invoice",
-                    DocumentNumber = invoice.DocNum.ToString(),
-                    Description = $"Invoice #{invoice.DocNum}",
-                    Debit = invoice.DocTotal,
-                    Credit = 0,
-                    Currency = invoice.Currency,
-                    Status = invoice.Status,
-                    DaysOverdue = invoice.DaysOverdue
-                }));
-            }
-
-            foreach (var creditNote in allCreditNotes)
-            {
-                var documentNumber = creditNote.SAPDocNum?.ToString() ?? creditNote.CreditNoteNumber;
-                allTransactions.Add((creditNote.CreditNoteDate, 20, new StatementLine
-                {
-                    Date = creditNote.CreditNoteDate,
-                    DocumentType = "Credit Note",
-                    DocumentNumber = documentNumber,
-                    Description = !string.IsNullOrWhiteSpace(creditNote.Comments)
-                        ? creditNote.Comments
-                        : !string.IsNullOrWhiteSpace(creditNote.Reason)
-                            ? creditNote.Reason
-                            : $"Credit Note #{documentNumber}",
-                    Debit = 0,
-                    Credit = Math.Abs(creditNote.DocTotal),
-                    Currency = creditNote.Currency,
-                    Status = creditNote.StatusName
-                }));
-            }
-
-            foreach (var payment in allPayments)
-            {
-                allTransactions.Add((payment.DocDate, 30, new StatementLine
-                {
-                    Date = payment.DocDate,
-                    DocumentType = "Payment",
-                    DocumentNumber = payment.DocNum.ToString(),
-                    Reference = payment.Reference,
-                    Description = $"Payment - {payment.PaymentMethod}",
-                    Debit = 0,
-                    Credit = payment.DocTotal,
-                    Currency = payment.Currency
-                }));
-            }
-
-            // Sort by date
-            allTransactions = allTransactions
-                .OrderBy(t => t.Date)
-                .ThenBy(t => t.SortOrder)
-                .ThenBy(t => t.Line.DocumentNumber)
-                .ToList();
-
-            // Calculate opening balance: current SAP balance - period debits + period credits
-            // This backs out period activity to get the balance "as at" the from date
-            var totalInvoiced = allInvoices.Sum(i => i.DocTotal);
-            var totalPaid = allPayments.Sum(p => p.DocTotal);
-            var totalCreditNotes = allCreditNotes.Sum(c => Math.Abs(c.DocTotal));
-            var currentBalance = response.Customer.Balance;
-            response.OpeningBalance = currentBalance - totalInvoiced + totalPaid + totalCreditNotes;
-
-            // Calculate running balance
-            decimal runningBalance = response.OpeningBalance;
-            foreach (var (_, _, line) in allTransactions)
-            {
-                runningBalance += line.Debit - line.Credit;
-                line.Balance = runningBalance;
-                response.Lines.Add(line);
-            }
-
-            // Calculate totals
-            response.TotalInvoices = response.Lines.Where(l => l.DocumentType == "Invoice").Sum(l => l.Debit);
-            response.TotalPayments = response.Lines.Where(l => l.DocumentType == "Payment").Sum(l => l.Credit);
-            response.TotalCreditNotes = response.Lines.Where(l => l.DocumentType == "Credit Note").Sum(l => l.Credit);
-            response.ClosingBalance = runningBalance;
-
-            // Get aging summary (aggregated across all main accounts)
-            response.Aging = agingTask.Result;
-
-            return response;
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Failed to retrieve statement. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            throw new InvalidOperationException(ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "We couldn't load this statement right now. Please try again."));
         }
         catch (Exception ex)
         {
@@ -235,7 +95,7 @@ public class CustomerStatementService : ICustomerStatementService
     {
         try
         {
-            var url = $"api/statement/generate/{cardCode}?fromDate={request.FromDate:yyyy-MM-dd}&toDate={request.ToDate:yyyy-MM-dd}";
+            var url = BuildStatementUrl($"api/statement/generate/{Uri.EscapeDataString(cardCode)}", request);
             _logger.LogInformation("Requesting PDF from: {Url}", url);
 
             var response = await _httpClient.GetAsync(url);
@@ -263,6 +123,24 @@ public class CustomerStatementService : ICustomerStatementService
             _logger.LogError(ex, "Error generating PDF statement for {CardCode}", cardCode);
             throw;
         }
+    }
+
+    private static string BuildStatementUrl(string basePath, CustomerStatementRequest request)
+    {
+        var queryParams = new List<string>
+        {
+            $"fromDate={request.FromDate:yyyy-MM-dd}",
+            $"toDate={request.ToDate:yyyy-MM-dd}"
+        };
+
+        foreach (var cardCode in request.CardCodes
+                     .Where(code => !string.IsNullOrWhiteSpace(code))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            queryParams.Add($"cardCodes={Uri.EscapeDataString(cardCode)}");
+        }
+
+        return $"{basePath}?{string.Join("&", queryParams)}";
     }
 
     /// <summary>
@@ -839,28 +717,33 @@ public class CustomerStatementService : ICustomerStatementService
     {
         try
         {
-            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(cardCode, fromDate, toDate);
+            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(cardCode);
             var invoices = invoiceResponse?.Invoices ?? new List<InvoiceDto>();
 
             return invoices
-                .Where(i =>
-                    (includeClosedInvoices || (i.DocStatus != "C" && i.DocStatus != "X")) &&
-                    ParseDate(i.DocDate) >= fromDate &&
-                    ParseDate(i.DocDate) <= toDate)
-                .Select(i => new CustomerInvoiceSummary
+                .Select(i =>
                 {
-                    DocEntry = i.DocEntry,
-                    DocNum = i.DocNum,
+                    var docDate = ParseDate(i.DocDate);
+                    return new { Invoice = i, DocDate = docDate };
+                })
+                .Where(x => x.DocDate != DateTime.MinValue)
+                .Where(x => x.DocDate.Date >= fromDate.Date && x.DocDate.Date <= toDate.Date)
+                .Where(x => x.Invoice.DocStatus != "X")
+                .Where(x => includeClosedInvoices || x.Invoice.DocStatus != "C")
+                .Select(x => new CustomerInvoiceSummary
+                {
+                    DocEntry = x.Invoice.DocEntry,
+                    DocNum = x.Invoice.DocNum,
                     CardCode = cardCode,
-                    CardName = i.CardName,
-                    DocDate = ParseDate(i.DocDate),
-                    DueDate = ParseNullableDate(i.DocDueDate),
-                    DocTotal = i.DocTotal,
-                    PaidToDate = i.PaidToDate,
-                    Balance = i.DocTotal - i.PaidToDate,
-                    Currency = i.DocCurrency,
-                    Status = GetInvoiceStatus(i.DocStatus),
-                    DaysOverdue = CalculateDaysOverdue(i.DocDueDate)
+                    CardName = x.Invoice.CardName,
+                    DocDate = x.DocDate,
+                    DueDate = ParseNullableDate(x.Invoice.DocDueDate),
+                    DocTotal = x.Invoice.DocTotal,
+                    PaidToDate = x.Invoice.PaidToDate,
+                    Balance = x.Invoice.DocTotal - x.Invoice.PaidToDate,
+                    Currency = x.Invoice.DocCurrency,
+                    Status = GetInvoiceStatus(x.Invoice.DocStatus),
+                    DaysOverdue = CalculateDaysOverdue(x.Invoice.DocDueDate)
                 })
                 .OrderBy(i => i.DocDate)
                 .ToList();

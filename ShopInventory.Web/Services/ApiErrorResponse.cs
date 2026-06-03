@@ -56,13 +56,13 @@ internal static partial class ApiErrorResponse
         var structuredMessage = TryExtractStructuredMessage(responseContent);
         if (!string.IsNullOrWhiteSpace(structuredMessage))
         {
-            return structuredMessage;
+            return NormalizeUserMessage(structuredMessage) ?? structuredMessage;
         }
 
         var plainText = TryExtractPlainText(responseContent);
         if (!string.IsNullOrWhiteSpace(plainText))
         {
-            return plainText;
+            return NormalizeUserMessage(plainText) ?? plainText;
         }
 
         if (statusCode == HttpStatusCode.Conflict)
@@ -71,6 +71,43 @@ internal static partial class ApiErrorResponse
         }
 
         return fallbackMessage;
+    }
+
+    public static string? NormalizeUserMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
+        var candidate = message.Trim();
+
+        var structuredMessage = TryExtractStructuredMessage(candidate);
+        if (!string.IsNullOrWhiteSpace(structuredMessage))
+        {
+            candidate = structuredMessage;
+        }
+        else
+        {
+            var plainText = TryExtractPlainText(candidate);
+            if (!string.IsNullOrWhiteSpace(plainText))
+            {
+                candidate = plainText;
+            }
+        }
+
+        candidate = candidate.ReplaceLineEndings(" ").Trim();
+        candidate = StripKnownFailurePrefix(candidate);
+        candidate = StripLeadingDelimitedPrefix(candidate);
+        candidate = StripLeadingDelimitedPrefix(candidate);
+        candidate = candidate.Trim().TrimEnd('.', ';');
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return null;
+        }
+
+        return EnsureSentenceTerminates(NormalizeSentenceStart(candidate));
     }
 
     public static string SanitizeForLog(string? responseContent)
@@ -347,6 +384,89 @@ internal static partial class ApiErrorResponse
         }
 
         return value;
+    }
+
+    private static string StripKnownFailurePrefix(string value)
+    {
+        var separatorIndex = value.IndexOf(':');
+        if (separatorIndex <= 0)
+        {
+            return value;
+        }
+
+        var prefix = value[..separatorIndex].Trim();
+        if (prefix.StartsWith("Failed to ", StringComparison.OrdinalIgnoreCase)
+            || prefix.StartsWith("Error ", StringComparison.OrdinalIgnoreCase))
+        {
+            return value[(separatorIndex + 1)..].Trim();
+        }
+
+        return value;
+    }
+
+    private static string StripLeadingDelimitedPrefix(string value)
+    {
+        var separatorIndex = value.IndexOf(" - ", StringComparison.Ordinal);
+        if (separatorIndex <= 0)
+        {
+            return value;
+        }
+
+        var prefix = value[..separatorIndex].Trim();
+        if (int.TryParse(prefix, out _)
+            || IsHttpStatusLabel(prefix))
+        {
+            return value[(separatorIndex + 3)..].Trim();
+        }
+
+        return value;
+    }
+
+    private static bool IsHttpStatusLabel(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        if (Enum.TryParse<HttpStatusCode>(value.Replace(" ", string.Empty), true, out _))
+        {
+            return true;
+        }
+
+        return GenericProblemTitles.Contains(value);
+    }
+
+    private static string NormalizeSentenceStart(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        if (!char.IsLetter(value[0]))
+        {
+            return value;
+        }
+
+        if (value.Length > 1 && char.IsUpper(value[0]) && char.IsUpper(value[1]))
+        {
+            return value;
+        }
+
+        return char.ToUpperInvariant(value[0]) + value[1..];
+    }
+
+    private static string EnsureSentenceTerminates(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return value.EndsWith(".", StringComparison.Ordinal)
+            ? value
+            : value + ".";
     }
 
     private static bool LooksLikeGenericTransportMessage(string value)

@@ -46,6 +46,14 @@ public sealed class SyncPriceCatalogHandler(
                 syncedItemPriceCount += sapPrices.Count;
                 syncedPriceListCount++;
 
+                if (sapPrices.Count == 0 && priceList.IsActive)
+                {
+                    logger.LogWarning(
+                        "No item prices returned from SAP for active price list {PriceListNum}; retaining existing cached prices for this list",
+                        priceList.ListNum);
+                    continue;
+                }
+
                 await SyncItemPricesForPriceListAsync(priceList.ListNum, sapPrices, syncTime, cancellationToken);
             }
 
@@ -166,6 +174,8 @@ public sealed class SyncPriceCatalogHandler(
                 existing.Price = sapPrice.Price;
                 existing.PriceListName = sapPrice.PriceListName;
                 existing.Currency = sapPrice.Currency;
+                existing.BasePriceList = sapPrice.BasePriceList;
+                existing.Factor = sapPrice.Factor;
                 existing.IsActive = true;
                 existing.LastSyncedAt = syncTime;
                 existing.UpdatedAt = syncTime;
@@ -181,6 +191,8 @@ public sealed class SyncPriceCatalogHandler(
                     Price = sapPrice.Price,
                     PriceListName = sapPrice.PriceListName,
                     Currency = sapPrice.Currency,
+                    BasePriceList = sapPrice.BasePriceList,
+                    Factor = sapPrice.Factor,
                     IsActive = true,
                     SyncedFromSAP = true,
                     CreatedAt = syncTime,

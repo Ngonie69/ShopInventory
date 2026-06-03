@@ -14,14 +14,7 @@ namespace ShopInventory.Services
 {
     public interface IStatementService
     {
-        Task<byte[]> GenerateCustomerStatementAsync(
-            BusinessPartnerDto customer,
-            IEnumerable<InvoiceDto> invoices,
-            IEnumerable<IncomingPaymentDto> payments,
-            DateTime fromDate,
-            DateTime toDate,
-            IEnumerable<InvoiceDto>? allOpenInvoices = null,
-            IEnumerable<CreditNoteDto>? creditNotes = null);
+        Task<byte[]> GenerateCustomerStatementAsync(CustomerStatementResponseDto statement);
     }
 
     public class StatementService : IStatementService
@@ -68,14 +61,7 @@ namespace ShopInventory.Services
             _regularFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
         }
 
-        public async Task<byte[]> GenerateCustomerStatementAsync(
-            BusinessPartnerDto customer,
-            IEnumerable<InvoiceDto> invoices,
-            IEnumerable<IncomingPaymentDto> payments,
-            DateTime fromDate,
-            DateTime toDate,
-            IEnumerable<InvoiceDto>? allOpenInvoices = null,
-            IEnumerable<CreditNoteDto>? creditNotes = null)
+        public async Task<byte[]> GenerateCustomerStatementAsync(CustomerStatementResponseDto statement)
         {
             try
             {
@@ -95,19 +81,19 @@ namespace ShopInventory.Services
                 AddCompanyHeader(document);
 
                 // Add statement title banner
-                AddStatementBanner(document, fromDate, toDate);
+                AddStatementBanner(document, statement.FromDate, statement.ToDate);
 
                 // Add customer and statement info side by side
-                AddCustomerAndStatementInfo(document, customer);
+                AddCustomerAndStatementInfo(document, statement.Customer);
 
                 // Add account summary section
-                AddAccountSummary(document, customer, invoices, payments, creditNotes, fromDate, toDate);
+                AddAccountSummary(document, statement);
 
-                // Add aging analysis (use all open invoices if provided, otherwise fall back to filtered invoices)
-                AddAgingAnalysis(document, allOpenInvoices ?? invoices);
+                // Add aging analysis from the precomputed statement summary.
+                AddAgingAnalysis(document, statement.Aging);
 
-                // Add transaction ledger (chronological debit/credit with running balance)
-                AddTransactionLedger(document, customer, invoices, payments, creditNotes, fromDate);
+                // Add transaction ledger from SAP-backed statement rows.
+                AddTransactionLedger(document, statement);
 
                 // Add footer with page numbers
                 AddFooter(document, pdf);
@@ -271,7 +257,7 @@ namespace ShopInventory.Services
             document.Add(bannerTable);
         }
 
-        private void AddCustomerAndStatementInfo(Document document, BusinessPartnerDto customer)
+        private void AddCustomerAndStatementInfo(Document document, StatementCustomerDto customer)
         {
             var infoTable = new Table(new float[] { 1, 1 })
                 .SetWidth(UnitValue.CreatePercentValue(100))
@@ -302,8 +288,12 @@ namespace ShopInventory.Services
                 .SetFontColor(TextMuted)
                 .SetMarginBottom(2));
 
-            var type = customer.CardType == "C" ? "Customer" : customer.CardType == "S" ? "Supplier" : "Lead";
-            customerCell.Add(new Paragraph($"Type: {type}")
+            var paymentTerms = string.IsNullOrWhiteSpace(customer.PaymentTermsName)
+                ? "Not specified"
+                : customer.PaymentTermsDays.HasValue && customer.PaymentTermsDays.Value > 0
+                    ? $"{customer.PaymentTermsName} ({customer.PaymentTermsDays} days)"
+                    : customer.PaymentTermsName;
+            customerCell.Add(new Paragraph($"Payment Terms: {paymentTerms}")
                 .SetFont(_regularFont)
                 .SetFontSize(9)
                 .SetFontColor(TextMuted)
@@ -329,7 +319,7 @@ namespace ShopInventory.Services
                 .SetFontColor(TextMuted)
                 .SetMarginBottom(8));
 
-            var balance = customer.Balance ?? 0;
+            var balance = customer.Balance;
             var balanceColor = balance > 0 ? DangerColor : balance < 0 ? SuccessColor : TextDark;
 
             balanceCell.Add(new Paragraph($"{GetCurrencySymbol(customer.Currency)} {balance:N2}")
@@ -348,7 +338,7 @@ namespace ShopInventory.Services
             document.Add(infoTable);
         }
 
-        private void AddAccountSummary(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, IEnumerable<CreditNoteDto>? creditNotes, DateTime fromDate, DateTime toDate)
+        private void AddAccountSummary(Document document, CustomerStatementResponseDto statement)
         {
             var sectionTitle = new Paragraph("ACCOUNT SUMMARY")
                 .SetFont(_boldFont)
@@ -357,25 +347,15 @@ namespace ShopInventory.Services
                 .SetMarginBottom(10);
             document.Add(sectionTitle);
 
-            var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
-            var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
-            var totalCreditNotes = creditNotes?.Sum(c => Math.Abs(c.DocTotal)) ?? 0;
-            var totalCredits = totalPaid + totalCreditNotes;
-
-            // Calculate opening balance: current SAP balance - period invoices + period payments
-            var currentBalance = customer.Balance ?? 0;
-            var openingBalance = currentBalance - totalInvoiced + totalCredits;
-            var closingBalance = currentBalance;
-
             var summaryTable = new Table(new float[] { 1, 1, 1, 1 })
                 .SetWidth(UnitValue.CreatePercentValue(100))
                 .SetMarginBottom(15);
 
             // Summary Cards
-            AddSummaryCard(summaryTable, "Opening Balance", $"{openingBalance:N2}", $"As at {fromDate:dd MMM yyyy}", PrimaryColor);
-            AddSummaryCard(summaryTable, "Total Debits", $"{totalInvoiced:N2}", $"{invoices?.Count() ?? 0} Invoice(s)", DangerColor);
-            AddSummaryCard(summaryTable, "Total Credits", $"{totalCredits:N2}", $"{payments?.Count() ?? 0} Payment(s), {creditNotes?.Count() ?? 0} Credit Note(s)", SuccessColor);
-            AddSummaryCard(summaryTable, "Closing Balance", $"{closingBalance:N2}", $"As at {toDate:dd MMM yyyy}", closingBalance > 0 ? DangerColor : SuccessColor);
+            AddSummaryCard(summaryTable, "Opening Balance", $"{statement.OpeningBalance:N2}", $"As at {statement.FromDate:dd MMM yyyy}", PrimaryColor);
+            AddSummaryCard(summaryTable, "Total Debits", $"{statement.TotalDebits:N2}", $"{statement.Lines.Count(line => line.Debit > 0)} debit row(s)", DangerColor);
+            AddSummaryCard(summaryTable, "Total Credits", $"{statement.TotalCredits:N2}", $"{statement.Lines.Count(line => line.Credit > 0)} credit row(s)", SuccessColor);
+            AddSummaryCard(summaryTable, "Closing Balance", $"{statement.ClosingBalance:N2}", $"As at {statement.ToDate:dd MMM yyyy}", statement.ClosingBalance > 0 ? DangerColor : SuccessColor);
 
             document.Add(summaryTable);
         }
@@ -415,7 +395,7 @@ namespace ShopInventory.Services
             table.AddCell(cell);
         }
 
-        private void AddAgingAnalysis(Document document, IEnumerable<InvoiceDto> invoices)
+        private void AddAgingAnalysis(Document document, StatementAgingSummaryDto aging)
         {
             var sectionTitle = new Paragraph("AGING ANALYSIS")
                 .SetFont(_boldFont)
@@ -424,56 +404,25 @@ namespace ShopInventory.Services
                 .SetMarginBottom(10);
             document.Add(sectionTitle);
 
-            // Calculate aging buckets
-            var today = DateTime.Today;
-            var openInvoices = invoices?.Where(i => i.DocStatus == "O").ToList() ?? new List<InvoiceDto>();
-
-            decimal current = 0, days30 = 0, days60 = 0, days90 = 0, over90 = 0;
-
-            foreach (var inv in openInvoices)
-            {
-                if (!DateTime.TryParse(inv.DocDueDate, out var dueDate))
-                    continue;
-
-                var daysOverdue = (today - dueDate).Days;
-                var balance = inv.DocTotal - inv.PaidToDate;
-
-                if (balance <= 0)
-                    continue;
-
-                if (daysOverdue <= 0)
-                    current += balance;
-                else if (daysOverdue <= 30)
-                    days30 += balance;
-                else if (daysOverdue <= 60)
-                    days60 += balance;
-                else if (daysOverdue <= 90)
-                    days90 += balance;
-                else
-                    over90 += balance;
-            }
-
-            var total = current + days30 + days60 + days90 + over90;
-
             var agingTable = new Table(new float[] { 1, 1, 1, 1, 1, 1 })
                 .SetWidth(UnitValue.CreatePercentValue(100))
                 .SetMarginBottom(15);
 
             // Headers
             AddAgingHeader(agingTable, "Current", SuccessColor);
-            AddAgingHeader(agingTable, "1-30 Days", new DeviceRgb(23, 162, 184));
-            AddAgingHeader(agingTable, "31-60 Days", WarningColor);
-            AddAgingHeader(agingTable, "61-90 Days", new DeviceRgb(253, 126, 20));
-            AddAgingHeader(agingTable, "90+ Days", DangerColor);
+            AddAgingHeader(agingTable, aging.Bucket1Label, new DeviceRgb(23, 162, 184));
+            AddAgingHeader(agingTable, aging.Bucket2Label, WarningColor);
+            AddAgingHeader(agingTable, aging.Bucket3Label, new DeviceRgb(253, 126, 20));
+            AddAgingHeader(agingTable, aging.Bucket4Label, DangerColor);
             AddAgingHeader(agingTable, "Total Due", PrimaryColor);
 
             // Values
-            AddAgingValue(agingTable, current);
-            AddAgingValue(agingTable, days30);
-            AddAgingValue(agingTable, days60);
-            AddAgingValue(agingTable, days90);
-            AddAgingValue(agingTable, over90);
-            AddAgingValue(agingTable, total, true);
+            AddAgingValue(agingTable, aging.Current);
+            AddAgingValue(agingTable, aging.Days1To30);
+            AddAgingValue(agingTable, aging.Days31To60);
+            AddAgingValue(agingTable, aging.Days61To90);
+            AddAgingValue(agingTable, aging.Over90Days);
+            AddAgingValue(agingTable, aging.Total, true);
 
             document.Add(agingTable);
         }
@@ -508,7 +457,7 @@ namespace ShopInventory.Services
             table.AddCell(cell);
         }
 
-        private void AddTransactionLedger(Document document, BusinessPartnerDto customer, IEnumerable<InvoiceDto> invoices, IEnumerable<IncomingPaymentDto> payments, IEnumerable<CreditNoteDto>? creditNotes, DateTime fromDate)
+        private void AddTransactionLedger(Document document, CustomerStatementResponseDto statement)
         {
             var sectionTitle = new Paragraph("TRANSACTION DETAILS")
                 .SetFont(_boldFont)
@@ -518,130 +467,65 @@ namespace ShopInventory.Services
                 .SetMarginBottom(10);
             document.Add(sectionTitle);
 
-            // Build a combined chronological list of transactions
-            var transactions = new List<(DateTime Date, string Type, string Reference, string Description, decimal Debit, decimal Credit)>();
-
-            if (invoices != null)
-            {
-                foreach (var inv in invoices)
-                {
-                    var date = DateTime.TryParse(inv.DocDate, out var d) ? d : DateTime.MinValue;
-                    var description = !string.IsNullOrEmpty(inv.Remarks) ? inv.Remarks
-                        : !string.IsNullOrEmpty(inv.Comments) ? inv.Comments
-                        : "Invoice";
-                    transactions.Add((date, "Invoice", $"INV-{inv.DocNum}", TruncateText(description, 35), inv.DocTotal, 0));
-                }
-            }
-
-            if (payments != null)
-            {
-                foreach (var pmt in payments)
-                {
-                    var date = DateTime.TryParse(pmt.DocDate, out var d) ? d : DateTime.MinValue;
-                    var type = DeterminePaymentType(pmt);
-                    var reference = !string.IsNullOrEmpty(pmt.TransferReference) ? pmt.TransferReference : $"RCT-{pmt.DocNum}";
-                    var description = !string.IsNullOrEmpty(pmt.Remarks) ? pmt.Remarks : $"Payment - {type}";
-                    transactions.Add((date, "Payment", TruncateText(reference, 18), TruncateText(description, 35), 0, pmt.DocTotal));
-                }
-            }
-
-            if (creditNotes != null)
-            {
-                foreach (var creditNote in creditNotes)
-                {
-                    var reference = creditNote.SAPDocNum?.ToString() ?? creditNote.CreditNoteNumber;
-                    var description = !string.IsNullOrWhiteSpace(creditNote.Comments)
-                        ? creditNote.Comments
-                        : !string.IsNullOrWhiteSpace(creditNote.Reason)
-                            ? creditNote.Reason
-                            : "Credit Note";
-
-                    transactions.Add((
-                        creditNote.CreditNoteDate,
-                        "Credit Note",
-                        TruncateText($"CN-{reference}", 18),
-                        TruncateText(description, 35),
-                        0,
-                        Math.Abs(creditNote.DocTotal)));
-                }
-            }
-
-            // Sort chronologically
-            transactions = transactions
-                .OrderBy(t => t.Date)
-                .ThenBy(t => t.Type == "Invoice" ? 0 : t.Type == "Credit Note" ? 1 : 2)
-                .ToList();
-
             // Create the ledger table
-            var ledgerTable = new Table(new float[] { 1.1f, 1.2f, 1.4f, 2.2f, 1.2f, 1.2f, 1.2f })
+            var ledgerTable = new Table(new float[] { 1.1f, 0.9f, 1.2f, 1.2f, 2.1f, 1.1f, 1.1f, 1.2f })
                 .SetWidth(UnitValue.CreatePercentValue(100))
                 .SetMarginBottom(15);
 
             // Headers
             AddModernHeader(ledgerTable, "Date");
-            AddModernHeader(ledgerTable, "Type");
-            AddModernHeader(ledgerTable, "Reference");
-            AddModernHeader(ledgerTable, "Description");
+            AddModernHeader(ledgerTable, "Origin");
+            AddModernHeader(ledgerTable, "Origin No.");
+            AddModernHeader(ledgerTable, "Offset Acct");
+            AddModernHeader(ledgerTable, "Details");
             AddModernHeader(ledgerTable, "Debit");
             AddModernHeader(ledgerTable, "Credit");
             AddModernHeader(ledgerTable, "Balance");
 
-            // Calculate opening balance
-            var totalInvoiced = invoices?.Sum(i => i.DocTotal) ?? 0;
-            var totalPaid = payments?.Sum(p => p.DocTotal) ?? 0;
-            var totalCreditNotes = creditNotes?.Sum(c => Math.Abs(c.DocTotal)) ?? 0;
-            var currentBalance = customer.Balance ?? 0;
-            var openingBalance = currentBalance - totalInvoiced + totalPaid + totalCreditNotes;
-            var runningBalance = openingBalance;
-
             // Opening balance row
-            AddLedgerCell(ledgerTable, fromDate.ToString("dd MMM yyyy"), false, TextAlignment.LEFT, null, true);
+            AddLedgerCell(ledgerTable, statement.FromDate.ToString("dd MMM yyyy"), false, TextAlignment.LEFT, null, true);
+            AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "Opening Balance", false, TextAlignment.LEFT, null, true);
             AddLedgerCell(ledgerTable, "", false, TextAlignment.RIGHT, null, true);
             AddLedgerCell(ledgerTable, "", false, TextAlignment.RIGHT, null, true);
-            AddLedgerCell(ledgerTable, $"{openingBalance:N2}", false, TextAlignment.RIGHT, openingBalance > 0 ? DangerColor : SuccessColor, true);
+            AddLedgerCell(ledgerTable, $"{statement.OpeningBalance:N2}", false, TextAlignment.RIGHT, statement.OpeningBalance > 0 ? DangerColor : SuccessColor, true);
 
             // Transaction rows
             var rowIndex = 0;
-            foreach (var txn in transactions)
+            foreach (var line in statement.Lines)
             {
                 var isAlternate = rowIndex % 2 == 1;
 
-                // Update running balance: debits increase, credits decrease
-                runningBalance += txn.Debit - txn.Credit;
-
-                AddLedgerCell(ledgerTable, txn.Date.ToString("dd MMM yyyy"), isAlternate);
-                AddLedgerCell(ledgerTable, txn.Type, isAlternate, TextAlignment.LEFT, txn.Type == "Invoice" ? DangerColor : SuccessColor);
-                AddLedgerCell(ledgerTable, txn.Reference, isAlternate);
-                AddLedgerCell(ledgerTable, txn.Description, isAlternate);
-                AddLedgerCell(ledgerTable, txn.Debit > 0 ? $"{txn.Debit:N2}" : "-", isAlternate, TextAlignment.RIGHT, txn.Debit > 0 ? DangerColor : TextMuted);
-                AddLedgerCell(ledgerTable, txn.Credit > 0 ? $"{txn.Credit:N2}" : "-", isAlternate, TextAlignment.RIGHT, txn.Credit > 0 ? SuccessColor : TextMuted);
-                AddLedgerCell(ledgerTable, $"{runningBalance:N2}", isAlternate, TextAlignment.RIGHT, runningBalance > 0 ? DangerColor : SuccessColor);
+                AddLedgerCell(ledgerTable, line.Date.ToString("dd MMM yyyy"), isAlternate);
+                AddLedgerCell(ledgerTable, line.OriginCode, isAlternate, TextAlignment.LEFT, line.Debit > 0 ? DangerColor : SuccessColor);
+                AddLedgerCell(ledgerTable, TruncateText(line.OriginNumber ?? line.DocumentNumber, 16), isAlternate);
+                AddLedgerCell(ledgerTable, TruncateText(line.OffsetAccount ?? "-", 16), isAlternate);
+                AddLedgerCell(ledgerTable, TruncateText(line.Description ?? line.DocumentType, 38), isAlternate);
+                AddLedgerCell(ledgerTable, line.Debit > 0 ? $"{line.Debit:N2}" : "-", isAlternate, TextAlignment.RIGHT, line.Debit > 0 ? DangerColor : TextMuted);
+                AddLedgerCell(ledgerTable, line.Credit > 0 ? $"{line.Credit:N2}" : "-", isAlternate, TextAlignment.RIGHT, line.Credit > 0 ? SuccessColor : TextMuted);
+                AddLedgerCell(ledgerTable, $"{line.Balance:N2}", isAlternate, TextAlignment.RIGHT, line.Balance > 0 ? DangerColor : SuccessColor);
 
                 rowIndex++;
             }
 
-            // Totals row
-            var totalDebit = transactions.Sum(t => t.Debit);
-            var totalCredit = transactions.Sum(t => t.Credit);
-
+            AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "");
             AddLedgerTotalCell(ledgerTable, "TOTALS");
-            AddLedgerTotalCell(ledgerTable, $"{totalDebit:N2}", DangerColor);
-            AddLedgerTotalCell(ledgerTable, $"{totalCredit:N2}", SuccessColor);
-            AddLedgerTotalCell(ledgerTable, $"{runningBalance:N2}", runningBalance > 0 ? DangerColor : SuccessColor);
+            AddLedgerTotalCell(ledgerTable, $"{statement.TotalDebits:N2}", DangerColor);
+            AddLedgerTotalCell(ledgerTable, $"{statement.TotalCredits:N2}", SuccessColor);
+            AddLedgerTotalCell(ledgerTable, $"{statement.ClosingBalance:N2}", statement.ClosingBalance > 0 ? DangerColor : SuccessColor);
 
             document.Add(ledgerTable);
 
             // Closing balance note
-            var closingNote = new Paragraph($"Closing Balance: {GetCurrencySymbol(customer.Currency)} {runningBalance:N2}")
+            var closingNote = new Paragraph($"Closing Balance: {GetCurrencySymbol(statement.Customer.Currency)} {statement.ClosingBalance:N2}")
                 .SetFont(_boldFont)
                 .SetFontSize(10)
-                .SetFontColor(runningBalance > 0 ? DangerColor : SuccessColor)
+                .SetFontColor(statement.ClosingBalance > 0 ? DangerColor : SuccessColor)
                 .SetTextAlignment(TextAlignment.RIGHT)
                 .SetMarginBottom(10);
             document.Add(closingNote);

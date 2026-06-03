@@ -8,5 +8,6 @@ public sealed record GenerateStatementResult(byte[] PdfBytes, string FileName);
 public sealed record GenerateStatementQuery(
     string CardCode,
     DateTime? FromDate,
-    DateTime? ToDate
+    DateTime? ToDate,
+    IReadOnlyList<string>? CardCodes = null
 ) : IRequest<ErrorOr<GenerateStatementResult>>;

@@ -2856,7 +2856,10 @@
             if (result != null)
             {
                 showCreateModal = false;
-                Snackbar.Add($"Sales order {result.OrderNumber} created successfully!", Severity.Success);
+                var createWarningMessage = GetCreateWarningMessage(result);
+                Snackbar.Add(
+                    createWarningMessage ?? $"Sales order {result.OrderNumber} created successfully!",
+                    createWarningMessage is null ? Severity.Success : Severity.Warning);
                 await LoadOrders();
             }
             else
@@ -2866,11 +2869,12 @@
         }
         catch (HttpRequestException ex)
         {
-            Snackbar.Add($"Failed to create order: {ex.Message}", Severity.Error);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error creating order: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Unexpected error creating sales order");
+            Snackbar.Add("We couldn't create this sales order right now. Please try again.", Severity.Error);
         }
         finally
         {
@@ -2890,6 +2894,36 @@
         SalesOrderStatus.Rejected => "rejected",
         _ => "draft"
     };
+
+    private static string? GetCreateWarningMessage(SalesOrderDto order)
+    {
+        if (order.IsSynced)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(order.SyncError))
+            return $"Sales order {order.OrderNumber} was created as a draft because it could not be posted to SAP.";
+
+        var reason = order.SyncError.Trim().TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(reason))
+            return $"Sales order {order.OrderNumber} was created as a draft because it could not be posted to SAP.";
+
+        var clause = ToSentenceClause(reason);
+        return reason.Contains("SAP", StringComparison.OrdinalIgnoreCase)
+            ? $"Sales order {order.OrderNumber} was created as a draft because {clause}."
+            : $"Sales order {order.OrderNumber} was created as a draft because {clause} in SAP.";
+    }
+
+    private static string ToSentenceClause(string value)
+    {
+        var trimmedValue = value.Trim().TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(trimmedValue))
+            return "it could not be posted";
+
+        if (trimmedValue.Length > 1 && char.IsUpper(trimmedValue[0]) && !char.IsUpper(trimmedValue[1]))
+            return char.ToLowerInvariant(trimmedValue[0]) + trimmedValue[1..];
+
+        return trimmedValue;
+    }
 
     private static RejectedStatusNote? GetRejectedNote(SalesOrderDto order)
     {
