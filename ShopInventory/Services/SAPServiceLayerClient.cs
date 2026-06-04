@@ -1632,16 +1632,35 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         DateTime toDate,
         CancellationToken cancellationToken = default)
     {
+        return await GetInvoicesByCustomerAsync(
+            cardCode,
+            fromDate,
+            toDate,
+            includeDocumentLines: false,
+            cancellationToken);
+    }
+
+    public async Task<List<Invoice>> GetInvoicesByCustomerAsync(
+        string cardCode,
+        DateTime fromDate,
+        DateTime toDate,
+        bool includeDocumentLines,
+        CancellationToken cancellationToken = default)
+    {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        const string selectClause = "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+        var selectFields = includeDocumentLines
+            ? "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled,DocumentLines"
+            : "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+        var selectClause = $"&$select={selectFields}";
         var allInvoices = new List<Invoice>();
         int skip = 0;
-        const int pageSize = 500;
+        var pageSize = includeDocumentLines ? 100 : 500;
+        const int sapDefaultPageSize = 20;
         bool hasMore = true;
 
         while (hasMore)
@@ -1650,7 +1669,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Add("Prefer", "odata.maxpagesize=500");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -1661,7 +1680,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -1686,14 +1705,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 allInvoices.AddRange(pageItems);
                 skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
+                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                                  doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+                hasMore = hasNextLink ||
+                          pageItems.Count == pageSize ||
+                          pageItems.Count >= sapDefaultPageSize;
             }
         }
 
-        _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode} between {From} and {To}",
-            allInvoices.Count, cardCode, fromDateStr, toDateStr);
+        _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode} between {From} and {To}. IncludeDocumentLines={IncludeDocumentLines}",
+            allInvoices.Count, cardCode, fromDateStr, toDateStr, includeDocumentLines);
         return allInvoices;
     }
 
@@ -3626,47 +3647,21 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         var queryCode = $"SH_PL{priceListNum}_{suffix}";
 
         var sqlText = $@"
-SELECT X.""ItemCode"",
+SELECT T0.""ItemCode"",
        T1.""ItemName"",
        T1.""FrgnName"",
        P.""ListNum"" AS ""PriceList"",
-       CASE
-           WHEN T0.""Price"" > 0 THEN T0.""Price""
-           WHEN B.""Price"" > 0 AND IFNULL(""Factor"", 1) > 0 THEN B.""Price"" * IFNULL(""Factor"", 1)
-           ELSE 0
-       END AS ""Price"",
-       CASE
-           WHEN T0.""Price"" > 0 THEN T0.""Currency""
-           ELSE B.""Currency""
-       END AS ""Currency"",
+       T0.""Price"",
+       T0.""Currency"",
        P.""ListName"",
        P.""BASE_NUM"" AS ""BasePriceList"",
        P.""Factor""
-FROM (
-    SELECT T0.""ItemCode""
-    FROM ""ITM1"" T0
-    WHERE T0.""PriceList"" = {priceListNum}
-
-    UNION
-
-    SELECT B0.""ItemCode""
-    FROM ""OPLN"" P0
-    INNER JOIN ""ITM1"" B0 ON B0.""PriceList"" = P0.""BASE_NUM""
-    WHERE P0.""ListNum"" = {priceListNum}
-      AND P0.""BASE_NUM"" IS NOT NULL
-      AND P0.""BASE_NUM"" > 0
-      AND P0.""BASE_NUM"" <> P0.""ListNum""
-) X
-INNER JOIN ""OITM"" T1 ON X.""ItemCode"" = T1.""ItemCode""
-INNER JOIN ""OPLN"" P ON P.""ListNum"" = {priceListNum}
-LEFT JOIN ""ITM1"" T0 ON T0.""ItemCode"" = X.""ItemCode"" AND T0.""PriceList"" = P.""ListNum""
-LEFT JOIN ""ITM1"" B ON B.""ItemCode"" = X.""ItemCode"" AND B.""PriceList"" = P.""BASE_NUM""
-WHERE CASE
-          WHEN T0.""Price"" > 0 THEN T0.""Price""
-          WHEN B.""Price"" > 0 AND IFNULL(""Factor"", 1) > 0 THEN B.""Price"" * IFNULL(""Factor"", 1)
-          ELSE 0
-      END > 0
-ORDER BY X.""ItemCode""";
+FROM ""ITM1"" T0
+INNER JOIN ""OITM"" T1 ON T0.""ItemCode"" = T1.""ItemCode""
+INNER JOIN ""OPLN"" P ON P.""ListNum"" = T0.""PriceList""
+WHERE T0.""PriceList"" = {priceListNum}
+  AND T0.""Price"" > 0
+ORDER BY T0.""ItemCode""";
 
         List<ItemPriceByListDto> prices;
         var sqlQueryFailed = false;
@@ -5065,36 +5060,64 @@ ORDER BY X.""ItemCode""";
         var currentSession = _sessionId;
 
         var safeCardCode = SanitizeODataValue(cardCode);
-        var filter = $"$filter=CardCode eq '{safeCardCode}' and Cancelled eq 'tNO'&$orderby=DocEntry desc";
-        var url = $"IncomingPayments?{filter}";
+        var allPayments = new List<IncomingPayment>();
+        int skip = 0;
+        const int pageSize = 500;
+        const int sapDefaultPageSize = 20;
+        bool hasMore = true;
 
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        while (hasMore)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            var url = $"IncomingPayments?$filter=CardCode eq '{safeCardCode}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            request = new HttpRequestMessage(HttpMethod.Get, url);
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            response = await _httpClient.SendAsync(request, cancellationToken);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                response = await _httpClient.SendAsync(request, cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get incoming payments for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
+                throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pagePayments = JsonSerializer.Deserialize<List<IncomingPayment>>(valueArray.GetRawText()) ?? new List<IncomingPayment>();
+
+            if (pagePayments.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allPayments.AddRange(pagePayments);
+                skip += pagePayments.Count;
+                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                                  doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+                hasMore = hasNextLink ||
+                          pagePayments.Count == pageSize ||
+                          pagePayments.Count >= sapDefaultPageSize;
+            }
         }
 
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to get incoming payments for customer {CardCode}: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-            throw new Exception($"Failed to get incoming payments: {response.StatusCode} - {errorContent}");
-        }
-
-        var content = await response.Content.ReadAsStringAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
-
-        return result?.Value ?? new List<IncomingPayment>();
+        _logger.LogInformation("Retrieved {Count} incoming payments for customer {CardCode}", allPayments.Count, cardCode);
+        return allPayments;
     }
 
     public async Task<List<IncomingPayment>> GetIncomingPaymentsByCustomerAsync(
@@ -5112,6 +5135,7 @@ ORDER BY X.""ItemCode""";
         var allPayments = new List<IncomingPayment>();
         int skip = 0;
         const int pageSize = 500;
+        const int sapDefaultPageSize = 20;
         bool hasMore = true;
 
         while (hasMore)
@@ -5120,6 +5144,7 @@ ORDER BY X.""ItemCode""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -5130,6 +5155,7 @@ ORDER BY X.""ItemCode""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -5143,14 +5169,28 @@ ORDER BY X.""ItemCode""";
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var result = JsonSerializer.Deserialize<SAPResponse<IncomingPayment>>(content);
-            var pagePayments = result?.Value ?? new List<IncomingPayment>();
+            using var doc = JsonDocument.Parse(content);
+            var valueArray = doc.RootElement.GetProperty("value");
+            var pagePayments = JsonSerializer.Deserialize<List<IncomingPayment>>(valueArray.GetRawText()) ?? new List<IncomingPayment>();
 
-            allPayments.AddRange(pagePayments);
-            skip += pagePayments.Count;
-            hasMore = pagePayments.Count == pageSize;
+            if (pagePayments.Count == 0)
+            {
+                hasMore = false;
+            }
+            else
+            {
+                allPayments.AddRange(pagePayments);
+                skip += pagePayments.Count;
+                var hasNextLink = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                                  doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+                hasMore = hasNextLink ||
+                          pagePayments.Count == pageSize ||
+                          pagePayments.Count >= sapDefaultPageSize;
+            }
         }
 
+        _logger.LogInformation("Retrieved {Count} incoming payments for customer {CardCode} between {FromDate} and {ToDate}",
+            allPayments.Count, cardCode, fromDateStr, toDateStr);
         return allPayments;
     }
 

@@ -38,11 +38,18 @@ public sealed class GetAccountSalesPaymentReportHandler(
             var accountCodes = ExpandAccountCodes(request.AccountCodes);
             var accountCodeSet = accountCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            logger.LogInformation(
+                "Generating account sales and incoming payment report for {AccountCount} account(s) from {FromDate} to {ToDate} grouped by {Grouping}",
+                accountCodes.Count,
+                fromDateUtc,
+                toDateUtc,
+                request.Grouping);
+
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(ReportTimeout);
 
-            var invoicesTask = sapClient.GetInvoicesByDateRangeAsync(fromDateUtc, toDateUtc, timeoutCts.Token);
-            var paymentsTask = sapClient.GetIncomingPaymentsByDateRangeAsync(fromDateUtc, toDateUtc, timeoutCts.Token);
+            var invoicesTask = GetSapInvoicesForAccountsAsync(accountCodes, fromDateUtc, toDateUtc, timeoutCts.Token);
+            var paymentsTask = GetSapPaymentsForAccountsAsync(accountCodes, fromDateUtc, toDateUtc, timeoutCts.Token);
 
             await Task.WhenAll(invoicesTask, paymentsTask);
 
@@ -148,6 +155,74 @@ public sealed class GetAccountSalesPaymentReportHandler(
             return Errors.Report.GenerationFailed(ex.Message);
         }
     }
+
+    private async Task<List<Invoice>> GetSapInvoicesForAccountsAsync(
+        IReadOnlyCollection<string> accountCodes,
+        DateTime fromDateUtc,
+        DateTime toDateUtc,
+        CancellationToken cancellationToken)
+    {
+        var invoices = new List<Invoice>();
+
+        foreach (var accountCode in accountCodes)
+        {
+            var accountInvoices = await sapClient.GetInvoicesByCustomerAsync(
+                accountCode,
+                fromDateUtc,
+                toDateUtc,
+                includeDocumentLines: true,
+                cancellationToken: cancellationToken);
+            invoices.AddRange(accountInvoices);
+        }
+
+        var dedupedInvoices = invoices
+            .GroupBy(invoice => GetSapDocumentKey(invoice.DocEntry, invoice.DocNum))
+            .Select(group => group.First())
+            .ToList();
+
+        logger.LogInformation(
+            "Retrieved {InvoiceCount} invoice(s) from SAP for {AccountCount} requested account(s) between {FromDate} and {ToDate}",
+            dedupedInvoices.Count,
+            accountCodes.Count,
+            fromDateUtc,
+            toDateUtc);
+
+        return dedupedInvoices;
+    }
+
+    private async Task<List<IncomingPayment>> GetSapPaymentsForAccountsAsync(
+        IReadOnlyCollection<string> accountCodes,
+        DateTime fromDateUtc,
+        DateTime toDateUtc,
+        CancellationToken cancellationToken)
+    {
+        var payments = new List<IncomingPayment>();
+
+        foreach (var accountCode in accountCodes)
+        {
+            var accountPayments = await sapClient.GetIncomingPaymentsByCustomerAsync(accountCode, fromDateUtc, toDateUtc, cancellationToken);
+            payments.AddRange(accountPayments);
+        }
+
+        var dedupedPayments = payments
+            .GroupBy(payment => GetSapDocumentKey(payment.DocEntry, payment.DocNum))
+            .Select(group => group.First())
+            .ToList();
+
+        logger.LogInformation(
+            "Retrieved {PaymentCount} incoming payment(s) from SAP for {AccountCount} requested account(s) between {FromDate} and {ToDate}",
+            dedupedPayments.Count,
+            accountCodes.Count,
+            fromDateUtc,
+            toDateUtc);
+
+        return dedupedPayments;
+    }
+
+    private static string GetSapDocumentKey(int docEntry, int docNum) =>
+        docEntry > 0
+            ? $"DE:{docEntry}"
+            : $"DN:{docNum}";
 
     private async Task<List<AccountSalesPaymentInvoiceSnapshot>> BuildLocalInvoiceSnapshotsAsync(
         DateTime fromDateUtc,
@@ -294,20 +369,24 @@ public sealed class GetAccountSalesPaymentReportHandler(
     {
         return payments
             .Where(payment => accountCodes.Contains(NormalizeCode(payment.CardCode)) && !IsCancelled(payment.Cancelled))
-            .Select(payment => new AccountSalesPaymentPaymentSnapshot(
-                "SAP",
-                payment.DocNum.ToString(CultureInfo.InvariantCulture),
-                payment.DocEntry.ToString(CultureInfo.InvariantCulture),
-                BuildDocumentStatus(null, IsCancelled(payment.Cancelled), "Posted"),
-                NormalizeCurrency(payment.DocCurrency),
-                FirstNonEmpty(payment.TransferReference, payment.Remarks, payment.JournalRemarks),
-                NormalizeCode(payment.CardCode),
-                NormalizeName(payment.CardName, payment.CardCode),
-                ParseSapDate(payment.DocDate),
-                GetPaymentTotal(payment),
-                IsUsdCurrency(payment.DocCurrency) ? GetPaymentTotal(payment) : 0m,
-                IsZigCurrency(payment.DocCurrency) ? GetPaymentTotal(payment) : 0m,
-                BuildPaymentApplicationSnapshots(payment.PaymentInvoices)))
+            .Select(payment =>
+            {
+                var paymentTotal = GetPaymentTotal(payment);
+                return new AccountSalesPaymentPaymentSnapshot(
+                    "SAP",
+                    payment.DocNum.ToString(CultureInfo.InvariantCulture),
+                    payment.DocEntry.ToString(CultureInfo.InvariantCulture),
+                    BuildDocumentStatus(null, IsCancelled(payment.Cancelled), "Posted"),
+                    NormalizeCurrency(payment.DocCurrency),
+                    FirstNonEmpty(payment.TransferReference, payment.Remarks, payment.JournalRemarks),
+                    NormalizeCode(payment.CardCode),
+                    NormalizeName(payment.CardName, payment.CardCode),
+                    ParseSapDate(payment.DocDate),
+                    paymentTotal,
+                    IsUsdCurrency(payment.DocCurrency) ? paymentTotal : 0m,
+                    IsZigCurrency(payment.DocCurrency) ? paymentTotal : 0m,
+                    BuildPaymentApplicationSnapshots(payment.PaymentInvoices));
+            })
             .Where(payment => payment.PaymentDateUtc != DateTime.MinValue)
             .ToList();
     }
@@ -657,11 +736,27 @@ public sealed class GetAccountSalesPaymentReportHandler(
         string.Equals(value, "Canceled", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "Void", StringComparison.OrdinalIgnoreCase);
 
-    private static decimal GetPaymentTotal(IncomingPayment payment) =>
-        payment.CashSum + payment.CheckSum + payment.TransferSum + payment.CreditSum;
+    private static decimal GetPaymentTotal(IncomingPayment payment)
+    {
+        var methodTotal = payment.CashSum + payment.CheckSum + payment.TransferSum + payment.CreditSum;
+        if (methodTotal != 0m)
+        {
+            return methodTotal;
+        }
 
-    private static decimal GetPaymentTotal(IncomingPaymentEntity payment) =>
-        payment.CashSum + payment.CheckSum + payment.TransferSum + payment.CreditSum;
+        return payment.DocTotal != 0m ? payment.DocTotal : payment.DocTotalFc;
+    }
+
+    private static decimal GetPaymentTotal(IncomingPaymentEntity payment)
+    {
+        var methodTotal = payment.CashSum + payment.CheckSum + payment.TransferSum + payment.CreditSum;
+        if (methodTotal != 0m)
+        {
+            return methodTotal;
+        }
+
+        return payment.DocTotal != 0m ? payment.DocTotal : payment.DocTotalFc;
+    }
 
     private static bool HasMatchingSapInvoice(
         InvoiceEntity invoice,

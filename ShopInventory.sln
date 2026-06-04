@@ -7,7 +7,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShopInventory", "ShopInvent
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShopInventory.Web", "ShopInventory.Web\ShopInventory.Web.csproj", "{DB675254-E2FF-4479-8C89-487048393644}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WorkbookSmokeTest", "..\..\..\..\AppData\Local\Temp\shopinventory-export-smoketest\WorkbookSmokeTest.csproj", "{4E338503-E431-4F7A-85C9-42AA3AB94387}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{C4AD9936-F0DF-1090-6077-3D4A6324E662}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountSalesPaymentWorkbookRestyler", "scripts\AccountSalesPaymentWorkbookRestyler\AccountSalesPaymentWorkbookRestyler.csproj", "{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -43,21 +45,24 @@ Global
 		{DB675254-E2FF-4479-8C89-487048393644}.Release|x64.Build.0 = Release|Any CPU
 		{DB675254-E2FF-4479-8C89-487048393644}.Release|x86.ActiveCfg = Release|Any CPU
 		{DB675254-E2FF-4479-8C89-487048393644}.Release|x86.Build.0 = Release|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Debug|x64.Build.0 = Debug|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Debug|x86.Build.0 = Debug|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Release|Any CPU.Build.0 = Release|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Release|x64.ActiveCfg = Release|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Release|x64.Build.0 = Release|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Release|x86.ActiveCfg = Release|Any CPU
-		{4E338503-E431-4F7A-85C9-42AA3AB94387}.Release|x86.Build.0 = Release|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Debug|x64.Build.0 = Debug|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Debug|x86.Build.0 = Debug|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x64.ActiveCfg = Release|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x64.Build.0 = Release|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x86.ActiveCfg = Release|Any CPU
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E} = {C4AD9936-F0DF-1090-6077-3D4A6324E662}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {D4D4FFE7-25B9-43E6-B349-1F3C4F18D7D7}

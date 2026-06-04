@@ -44,6 +44,15 @@ public sealed class GetAccountSalesPaymentReportHandler(
             }
 
             var url = $"api/report/account-sales-payments?{string.Join("&", queryParts)}";
+
+            logger.LogInformation(
+                "Requesting account sales and incoming payment report from {Url} for {AccountCount} account(s) between {FromDate} and {ToDate} grouped by {Grouping}",
+                url,
+                accountCodes.Count,
+                request.FromDate,
+                request.ToDate,
+                request.Grouping);
+
             var response = await httpClient.GetAsync(url, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
@@ -66,6 +75,12 @@ public sealed class GetAccountSalesPaymentReportHandler(
             {
                 return Errors.Report.LoadAccountSalesPaymentsFailed("Failed to load the account sales and incoming payment report.");
             }
+
+            logger.LogInformation(
+                "Loaded account sales and incoming payment report: {RequestedAccountCount} requested account(s), {ActiveAccountCount} active account(s), {PeriodCount} period(s)",
+                result.Summary.RequestedAccountCount,
+                result.Summary.ActiveAccountCount,
+                result.Periods.Count);
 
             return result;
         }
