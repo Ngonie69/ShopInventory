@@ -12,8 +12,7 @@ public static class VanSalesRouteCustomerScope
 
     public static bool UsesLocalRouteCustomers(string? role, string? assignedBusinessPartnerCode)
         => !string.IsNullOrWhiteSpace(assignedBusinessPartnerCode) &&
-           (string.Equals(role, "ADR", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(role, "Sales", StringComparison.OrdinalIgnoreCase));
+           ApplicationRoles.UsesLegacyRouteCustomerScope(role);
 
     public static string? GetAssignedBusinessPartnerCode(User user)
         => UsesLocalRouteCustomers(user)

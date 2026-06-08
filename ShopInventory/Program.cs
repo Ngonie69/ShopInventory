@@ -24,6 +24,7 @@ using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
 using ShopInventory.Middleware;
+using ShopInventory.Models;
 using ShopInventory.Services;
 using System.IO.Compression;
 using System.Security.Claims;
@@ -66,6 +67,12 @@ try
     }
 
     var builder = WebApplication.CreateBuilder(args);
+
+    var threadPoolPerformanceOptions = builder.Configuration
+        .GetSection(ThreadPoolPerformanceOptions.SectionName)
+        .Get<ThreadPoolPerformanceOptions>()
+        ?? new ThreadPoolPerformanceOptions();
+    ApplyThreadPoolTuning(threadPoolPerformanceOptions);
 
     // Use Serilog — read overrides from appsettings so production can further tune levels
     builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -187,6 +194,7 @@ try
 
     // Configure settings
     builder.Services.Configure<PostgresConnectionPolicyOptions>(builder.Configuration.GetSection(PostgresConnectionPolicyOptions.SectionName));
+    builder.Services.Configure<ThreadPoolPerformanceOptions>(builder.Configuration.GetSection(ThreadPoolPerformanceOptions.SectionName));
     builder.Services.Configure<SAPSettings>(builder.Configuration.GetSection("SAP"));
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
@@ -268,7 +276,10 @@ try
             .RequireRole("Admin")
             .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
         options.AddPolicy("ApiAccess", policy =>
-            policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab", "ADR", "Sales")
+            policy.RequireRole(ApplicationRoles.ApiAccessRoles)
+                  .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
+        options.AddPolicy("ApiAccessWithOperator", policy =>
+            policy.RequireRole(ApplicationRoles.ApiAccessWithOperatorRoles)
                   .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
     });
 
@@ -969,5 +980,40 @@ static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings se
     var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
     return !string.IsNullOrWhiteSpace(ipAddress)
         && settings.IpWhitelist.Contains(ipAddress, StringComparer.OrdinalIgnoreCase);
+}
+
+static void ApplyThreadPoolTuning(ThreadPoolPerformanceOptions options)
+{
+    System.Threading.ThreadPool.GetMinThreads(out var currentWorkerThreads, out var currentCompletionPortThreads);
+    System.Threading.ThreadPool.GetMaxThreads(out var maxWorkerThreads, out var maxCompletionPortThreads);
+
+    var targetWorkerThreads = options.MinWorkerThreads > currentWorkerThreads
+        ? Math.Min(options.MinWorkerThreads, maxWorkerThreads)
+        : currentWorkerThreads;
+    var targetCompletionPortThreads = options.MinCompletionPortThreads > currentCompletionPortThreads
+        ? Math.Min(options.MinCompletionPortThreads, maxCompletionPortThreads)
+        : currentCompletionPortThreads;
+
+    if (targetWorkerThreads == currentWorkerThreads && targetCompletionPortThreads == currentCompletionPortThreads)
+    {
+        Log.Information(
+            "Thread pool minimums unchanged. WorkerThreads={WorkerThreads}, CompletionPortThreads={CompletionPortThreads}, MaxWorkerThreads={MaxWorkerThreads}, MaxCompletionPortThreads={MaxCompletionPortThreads}",
+            currentWorkerThreads,
+            currentCompletionPortThreads,
+            maxWorkerThreads,
+            maxCompletionPortThreads);
+        return;
+    }
+
+    var applied = System.Threading.ThreadPool.SetMinThreads(targetWorkerThreads, targetCompletionPortThreads);
+    Log.Information(
+        "Thread pool minimum tuning {Result}. WorkerThreads={CurrentWorkerThreads}->{TargetWorkerThreads}, CompletionPortThreads={CurrentCompletionPortThreads}->{TargetCompletionPortThreads}, MaxWorkerThreads={MaxWorkerThreads}, MaxCompletionPortThreads={MaxCompletionPortThreads}",
+        applied ? "applied" : "failed",
+        currentWorkerThreads,
+        targetWorkerThreads,
+        currentCompletionPortThreads,
+        targetCompletionPortThreads,
+        maxWorkerThreads,
+        maxCompletionPortThreads);
 }
 

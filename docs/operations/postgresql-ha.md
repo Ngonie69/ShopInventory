@@ -41,16 +41,24 @@ Password=***;
 Target Session Attributes=read-write;
 Load Balance Hosts=false;
 Host Recheck Seconds=5;
-Timeout=15;
-Command Timeout=30;
-Keepalive=30;
-Maximum Pool Size=100
+Timeout=30;
+Command Timeout=60;
+Keepalive=60;
+Maximum Pool Size=100;
+Minimum Pool Size=10;
+Connection Idle Lifetime=300;
+Connection Pruning Interval=10;
+Read Buffer Size=16384;
+Write Buffer Size=16384
 ```
 
 Guidance:
 
 - `Target Session Attributes=read-write` prevents the API from attaching to a read-only standby for write traffic.
 - `Host Recheck Seconds=5` keeps host health probing reasonably quick during failover.
+- `Connection Idle Lifetime=300` and `Connection Pruning Interval=10` trim idle pooled connections without churning active traffic.
+- `Timeout=30`, `Command Timeout=60`, and `Keepalive=60` balance failover detection with slower operational/reporting queries.
+- Do not add `Multiplexing=true` to the shared application connection strings until the session-level advisory lock paths used by background-worker leadership and inventory locks have been separated or validated under multiplexing.
 - If your HA layer exposes a single virtual IP, DNS name, or TCP proxy instead, keep using that single endpoint and let the HA layer move traffic.
 - After any connection string change, verify EF migrations, startup readiness, and pooled connection recovery against a staged failover.
 
@@ -73,8 +81,8 @@ The IIS deployment script now accepts optional database override parameters and 
 ```powershell
 .\Update-Production.ps1 `
 	-DeployTarget Both `
-	-ApiDbConnectionString "Host=db-primary.example.local,db-standby.example.local;Port=5432;Database=shopinventory;Username=shopinventory;Password=<db-password>;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Timeout=15;Command Timeout=30;Keepalive=30;Maximum Pool Size=100;Minimum Pool Size=10" `
-	-WebDbConnectionString "Host=db-primary.example.local,db-standby.example.local;Port=5432;Database=shopinventoryweb;Username=shopinventory;Password=<db-password>;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Timeout=15;Command Timeout=30;Keepalive=30;Maximum Pool Size=100;Minimum Pool Size=10"
+	-ApiDbConnectionString "Host=db-primary.example.local,db-standby.example.local;Port=5432;Database=shopinventory;Username=shopinventory;Password=<db-password>;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Maximum Pool Size=100;Minimum Pool Size=10;Connection Idle Lifetime=300;Connection Pruning Interval=10;Timeout=30;Command Timeout=60;Keepalive=60;Read Buffer Size=16384;Write Buffer Size=16384" `
+	-WebDbConnectionString "Host=db-primary.example.local,db-standby.example.local;Port=5432;Database=shopinventoryweb;Username=shopinventory;Password=<db-password>;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Maximum Pool Size=100;Minimum Pool Size=10;Connection Idle Lifetime=300;Connection Pruning Interval=10;Timeout=30;Command Timeout=60;Keepalive=60;Read Buffer Size=16384;Write Buffer Size=16384"
 ```
 
 This is the supported path for replacing live production database settings, because the deployment flow preserves server-side `web.config` and now updates the connection strings explicitly when overrides are supplied.

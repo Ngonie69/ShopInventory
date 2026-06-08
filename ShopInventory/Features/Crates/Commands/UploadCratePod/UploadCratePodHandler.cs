@@ -62,6 +62,29 @@ public sealed class UploadCratePodHandler(
             return Errors.CrateTracking.InvalidTransactionType("Crate POD uploads are only allowed for invoice crate transactions.");
         }
 
+        if (string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+            {
+                return Errors.CrateTracking.AccessDenied("Operators must have an assigned POD section to upload crate PODs.");
+            }
+
+            if (transaction.InvoiceDocEntry is not int invoiceDocEntry)
+            {
+                return Errors.CrateTracking.AccessDenied("This crate transaction is not linked to an invoice in your assigned POD section.");
+            }
+
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                [invoiceDocEntry],
+                currentUser.AssignedSection,
+                cancellationToken);
+
+            if (!scopedDocEntries.Contains(invoiceDocEntry))
+            {
+                return Errors.CrateTracking.AccessDenied("This crate transaction is outside your assigned POD section.");
+            }
+        }
+
         if (string.Equals(currentUser.Role, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(submissionRole, CrateTrackingConstants.SubmissionRoleDriver, StringComparison.OrdinalIgnoreCase))
         {

@@ -3,6 +3,7 @@ using MediatR;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Documents;
 using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
 using ShopInventory.Services;
@@ -11,6 +12,7 @@ namespace ShopInventory.Features.Invoices.Commands.UploadPod;
 
 public sealed class UploadPodHandler(
     ISAPServiceLayerClient sapClient,
+    DocumentAttachmentAccessService attachmentAccessService,
     IDocumentService documentService,
     IAuthService authService,
     IAuditService auditService,
@@ -35,6 +37,17 @@ public sealed class UploadPodHandler(
 
         if (invoiceInfo != null && PodExclusions.IsExcludedCardCode(invoiceInfo.CardCode))
             return Errors.Invoice.PodExcluded(invoiceInfo.CardName ?? "", invoiceInfo.CardCode ?? "");
+
+        var accessResult = await attachmentAccessService.AuthorizeEntityAccessAsync(
+            "Invoice",
+            command.DocEntry,
+            true,
+            cancellationToken);
+
+        if (accessResult.IsError)
+        {
+            return accessResult.Errors;
+        }
 
         var request = new UploadAttachmentRequest
         {

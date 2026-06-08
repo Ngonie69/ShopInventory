@@ -28,25 +28,6 @@ public sealed class UpdateUserHandler(
 {
     private const string EffectivePermissionsCacheKeyPrefix = "user-permissions:";
 
-    private static readonly string[] ValidRoles =
-    [
-        "Admin",
-        "Manager",
-        "User",
-        "ReadOnly",
-        "Cashier",
-        "StockController",
-        "DepotController",
-        "PodOperator",
-        "Driver",
-        "Merchandiser",
-        "SalesRep",
-        "MerchandiserPurchaseOrderViewer",
-        "Lab",
-        "ADR",
-        "Sales"
-    ];
-
     public async Task<ErrorOr<Success>> Handle(
         UpdateUserCommand command,
         CancellationToken cancellationToken)
@@ -85,14 +66,14 @@ public sealed class UpdateUserHandler(
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(currentUser.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase))
         {
             var requestedRole = string.IsNullOrWhiteSpace(command.Request.Role)
                 ? user.Role
                 : command.Request.Role;
 
-            if (!string.Equals(currentRole, "Driver", StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(requestedRole, "Driver", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(currentRole, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(requestedRole, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase))
             {
                 return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
             }
@@ -150,17 +131,17 @@ public sealed class UpdateUserHandler(
 
         if (!string.IsNullOrWhiteSpace(command.Request.Role))
         {
-            if (!ValidRoles.Contains(command.Request.Role))
+            if (!ApplicationRoles.CanAssignOrRetainManagedRole(command.Request.Role, user.Role))
             {
-                return Errors.UserManagement.UpdateFailed($"Invalid role. Valid roles: {string.Join(", ", ValidRoles)}");
+                return Errors.UserManagement.UpdateFailed($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
             }
 
-            user.Role = command.Request.Role;
+            user.Role = command.Request.Role.Trim();
         }
 
         if (command.Request.AssignedWarehouseCodes != null)
         {
-            if (user.Role == "StockController" || user.Role == "DepotController" || user.Role == "Merchandiser" || user.Role == "ADR" || user.Role == "Sales")
+            if (ApplicationRoles.SupportsWarehouseAssignments(user.Role))
                 user.SetWarehouseCodes(command.Request.AssignedWarehouseCodes);
             else
                 user.SetWarehouseCodes(null);
@@ -168,7 +149,7 @@ public sealed class UpdateUserHandler(
 
         if (command.Request.AssignedCustomerCodes != null)
         {
-            if (user.Role == "Merchandiser" || user.Role == "Driver" || user.Role == "PodOperator")
+            if (ApplicationRoles.SupportsCustomerAssignments(user.Role))
             {
                 logger.LogInformation("Setting customer codes for {User}: {Codes}", user.Username, string.Join(",", command.Request.AssignedCustomerCodes));
                 user.SetCustomerCodes(command.Request.AssignedCustomerCodes);
@@ -180,12 +161,12 @@ public sealed class UpdateUserHandler(
             }
         }
 
-        if (user.Role == "Driver" || user.Role == "PodOperator")
+        if (ApplicationRoles.RequiresAssignedSection(user.Role))
             user.AssignedSection = command.Request.AssignedSection;
         else
             user.AssignedSection = null;
 
-        if (user.Role == "ADR" || user.Role == "Sales")
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(user.Role))
         {
             user.AssignedBusinessPartnerCode = command.Request.AssignedBusinessPartnerCode?.Trim();
             user.AssignedCostCentreCode = command.Request.AssignedCostCentreCode?.Trim();
@@ -213,35 +194,37 @@ public sealed class UpdateUserHandler(
             user.SetAllowedPaymentBusinessPartners(command.Request.AllowedPaymentBusinessPartners);
         }
 
-        if ((user.Role == "StockController" || user.Role == "DepotController" || user.Role == "ADR" || user.Role == "Sales") && user.GetWarehouseCodes().Count == 0)
+        if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
         }
 
-        if (user.Role == "Merchandiser" && user.GetCustomerCodes().Count == 0)
+        if (ApplicationRoles.RequiresCustomerAssignments(user.Role) && user.GetCustomerCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned customer code is required for {user.Role} role");
         }
 
-        if ((user.Role == "Driver" || user.Role == "PodOperator") && string.IsNullOrWhiteSpace(user.AssignedSection))
+        if (ApplicationRoles.RequiresAssignedSection(user.Role) && string.IsNullOrWhiteSpace(user.AssignedSection))
         {
             return Errors.UserManagement.UpdateFailed($"An assigned section is required for {user.Role} role");
         }
 
-        if ((user.Role == "ADR" || user.Role == "Sales") && string.IsNullOrWhiteSpace(user.AssignedBusinessPartnerCode))
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(user.Role) &&
+            string.IsNullOrWhiteSpace(user.AssignedBusinessPartnerCode))
         {
             return Errors.UserManagement.UpdateFailed($"An assigned business partner code is required for {user.Role} role");
         }
 
-        if ((user.Role == "ADR" || user.Role == "Sales") && string.IsNullOrWhiteSpace(user.AssignedCostCentreCode))
+        if (ApplicationRoles.RequiresAssignedCostCentreCode(user.Role) &&
+            string.IsNullOrWhiteSpace(user.AssignedCostCentreCode))
         {
             return Errors.UserManagement.UpdateFailed($"An assigned cost centre code is required for {user.Role} role");
         }
 
         var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
-            (string.Equals(user.Role, "Merchandiser", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(user.Role, "PodOperator", StringComparison.OrdinalIgnoreCase));
+            (string.Equals(user.Role, ApplicationRoles.Merchandiser, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase));
 
         var updatedAssignedCustomerCodes = user.GetCustomerCodes()
             .Where(code => !string.IsNullOrWhiteSpace(code))

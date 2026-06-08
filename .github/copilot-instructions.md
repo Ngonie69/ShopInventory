@@ -1,147 +1,238 @@
-# ShopInventory — Project Guidelines
+# ShopInventory Project Instructions
 
-## Overview
+This is the single canonical instruction file for ShopInventory. Read and apply it before starting any new feature, bug fix, refactor, deployment change, or documentation change.
 
-Blazor Server + ASP.NET Core REST API for invoicing and inventory management, integrated with SAP Business One, REVMax fiscal devices, and payment gateways (PayNow, Innbucks, Ecocash). Two-project solution targeting .NET 10.0 on PostgreSQL.
+## Project Baseline
 
-| Project | Role | Port | IIS Pool |
-|---------|------|------|----------|
-| `ShopInventory/` | REST API + SignalR hub | 5106 | ShopInventoryAPI |
-| `ShopInventory.Web/` | Blazor Server frontend | 5107 (IIS: 80) | ShopInventoryWeb |
+ShopInventory is a .NET 10 solution with two primary applications:
 
-## Build & Run
+- `ShopInventory/` - ASP.NET Core REST API, SignalR hub, background workers, PostgreSQL operational database, and integrations.
+- `ShopInventory.Web/` - Blazor Server web application, web-side PostgreSQL cache/audit database, and UI workflow layer.
+
+The workspace also contains `OpenWA/`, a separate NestJS WhatsApp gateway used only when WhatsApp features are enabled.
+
+Key runtime flow:
+
+```text
+Browser -> ShopInventory.Web -> ShopInventory API -> PostgreSQL / SAP B1 / REVMax / payment gateways
+```
+
+Read `architecture.md` when the change touches architecture, integration boundaries, deployment behavior, background workers, or data ownership.
+
+## Before Starting Any Change
+
+1. Identify the affected project: API, Web, OpenWA, scripts, docs, or a combined change.
+2. Inspect the existing domain before editing: relevant controller, feature slice, DTOs, entities, errors, services, page/component, and tests or manual validation paths.
+3. Prefer existing repo patterns and local abstractions. Do not introduce parallel frameworks, duplicate pipeline behaviors, or alternate result patterns.
+4. Keep the diff focused on the requested behavior. Do not migrate neighboring services, rewrite unrelated methods, or clean up unrelated files unless explicitly asked.
+5. Protect secrets. Do not commit real credentials, production keys, certificates, tokens, or connection strings.
+
+## Architecture Rules
+
+All new feature work in both `ShopInventory/` and `ShopInventory.Web/` must use vertical slice architecture with CQRS and MediatR.
+
+Use this shape:
+
+```text
+{Project}/Features/{Domain}/
+  Commands/{Operation}/
+    {Operation}Command.cs
+    {Operation}Handler.cs
+    {Operation}Validator.cs
+    {Operation}Result.cs
+  Queries/{Operation}/
+    {Operation}Query.cs
+    {Operation}Handler.cs
+    {Operation}Validator.cs
+    {Operation}Result.cs
+  Events/
+    {Event}.cs
+    {Event}Handler.cs
+```
+
+Rules:
+
+- Use commands for writes and state changes.
+- Use queries for reads.
+- Use events/notifications for secondary side effects when useful.
+- Put business logic in handlers, not controllers, pages, or standalone service classes.
+- Use one file per type.
+- Use `sealed record` for commands and queries.
+- Use `sealed class` with primary constructors for handlers and validators.
+- Return `ErrorOr<T>` from handlers. Do not throw exceptions for expected business rule failures.
+- Put domain errors in `ShopInventory/Common/Errors/Errors.{Domain}.cs` for API slices.
+- Pass `CancellationToken` through the full async call chain.
+
+When modifying existing behavior that still lives in legacy `Services/`, move only the touched business behavior into a vertical slice as part of the change. Existing services may remain for infrastructure clients, external integrations, queues, caches, browser/platform adapters, and background worker support.
+
+## API Rules
+
+Controllers are thin dispatchers:
+
+- Inherit `ApiControllerBase`.
+- Inject only `IMediator` unless existing controller structure requires otherwise.
+- Apply route, authorization, and permission attributes at the controller or action level.
+- Call `mediator.Send(...)`.
+- Map results with `result.Match(...)` and `Problem(errors)`.
+- Do not add `[ApiController]` to feature controllers because `ApiControllerBase` already provides it.
+- Do not put business logic, SAP calls, EF queries, mapping orchestration, or validation logic in controllers.
+
+Data and handler rules:
+
+- Queries must use `AsNoTracking()` and project directly to DTOs or result records with `Select(...)`.
+- Do not return raw EF entities from handlers.
+- For writes, explicitly use tracking only where needed and call `SaveChangesAsync(cancellationToken)`.
+- Use FluentValidation for request shape and format checks. Do not call validators manually.
+- Keep data-dependent business rules in handlers.
+- Use structured logging with `ILogger<T>` and message templates.
+- Catch exceptions only when adding meaningful context or translating to a useful domain error.
+
+## Web Rules
+
+Blazor pages and components should stay focused on UI concerns:
+
+- Markup and layout.
+- Temporary UI state.
+- Dialog open/close behavior.
+- Navigation.
+- Snackbar/toast feedback.
+- Role-gated visibility with `AuthorizeView`.
+- Page routing and `@attribute [Authorize]`.
+- Grid paging and filter input state.
+
+Workflow decisions, data loading, validation, mapping, auditing, cache refreshes, and coordination across API calls belong in Web feature handlers under `ShopInventory.Web/Features/{Domain}/`.
+
+Web conventions:
+
+- Use Bootstrap for page structure and grid layout.
+- Use MudBlazor for interactive controls such as buttons, dialogs, date pickers, and icons.
+- Prefer `.razor.cs` partial classes when a page is already large or behavior is non-trivial.
+- Keep role-gated links in `NavMenu.razor` wrapped in `AuthorizeView`.
+- Use the existing `CustomAuthStateProvider` and `Blazored.LocalStorage` auth pattern.
+- API transport should use the existing scoped `HttpClient` or existing thin adapter services.
+
+Dark mode is required for every touched page, component, dialog, and page-scoped style:
+
+- Use the `.dark-theme` class on `<html>`.
+- Prefer CSS variables from `ShopInventory.Web/wwwroot/app.css`.
+- Use page-scoped CSS prefixes such as `inv-`, `prod-`, `stk-`, `so-`, `po-`, `pay-`, `sec-`, `cust-`, `ua-`, `um-`, and `notif-`.
+- Add `.dark-theme .{page-prefix}-*` overrides in `app.css` when page-local styles or hardcoded colors need theme treatment.
+- Do not ship light-only UI for a touched surface.
+
+For long-running UI work, use cancellation and cleanup where needed. Cancel component-level work on dispose and unsubscribe SignalR or event handlers in `Dispose` or `DisposeAsync`.
+
+## Integration Rules
+
+SAP Business One:
+
+- All SAP calls go through `ISAPServiceLayerClient` or an existing integration abstraction.
+- Never call SAP directly from controllers or pages.
+- Use narrow `$select` queries for list/grid endpoints.
+- Avoid fetching `DocumentLines` or full documents for pagination and grid views.
+- Use SAP count plus offset for paging.
+- Respect `SAPConcurrencyHandler` and existing integration throttling.
+
+Critical invoice path:
+
+1. Validate request and permissions.
+2. Check idempotency, including `U_Van_saleorder` where applicable.
+3. Validate quantities and warehouse codes.
+4. Use `IBatchInventoryValidationService` for FIFO/FEFO batch allocation when `autoAllocateBatches` applies.
+5. Acquire inventory or workflow locks through existing lock abstractions.
+6. Post to SAP, queue downstream work, fiscalize through REVMax, and generate PDFs according to the existing flow.
+
+Other integrations:
+
+- Keep REVMax fiscalization behind existing services and feature slices.
+- Keep PayNow, Innbucks, and Ecocash behind payment gateway abstractions.
+- Keep WhatsApp session mechanics inside `OpenWA`; the .NET API remains the policy and orchestration layer.
+- Preserve health, readiness, and deployment-safe startup behavior.
+
+## Data, Time, and Migrations
+
+- Store timestamps as UTC.
+- Use `DateTime.UtcNow`, never `DateTime.Now`, for new timestamps.
+- Convert timestamps to CAT only for user-facing output or explicit audit/operator review with `AuditService.ToCAT()`.
+- Keep machine-oriented logs and internal diagnostics in UTC.
+- Never hardcode timezone offsets.
+- Database queries default to no tracking for reads.
+- New stock or batch quantity columns must preserve non-negative constraints.
+- Add EF migrations in the project that owns the changed `DbContext`.
+
+Migration commands:
 
 ```powershell
-# Restore + build
-dotnet build ShopInventory.sln
-
-# Run API (terminal 1)
-cd ShopInventory; dotnet run          # http://localhost:5106
-
-# Run Web (terminal 2)
-cd ShopInventory.Web; dotnet run      # http://localhost:5051
-
-# Publish release
-dotnet publish ShopInventory/ShopInventory.csproj -c Release -o ./publish/api
-dotnet publish ShopInventory.Web/ShopInventory.Web.csproj -c Release -o ./publish/web
-```
-
-No test project exists yet. Validate changes by building and manually testing.
-
-## Deployment
-
-**Always use `.\Update-Production.ps1`** to deploy to production (10.10.10.9). Never manually copy files.
-
-```powershell
-.\Update-Production.ps1 -DeployTarget Both      # API + Web
-.\Update-Production.ps1 -DeployTarget API        # API only
-.\Update-Production.ps1 -DeployTarget Web        # Web only
-.\Update-Production.ps1 -RestartOnly             # Restart app pools without redeploying
-```
-
-See [DEPLOYMENT.md](../DEPLOYMENT.md) for full architecture, Docker setup, and prerequisites.
-See [SECRETS.md](../SECRETS.md) for secrets management (user-secrets, env vars, .env).
-
-## Architecture
-
-```
-Browser → Blazor Web (5107) → API (5106) → SAP B1 Service Layer (10.10.10.6:50000)
-                ↓                  ↓              ↓
-        WebAppDbContext      AppDbContext     REVMax fiscal (172.16.16.201:8001)
-        (cache + audit)    (73 DbSets)       Payment gateways
-```
-
-### API project (`ShopInventory/`)
-
-- **Controllers/** — 33 REST controllers. Authorization via `[Authorize(Policy = "ApiAccess")]` at class level, role restrictions per action.
-- **Services/** — 43+ services. Key domains: SAP client, batch inventory validation (FIFO/FEFO), invoice queue, fiscalization, payment gateways, email queue.
-- **Authentication/** — JWT Bearer + API Key (`X-API-Key` header). Permission-based authorization via `[RequirePermission("...")]`.
-- **Middleware/** — Idempotency (duplicate request prevention), SAP concurrency limiter, security headers.
-- **Models/Entities/** — EF Core entities. **Data/ApplicationDbContext.cs** has 73 DbSets on PostgreSQL.
-- **Hubs/NotificationHub.cs** — SignalR for real-time notifications (user/role/broadcast groups).
-- **Background services** — `InvoicePostingBackgroundService`, `InventoryTransferPostingBackgroundService`, `ReservationCleanupService`.
-
-### Web project (`ShopInventory.Web/`)
-
-- **Components/Pages/** — Blazor pages using `@rendermode InteractiveServer`.
-- **Components/Layout/** — `MainLayout.razor` (sidebar nav, theme toggle, notifications), `NavMenu.razor` (role-gated links).
-- **Services/** — 47+ services. Caching layer (`MasterDataCacheService`, `WarehouseStockCacheService`), theme, printer integration, Excel export.
-- **Data/WebAppDbContext.cs** — Separate PostgreSQL DB for cached SAP data, audit logs, customer portal users.
-- **wwwroot/app.css** — All custom CSS including dark mode (`.dark-theme` class on `<html>`).
-
-### Key integration points
-
-| System | Config section | Notes |
-|--------|---------------|-------|
-| SAP B1 Service Layer | `SAP:*` | TLS thumbprint whitelist in production; never `SkipCertificateValidation` outside dev |
-| REVMax fiscal | `Revmax:*` | 15.5% VAT rate; duplicate prevention built in |
-| Payment gateways | `PaymentGateways:*` | PayNow, Innbucks, Ecocash — all disabled by default |
-| Customer portal | `CustomerPortal:*` | Separate JWT; `JwtSecret` required (≥32 chars) |
-
-## Code Conventions
-
-### C# / .NET
-
-- **Nullable reference types** enabled; **implicit usings** enabled.
-- Services follow interface + implementation pattern (`IXxxService` / `XxxService`), registered in `Program.cs`.
-- Controllers return `IActionResult` with typed DTOs from `DTOs/` folder.
-- Use `[RequirePermission("...")]` for fine-grained access control, `[Authorize(Roles = "...")]` for role gates.
-- Database queries default to **NoTracking** (read-heavy workload). Use explicit tracking only for writes.
-- Logging via **Serilog** — use `ILogger<T>`, structured logging with message templates.
-- Time zone: all timestamps stored as UTC, display converted to CAT (UTC+2) via `AuditService.ToCAT()`.
-
-### Blazor pages
-
-- UI: **Bootstrap** for layout + grid, **MudBlazor** for interactive components (buttons, date pickers, dialogs, icons).
-- CSS: page-scoped styles use prefixes (`inv-`, `prod-`, `stk-`, `so-`, `po-`, `pay-`, etc.) to avoid collisions.
-- Dark mode: every touched page, component, dialog, and page-scoped style must preserve dark-mode parity. Toggle `.dark-theme` on `<html>`, use CSS variables from `app.css`, and add `.dark-theme .{page-prefix}-*` overrides in `wwwroot/app.css` when page-local styles or hardcoded colors need theme-specific treatment. Do not ship light-only UI for a touched surface.
-- Auth state: `CustomAuthStateProvider` reads JWT from localStorage via `Blazored.LocalStorage`.
-- Inject services via `@inject IXxxService XxxService` at page top.
-- NavMenu links wrapped in `<AuthorizeView Roles="...">` for role gating.
-
-### SAP integration
-
-- All SAP calls go through `ISAPServiceLayerClient`. Never call SAP directly from controllers.
-- Use header-only queries with `$select` for list/grid endpoints — avoid fetching `DocumentLines` for pagination.
-- Paging: SAP count query + offset. Do not fetch full datasets for UI grids.
-- Cache heavy reports using `ReportService` cache helpers (`TryGetCachedValue` / `CacheValue`).
-- `SAPConcurrencyHandler` limits parallel SAP requests — respect the semaphore.
-
-### Invoice creation flow (critical path)
-
-1. Validate model → check idempotency key (`U_Van_saleorder`)
-2. Validate quantities and warehouse codes
-3. If `autoAllocateBatches`: run `IBatchInventoryValidationService` (FIFO/FEFO)
-4. Acquire inventory locks via `IInventoryLockService`
-5. Post to SAP → queue for batch processing → fiscalize via REVMax → generate PDF
-
-### Database migrations
-
-```powershell
-# API project
 cd ShopInventory
 dotnet ef migrations add MigrationName
 dotnet ef database update
 
-# Web project
 cd ShopInventory.Web
 dotnet ef migrations add MigrationName
 dotnet ef database update
 ```
 
-**Constraints**: non-negative quantity constraints on all stock/batch columns. Always include these in new migration entities.
+## Security and Authorization
 
-## Roles
+- API authentication uses JWT bearer auth and API key support.
+- Use `[Authorize(Policy = "ApiAccess")]` for API access where consistent with existing controllers.
+- Use `[RequirePermission("...")]` for fine-grained API permissions.
+- Use role gates with `[Authorize(Roles = "...")]` or Blazor `AuthorizeView` where existing patterns do.
+- Important create, update, delete, approval, settings, and security actions should preserve audit behavior.
+- Audit failures should not break the main user workflow unless existing code treats them as required.
+- Never bypass certificate validation outside development.
 
-Admin, User, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, ApiUser
+## Build and Validation
 
-- **SalesRep**: restricted dashboard — no invoice/payment/transfer widgets. See repo memory `sales_rep_dashboard_access.md`.
-- **Driver**: can only view PODs they uploaded (filtered by `UploadedByUserId`).
+Default validation:
 
-## Known Issues & Gotchas
+```powershell
+dotnet build ShopInventory.sln
+```
 
-- `IInventoryLockService` is in-memory — replace with Redis for multi-instance production.
-- API-side audit logging model exists but is **not implemented** in any controller. Web-side audit covers create operations and auth events.
-- Payment gateway callback verification (`VerifyCallbackSignature`) currently returns `true` — needs real implementation.
-- Web app trusts all forwarded headers (`KnownNetworks.Clear`/`KnownProxies.Clear`) — restrict in production.
-- `Update-Production.ps1` preserves target `web.config`; production secrets (SAP share creds, etc.) persist across deploys.
+If the change is tightly scoped, building the affected project is acceptable:
+
+```powershell
+dotnet build ShopInventory/ShopInventory.csproj
+dotnet build ShopInventory.Web/ShopInventory.Web.csproj
+```
+
+There is currently no dedicated test project in this repo. Report the build performed and any manual verification. For Web UI changes, manually check the touched surface in light mode and dark mode.
+
+Run locally when needed:
+
+```powershell
+cd ShopInventory
+dotnet run
+
+cd ShopInventory.Web
+dotnet run
+```
+
+## Deployment
+
+Production deployments must use `.\Update-Production.ps1`. Never manually copy files, publish directly into production paths, or use `xcopy`/`robocopy` as a deployment shortcut.
+
+```powershell
+.\Update-Production.ps1 -DeployTarget Both
+.\Update-Production.ps1 -DeployTarget API
+.\Update-Production.ps1 -DeployTarget Web
+.\Update-Production.ps1 -RestartOnly
+```
+
+The script handles Release builds, IIS app pool stop/start, backup, file copy, `web.config` preservation, secrets preservation, slot warm-up, and readiness checks.
+
+## Definition of Done
+
+Before finishing a feature or change:
+
+- The affected domain was inspected before editing.
+- New or changed business behavior lives in the correct feature slice.
+- Controllers and Blazor pages remain thin.
+- Commands, queries, handlers, validators, result records, and errors follow the project conventions.
+- Queries use `AsNoTracking()` and projection.
+- Expected business failures return domain errors through `ErrorOr<T>`.
+- Timestamps and timezone conversion follow the UTC/CAT rules.
+- Touched Web UI preserves dark-mode parity.
+- Security, authorization, audit, integration, and deployment constraints are preserved.
+- Documentation is updated when behavior, setup, deployment, or public API contracts change.
+- The affected project or solution builds, or the reason validation could not run is clearly reported.

@@ -16,8 +16,6 @@ public sealed class UpdateUserHandler(
     ILogger<UpdateUserHandler> logger
 ) : IRequestHandler<UpdateUserCommand, ErrorOr<UserDto>>
 {
-    private static readonly string[] ValidRoles = { "Admin", "Manager", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
-
     public async Task<ErrorOr<UserDto>> Handle(
         UpdateUserCommand command,
         CancellationToken cancellationToken)
@@ -45,11 +43,11 @@ public sealed class UpdateUserHandler(
 
         if (!string.IsNullOrEmpty(request.Role))
         {
-            if (!ValidRoles.Contains(request.Role))
+            if (!ApplicationRoles.CanAssignOrRetainManagedRole(request.Role, user.Role))
             {
-                return Errors.User.UpdateFailed($"Invalid role. Valid roles are: {string.Join(", ", ValidRoles)}");
+                return Errors.User.UpdateFailed($"Invalid role. Valid roles are: {ApplicationRoles.DescribeAssignableRoles()}");
             }
-            user.Role = request.Role;
+            user.Role = request.Role.Trim();
         }
 
         if (request.FirstName != null) user.FirstName = request.FirstName;
@@ -58,7 +56,7 @@ public sealed class UpdateUserHandler(
 
         if (request.AssignedWarehouseCodes != null)
         {
-            if (user.Role == "StockController" || user.Role == "DepotController")
+            if (ApplicationRoles.SupportsWarehouseAssignments(user.Role))
                 user.SetWarehouseCodes(request.AssignedWarehouseCodes);
             else
                 user.SetWarehouseCodes(null);
@@ -66,30 +64,30 @@ public sealed class UpdateUserHandler(
 
         if (request.AssignedCustomerCodes != null)
         {
-            if (user.Role == "Merchandiser")
+            if (ApplicationRoles.SupportsCustomerAssignments(user.Role))
                 user.SetCustomerCodes(request.AssignedCustomerCodes);
             else
                 user.SetCustomerCodes(null);
         }
 
-        if (user.Role == "Driver" || user.Role == "PodOperator")
+        if (ApplicationRoles.RequiresAssignedSection(user.Role))
             user.AssignedSection = request.AssignedSection;
         else
             user.AssignedSection = null;
 
-        if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
+        if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.User.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
         }
 
-        if (user.Role == "Merchandiser" && user.GetCustomerCodes().Count == 0)
+        if (ApplicationRoles.RequiresCustomerAssignments(user.Role) && user.GetCustomerCodes().Count == 0)
         {
-            return Errors.User.UpdateFailed("At least one assigned customer code is required for Merchandiser role");
+            return Errors.User.UpdateFailed($"At least one assigned customer code is required for {user.Role} role");
         }
 
-        if ((user.Role == "Driver" || user.Role == "PodOperator") && string.IsNullOrWhiteSpace(user.AssignedSection))
+        if (ApplicationRoles.RequiresAssignedSection(user.Role) && string.IsNullOrWhiteSpace(user.AssignedSection))
         {
-            return Errors.User.UpdateFailed("An assigned section is required for Driver and PodOperator roles");
+            return Errors.User.UpdateFailed($"An assigned section is required for {user.Role} role");
         }
 
         user.UpdatedAt = DateTime.UtcNow;

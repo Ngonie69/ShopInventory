@@ -71,7 +71,9 @@ public sealed class GetCrateTransactionsHandler(
                 (t.InvoiceDocNum != null && t.InvoiceDocNum.ToString()!.Contains(term)));
         }
 
-        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        var isScopedPodViewer = string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase);
+
+        if (isScopedPodViewer)
         {
             if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
             {

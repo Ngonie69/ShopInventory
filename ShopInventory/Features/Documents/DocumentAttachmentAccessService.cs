@@ -22,6 +22,7 @@ public sealed class DocumentAttachmentAccessService(
         "Admin",
         "Cashier",
         "PodOperator",
+        "Operator",
         "Driver",
         "SalesRep"
     };
@@ -178,11 +179,13 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.Document.AccessDenied("Drivers can only access PODs they uploaded.");
         }
 
-        if (IsRole(role, "PodOperator"))
+        var isScopedPodViewer = IsRole(role, "PodOperator") || IsRole(role, "Operator");
+
+        if (isScopedPodViewer)
         {
             if (string.IsNullOrWhiteSpace(assignedSection))
             {
-                return Errors.Document.AccessDenied("Pod operators must have an assigned section to access invoice attachments.");
+                return Errors.Document.AccessDenied("An assigned POD section is required to access invoice attachments.");
             }
 
             var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync([entityId], assignedSection, cancellationToken);
@@ -276,16 +279,16 @@ public sealed class DocumentAttachmentAccessService(
             return true;
         }
 
-        if (!isWriteOperation && IsRole(role, "SalesRep"))
+        if (!isWriteOperation && (IsRole(role, "SalesRep") || IsRole(role, "PodOperator")))
         {
             return true;
         }
 
-        if (!isWriteOperation && IsRole(role, "PodOperator"))
+        if (!isWriteOperation && IsRole(role, "Operator"))
         {
             if (string.IsNullOrWhiteSpace(assignedSection))
             {
-                return Errors.Document.AccessDenied("Pod operators must have an assigned section to view crate POD attachments.");
+                return Errors.Document.AccessDenied("An assigned POD section is required to view crate POD attachments.");
             }
 
             if (submission.CrateTransaction?.InvoiceDocEntry is not int invoiceDocEntry)

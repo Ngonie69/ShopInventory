@@ -74,6 +74,28 @@ public sealed class DeleteCratePodHandler(
                 return Errors.CrateTracking.AccessDenied("This merchandiser crate POD was uploaded by another user.");
             }
         }
+        else if (string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+            {
+                return Errors.CrateTracking.AccessDenied("Operators must have an assigned POD section to delete crate POD submissions.");
+            }
+
+            if (submission.CrateTransaction?.InvoiceDocEntry is not int invoiceDocEntry)
+            {
+                return Errors.CrateTracking.AccessDenied("This crate POD is not linked to an invoice in your assigned POD section.");
+            }
+
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                [invoiceDocEntry],
+                currentUser.AssignedSection,
+                cancellationToken);
+
+            if (!scopedDocEntries.Contains(invoiceDocEntry))
+            {
+                return Errors.CrateTracking.AccessDenied("This crate POD is outside your assigned POD section.");
+            }
+        }
         else if (!string.Equals(currentUser.Role, "Admin", StringComparison.OrdinalIgnoreCase) &&
                  !string.Equals(currentUser.Role, "Manager", StringComparison.OrdinalIgnoreCase))
         {

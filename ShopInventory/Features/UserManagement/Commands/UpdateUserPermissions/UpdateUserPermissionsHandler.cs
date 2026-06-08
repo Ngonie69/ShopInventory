@@ -40,7 +40,7 @@ public sealed class UpdateUserPermissionsHandler(
             return Errors.UserManagement.Unauthenticated;
         }
 
-        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(currentUser.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase))
         {
             var targetUser = await context.Users
                 .AsNoTracking()
@@ -53,7 +53,7 @@ public sealed class UpdateUserPermissionsHandler(
                 return Errors.UserManagement.NotFound(command.Id);
             }
 
-            if (!string.Equals(targetUser.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(targetUser.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase))
             {
                 return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
             }

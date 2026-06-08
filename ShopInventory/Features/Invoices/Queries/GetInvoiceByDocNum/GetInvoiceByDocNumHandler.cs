@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Pods;
 using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Errors;
@@ -50,16 +51,42 @@ public sealed class GetInvoiceByDocNumHandler(
                 if (user is null)
                     return Errors.Auth.UserNotFound;
 
-                var customerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
-                    db,
-                    user,
-                    logger,
-                    cancellationToken);
+                var isDriver = string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase);
+                var isScopedPodViewer = string.Equals(user.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(user.Role, "Operator", StringComparison.OrdinalIgnoreCase);
 
-                var hasAssignedCustomer = customerCodes
-                    .Any(code => string.Equals(code, invoice.CardCode, StringComparison.OrdinalIgnoreCase));
+                var canAccessInvoice = true;
 
-                if (!hasAssignedCustomer)
+                if (isDriver)
+                {
+                    var customerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
+                        db,
+                        user,
+                        logger,
+                        cancellationToken);
+
+                    canAccessInvoice = customerCodes
+                        .Any(code => string.Equals(code, invoice.CardCode, StringComparison.OrdinalIgnoreCase));
+                }
+                else if (isScopedPodViewer)
+                {
+                    if (string.IsNullOrWhiteSpace(user.AssignedSection))
+                    {
+                        canAccessInvoice = false;
+                    }
+                    else
+                    {
+                        var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
+                            await sapClient.GetWarehousesAsync(cancellationToken));
+
+                        canAccessInvoice = PodLocationScope.InvoiceMatchesAssignedSection(
+                            invoice,
+                            user.AssignedSection,
+                            warehouseLocations);
+                    }
+                }
+
+                if (!canAccessInvoice)
                 {
                     try
                     {

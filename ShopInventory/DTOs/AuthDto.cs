@@ -121,7 +121,7 @@ public class RegisterUserRequest
     public required string Password { get; set; }
 
     /// <summary>
-    /// Role for the new user (Admin, Manager, User)
+    /// Role for the new user
     /// </summary>
     public required string Role { get; set; }
 }

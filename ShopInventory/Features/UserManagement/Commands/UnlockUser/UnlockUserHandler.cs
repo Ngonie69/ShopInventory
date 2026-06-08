@@ -17,7 +17,7 @@ public sealed class UnlockUserHandler(
         UnlockUserCommand command,
         CancellationToken cancellationToken)
     {
-        if (httpContextAccessor.HttpContext?.User.IsInRole("PodOperator") == true)
+        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
         {
             var targetUser = await userManagementService.GetUserByIdAsync(command.Id);
             if (targetUser is null)
@@ -25,7 +25,7 @@ public sealed class UnlockUserHandler(
                 return Errors.UserManagement.NotFound(command.Id);
             }
 
-            if (!string.Equals(targetUser.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(targetUser.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase))
             {
                 return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
             }

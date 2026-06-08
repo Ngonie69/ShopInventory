@@ -17,8 +17,6 @@ public sealed class CreateUserHandler(
     ILogger<CreateUserHandler> logger
 ) : IRequestHandler<CreateUserCommand, ErrorOr<UserCreatedResponseDto>>
 {
-    private static readonly string[] ValidRoles = { "Admin", "Manager", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
-
     public async Task<ErrorOr<UserCreatedResponseDto>> Handle(
         CreateUserCommand command,
         CancellationToken cancellationToken)
@@ -40,24 +38,27 @@ public sealed class CreateUserHandler(
             return Errors.User.CreationFailed("Email already exists");
         }
 
-        if (!ValidRoles.Contains(request.Role))
+        if (!ApplicationRoles.IsAssignableRole(request.Role))
         {
-            return Errors.User.CreationFailed($"Invalid role. Valid roles are: {string.Join(", ", ValidRoles)}");
+            return Errors.User.CreationFailed($"Invalid role. Valid roles are: {ApplicationRoles.DescribeAssignableRoles()}");
         }
 
-        if ((request.Role == "StockController" || request.Role == "DepotController") && (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
+        if (ApplicationRoles.RequiresWarehouseAssignments(request.Role) &&
+            (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return Errors.User.CreationFailed($"At least one assigned warehouse code is required for {request.Role} role");
         }
 
-        if (request.Role == "Merchandiser" && (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
+        if (ApplicationRoles.RequiresCustomerAssignments(request.Role) &&
+            (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
         {
-            return Errors.User.CreationFailed("At least one assigned customer code is required for Merchandiser role");
+            return Errors.User.CreationFailed($"At least one assigned customer code is required for {request.Role} role");
         }
 
-        if ((request.Role == "Driver" || request.Role == "PodOperator") && string.IsNullOrWhiteSpace(request.AssignedSection))
+        if (ApplicationRoles.RequiresAssignedSection(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedSection))
         {
-            return Errors.User.CreationFailed("An assigned section is required for Driver and PodOperator roles");
+            return Errors.User.CreationFailed($"An assigned section is required for {request.Role} role");
         }
 
         var user = new User
@@ -66,20 +67,20 @@ public sealed class CreateUserHandler(
             Username = request.Username,
             PasswordHash = BC.HashPassword(request.Password),
             Email = request.Email,
-            Role = request.Role,
+            Role = request.Role.Trim(),
             FirstName = request.FirstName,
             LastName = request.LastName,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
 
-        if (request.Role == "StockController" || request.Role == "DepotController")
+        if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
 
-        if (request.Role == "Merchandiser")
+        if (ApplicationRoles.SupportsCustomerAssignments(request.Role))
             user.SetCustomerCodes(request.AssignedCustomerCodes);
 
-        if (request.Role == "Driver" || request.Role == "PodOperator")
+        if (ApplicationRoles.RequiresAssignedSection(request.Role))
             user.AssignedSection = request.AssignedSection;
 
         context.Users.Add(user);

@@ -1,24 +1,81 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using ShopInventory.Web.Data
 @inject NavigationManager Navigation
 
 <div class="d-flex justify-content-center align-items-center" style="height: 100vh;">
     <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Redirecting to login...</span>
+        <span class="visually-hidden">Redirecting...</span>
     </div>
 </div>
 
 @code {
-    protected override void OnAfterRender(bool firstRender)
-    {
-        if (firstRender)
-        {
-            var uri = new Uri(Navigation.Uri);
-            var loginPath = "/login";
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
 
-            // Only redirect if we're not already on the login page
-            if (!uri.AbsolutePath.Equals(loginPath, StringComparison.OrdinalIgnoreCase))
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var uri = new Uri(Navigation.Uri);
+
+        if (AuthenticationStateTask is not null)
+        {
+            var authState = await AuthenticationStateTask;
+            var user = authState.User;
+            if (user.Identity?.IsAuthenticated == true)
             {
-                Navigation.NavigateTo($"{loginPath}?returnUrl={Uri.EscapeDataString(uri.PathAndQuery)}", forceLoad: false);
+                var fallbackPath = ResolveAuthenticatedFallbackPath(user);
+                if (!uri.AbsolutePath.Equals(fallbackPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    Navigation.NavigateTo(fallbackPath, replace: true);
+                }
+
+                return;
             }
         }
+
+        const string loginPath = "/login";
+
+        if (!uri.AbsolutePath.Equals(loginPath, StringComparison.OrdinalIgnoreCase))
+        {
+            Navigation.NavigateTo($"{loginPath}?returnUrl={Uri.EscapeDataString(uri.PathAndQuery)}", forceLoad: false);
+        }
+    }
+
+    private static string ResolveAuthenticatedFallbackPath(System.Security.Claims.ClaimsPrincipal user)
+    {
+        if (user.IsInRole(UserRoles.Lab) && !user.IsInRole(UserRoles.Admin))
+        {
+            return "/lab/batch-status";
+        }
+
+        if (user.IsInRole(UserRoles.MerchandiserPurchaseOrderViewer))
+        {
+            return "/reports/merchandiser-purchase-orders";
+        }
+
+        if (user.IsInRole(UserRoles.PodOperator) || user.IsInRole(UserRoles.Driver) || user.IsInRole("Operator"))
+        {
+            return "/pods";
+        }
+
+        if (user.IsInRole(UserRoles.Merchandiser))
+        {
+            return "/mobile-drafts";
+        }
+
+        if (user.IsInRole(UserRoles.Admin) ||
+            user.IsInRole(UserRoles.Cashier) ||
+            user.IsInRole(UserRoles.StockController) ||
+            user.IsInRole(UserRoles.DepotController) ||
+            user.IsInRole(UserRoles.Manager) ||
+            user.IsInRole(UserRoles.SalesRep))
+        {
+            return "/dashboard";
+        }
+
+        return "/security";
     }
 }

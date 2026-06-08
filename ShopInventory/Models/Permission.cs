@@ -250,8 +250,9 @@ public static class Permissions
     {
         return role switch
         {
-            "Admin" => GetAllPermissions(), // Admin gets everything
-            "Manager" => new List<string>
+            ApplicationRoles.Admin => GetAllPermissions(), // Admin gets everything
+            ApplicationRoles.ApiUser => GetAllPermissions(),
+            ApplicationRoles.Manager => new List<string>
             {
                 ViewDashboard, ViewProducts, CreateProducts, EditProducts, ManageProductPrices,
                 ViewInvoices, CreateInvoices, EditInvoices, VoidInvoices,
@@ -270,7 +271,7 @@ public static class Permissions
                 ViewAuditLogs,
                 ViewSyncStatus
             },
-            "User" => new List<string>
+            ApplicationRoles.User => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewInvoices, CreateInvoices,
@@ -278,7 +279,7 @@ public static class Permissions
                 ViewStock, ViewInventory,
                 ViewCustomers
             },
-            "Cashier" => new List<string>
+            ApplicationRoles.Cashier => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewInvoices, CreateInvoices, EditInvoices,
@@ -288,47 +289,51 @@ public static class Permissions
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
                 ViewReports
             },
-            "StockController" => new List<string>
+            ApplicationRoles.StockController => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers
             },
-            "DepotController" => new List<string>
+            ApplicationRoles.DepotController => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewPayments, CreatePayments,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers
             },
-            "ReadOnly" => new List<string>
+            ApplicationRoles.ReadOnly => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewInvoices, ViewPayments,
                 ViewStock, ViewInventory, ViewCustomers, ViewReports
             },
-            "PodOperator" => new List<string>
+            ApplicationRoles.PodOperator => new List<string>
             {
                 ViewDashboard, ViewInvoices,
                 ViewUsers, CreateUsers, EditUsers,
                 ViewTimesheets, ManageTimesheets
             },
-            "Driver" => new List<string>
+            ApplicationRoles.Driver => new List<string>
             {
                 ViewDashboard, ViewInvoices,
                 ViewTimesheets, ManageTimesheets
             },
-            "Lab" => new List<string>
+            ApplicationRoles.Operator => new List<string>
+            {
+                ViewInvoices
+            },
+            ApplicationRoles.Lab => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewStock, ViewInventory
             },
-            "Merchandiser" => new List<string>
+            ApplicationRoles.Merchandiser => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewCustomers,
                 ViewSalesOrders, CreateSalesOrders,
                 ViewPurchaseOrders, UploadPurchaseOrderDocuments,
                 ViewTimesheets, ManageTimesheets
             },
-            "ADR" => new List<string>
+            ApplicationRoles.Adr => new List<string>
             {
                 ViewDashboard,
                 ViewProducts,
@@ -337,7 +342,7 @@ public static class Permissions
                 ViewSalesOrders, CreateSalesOrders,
                 ViewTimesheets, ManageTimesheets
             },
-            "Sales" => new List<string>
+            ApplicationRoles.Sales => new List<string>
             {
                 ViewDashboard,
                 ViewProducts,
@@ -348,14 +353,14 @@ public static class Permissions
                 TransferStock, TransferInventory,
                 ViewTimesheets, ManageTimesheets
             },
-            "SalesRep" => new List<string>
+            ApplicationRoles.SalesRep => new List<string>
             {
                 ViewDashboard,
                 CreateUsers,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewTimesheets, ManageTimesheets
             },
-            "MerchandiserPurchaseOrderViewer" => new List<string>
+            ApplicationRoles.MerchandiserPurchaseOrderViewer => new List<string>
             {
                 ViewReports
             },

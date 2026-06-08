@@ -64,7 +64,9 @@ public sealed class GetCratePodsHandler(
                 (s.SubmittedByUser != null && s.SubmittedByUser.Username != null && EF.Functions.ILike(s.SubmittedByUser.Username, pattern)));
         }
 
-        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        var isScopedPodViewer = string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase);
+
+        if (isScopedPodViewer)
         {
             if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
             {

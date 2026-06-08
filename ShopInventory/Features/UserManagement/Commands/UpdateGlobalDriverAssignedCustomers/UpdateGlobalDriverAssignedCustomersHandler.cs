@@ -23,7 +23,7 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
         UpdateGlobalDriverAssignedCustomersCommand command,
         CancellationToken cancellationToken)
     {
-        if (httpContextAccessor.HttpContext?.User.IsInRole("PodOperator") == true)
+        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
         {
             return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
         }
@@ -37,7 +37,7 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
 
         var mobileUsers = await context.Users
             .AsNoTracking()
-            .Where(user => user.Role == "Driver" || user.Role == "PodOperator")
+            .Where(user => user.Role == ApplicationRoles.Driver || user.Role == ApplicationRoles.PodOperator)
             .OrderBy(user => user.Username)
             .ToListAsync(cancellationToken);
 
@@ -73,7 +73,7 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
             : System.Text.Json.JsonSerializer.Serialize(assignedCustomerCodes);
 
         var updatedUserCount = await context.Users
-            .Where(user => user.Role == "Driver" || user.Role == "PodOperator")
+            .Where(user => user.Role == ApplicationRoles.Driver || user.Role == ApplicationRoles.PodOperator)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(user => user.AssignedCustomerCodes, _ => serializedCodes)
                 .SetProperty(user => user.UpdatedAt, _ => DateTime.UtcNow),
@@ -102,7 +102,7 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
 
         if (addedCustomerCodes.Count > 0)
         {
-            foreach (var role in new[] { "Driver", "PodOperator" })
+            foreach (var role in ApplicationRoles.DriverScopedRoles)
             {
                 var addedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
                     role,
@@ -120,7 +120,7 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
 
         if (removedCustomerCodes.Count > 0)
         {
-            foreach (var role in new[] { "Driver", "PodOperator" })
+            foreach (var role in ApplicationRoles.DriverScopedRoles)
             {
                 var removedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
                     role,

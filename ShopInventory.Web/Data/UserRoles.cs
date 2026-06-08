@@ -63,6 +63,10 @@ public static class UserRoles
     /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
+    public const string DashboardRoles = "Admin,Cashier,StockController,DepotController,Manager,SalesRep";
+    public const string CatalogueRoles = "Admin,Cashier,StockController,DepotController,Manager";
+    public const string InsightsRoles = "Admin,Cashier,StockController,DepotController,Manager";
+    public const string SystemRoles = "Admin,Cashier,StockController,DepotController,Manager";
     public const string InvoicingRoles = "Admin,Cashier";
     public const string PaymentRoles = "Admin,Cashier,DepotController";
     public const string InventoryTransferRoles = "Admin,StockController,DepotController";

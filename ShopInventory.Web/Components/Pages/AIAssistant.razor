@@ -1,5 +1,7 @@
 @page "/ai-assistant"
-@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
+@attribute [Authorize(Roles = UserRoles.SystemRoles)]
 @inject IAIService AIService
 @inject ILocalizationService L
 @inject IJSRuntime JS

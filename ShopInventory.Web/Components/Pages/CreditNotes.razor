@@ -18,7 +18,6 @@
 @inject IAuditService AuditService
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
-@implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Credit Notes - Shop Inventory</PageTitle>
@@ -1356,17 +1355,17 @@
         <div class="filter-bar">
             <div class="filter-field">
                 <label>Credit Note #</label>
-                <input type="text" @bind="creditNoteNumberFilter" @bind:event="oninput" @bind:after="OnFilterChanged"
+                <input type="text" @bind="creditNoteNumberFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown"
                        placeholder="e.g., CN-001" />
             </div>
             <div class="filter-field">
                 <label>Customer</label>
-                <input type="text" @bind="customerFilter" @bind:event="oninput" @bind:after="OnFilterChanged"
-                       placeholder="Customer code" />
+                <input type="text" @bind="customerFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown"
+                       placeholder="Customer code or name" />
             </div>
             <div class="filter-field">
                 <label>Status</label>
-                <select @bind="statusFilter" @bind:after="OnFilterChanged">
+                <select @bind="statusFilter">
                     <option value="">All Statuses</option>
                     @foreach (CreditNoteStatus status in Enum.GetValues(typeof(CreditNoteStatus)))
                     {
@@ -1376,7 +1375,7 @@
             </div>
             <div class="filter-field">
                 <label>Fiscal Status</label>
-                <select @bind="fiscalStatusFilter" @bind:after="OnFilterChanged">
+                <select @bind="fiscalStatusFilter">
                     <option value="">All Fiscal States</option>
                     <option value="Fiscalised">Fiscalised</option>
                     <option value="Not Fiscalised">Not Fiscalised</option>
@@ -1385,17 +1384,20 @@
             </div>
             <div class="filter-field">
                 <label>From Date</label>
-                <MudDatePicker Date="fromDate" DateChanged="@((DateTime? d) => { fromDate = d; OnFilterChanged(); })"
+                <MudDatePicker @bind-Date="fromDate"
                                Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat"
                                Editable="true" />
             </div>
             <div class="filter-field">
                 <label>To Date</label>
-                <MudDatePicker Date="toDate" DateChanged="@((DateTime? d) => { toDate = d; OnFilterChanged(); })"
+                <MudDatePicker @bind-Date="toDate"
                                Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat"
                                Editable="true" />
             </div>
             <div class="filter-actions-row">
+                <MudButton Class="btn-search" OnClick="ApplyFilters">
+                    <i class="bi bi-search"></i> Apply
+                </MudButton>
                 <MudButton Class="btn-clear" OnClick="ClearFilter">
                     <i class="bi bi-x-circle"></i> Clear
                 </MudButton>
@@ -1433,7 +1435,7 @@
                     </div>
                 </div>
                 <MudTable @ref="@_table" Items="@creditNotes" RowsPerPage="@_pageSize" Hover="true" Striped="true"
-                          Dense="true" Filter="new Func<CreditNoteDto, bool>(_quickFilter)" Breakpoint="Breakpoint.Sm"
+                          Dense="true" Breakpoint="Breakpoint.Sm"
                           Loading="@isLoading" LoadingProgressColor="Color.Primary" T="CreditNoteDto" Elevation="0"
                           Style="background:transparent;">
                     <HeaderContent>
@@ -1524,7 +1526,7 @@
                                         <span>per page</span>
                                     </div>
                                     <MudPagination SelectedChanged="PageChanged"
-                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                                   Count="@Math.Max(1, (int)Math.Ceiling((double)(creditNotes?.Count ?? 0) / _table.RowsPerPage))"
                                                    Class="pa-4" />
                                 </div>
                             </PagerContent>
@@ -2051,10 +2053,12 @@
     private string? fiscalStatusFilter;
     private DateTime? fromDate;
     private DateTime? toDate;
-
-    // Debounce timer
-    private System.Timers.Timer? debounceTimer;
-    private const int DebounceDelay = 400;
+    private string? appliedCreditNoteNumberFilter;
+    private string? appliedCustomerFilter;
+    private string? appliedStatusFilter;
+    private string? appliedFiscalStatusFilter;
+    private DateTime? appliedFromDate;
+    private DateTime? appliedToDate;
 
     // Pagination
     private int currentPage = 1;
@@ -2103,14 +2107,6 @@
         }
     }
 
-    private bool _quickFilter(CreditNoteDto note)
-    {
-        if (!string.IsNullOrWhiteSpace(creditNoteNumberFilter)
-        && !(note.CreditNoteNumber?.Contains(creditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
-            return false;
-        return true;
-    }
-
     private void PageChanged(int i)
     {
         _table.NavigateTo(i - 1);
@@ -2146,7 +2142,6 @@
         selectedCreditNoteDocEntries.Contains(GetCreditNoteSelectionKey(note));
 
     private List<CreditNoteDto> GetDisplayedCreditNotes() => creditNotes?
-        .Where(_quickFilter)
         .Where(CanSelectCreditNote)
         .ToList() ?? new List<CreditNoteDto>();
 
@@ -2236,6 +2231,7 @@
         // Default date range to current month so SAP queries are always date-filtered
         fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         toDate = DateTime.Today;
+        SyncAppliedFilters();
         await LoadCreditNotes();
         _ = LoadMasterDataAsync();
         await AuditService.LogAsync(AuditActions.ViewCreditNotes, "CreditNote", null);
@@ -2265,19 +2261,18 @@
 
         try
         {
-            CreditNoteStatus? status = null;
-            if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
-            {
-                status = (CreditNoteStatus)statusInt;
-            }
-
-            var result = await Mediator.Send(new GetCreditNotesQuery(currentPage, pageSize, status, customerFilter, fromDate,
-toDate));
+            var result = await Mediator.Send(new GetCreditNotesQuery(
+                currentPage,
+                pageSize,
+                null,
+                null,
+                appliedFromDate,
+                appliedToDate));
             if (!result.IsError)
             {
                 var response = result.Value;
                 var loadedCreditNotes = response.CreditNotes ?? new List<CreditNoteDto>();
-                creditNotes = ApplyVisibleCreditNoteFilters(loadedCreditNotes, status);
+                creditNotes = ApplyVisibleCreditNoteFilters(loadedCreditNotes);
                 totalCount = creditNotes.Count;
                 totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
                 PruneSelectedCreditNotes();
@@ -2298,24 +2293,34 @@ toDate));
         }
     }
 
-    private void OnFilterChanged()
-    {
-        debounceTimer?.Stop();
-        debounceTimer?.Dispose();
+    private static string? NormalizeFilterValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-        debounceTimer = new System.Timers.Timer(DebounceDelay);
-        debounceTimer.Elapsed += async (sender, e) =>
-        {
-            debounceTimer?.Stop();
-            await InvokeAsync(async () =>
+    private void SyncAppliedFilters()
+    {
+        appliedCreditNoteNumberFilter = NormalizeFilterValue(creditNoteNumberFilter);
+        appliedCustomerFilter = NormalizeFilterValue(customerFilter);
+        appliedStatusFilter = NormalizeFilterValue(statusFilter);
+        appliedFiscalStatusFilter = NormalizeFilterValue(fiscalStatusFilter);
+        appliedFromDate = fromDate?.Date;
+        appliedToDate = toDate?.Date;
+    }
+
+    private async Task ApplyFilters()
     {
         currentPage = 1;
+        SyncAppliedFilters();
         await LoadCreditNotes();
-        StateHasChanged();
-    });
-        };
-        debounceTimer.AutoReset = false;
-        debounceTimer.Start();
+    }
+
+    private async Task HandleFilterKeyDown(KeyboardEventArgs args)
+    {
+        if (!string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await ApplyFilters();
     }
 
     private async Task ClearFilter()
@@ -2326,20 +2331,34 @@ toDate));
         fiscalStatusFilter = null;
         fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
         toDate = DateTime.Today;
+        SyncAppliedFilters();
         currentPage = 1;
         await LoadCreditNotes();
     }
 
-    private List<CreditNoteDto> ApplyVisibleCreditNoteFilters(IEnumerable<CreditNoteDto> source, CreditNoteStatus? status)
+    private List<CreditNoteDto> ApplyVisibleCreditNoteFilters(IEnumerable<CreditNoteDto> source)
     {
+        var status = ParseStatusFilter(appliedStatusFilter);
+
         return source
+            .Where(note => string.IsNullOrWhiteSpace(appliedCustomerFilter)
+                || MatchesCustomerFilter(note, appliedCustomerFilter))
             .Where(note => !status.HasValue || note.Status == status.Value)
-            .Where(note => string.IsNullOrWhiteSpace(fiscalStatusFilter)
-                || MatchesFiscalStatus(note.FiscalizationStatus, fiscalStatusFilter))
-            .Where(note => string.IsNullOrWhiteSpace(creditNoteNumberFilter)
-                || (note.CreditNoteNumber?.Contains(creditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
+            .Where(note => string.IsNullOrWhiteSpace(appliedFiscalStatusFilter)
+                || MatchesFiscalStatus(note.FiscalizationStatus, appliedFiscalStatusFilter))
+            .Where(note => string.IsNullOrWhiteSpace(appliedCreditNoteNumberFilter)
+                || (note.CreditNoteNumber?.Contains(appliedCreditNoteNumberFilter, StringComparison.OrdinalIgnoreCase) == true))
             .ToList();
     }
+
+    private static CreditNoteStatus? ParseStatusFilter(string? filterValue)
+        => int.TryParse(filterValue, out var statusValue) && Enum.IsDefined(typeof(CreditNoteStatus), statusValue)
+            ? (CreditNoteStatus)statusValue
+            : null;
+
+    private static bool MatchesCustomerFilter(CreditNoteDto note, string customerFilter)
+        => (note.CardCode?.Contains(customerFilter, StringComparison.OrdinalIgnoreCase) == true)
+            || (note.CardName?.Contains(customerFilter, StringComparison.OrdinalIgnoreCase) == true);
 
     private static bool MatchesFiscalStatus(string? actualStatus, string? filterStatus)
         => NormalizeFiscalStatus(actualStatus) == NormalizeFiscalStatus(filterStatus);
@@ -2863,11 +2882,5 @@ Severity.Warning);
             return creditNoteNumber.Substring(6).TrimStart('-', ' ');
         }
         return creditNoteNumber;
-    }
-
-    public void Dispose()
-    {
-        debounceTimer?.Stop();
-        debounceTimer?.Dispose();
     }
 }

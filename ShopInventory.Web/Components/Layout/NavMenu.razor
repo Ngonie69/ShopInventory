@@ -643,31 +643,37 @@
                 </Authorized>
             </AuthorizeView>
 
-            <AuthorizeView Roles="Admin,Cashier,PodOperator,Driver" Context="podCtx">
+            <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver" Context="podCtx">
                 <Authorized>
                     <AuthorizeView Roles="PodOperator,Driver" Context="podLabelCtx">
                         <Authorized>
                             <div class="nav-section-label">Insights</div>
                         </Authorized>
                     </AuthorizeView>
-                    <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Speed" />
-                        </span>
-                        <span class="snav-text">POD Dashboard</span>
-                    </NavLink>
+                    @if (!podCtx.User.IsInRole("Operator"))
+                    {
+                        <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.Speed" />
+                            </span>
+                            <span class="snav-text">POD Dashboard</span>
+                        </NavLink>
+                    }
                     <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
                         <span class="snav-text">Product PODs</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
-                        </span>
-                        <span class="snav-text">Product POD Report</span>
-                    </NavLink>
+                    @if (!podCtx.User.IsInRole("Operator"))
+                    {
+                        <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                            </span>
+                            <span class="snav-text">Product POD Report</span>
+                        </NavLink>
+                    }
                     <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
                         <Authorized>
                             <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
@@ -678,7 +684,7 @@
                             </NavLink>
                         </Authorized>
                     </AuthorizeView>
-                    <AuthorizeView Roles="PodOperator,Driver" Context="podSecCtx">
+                    <AuthorizeView Roles="PodOperator,Driver,Operator" Context="podSecCtx">
                         <Authorized>
                             <div class="nav-section-label">Account</div>
                             <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
@@ -691,7 +697,7 @@
                     </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep" Context="crateCtx">
+            <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep" Context="crateCtx">
                 <Authorized>
                     <div class="nav-section-label">Crates</div>
                     <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
@@ -700,7 +706,7 @@
                         </span>
                         <span class="snav-text">Crate PODs</span>
                     </NavLink>
-                    @if (!crateCtx.User.IsInRole("PodOperator"))
+                    @if (!crateCtx.User.IsInRole("PodOperator") && !crateCtx.User.IsInRole("Operator"))
                     {
                         <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
                             <span class="snav-icon">

@@ -51,7 +51,7 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAsyncAuthorizatio
         // Allow API key authenticated users with Admin or ApiUser roles to bypass
         // permission checks (service-to-service calls don't have a user-specific identity)
         var authMethod = user.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
-        if (authMethod == "ApiKey" && (user.IsInRole("Admin") || user.IsInRole("ApiUser")))
+        if (authMethod == "ApiKey" && (user.IsInRole(ApplicationRoles.Admin) || user.IsInRole(ApplicationRoles.ApiUser)))
         {
             return; // Allow access for API key service accounts
         }

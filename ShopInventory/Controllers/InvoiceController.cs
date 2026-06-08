@@ -29,7 +29,7 @@ namespace ShopInventory.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize(Policy = "ApiAccess")]
+[Authorize(Policy = "ApiAccessWithOperator")]
 public class InvoiceController(ISender mediator) : ApiControllerBase
 {
     [HttpPost]
@@ -97,14 +97,14 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator,Operator,ApiUser")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocNum(
         int docNum,
         CancellationToken cancellationToken = default)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("PodOperator");
+        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("PodOperator") || User.IsInRole("Operator");
         var result = await mediator.Send(
             new GetInvoiceByDocNumQuery(
                 docNum,
@@ -130,7 +130,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("pods/validate-bulk")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(BulkPodValidationResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ValidateBulkPods(
@@ -186,7 +186,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("{docEntry:int}/attachments")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetInvoiceAttachments(
         int docEntry,
@@ -197,7 +197,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("{docEntry:int}/attachments/{attachmentId:int}/download")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(FileStreamResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadInvoiceAttachment(
@@ -214,7 +214,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("{docEntry:int}/pod")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [RequestSizeLimit(20 * 1024 * 1024)]
@@ -248,7 +248,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("{docEntry:int}/crate-pod")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [RequestSizeLimit(20 * 1024 * 1024)]
@@ -290,7 +290,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(PodAttachmentListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetAllPods(
         [FromQuery] int page = 1,

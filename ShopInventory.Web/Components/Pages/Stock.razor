@@ -1,9 +1,10 @@
 @page "/stock"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Services
 @using ShopInventory.Web.Models
-@attribute [Authorize]
+@attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
 @inject IMasterDataCacheService MasterDataCache
 @inject HttpClient Http
 @inject AuthenticationStateProvider AuthStateProvider

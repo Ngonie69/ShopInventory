@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using ShopInventory.DTOs;
@@ -38,7 +39,8 @@ public class ReportService : IReportService
     private readonly ILogger<ReportService> _logger;
     private static readonly TimeSpan ReportDataCacheDuration = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ReportResultCacheDuration = TimeSpan.FromMinutes(2);
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CacheTelemetryCounters> CacheTelemetry = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> CacheLoadLocks = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, CacheTelemetryCounters> CacheTelemetry = new(StringComparer.Ordinal);
 
     private sealed class CacheTelemetryCounters
     {
@@ -224,15 +226,29 @@ public class ReportService : IReportService
         LogCacheMiss(cacheName, cacheKey, loadDuration, value);
     }
 
-    private Task<T> GetOrCreateCachedAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
+    private async Task<T> GetOrCreateCachedAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
         where T : class
     {
         if (TryGetCachedValue(cacheName, cacheKey, out T? cachedValue))
         {
-            return Task.FromResult(cachedValue!);
+            return cachedValue!;
         }
 
-        return CreateAndCacheAsync(cacheName, cacheKey, duration, factory, cancellationToken);
+        var cacheLock = CacheLoadLocks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
+        await cacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (TryGetCachedValue(cacheName, cacheKey, out cachedValue))
+            {
+                return cachedValue!;
+            }
+
+            return await CreateAndCacheAsync(cacheName, cacheKey, duration, factory, cancellationToken);
+        }
+        finally
+        {
+            cacheLock.Release();
+        }
     }
 
     private async Task<T> CreateAndCacheAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
@@ -537,8 +553,12 @@ public class ReportService : IReportService
             {
                 _logger.LogInformation("Generating sales summary from SAP aggregates: {FromDate} to {ToDate}", fromDate, toDate);
 
-                var summaryRows = await GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
-                var dailyRows = await GetCachedDailySalesRowsAsync(fromDate, toDate, token);
+                var summaryRowsTask = GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
+                var dailyRowsTask = GetCachedDailySalesRowsAsync(fromDate, toDate, token);
+                await Task.WhenAll(summaryRowsTask, dailyRowsTask);
+
+                var summaryRows = await summaryRowsTask;
+                var dailyRows = await dailyRowsTask;
                 var summary = summaryRows.FirstOrDefault() ?? new Dictionary<string, object?>();
 
                 var totalUSD = GetRowDecimal(summary, "TotalSalesUSD");
@@ -988,8 +1008,12 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating top customers from SAP aggregates: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
 
-        var customerInvoiceRows = await GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
-        var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var customerInvoiceRowsTask = GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
+        var paymentsTask = GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        await Task.WhenAll(customerInvoiceRowsTask, paymentsTask);
+
+        var customerInvoiceRows = await customerInvoiceRowsTask;
+        var payments = await paymentsTask;
 
         var customerInvoices = customerInvoiceRows
             .Select(row => new
@@ -1049,13 +1073,16 @@ public class ReportService : IReportService
     public async Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         var cacheKey = BuildReportCacheKey("report-result:order-fulfillment", fromDate, toDate);
-        if (TryGetCachedValue("report-result:order-fulfillment", cacheKey, out OrderFulfillmentReportDto? cachedReport))
-        {
-            return cachedReport!;
-        }
+        return await GetOrCreateCachedAsync(
+            "report-result:order-fulfillment",
+            cacheKey,
+            ReportResultCacheDuration,
+            token => GenerateOrderFulfillmentAsync(fromDate, toDate, token),
+            cancellationToken);
+    }
 
-        var generationStopwatch = Stopwatch.StartNew();
-
+    private async Task<OrderFulfillmentReportDto> GenerateOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
         _logger.LogInformation("Generating order fulfillment report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
         var fromStr = fromDate.ToString("yyyyMMdd");
@@ -1067,9 +1094,12 @@ public class ReportService : IReportService
         // 2) Daily summary — one row per date+status+currency
         var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
-        // Execute both queries sequentially (SAP Session cannot handle parallel)
-        var customerRows = await _sapClient.ExecuteRawSqlQueryAsync("ORD_FULF_CUST", "Fulfillment By Customer", customerSql, cancellationToken);
-        var dailyRows = await _sapClient.ExecuteRawSqlQueryAsync("ORD_FULF_DAILY", "Fulfillment Daily", dailySql, cancellationToken);
+        var customerRowsTask = ExecuteReportSqlAsync("ORD_FULF_CUST", "Fulfillment By Customer", customerSql, cancellationToken);
+        var dailyRowsTask = ExecuteReportSqlAsync("ORD_FULF_DAILY", "Fulfillment Daily", dailySql, cancellationToken);
+        await Task.WhenAll(customerRowsTask, dailyRowsTask);
+
+        var customerRows = await customerRowsTask;
+        var dailyRows = await dailyRowsTask;
 
         // Process customer aggregation into totals and by-customer breakdown
         int totalOrders = 0, openOrders = 0, closedOrders = 0, cancelledOrders = 0;
@@ -1208,9 +1238,6 @@ public class ReportService : IReportService
             FulfillmentByCustomer = byCustomer,
             DailyFulfillment = daily
         };
-
-        generationStopwatch.Stop();
-        CacheValue("report-result:order-fulfillment", cacheKey, report, ReportResultCacheDuration, generationStopwatch.Elapsed);
 
         return report;
     }

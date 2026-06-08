@@ -11,7 +11,14 @@ param(
     [string]$WebDatabase = "shopinventoryweb",
     [int]$Port = 5432,
     [int]$MaximumPoolSize = 100,
-    [int]$MinimumPoolSize = 10
+    [int]$MinimumPoolSize = 10,
+    [int]$ConnectionIdleLifetime = 300,
+    [int]$ConnectionPruningInterval = 10,
+    [int]$Timeout = 30,
+    [int]$CommandTimeout = 60,
+    [int]$Keepalive = 60,
+    [int]$ReadBufferSize = 16384,
+    [int]$WriteBufferSize = 16384
 )
 
 function New-HaConnectionString {
@@ -29,9 +36,13 @@ function New-HaConnectionString {
     $builder['Target Session Attributes'] = 'read-write'
     $builder['Load Balance Hosts'] = 'false'
     $builder['Host Recheck Seconds'] = 5
-    $builder['Timeout'] = 15
-    $builder['Command Timeout'] = 30
-    $builder['Keepalive'] = 30
+    $builder['Connection Idle Lifetime'] = $ConnectionIdleLifetime
+    $builder['Connection Pruning Interval'] = $ConnectionPruningInterval
+    $builder['Timeout'] = $Timeout
+    $builder['Command Timeout'] = $CommandTimeout
+    $builder['Keepalive'] = $Keepalive
+    $builder['Read Buffer Size'] = $ReadBufferSize
+    $builder['Write Buffer Size'] = $WriteBufferSize
     $builder['Maximum Pool Size'] = $MaximumPoolSize
     $builder['Minimum Pool Size'] = $MinimumPoolSize
 

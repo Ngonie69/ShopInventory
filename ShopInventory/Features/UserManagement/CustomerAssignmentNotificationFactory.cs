@@ -1,4 +1,5 @@
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 
 namespace ShopInventory.Features.UserManagement;
 
@@ -46,8 +47,8 @@ internal static class CustomerAssignmentNotificationFactory
             return null;
         }
 
-        var usesShopLanguage = string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(role, "PodOperator", StringComparison.OrdinalIgnoreCase);
+        var usesShopLanguage = string.Equals(role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase);
         var isSingleCustomer = orderedCustomerCodes.Count == 1;
         var previewCustomerLabels = string.Join(", ", orderedCustomerCodes.Take(3).Select(code => GetCustomerLabel(code, customerNamesByCode)));
         var suffix = orderedCustomerCodes.Count > 3 ? ", ..." : string.Empty;

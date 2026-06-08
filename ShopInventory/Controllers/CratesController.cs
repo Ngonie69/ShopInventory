@@ -18,7 +18,7 @@ using System.Security.Claims;
 namespace ShopInventory.Controllers;
 
 [Route("api/crates")]
-[Authorize(Policy = "ApiAccess")]
+[Authorize(Policy = "ApiAccessWithOperator")]
 public class CratesController(ISender mediator) : ApiControllerBase
 {
     private static readonly HashSet<string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -30,7 +30,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     };
 
     [HttpGet("transactions")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CrateTransactionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetTransactions(
         [FromQuery] string? search = null,
@@ -52,7 +52,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("pods")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(List<CratePodSubmissionDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPods(
         [FromQuery] string? search = null,
@@ -73,7 +73,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("pods/validate-bulk")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
     [ProducesResponseType(typeof(BulkCratePodValidationResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ValidateBulkPods(
@@ -218,7 +218,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("transactions/{crateTransactionId:int}/pods")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
     [RequestSizeLimit(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UploadCratePod(
@@ -256,7 +256,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpDelete("pods/{cratePodSubmissionId:int}")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeletePod(
         int cratePodSubmissionId,

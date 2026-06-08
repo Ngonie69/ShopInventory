@@ -480,12 +480,12 @@ try
             httpContext,
             $"api/invoice/{docEntry}/attachments/{attachmentId}/download",
             $"pod-{attachmentId}",
-            ["Admin", "Cashier", "PodOperator", "Driver", "SalesRep"],
+            ["Admin", "Cashier", "PodOperator", "Operator", "Driver", "SalesRep"],
             ct))
         .RequireAuthorization(new AuthorizeAttribute
         {
             AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
-            Roles = "Admin,Cashier,PodOperator,Driver,SalesRep"
+            Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep"
         });
 
     // Minimal API endpoint for external purchase order file viewing/downloads.

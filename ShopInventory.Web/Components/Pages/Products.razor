@@ -1,7 +1,8 @@
 @page "/products"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Services
-@attribute [Authorize]
+@attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
 @implements IDisposable
 @inject IProductService ProductService
 @inject IMasterDataCacheService MasterDataCache

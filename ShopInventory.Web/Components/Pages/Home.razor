@@ -2,7 +2,8 @@
 @page "/dashboard"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
-@attribute [Authorize]
+@using ShopInventory.Web.Data
+@attribute [Authorize(Roles = UserRoles.DashboardRoles)]
 @inject IInvoiceService InvoiceService
 @inject IPaymentService PaymentService
 @inject IInventoryTransferService TransferService

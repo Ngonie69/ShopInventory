@@ -1,0 +1,275 @@
+@page "/crates/pods/history"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep")]
+@inherits CratePodsPageBase
+@rendermode InteractiveServer
+
+<PageTitle>Crate POD History - Shop Inventory</PageTitle>
+
+@{
+    var filteredPods = FilteredPodHistory.ToList();
+    var attachmentCount = pods.Sum(pod => pod.Attachments.Count);
+}
+
+<div class="container-fluid fade-in staff-dashboard staff-shell crpod-page">
+    <div class="crpod-hero">
+        <div class="crpod-hero-content">
+            <div>
+                <h2 class="crpod-hero-title">
+                    <span class="crpod-hero-icon">
+                        <i class="bi bi-clock-history"></i>
+                    </span>
+                    Crate POD History
+                </h2>
+                <p class="crpod-hero-subtitle">Review submitted crate POD records, preview supporting files, and manage crate POD attachments from a dedicated history page.</p>
+            </div>
+            <div class="crpod-hero-actions">
+                <span class="crpod-stat-pill crpod-stat-pill-neutral">
+                    <i class="bi bi-boxes me-1"></i>@pods.Count submissions
+                </span>
+                <span class="crpod-stat-pill crpod-stat-pill-warning">
+                    <i class="bi bi-paperclip me-1"></i>@attachmentCount attachments
+                </span>
+                <span class="crpod-stat-pill crpod-stat-pill-success">
+                    <i class="bi bi-receipt-cutoff me-1"></i>@PodEligibleTransactions.Count() invoice transactions
+                </span>
+                <button type="button" class="crpod-refresh-btn" @onclick="RefreshAllAsync" disabled="@isLoading">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    <span>@(isLoading ? "Refreshing..." : "Refresh")</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="crpod-mode-toggle mb-3">
+        <a class="crpod-mode-btn" href="/pods">
+            <i class="bi bi-box-seam me-1"></i> Product PODs
+        </a>
+        <button type="button" class="crpod-mode-btn crpod-mode-active">
+            <i class="bi bi-boxes me-1"></i> Crate PODs
+        </button>
+    </div>
+
+    <div class="crpod-mode-toggle mb-4">
+        <a class="crpod-mode-btn" href="/crates/pods">
+            <i class="bi bi-receipt-cutoff me-1"></i> Invoice Crate Transactions
+        </a>
+        <button type="button" class="crpod-mode-btn crpod-mode-active">
+            <i class="bi bi-clock-history me-1"></i> Crate POD History
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="crpod-status-banner @(statusIsSuccess ? "crpod-status-success" : "crpod-status-error")">
+            <i class="bi @(statusIsSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+            <span>@statusMessage</span>
+        </div>
+    }
+
+    @if (!canSubmitPods)
+    {
+        <div class="crpod-card mb-4">
+            <div class="crpod-readonly-state">
+                <div class="crpod-readonly-icon">
+                    <i class="bi bi-eye"></i>
+                </div>
+                <div>
+                    <h3 class="crpod-card-title mb-1">Read-only crate POD history</h3>
+                    <p class="crpod-card-note mb-0">You can review crate POD submissions, preview supported documents, and download attachments from this page, but upload and delete actions remain limited to the crate field roles.</p>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="crpod-card">
+        <div class="crpod-card-header">
+            <div>
+                <h3 class="crpod-card-title">Crate POD History</h3>
+                <p class="crpod-card-note">Review submitted crate PODs separately from the transaction register, with quick filters for role and search.</p>
+            </div>
+            <span class="crpod-header-count">@filteredPods.Count matching submissions</span>
+        </div>
+
+        <div class="crpod-filter-bar crpod-filter-bar-history">
+            <div class="crpod-tab-bar">
+                <button type="button" class="crpod-tab @(podHistoryRoleFilter == "all" ? "crpod-tab-active" : string.Empty)"
+                        @onclick='() => podHistoryRoleFilter = "all"'>All</button>
+                <button type="button" class="crpod-tab @(podHistoryRoleFilter == "Driver" ? "crpod-tab-active" : string.Empty)"
+                        @onclick='() => podHistoryRoleFilter = "Driver"'>Driver</button>
+                <button type="button" class="crpod-tab @(podHistoryRoleFilter == "Merchandiser" ? "crpod-tab-active" : string.Empty)"
+                        @onclick='() => podHistoryRoleFilter = "Merchandiser"'>Merchandiser</button>
+            </div>
+            <div class="crpod-filter-search">
+                <i class="bi bi-search"></i>
+                <input type="text" class="form-control crpod-input" @bind="podHistorySearch" @bind:event="oninput"
+                       placeholder="Search invoice #, shop, user, or notes" />
+            </div>
+        </div>
+
+        @if (!filteredPods.Any())
+        {
+            <div class="crpod-empty-state">No crate POD submissions match the current filters.</div>
+        }
+        else
+        {
+            <div class="crpod-table-wrap">
+                <table class="table table-hover mb-0 align-middle crpod-table mobile-card-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice</th>
+                            <th>Role</th>
+                            <th class="text-end">Quantity</th>
+                            <th>Uploaded</th>
+                            <th>Documents</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var pod in filteredPods)
+                        {
+                            <tr>
+                                <td data-label="Invoice">
+                                    <div class="crpod-table-primary">@GetPodReferenceLabel(pod)</div>
+                                    <div class="crpod-table-sub">@pod.ShopCardCode@if (!string.IsNullOrWhiteSpace(pod.ShopName))
+                                        {
+                                            <span> - @pod.ShopName</span>
+                                        }</div>
+                                </td>
+                                <td data-label="Role">
+                                    <span class="crpod-role-badge @GetSubmissionRoleTone(pod.SubmissionRole)">@pod.SubmissionRole</span>
+                                </td>
+                                <td data-label="Quantity" class="text-end fw-semibold">@pod.Quantity.ToString("N2")</td>
+                                <td data-label="Uploaded">
+                                    <div class="crpod-table-primary">@(pod.SubmittedByUserName ?? "Unknown user")</div>
+                                    <div class="crpod-table-sub">@pod.SubmittedAt.ToString("dd MMM yyyy HH:mm")</div>
+                                    @if (!string.IsNullOrWhiteSpace(pod.Notes))
+                                    {
+                                        <div class="crpod-table-note">@pod.Notes</div>
+                                    }
+                                </td>
+                                <td data-label="Documents">
+                                    @if (pod.Attachments.Count == 0)
+                                    {
+                                        <span class="crpod-table-sub">No documents</span>
+                                    }
+                                    else
+                                    {
+                                        <div class="crpod-attachments">
+                                            @foreach (var attachment in pod.Attachments)
+                                            {
+                                                <div class="crpod-attachment-card">
+                                                    <div class="crpod-attachment-meta">
+                                                        <div class="crpod-table-primary">@attachment.FileName</div>
+                                                        <div class="crpod-table-sub">@attachment.FileSizeFormatted • @attachment.UploadedAt.ToString("dd MMM yyyy HH:mm")</div>
+                                                    </div>
+                                                    <div class="crpod-attachment-actions">
+                                                        @if (CanPreviewAttachment(attachment.MimeType))
+                                                        {
+                                                            <button type="button" class="crpod-attachment-action crpod-attachment-action-view"
+                                                                    @onclick="() => ViewAttachmentAsync(attachment)">
+                                                                View
+                                                            </button>
+                                                        }
+                                                        <button type="button" class="crpod-attachment-action crpod-attachment-action-download"
+                                                                @onclick="() => DownloadAttachmentAsync(attachment)">
+                                                            Download
+                                                        </button>
+                                                        @if (canSubmitPods)
+                                                        {
+                                                            <button type="button" class="crpod-attachment-action crpod-attachment-action-delete"
+                                                                    @onclick="() => BeginDeleteAttachment(pod, attachment)">
+                                                                Delete
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@if (showAttachmentViewer)
+{
+    <div class="crpod-modal-backdrop" @onclick="CloseAttachmentViewerAsync">
+        <div class="crpod-modal crpod-modal-large" @onclick:stopPropagation="true">
+            <div class="crpod-modal-header">
+                <div>
+                    <h4 class="crpod-modal-title">View Attachment</h4>
+                    <p class="crpod-card-note mb-0">@attachmentViewerFileName</p>
+                </div>
+                <button type="button" class="crpod-modal-close" @onclick="CloseAttachmentViewerAsync">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="crpod-modal-body">
+                @if (isLoadingAttachmentViewer)
+                {
+                    <div class="crpod-modal-state">Loading attachment...</div>
+                }
+                else if (!string.IsNullOrWhiteSpace(attachmentViewerUrl) && string.Equals(attachmentViewerMimeType, "application/pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    <iframe class="crpod-viewer-frame" src="@attachmentViewerUrl" title="@attachmentViewerFileName"></iframe>
+                }
+                else if (!string.IsNullOrWhiteSpace(attachmentViewerUrl) && attachmentViewerMimeType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    <img class="crpod-viewer-image" src="@attachmentViewerUrl" alt="@attachmentViewerFileName" />
+                }
+                else
+                {
+                    <div class="crpod-modal-state">This attachment cannot be previewed inline. Use download instead.</div>
+                }
+            </div>
+            <div class="crpod-modal-actions">
+                <button type="button" class="crpod-secondary-btn" @onclick="CloseAttachmentViewerAsync">Close</button>
+                @if (attachmentViewer is not null)
+                {
+                    <button type="button" class="crpod-primary-btn" @onclick='() => DownloadAttachmentAsync(attachmentViewer!)'>
+                        <i class="bi bi-download"></i>
+                        <span>Download</span>
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDeleteAttachmentConfirm)
+{
+    <div class="crpod-modal-backdrop" @onclick="CancelDeleteAttachment">
+        <div class="crpod-modal" @onclick:stopPropagation="true">
+            <div class="crpod-modal-header">
+                <div>
+                    <h4 class="crpod-modal-title">Delete Crate POD</h4>
+                    <p class="crpod-card-note mb-0">This permanently removes the selected crate POD submission and its supporting documents.</p>
+                </div>
+                <button type="button" class="crpod-modal-close" @onclick="CancelDeleteAttachment">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+            <div class="crpod-modal-body">
+                <p class="crpod-delete-copy">
+                    Remove the @attachmentDeleteContext record@if (attachmentToDelete is not null)
+                    {
+                        <span> and delete <strong>@(attachmentToDelete?.FileName)</strong></span>
+                    }?
+                </p>
+            </div>
+            <div class="crpod-modal-actions">
+                <button type="button" class="crpod-secondary-btn" @onclick="CancelDeleteAttachment" disabled="@isDeletingAttachment">Cancel</button>
+                <button type="button" class="crpod-danger-btn" @onclick="DeletePodAsync" disabled="@isDeletingAttachment">
+                    @(isDeletingAttachment ? "Deleting..." : "Delete record")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<CratePodStyles />

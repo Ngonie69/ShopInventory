@@ -6,6 +6,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -94,7 +95,7 @@ public sealed class CreateRouteCustomerHandler(
                 .AsNoTracking()
                 .Where(candidate => candidate.IsActive
                     && candidate.AssignedBusinessPartnerCode == entity.AssignedBusinessPartnerCode
-                    && (candidate.Role == "ADR" || candidate.Role == "Sales")
+                    && (candidate.Role == ApplicationRoles.Adr || candidate.Role == ApplicationRoles.Sales)
                     && candidate.Username != null
                     && candidate.Username != string.Empty)
                 .Select(candidate => new

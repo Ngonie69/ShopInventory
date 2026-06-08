@@ -6,11 +6,13 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.Crates.Queries.ValidateBulkCratePods;
 
 public sealed class ValidateBulkCratePodsHandler(
-    ApplicationDbContext context
+    ApplicationDbContext context,
+    IDocumentService documentService
 ) : IRequestHandler<ValidateBulkCratePodsQuery, ErrorOr<BulkCratePodValidationResponseDto>>
 {
     public async Task<ErrorOr<BulkCratePodValidationResponseDto>> Handle(
@@ -20,7 +22,7 @@ public sealed class ValidateBulkCratePodsHandler(
         var currentUser = await context.Users
             .AsNoTracking()
             .Where(user => user.Id == request.UserId)
-            .Select(user => new { user.Role, user.IsActive })
+            .Select(user => new { user.Role, user.AssignedSection, user.IsActive })
             .FirstOrDefaultAsync(cancellationToken);
 
         if (currentUser is null || !currentUser.IsActive)
@@ -60,6 +62,50 @@ public sealed class ValidateBulkCratePodsHandler(
             .OrderByDescending(transaction => transaction.EffectiveDate)
             .ThenByDescending(transaction => transaction.CreatedAt)
             .ToListAsync(cancellationToken);
+
+        if (string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+            {
+                return new BulkCratePodValidationResponseDto
+                {
+                    Results = requestedDocNums
+                        .Select(invoiceDocNum => new BulkCratePodValidationResultDto
+                        {
+                            InvoiceDocNum = invoiceDocNum,
+                            Found = false,
+                            CanUpload = false,
+                            ErrorMessage = "An assigned POD section is required to upload crate PODs."
+                        })
+                        .ToList()
+                };
+            }
+
+            var candidateDocEntries = transactions
+                .Where(transaction => transaction.InvoiceDocEntry.HasValue)
+                .Select(transaction => transaction.InvoiceDocEntry!.Value)
+                .Distinct()
+                .ToList();
+
+            if (candidateDocEntries.Count == 0)
+            {
+                transactions = [];
+            }
+            else
+            {
+                var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
+                    candidateDocEntries,
+                    currentUser.AssignedSection,
+                    cancellationToken);
+
+                var scopedDocEntrySet = scopedDocEntries.ToHashSet();
+                transactions = transactions
+                    .Where(transaction =>
+                        transaction.InvoiceDocEntry.HasValue &&
+                        scopedDocEntrySet.Contains(transaction.InvoiceDocEntry.Value))
+                    .ToList();
+            }
+        }
 
         var latestTransactionsByDocNum = transactions
             .GroupBy(transaction => transaction.InvoiceDocNum!.Value)
@@ -178,7 +224,8 @@ public sealed class ValidateBulkCratePodsHandler(
         Guid currentUserId)
     {
         if (string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(currentUserRole, "Manager", StringComparison.OrdinalIgnoreCase))
+            string.Equals(currentUserRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(currentUserRole, "Operator", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -219,6 +266,11 @@ public sealed class ValidateBulkCratePodsHandler(
             return "Merchandisers can only bulk upload merchandiser crate PODs.";
         }
 
+        if (string.Equals(currentUserRole, "Operator", StringComparison.OrdinalIgnoreCase))
+        {
+            return "This invoice is outside your assigned POD section or the upload role is invalid for your account.";
+        }
+
         return "You do not have permission to upload this crate POD.";
     }
 
@@ -237,7 +289,8 @@ public sealed class ValidateBulkCratePodsHandler(
             }
 
             if (string.Equals(currentRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(currentRole, "Manager", StringComparison.OrdinalIgnoreCase))
+                string.Equals(currentRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currentRole, "Operator", StringComparison.OrdinalIgnoreCase))
             {
                 return CrateTrackingConstants.SubmissionRoleDriver;
             }

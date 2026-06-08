@@ -35,6 +35,11 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
   private void EnsureApprovedSalesOrdersHaveSapDocNum()
   {
+    if (!ChangeTracker.HasChanges())
+    {
+      return;
+    }
+
     var invalidOrder = ChangeTracker.Entries<SalesOrderEntity>()
         .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
         .Select(entry => entry.Entity)

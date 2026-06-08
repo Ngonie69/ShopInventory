@@ -1,8 +1,9 @@
 @page "/document-templates"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize]
+@attribute [Authorize(Roles = UserRoles.SystemRoles)]
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject IAppSettingsProvider AppSettings

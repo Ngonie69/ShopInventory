@@ -23,9 +23,9 @@ public sealed class GetUsersHandler(
 
         var usersQuery = context.Users.AsNoTracking();
 
-        if (httpContextAccessor.HttpContext?.User.IsInRole("PodOperator") == true)
+        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
         {
-            usersQuery = usersQuery.Where(userEntity => userEntity.Role == "Driver");
+            usersQuery = usersQuery.Where(userEntity => userEntity.Role == ApplicationRoles.Driver);
         }
 
         if (!string.IsNullOrWhiteSpace(query.Search))

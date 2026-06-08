@@ -28,7 +28,7 @@ public static class MobileAssignedCustomerScope
         var fallbackCandidates = await db.Users
             .AsNoTracking()
             .Where(candidate => candidate.Id != user.Id &&
-                (candidate.Role == "Driver" || candidate.Role == "PodOperator") &&
+                (candidate.Role == ApplicationRoles.Driver || candidate.Role == ApplicationRoles.PodOperator) &&
                 candidate.AssignedCustomerCodes != null)
             .Select(candidate => new
             {
@@ -48,7 +48,7 @@ public static class MobileAssignedCustomerScope
                 Codes = Normalize(Deserialize(candidate.AssignedCustomerCodes))
             })
             .Where(candidate => candidate.Codes.Count > 0)
-            .OrderBy(candidate => string.Equals(candidate.Role, "Driver", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .OrderBy(candidate => string.Equals(candidate.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .ThenBy(candidate => candidate.Username, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
 
@@ -82,13 +82,11 @@ public static class MobileAssignedCustomerScope
     }
 
     private static bool UsesBlanketMobileScope(string? role)
-        => string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(role, "PodOperator", StringComparison.OrdinalIgnoreCase);
+        => ApplicationRoles.UsesBlanketMobileScope(role);
 
     private static List<string> NormalizeAssignedBusinessPartnerScope(User user)
     {
-        if (!string.Equals(user.Role, "ADR", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(user.Role, "Sales", StringComparison.OrdinalIgnoreCase))
+        if (!ApplicationRoles.UsesLegacyRouteCustomerScope(user.Role))
         {
             return new List<string>();
         }

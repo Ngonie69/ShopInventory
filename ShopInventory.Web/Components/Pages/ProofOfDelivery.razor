@@ -4,7 +4,7 @@
 @using ShopInventory.Web.Common
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
 @inject IPodService PodService
 @inject IInvoiceService InvoiceService
 @inject IJSRuntime JS
@@ -27,7 +27,7 @@
                     </span>
                     Product PODs
                 </h2>
-                <p class="pod-hero-subtitle">Upload and manage product delivery POD attachments for invoices</p>
+                <p class="pod-hero-subtitle">Review and manage product delivery POD attachments for invoices</p>
             </div>
             <div class="pod-hero-actions d-flex gap-2 align-items-center">
                 <span class="pod-stat-pill">
@@ -51,6 +51,8 @@
         </a>
     </div>
 
+    @if (canUploadPods)
+    {
     @* Upload Mode Toggle *@
     <div class="pod-mode-toggle mb-3">
         <button class="pod-mode-btn @(uploadMode == UploadMode.Single ? "pod-mode-active" : "")"
@@ -483,6 +485,14 @@
                                                             </div>
                                                         }
 
+    }
+    else
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+            You have read-only access to product POD history. Upload and delete actions are not available for the Operator role.
+        </MudAlert>
+    }
+
                                                         @* Filter & List *@
                                                         <div class="pod-list-card">
                                                             <div class="pod-list-header">
@@ -604,10 +614,13 @@
                                                                                             title="Download">
                                                                                         <i class="bi bi-download"></i>
                                                                                     </button>
-                                                                                    <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(context)"
-                                                                                            title="Delete">
-                                                                                        <i class="bi bi-trash"></i>
-                                                                                    </button>
+                                                                                    @if (canDeletePods)
+                                                                                    {
+                                                                                        <button class="pod-action-btn pod-action-delete" @onclick="() => ConfirmDeletePod(context)"
+                                                                                                title="Delete">
+                                                                                            <i class="bi bi-trash"></i>
+                                                                                        </button>
+                                                                                    }
                                                                                 </div>
                                                                             </MudTd>
                                                                         </RowTemplate>
@@ -1599,6 +1612,8 @@
     private bool deleteSuccess;
     private PodAttachmentItemDto? deletePod;
     private string? currentUsername;
+    private bool canUploadPods = true;
+    private bool canDeletePods = true;
     private int? appliedInitialDocNum;
     private bool appliedInitialViewLatest;
     private bool isInteractive;
@@ -1612,7 +1627,8 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        currentUsername = authState.User.Identity?.Name;
+        var user = authState.User;
+        currentUsername = user.Identity?.Name;
     }
 
     protected override async Task OnParametersSetAsync()
@@ -1848,13 +1864,15 @@ filterUploadedFromLocation.Trim();
 
     private void OnFilesSelected(InputFileChangeEventArgs e)
     {
+        if (!canUploadPods) return;
+
         selectedFiles = e.GetMultipleFiles(20).ToList();
         uploadMessage = null;
     }
 
     private async Task UploadPod()
     {
-        if (lookupInvoice == null || !selectedFiles.Any() || isUploading) return;
+        if (!canUploadPods || lookupInvoice == null || !selectedFiles.Any() || isUploading) return;
 
         isUploading = true;
         uploadMessage = null;
@@ -1989,6 +2007,8 @@ filterUploadedFromLocation.Trim();
 
     private void ConfirmDeletePod(PodAttachmentItemDto pod)
     {
+        if (!canDeletePods) return;
+
         deletePod = pod;
         deleteMessage = null;
         showDeleteConfirm = true;
@@ -2003,7 +2023,7 @@ filterUploadedFromLocation.Trim();
 
     private async Task DeletePod()
     {
-        if (deletePod == null || isDeleting) return;
+        if (!canDeletePods || deletePod == null || isDeleting) return;
 
         isDeleting = true;
         deleteMessage = null;
@@ -2051,6 +2071,8 @@ filterUploadedFromLocation.Trim();
     // ── Upload Mode ─────────────────────────────────────────
     private void SwitchUploadMode(UploadMode mode)
     {
+        if (!canUploadPods) return;
+
         uploadMode = mode;
         bulkMessage = null;
         uploadMessage = null;
@@ -2059,6 +2081,8 @@ filterUploadedFromLocation.Trim();
     // ── Bulk Upload Methods ─────────────────────────────────
     private void OnBulkFilesSelected(InputFileChangeEventArgs e)
     {
+        if (!canUploadPods) return;
+
         bulkFiles = e.GetMultipleFiles(1500).ToList();
         bulkMessage = null;
         bulkMappings = bulkFiles.Select(f => new BulkFileMapping
@@ -2083,7 +2107,7 @@ filterUploadedFromLocation.Trim();
 
     private async Task ValidateBulkFiles()
     {
-        if (isBulkValidating || bulkMappings.Count == 0) return;
+        if (!canUploadPods || isBulkValidating || bulkMappings.Count == 0) return;
         isBulkValidating = true;
         bulkMessage = null;
         bulkAutoRetryRound = 0;
@@ -2268,6 +2292,8 @@ filterUploadedFromLocation.Trim();
 
     private async Task RetryBulkValidation()
     {
+        if (!canUploadPods) return;
+
         // Reset retryable error items back to Pending and re-validate with auto-retry
         var errorMappings = bulkMappings.Where(m => m.Status == BulkFileStatus.Error).ToList();
         if (errorMappings.Count == 0 || isBulkValidating) return;
@@ -2349,6 +2375,8 @@ filterUploadedFromLocation.Trim();
 
     private async Task ExecuteBulkUpload()
     {
+        if (!canUploadPods) return;
+
         var validMappings = bulkMappings.Where(m => m.Status is BulkFileStatus.Valid or
 BulkFileStatus.ValidWithWarning).ToList();
         if (validMappings.Count == 0 || isBulkUploading) return;
@@ -2450,6 +2478,8 @@ BulkFileStatus.ValidWithWarning).ToList();
 
     private void ClearBulkUpload()
     {
+        if (!canUploadPods) return;
+
         bulkFiles.Clear();
         bulkMappings.Clear();
         bulkDescription = null;
@@ -2459,6 +2489,8 @@ BulkFileStatus.ValidWithWarning).ToList();
 
     private void RemoveBulkMapping(BulkFileMapping mapping)
     {
+        if (!canUploadPods) return;
+
         bulkMappings.Remove(mapping);
         bulkFiles.Remove(mapping.File);
     }

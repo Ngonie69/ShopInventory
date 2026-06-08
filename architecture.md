@@ -336,4 +336,4 @@ Important top-level directories:
 - `API.md` - endpoint and security surface documentation
 - `DEPLOYMENT.md` - environment and deployment reference material
 - `SECRETS.md` - runtime configuration and secret management
-- `.github/instructions/project-conventions.instructions.md` - repository rules and architectural conventions
+- `.github/copilot-instructions.md` - canonical project instructions for feature and change work

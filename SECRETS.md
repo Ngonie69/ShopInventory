@@ -21,9 +21,17 @@
 
 # Database
 # Local single-node example:
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ShopInventory;Username=postgres;Password=YOUR_PG_PASSWORD"
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ShopInventory;Username=postgres;Password=YOUR_PG_PASSWORD;Maximum Pool Size=100;Minimum Pool Size=10;Connection Idle Lifetime=300;Connection Pruning Interval=10;Timeout=30;Command Timeout=60;Keepalive=60;Read Buffer Size=16384;Write Buffer Size=16384"
 # HA example for native PostgreSQL primary/standby:
-# dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=db-primary.internal,db-standby.internal;Port=5432;Database=ShopInventory;Username=shopinventory;Password=YOUR_PG_PASSWORD;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Timeout=15;Command Timeout=30;Keepalive=30;Maximum Pool Size=100;Minimum Pool Size=10"
+# dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=db-primary.internal,db-standby.internal;Port=5432;Database=ShopInventory;Username=shopinventory;Password=YOUR_PG_PASSWORD;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Maximum Pool Size=100;Minimum Pool Size=10;Connection Idle Lifetime=300;Connection Pruning Interval=10;Timeout=30;Command Timeout=60;Keepalive=60;Read Buffer Size=16384;Write Buffer Size=16384"
+
+# Do not add Multiplexing=true to the shared DefaultConnection until the
+# session-level advisory lock paths have a separate non-multiplexed connection
+# string or have been validated under multiplexing.
+
+# Thread pool tuning (optional; defaults are also in appsettings.json)
+# dotnet user-secrets set "Performance:ThreadPool:MinWorkerThreads" "50"
+# dotnet user-secrets set "Performance:ThreadPool:MinCompletionPortThreads" "50"
 
 # SAP B1 Service Layer
 dotnet user-secrets set "SAP:Username" "YOUR_SAP_USERNAME"
@@ -62,9 +70,9 @@ dotnet user-secrets set "Email:Password" "YOUR_SMTP_PASSWORD"
 
 # Database
 # Local single-node example:
-dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ShopInventoryWeb;Username=postgres;Password=YOUR_PG_PASSWORD"
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=ShopInventoryWeb;Username=postgres;Password=YOUR_PG_PASSWORD;Maximum Pool Size=100;Minimum Pool Size=10;Connection Idle Lifetime=300;Connection Pruning Interval=10;Timeout=30;Command Timeout=60;Keepalive=60;Read Buffer Size=16384;Write Buffer Size=16384"
 # HA example for native PostgreSQL primary/standby:
-# dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=db-primary.internal,db-standby.internal;Port=5432;Database=ShopInventoryWeb;Username=shopinventory;Password=YOUR_PG_PASSWORD;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Timeout=15;Command Timeout=30;Keepalive=30;Maximum Pool Size=100;Minimum Pool Size=10"
+# dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=db-primary.internal,db-standby.internal;Port=5432;Database=ShopInventoryWeb;Username=shopinventory;Password=YOUR_PG_PASSWORD;Target Session Attributes=read-write;Load Balance Hosts=false;Host Recheck Seconds=5;Maximum Pool Size=100;Minimum Pool Size=10;Connection Idle Lifetime=300;Connection Pruning Interval=10;Timeout=30;Command Timeout=60;Keepalive=60;Read Buffer Size=16384;Write Buffer Size=16384"
 
 # API Key (must match Security:ApiKeys:0:Key in API project)
 dotnet user-secrets set "ApiSettings:ApiKey" "YOUR_MAIN_API_KEY"

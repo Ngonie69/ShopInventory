@@ -44,9 +44,9 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.Unauthenticated;
         }
 
-        if (string.Equals(currentUser.Role, "SalesRep", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(currentUser.Role, ApplicationRoles.SalesRep, StringComparison.OrdinalIgnoreCase))
         {
-            if (!string.Equals(request.Role, "Merchandiser", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.Role, ApplicationRoles.Merchandiser, StringComparison.OrdinalIgnoreCase))
             {
                 return Errors.UserManagement.SalesRepCanOnlyCreateMerchandisers;
             }
@@ -57,9 +57,9 @@ public sealed class CreateUserHandler(
             }
         }
 
-        if (string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(currentUser.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase))
         {
-            if (!string.Equals(request.Role, "Driver", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase))
             {
                 return Errors.UserManagement.PodOperatorCanOnlyCreateDrivers;
             }
@@ -80,41 +80,37 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed("Email already exists");
         }
 
-        var validRoles = new[]
+        if (!ApplicationRoles.IsAssignableRole(request.Role))
         {
-            "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController",
-            "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab", "ADR", "Sales"
-        };
-
-        if (!validRoles.Contains(request.Role, StringComparer.Ordinal))
-        {
-            return Errors.UserManagement.CreationFailed($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
+            return Errors.UserManagement.CreationFailed($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
         }
 
-        if ((request.Role == "StockController" || request.Role == "DepotController" || request.Role == "ADR" || request.Role == "Sales") &&
+        if (ApplicationRoles.RequiresWarehouseAssignments(request.Role) &&
             (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return Errors.UserManagement.CreationFailed($"At least one assigned warehouse code is required for {request.Role} role");
         }
 
-        if (request.Role == "Merchandiser" &&
+        if (ApplicationRoles.RequiresCustomerAssignments(request.Role) &&
             (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
         {
             return Errors.UserManagement.CreationFailed($"At least one assigned customer code is required for {request.Role} role");
         }
 
-        if ((request.Role == "Driver" || request.Role == "PodOperator") &&
+        if (ApplicationRoles.RequiresAssignedSection(request.Role) &&
             string.IsNullOrWhiteSpace(request.AssignedSection))
         {
             return Errors.UserManagement.CreationFailed($"An assigned section is required for {request.Role} role");
         }
 
-        if ((request.Role == "ADR" || request.Role == "Sales") && string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode))
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode))
         {
             return Errors.UserManagement.CreationFailed($"An assigned business partner code is required for {request.Role} role");
         }
 
-        if ((request.Role == "ADR" || request.Role == "Sales") && string.IsNullOrWhiteSpace(request.AssignedCostCentreCode))
+        if (ApplicationRoles.RequiresAssignedCostCentreCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedCostCentreCode))
         {
             return Errors.UserManagement.CreationFailed($"An assigned cost centre code is required for {request.Role} role");
         }
@@ -144,7 +140,7 @@ public sealed class CreateUserHandler(
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             FirstName = request.FirstName,
             LastName = request.LastName,
-            Role = request.Role,
+            Role = request.Role.Trim(),
             IsActive = true,
             EmailVerified = false,
             TwoFactorEnabled = false,
@@ -152,22 +148,22 @@ public sealed class CreateUserHandler(
             CreatedAt = DateTime.UtcNow
         };
 
-        if (request.Role == "StockController" || request.Role == "DepotController" || request.Role == "Merchandiser" || request.Role == "ADR" || request.Role == "Sales")
+        if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
         {
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
         }
 
-        if (request.Role == "Merchandiser" || request.Role == "Driver" || request.Role == "PodOperator")
+        if (ApplicationRoles.SupportsCustomerAssignments(request.Role))
         {
             user.SetCustomerCodes(request.AssignedCustomerCodes);
         }
 
-        if (request.Role == "Driver" || request.Role == "PodOperator")
+        if (ApplicationRoles.RequiresAssignedSection(request.Role))
         {
             user.AssignedSection = request.AssignedSection;
         }
 
-        if (request.Role == "ADR" || request.Role == "Sales")
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role))
         {
             user.AssignedBusinessPartnerCode = request.AssignedBusinessPartnerCode?.Trim();
             user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();

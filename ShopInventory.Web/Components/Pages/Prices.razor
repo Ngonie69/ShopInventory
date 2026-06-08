@@ -1,6 +1,7 @@
 @page "/prices"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize]
+@using ShopInventory.Web.Data
+@attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
 @inject IPriceService PriceService
 @inject IMasterDataCacheService CacheService
 @inject AuthenticationStateProvider AuthStateProvider
