@@ -23,6 +23,7 @@ namespace ShopInventory.Controllers;
 public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 {
     [HttpPost]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -94,6 +95,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     #region Transfer Request Endpoints
 
     [HttpPost("request")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(typeof(TransferRequestCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateTransferRequest(
@@ -106,6 +108,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("request/{docEntry:int}/convert")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(typeof(TransferRequestConvertedResponseDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> ConvertTransferRequestToTransfer(int docEntry, CancellationToken cancellationToken)
     {
@@ -116,6 +119,7 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("request/{docEntry:int}/close")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {

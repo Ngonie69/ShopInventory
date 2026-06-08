@@ -73,7 +73,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("pods/validate-bulk")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(BulkCratePodValidationResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ValidateBulkPods(
@@ -218,7 +218,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("transactions/{crateTransactionId:int}/pods")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [RequestSizeLimit(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UploadCratePod(

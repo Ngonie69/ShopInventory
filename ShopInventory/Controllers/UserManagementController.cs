@@ -51,7 +51,7 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost]
-    [RequirePermission(Permission.CreateUsers)]
+    [RequirePermission(Permission.CreateUsers, Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserDetailRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new CreateUserCommand(request), cancellationToken);
@@ -61,7 +61,7 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("merchandisers")]
-    [RequirePermission(Permission.CreateUsers)]
+    [RequirePermission(Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> GetManagedMerchandiserAccounts(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetManagedMerchandiserAccountsQuery(), cancellationToken);
@@ -69,7 +69,7 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPut("merchandisers/{id:guid}/assigned-customers")]
-    [RequirePermission(Permission.CreateUsers)]
+    [RequirePermission(Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> UpdateMerchandiserAssignedCustomers(
         Guid id,
         [FromBody] UpdateMerchandiserAssignedCustomersRequest request,

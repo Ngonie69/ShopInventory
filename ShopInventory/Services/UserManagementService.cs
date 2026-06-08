@@ -578,6 +578,7 @@ public class UserManagementService : IUserManagementService
             Permission.DeleteCustomers => "Delete customers",
             Permission.ViewUsers => "View user accounts",
             Permission.CreateUsers => "Create new user accounts",
+            Permission.CreateMerchandiserAccounts => "Create merchandiser user accounts",
             Permission.EditUsers => "Edit user accounts",
             Permission.DeleteUsers => "Delete user accounts",
             Permission.ManageUserRoles => "Assign roles to users",

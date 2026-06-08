@@ -552,6 +552,11 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
 
     protected void BeginDeleteAttachment(CratePodSubmissionDto pod, DocumentAttachmentDto attachment)
     {
+        if (!canDeleteCratePods)
+        {
+            return;
+        }
+
         podToDelete = pod;
         attachmentToDelete = attachment;
         attachmentDeleteContext = $"{GetPodReferenceLabel(pod)} {pod.SubmissionRole} submission";
@@ -568,7 +573,7 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
 
     protected async Task DeletePodAsync()
     {
-        if (podToDelete is null || isDeletingAttachment)
+        if (!canDeleteCratePods || podToDelete is null || isDeletingAttachment)
         {
             return;
         }

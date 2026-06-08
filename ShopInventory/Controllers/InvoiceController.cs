@@ -104,7 +104,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         int docNum,
         CancellationToken cancellationToken = default)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("PodOperator") || User.IsInRole("Operator");
+        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("Operator");
         var result = await mediator.Send(
             new GetInvoiceByDocNumQuery(
                 docNum,
@@ -170,7 +170,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null)
     {
-        var restrictToAssignedCustomers = User.IsInRole("Driver") || User.IsInRole("PodOperator");
+        var restrictToAssignedCustomers = User.IsInRole("Driver");
         var result = await mediator.Send(
             new GetInvoicesByCustomerQuery(
                 cardCode,
@@ -248,7 +248,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("{docEntry:int}/crate-pod")]
-    [Authorize(Roles = "Admin,Manager,Merchandiser,Operator,Driver")]
+    [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     [RequestSizeLimit(20 * 1024 * 1024)]

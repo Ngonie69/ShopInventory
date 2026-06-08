@@ -27,6 +27,7 @@ public abstract class CrateTrackingPageBase : ComponentBase
     protected bool canRaiseGrvs;
     protected bool canChoosePodRole;
     protected bool canSubmitPods;
+    protected bool canDeleteCratePods;
     protected bool canViewCrateTransactions;
     protected bool canViewCrateGrvs;
 
@@ -112,8 +113,9 @@ public abstract class CrateTrackingPageBase : ComponentBase
 
         canManageOpeningBalances = isAdmin;
         canRaiseGrvs = isAdmin || isManager || isMerchandiser;
-        canChoosePodRole = isAdmin || isManager || isOperator;
-        canSubmitPods = isAdmin || isManager || isMerchandiser || isOperator || isDriver;
+        canChoosePodRole = isAdmin || isManager || isPodOperator || isOperator;
+        canSubmitPods = isAdmin || isManager || isMerchandiser || isPodOperator || isOperator || isDriver;
+        canDeleteCratePods = isAdmin || isManager || isMerchandiser || isOperator || isDriver;
         canViewCrateTransactions = canSubmitPods || isPodOperator || isOperator || isSalesRep;
         canViewCrateGrvs = canRaiseGrvs || isDriver || isSalesRep;
 

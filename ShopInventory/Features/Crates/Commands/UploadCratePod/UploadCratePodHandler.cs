@@ -196,6 +196,14 @@ public sealed class UploadCratePodHandler(
                 return CrateTrackingConstants.SubmissionRoleMerchandiser;
             }
 
+            if (string.Equals(currentRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currentRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currentRole, "PodOperator", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currentRole, "Operator", StringComparison.OrdinalIgnoreCase))
+            {
+                return CrateTrackingConstants.SubmissionRoleDriver;
+            }
+
             return null;
         }
 

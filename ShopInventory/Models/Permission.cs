@@ -67,6 +67,7 @@ public static class Permissions
     // Users & Admin
     public const string ViewUsers = "users.view";
     public const string CreateUsers = "users.create";
+    public const string CreateMerchandiserAccounts = "users.create_merchandiser_accounts";
     public const string EditUsers = "users.edit";
     public const string DeleteUsers = "users.delete";
     public const string ManageRoles = "users.manage_roles";
@@ -189,6 +190,7 @@ public static class Permissions
             {
                 new(ViewUsers, "View Users", "View user accounts"),
                 new(CreateUsers, "Create Users", "Create new user accounts"),
+                new(CreateMerchandiserAccounts, "Create Merchandiser Accounts", "Create merchandiser user accounts (for SalesRep role)"),
                 new(EditUsers, "Edit Users", "Modify user accounts"),
                 new(DeleteUsers, "Delete Users", "Delete user accounts"),
                 new(ManageRoles, "Manage Roles", "Assign roles to users"),
@@ -356,7 +358,7 @@ public static class Permissions
             ApplicationRoles.SalesRep => new List<string>
             {
                 ViewDashboard,
-                CreateUsers,
+                CreateMerchandiserAccounts,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewTimesheets, ManageTimesheets
             },
@@ -436,6 +438,7 @@ public static class Permission
     // Users & Admin
     public const string ViewUsers = Permissions.ViewUsers;
     public const string CreateUsers = Permissions.CreateUsers;
+    public const string CreateMerchandiserAccounts = Permissions.CreateMerchandiserAccounts;
     public const string EditUsers = Permissions.EditUsers;
     public const string DeleteUsers = Permissions.DeleteUsers;
     public const string ManageRoles = Permissions.ManageRoles;

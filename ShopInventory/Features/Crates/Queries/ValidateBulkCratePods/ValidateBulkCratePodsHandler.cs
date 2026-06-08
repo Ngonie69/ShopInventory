@@ -225,6 +225,7 @@ public sealed class ValidateBulkCratePodsHandler(
     {
         if (string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(currentUserRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(currentUserRole, "PodOperator", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(currentUserRole, "Operator", StringComparison.OrdinalIgnoreCase))
         {
             return true;
@@ -290,6 +291,7 @@ public sealed class ValidateBulkCratePodsHandler(
 
             if (string.Equals(currentRole, "Admin", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(currentRole, "Manager", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(currentRole, "PodOperator", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(currentRole, "Operator", StringComparison.OrdinalIgnoreCase))
             {
                 return CrateTrackingConstants.SubmissionRoleDriver;

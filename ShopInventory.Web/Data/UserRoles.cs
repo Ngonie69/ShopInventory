@@ -74,6 +74,8 @@ public static class UserRoles
     public const string PurchasingRoles = "Admin,Manager";
 
     public const string PodRoles = "Admin,Cashier,PodOperator,Driver,SalesRep";
+    public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
+    public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 
     /// <summary>
     /// Get all available roles
