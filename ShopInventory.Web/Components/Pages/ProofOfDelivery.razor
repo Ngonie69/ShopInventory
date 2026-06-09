@@ -1949,10 +1949,21 @@ filterUploadedFromLocation.Trim();
         {
             var url = $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}";
             await JS.InvokeVoidAsync("downloadAuthenticatedFile", url, pod.FileName);
+            await LogPodAuditAsync(
+                AuditActions.DownloadPod,
+                pod,
+                true,
+                $"Downloaded POD '{pod.FileName}' for {GetPodInvoiceLabel(pod)}.");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error downloading POD {PodId}", pod.Id);
+            await LogPodAuditAsync(
+                AuditActions.DownloadPod,
+                pod,
+                false,
+                $"Failed to download POD '{pod.FileName}' for {GetPodInvoiceLabel(pod)}.",
+                ex.Message);
         }
     }
 
@@ -1976,10 +1987,22 @@ filterUploadedFromLocation.Trim();
             viewerDataUri = await JS.InvokeAsync<string>(
                 "createAuthenticatedObjectUrl",
                 $"/download/pod/{pod.InvoiceDocEntry}/{pod.Id}");
+
+            await LogPodAuditAsync(
+                AuditActions.ViewPod,
+                pod,
+                true,
+                $"Viewed POD '{pod.FileName}' for {GetPodInvoiceLabel(pod)}.");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error viewing POD {PodId}", pod.Id);
+            await LogPodAuditAsync(
+                AuditActions.ViewPod,
+                pod,
+                false,
+                $"Failed to view POD '{pod.FileName}' for {GetPodInvoiceLabel(pod)}.",
+                ex.Message);
             showViewer = false;
         }
         finally
@@ -2003,6 +2026,36 @@ filterUploadedFromLocation.Trim();
             await JS.InvokeVoidAsync("revokeObjectUrl", viewerDataUri);
             viewerDataUri = null;
         }
+    }
+
+    private async Task LogPodAuditAsync(
+        string action,
+        PodAttachmentItemDto pod,
+        bool isSuccess,
+        string details,
+        string? errorMessage = null)
+    {
+        try
+        {
+            await AuditService.LogAsync(
+                action,
+                "POD",
+                pod.Id.ToString(CultureInfo.InvariantCulture),
+                details,
+                isSuccess,
+                errorMessage);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to write POD audit log for action {Action} and attachment {PodId}", action, pod.Id);
+        }
+    }
+
+    private static string GetPodInvoiceLabel(PodAttachmentItemDto pod)
+    {
+        return pod.InvoiceDocNum > 0
+            ? $"invoice #{pod.InvoiceDocNum}"
+            : $"invoice doc entry {pod.InvoiceDocEntry}";
     }
 
     private void ConfirmDeletePod(PodAttachmentItemDto pod)

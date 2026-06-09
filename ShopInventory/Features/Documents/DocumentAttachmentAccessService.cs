@@ -3,6 +3,7 @@ using ErrorOr;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -189,13 +190,47 @@ public sealed class DocumentAttachmentAccessService(
             }
 
             var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync([entityId], assignedSection, cancellationToken);
-            if (!scopedDocEntries.Contains(entityId))
+            if (scopedDocEntries.Contains(entityId))
             {
-                return Errors.Document.AccessDenied("This invoice is outside your assigned POD section.");
+                return true;
             }
+
+            if (!isWriteOperation && await MatchesUploaderAssignedSectionAsync(uploadedByUserId, assignedSection, cancellationToken))
+            {
+                return true;
+            }
+
+            return Errors.Document.AccessDenied("This invoice is outside your assigned POD section.");
         }
 
         return true;
+    }
+
+    private async Task<bool> MatchesUploaderAssignedSectionAsync(
+        Guid? uploadedByUserId,
+        string assignedSection,
+        CancellationToken cancellationToken)
+    {
+        if (!uploadedByUserId.HasValue || string.IsNullOrWhiteSpace(assignedSection))
+        {
+            return false;
+        }
+
+        var uploaderAssignedSection = await context.Users
+            .AsNoTracking()
+            .Where(user => user.Id == uploadedByUserId.Value)
+            .Select(user => user.AssignedSection)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(uploaderAssignedSection))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            PodLocationScope.CanonicalizeSection(uploaderAssignedSection),
+            PodLocationScope.CanonicalizeSection(assignedSection),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<ErrorOr<bool>> EnsureExternalPurchaseOrderAccessAsync(
