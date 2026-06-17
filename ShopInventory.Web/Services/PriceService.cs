@@ -22,7 +22,7 @@ public interface IPriceService
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
     Task<ItemPricesByListResponse?> GetPricesByPriceListForceRefreshAsync(int priceListNum);
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode);
-    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null);
+    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null, bool useLivePricing = true);
 }
 
 public class PriceService : IPriceService
@@ -271,7 +271,7 @@ public class PriceService : IPriceService
         }
     }
 
-    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null)
+    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null, bool useLivePricing = true)
     {
         try
         {
@@ -284,10 +284,21 @@ public class PriceService : IPriceService
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            var queryParts = new List<string>();
+
             if (requestedItemCodes?.Count > 0)
             {
-                var query = string.Join("&", requestedItemCodes.Select(code => $"itemCodes={Uri.EscapeDataString(code)}"));
-                url = $"{url}?{query}";
+                queryParts.AddRange(requestedItemCodes.Select(code => $"itemCodes={Uri.EscapeDataString(code)}"));
+            }
+
+            if (!useLivePricing)
+            {
+                queryParts.Add("useLivePricing=false");
+            }
+
+            if (queryParts.Count > 0)
+            {
+                url = $"{url}?{string.Join("&", queryParts)}";
             }
 
             var response = await _httpClient.GetAsync(url);

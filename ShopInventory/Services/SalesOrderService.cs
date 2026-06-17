@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -26,6 +28,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IBusinessPartnerService _businessPartnerService;
     private readonly ILocalPriceCatalogService _localPriceCatalogService;
     private readonly decimal _defaultMobileTaxPercent;
+    private readonly string _connectionString;
 
     public SalesOrderService(
         ApplicationDbContext context,
@@ -43,6 +46,8 @@ public class SalesOrderService : ISalesOrderService
         _businessPartnerService = businessPartnerService;
         _localPriceCatalogService = localPriceCatalogService;
         _defaultMobileTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
+        _connectionString = context.Database.GetConnectionString()
+            ?? throw new InvalidOperationException("DefaultConnection is not configured.");
     }
 
     public async Task<SalesOrderDto?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
@@ -1014,6 +1019,29 @@ public class SalesOrderService : ISalesOrderService
         if (order == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
 
+        await using var postingLock = await AcquireSalesOrderPostingLockAsync(order.OrderNumber, cancellationToken);
+        order = await LoadSalesOrderForPostingAsync(id, cancellationToken);
+
+        if (order.Status == SalesOrderStatus.Approved && HasSapDocNum(order))
+        {
+            if (!order.IsSynced || !string.IsNullOrWhiteSpace(order.SyncError))
+            {
+                order.IsSynced = true;
+                order.SyncError = null;
+                order.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "Sales order {OrderId} ({OrderNumber}) approval request is idempotent because it is already posted to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                order.Id,
+                order.OrderNumber,
+                order.SAPDocEntry,
+                order.SAPDocNum);
+
+            return MapToDto(order);
+        }
+
         if (order.Status == SalesOrderStatus.Approved && !HasSapDocNum(order))
         {
             _logger.LogWarning(
@@ -1078,7 +1106,7 @@ public class SalesOrderService : ISalesOrderService
 
         try
         {
-            await PostApprovedOrderToSapAsync(order, cancellationToken);
+            await PostApprovedOrderToSapAsync(order, cancellationToken, postingLockHeld: true);
         }
         catch (Exception ex)
         {
@@ -1289,6 +1317,9 @@ public class SalesOrderService : ISalesOrderService
         if (order == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
 
+        await using var postingLock = await AcquireSalesOrderPostingLockAsync(order.OrderNumber, cancellationToken);
+        order = await LoadSalesOrderForPostingAsync(id, cancellationToken);
+
         if (order.Status != SalesOrderStatus.Approved)
         {
             _logger.LogWarning(
@@ -1301,12 +1332,30 @@ public class SalesOrderService : ISalesOrderService
             throw new InvalidOperationException("Only approved orders can be posted to SAP");
         }
 
-        if (order.IsSynced)
-            throw new InvalidOperationException("This order has already been posted to SAP");
+        if (HasSapDocNum(order))
+        {
+            if (!order.IsSynced || !string.IsNullOrWhiteSpace(order.SyncError))
+            {
+                order.IsSynced = true;
+                order.SyncError = null;
+                order.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "Sales order {OrderId} ({OrderNumber}) post request is idempotent because it is already posted to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                order.Id,
+                order.OrderNumber,
+                order.SAPDocEntry,
+                order.SAPDocNum);
+
+            return MapToDto(order);
+        }
 
         try
         {
-            await PostApprovedOrderToSapAsync(order, cancellationToken);
+            await PopulateSAPPricesAsync(order, cancellationToken);
+            await PostApprovedOrderToSapAsync(order, cancellationToken, postingLockHeld: true);
 
             return MapToDto(order);
         }
@@ -1328,21 +1377,68 @@ public class SalesOrderService : ISalesOrderService
         }
     }
 
-    private async Task PostApprovedOrderToSapAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    private async Task<SalesOrderEntity> LoadSalesOrderForPostingAsync(int id, CancellationToken cancellationToken)
+    {
+        _context.ChangeTracker.Clear();
+
+        return await _context.SalesOrders
+            .AsTracking()
+            .Include(o => o.Lines)
+            .Include(o => o.CreatedByUser)
+            .Include(o => o.ApprovedByUser)
+            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException($"Sales order with ID {id} not found");
+    }
+
+    private async Task PostApprovedOrderToSapAsync(
+        SalesOrderEntity order,
+        CancellationToken cancellationToken,
+        bool postingLockHeld = false)
+    {
+        if (postingLockHeld)
+        {
+            await PostApprovedOrderToSapCoreAsync(order, cancellationToken);
+            return;
+        }
+
+        await using var postingLock = await AcquireSalesOrderPostingLockAsync(order.OrderNumber, cancellationToken);
+        await PostApprovedOrderToSapCoreAsync(order, cancellationToken);
+    }
+
+    private async Task PostApprovedOrderToSapCoreAsync(SalesOrderEntity order, CancellationToken cancellationToken)
     {
         await EnsureOrderHasValidQuantitiesAsync(order, "posting to SAP", cancellationToken);
+
+        if (HasSapDocNum(order))
+        {
+            if (!order.IsSynced || !string.IsNullOrWhiteSpace(order.SyncError))
+            {
+                order.IsSynced = true;
+                order.SyncError = null;
+                order.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
+            _logger.LogInformation(
+                "Skipped SAP sales order create for {OrderNumber} because the local order is already linked to DocEntry={DocEntry}, DocNum={DocNum}",
+                order.OrderNumber,
+                order.SAPDocEntry,
+                order.SAPDocNum);
+
+            return;
+        }
+
+        if (await TryAttachExistingSapSalesOrderAsync(order, "pre-create duplicate check", cancellationToken))
+        {
+            return;
+        }
 
         var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
 
         if (sapOrder.DocNum <= 0)
             throw new InvalidOperationException("SAP created the sales order but did not return a document number.");
 
-        order.Status = SalesOrderStatus.Approved;
-        order.SAPDocEntry = sapOrder.DocEntry;
-        order.SAPDocNum = sapOrder.DocNum;
-        order.IsSynced = true;
-        order.SyncError = null;
-        order.UpdatedAt = DateTime.UtcNow;
+        ApplySapDocumentToLocalOrder(order, sapOrder);
 
         await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken);
 
@@ -1353,6 +1449,47 @@ public class SalesOrderService : ISalesOrderService
             order.OrderNumber,
             sapOrder.DocEntry,
             sapOrder.DocNum);
+    }
+
+    private async Task<bool> TryAttachExistingSapSalesOrderAsync(
+        SalesOrderEntity order,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(order.OrderNumber))
+        {
+            return false;
+        }
+
+        var existingSapOrder = await _sapClient.GetSalesOrderByOrderNumberAsync(order.OrderNumber, cancellationToken);
+        if (existingSapOrder is null || existingSapOrder.DocNum <= 0)
+        {
+            return false;
+        }
+
+        ApplySapDocumentToLocalOrder(order, existingSapOrder);
+        await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogWarning(
+            "Linked local sales order {OrderId} ({OrderNumber}) to existing SAP sales order DocEntry={DocEntry}, DocNum={DocNum} instead of creating a duplicate. Reason: {Reason}",
+            order.Id,
+            order.OrderNumber,
+            existingSapOrder.DocEntry,
+            existingSapOrder.DocNum,
+            reason);
+
+        return true;
+    }
+
+    private static void ApplySapDocumentToLocalOrder(SalesOrderEntity order, SAPSalesOrder sapOrder)
+    {
+        order.Status = SalesOrderStatus.Approved;
+        order.SAPDocEntry = sapOrder.DocEntry > 0 ? sapOrder.DocEntry : order.SAPDocEntry;
+        order.SAPDocNum = sapOrder.DocNum;
+        order.IsSynced = true;
+        order.SyncError = null;
+        order.UpdatedAt = DateTime.UtcNow;
     }
 
     private async Task RefreshLocalSalesOrderSnapshotsFromSapAsync(
@@ -1508,6 +1645,79 @@ public class SalesOrderService : ISalesOrderService
 
     private static bool HasSapDocNum(SalesOrderEntity order)
         => order.SAPDocNum.GetValueOrDefault() > 0;
+
+    private async Task<IAsyncDisposable> AcquireSalesOrderPostingLockAsync(
+        string orderNumber,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(orderNumber))
+        {
+            throw new InvalidOperationException("Sales order posting requires an order number.");
+        }
+
+        var lockName = $"sales-order-post:{orderNumber.Trim().ToUpperInvariant()}";
+        var advisoryKey = ComputeAdvisoryKey(lockName);
+        NpgsqlConnection? connection = null;
+
+        try
+        {
+            connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            await using var command = new NpgsqlCommand("SELECT pg_advisory_lock(@key)", connection);
+            command.Parameters.AddWithValue("key", advisoryKey);
+            await command.ExecuteScalarAsync(cancellationToken);
+
+            _logger.LogDebug(
+                "Acquired sales order SAP posting lock for {OrderNumber}",
+                orderNumber);
+
+            var handle = new SalesOrderPostingLockHandle(orderNumber, advisoryKey, connection, _logger);
+            connection = null;
+            return handle;
+        }
+        finally
+        {
+            if (connection is not null)
+            {
+                await connection.DisposeAsync();
+            }
+        }
+    }
+
+    private static long ComputeAdvisoryKey(string lockName)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(lockName));
+        return BitConverter.ToInt64(hash, 0);
+    }
+
+    private sealed class SalesOrderPostingLockHandle(
+        string orderNumber,
+        long advisoryKey,
+        NpgsqlConnection connection,
+        ILogger<SalesOrderService> logger) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                if (connection.State == System.Data.ConnectionState.Open)
+                {
+                    await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock(@key)", connection);
+                    command.Parameters.AddWithValue("key", advisoryKey);
+                    await command.ExecuteScalarAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to release sales order SAP posting lock for {OrderNumber}", orderNumber);
+            }
+            finally
+            {
+                await connection.DisposeAsync();
+            }
+        }
+    }
 
     private static string TruncateMobileQueueError(string message)
         => message.Length > 2000 ? message[..2000] : message;
@@ -1802,8 +2012,8 @@ public class SalesOrderService : ISalesOrderService
     }
 
     /// <summary>
-    /// Populates line prices from SAP using the BP's assigned price list,
-    /// with BP-specific special prices (OSPP) taking priority.
+    /// Populates line prices from live SAP BP pricing,
+    /// with BP-specific special prices taking priority over the BP price list.
     /// </summary>
     private async Task PopulateSAPPricesAsync(SalesOrderEntity order, CancellationToken cancellationToken)
     {
@@ -1825,16 +2035,25 @@ public class SalesOrderService : ISalesOrderService
                 return;
 
             _logger.LogInformation(
-                "Populating prices for order {OrderId} using the local price catalog for {ItemCount} items (BP: {CardCode})",
+                "Populating prices for order {OrderId} using live SAP BP pricing for {ItemCount} items (BP: {CardCode})",
                 order.Id,
                 itemCodes.Count,
                 order.CardCode);
 
-            var pricing = await _localPriceCatalogService.GetBusinessPartnerPricingAsync(order.CardCode, itemCodes, pricingCts.Token);
-            var priceMap = pricing?.Prices.Prices?
+            var livePrices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, pricingCts.Token);
+            var priceMap = livePrices
                 .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode) && price.Price > 0)
                 .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, pricingCts.Token);
+            foreach (var specialPrice in specialPrices)
+            {
+                if (!string.IsNullOrWhiteSpace(specialPrice.Key) && specialPrice.Value > 0)
+                {
+                    priceMap[specialPrice.Key] = specialPrice.Value;
+                }
+            }
 
             foreach (var line in order.Lines)
             {
@@ -1842,7 +2061,7 @@ public class SalesOrderService : ISalesOrderService
                 if (!priceMap.TryGetValue(line.ItemCode, out var unitPrice))
                 {
                     _logger.LogWarning(
-                        "No locally synced price found for item {ItemCode} in the customer price catalog for BP {CardCode}",
+                        "No live SAP price found for item {ItemCode} in the customer price catalog for BP {CardCode}",
                         line.ItemCode,
                         order.CardCode);
                     continue;
@@ -1877,7 +2096,7 @@ public class SalesOrderService : ISalesOrderService
         {
             _logger.LogWarning(
                 ex,
-                "Timed out populating locally stored prices for order {OrderId} (BP: {CardCode}) after {TimeoutSeconds} seconds. Approval will continue with existing prices.",
+                "Timed out populating live SAP prices for order {OrderId} (BP: {CardCode}) after {TimeoutSeconds} seconds. Approval will continue with existing prices.",
                 order.Id,
                 order.CardCode,
                 ApprovalPricingTimeout.TotalSeconds);
@@ -1885,9 +2104,9 @@ public class SalesOrderService : ISalesOrderService
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to populate locally stored prices for order {OrderId} (BP: {CardCode}). Prices may be incomplete.",
+                "Failed to populate live SAP prices for order {OrderId} (BP: {CardCode}). Prices may be incomplete.",
                 order.Id, order.CardCode);
-            // Don't block approval if catalog pricing fails — order can still be approved
+            // Don't block approval if live pricing fails — order can still be approved
             // but prices might need manual correction
         }
     }

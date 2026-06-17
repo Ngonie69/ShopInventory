@@ -1469,6 +1469,8 @@
     private string? purchaseOrderViewerMimeType;
     private DocumentAttachmentDto? purchaseOrderViewerAttachment;
     private readonly Dictionary<int, OrderActionType> orderActionStates = new();
+    private readonly HashSet<int> backgroundPriceRefreshOrderIds = new();
+    private readonly object backgroundPriceRefreshLock = new();
     private readonly Dictionary<int, BulkPodValidationResult> podStatusByOrderId = new();
     private readonly HashSet<SalesOrderStatus> availableStatusFilters = new()
     {
@@ -1783,7 +1785,7 @@
                 totalPages = response.TotalPages;
                 TrackAvailableStatusFilters(orders);
 
-                await PopulateMissingOrderPricesAsync(orders);
+                await PopulateMissingOrderPricesAsync(orders, loadVersion);
                 if (loadVersion != ordersLoadVersion)
                     return;
 
@@ -1859,10 +1861,15 @@
 
             await LoadPurchaseOrderAttachmentsAsync(detailOrder);
 
-            // If order lines have no prices (mobile drafts), fetch from SAP using the BP's price list
+            // Hydrate missing mobile draft prices from the local BP catalog; approval re-verifies against live SAP pricing.
             if (OrderHasMissingPrices(detailOrder))
             {
                 await PopulateOrderPricesAsync(detailOrder);
+            }
+
+            if (CanRefreshOrderPricesInBackground(detailOrder))
+            {
+                _ = RefreshOrderPricesInBackgroundAsync(detailOrder.Id, ordersLoadVersion);
             }
 
             StateHasChanged();
@@ -2314,7 +2321,14 @@
             && order.Lines.Any(l => l.UnitPrice <= 0 || l.LineTotal <= 0);
     }
 
-    private async Task PopulateMissingOrderPricesAsync(IEnumerable<SalesOrderDto> loadedOrders)
+    private static bool CanRefreshOrderPricesInBackground(SalesOrderDto order)
+    {
+        return order.Source == SalesOrderSource.Mobile
+            && (!order.IsSynced || !order.SAPDocEntry.HasValue || order.SAPDocEntry.Value <= 0)
+            && order.Lines?.Any() == true;
+    }
+
+    private async Task PopulateMissingOrderPricesAsync(IEnumerable<SalesOrderDto> loadedOrders, int loadVersion)
     {
         var missingPriceOrders = loadedOrders
             .Where(OrderHasMissingPrices)
@@ -2329,12 +2343,13 @@
         }
 
         StateHasChanged();
+        QueueBackgroundLivePriceRefresh(missingPriceOrders, loadVersion);
     }
 
-    private async Task PopulateOrderPricesAsync(SalesOrderDto order)
+    private async Task<bool> PopulateOrderPricesAsync(SalesOrderDto order, bool useLivePricing = false)
     {
         if (order.IsSynced && order.SAPDocEntry.HasValue && order.SAPDocEntry.Value > 0)
-            return;
+            return false;
 
         try
         {
@@ -2345,39 +2360,46 @@
                 .ToList() ?? [];
 
             if (itemCodes.Count == 0)
-                return;
+                return false;
 
-            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode, itemCodes);
+            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode, itemCodes, useLivePricing);
             if (bpPrices?.Prices == null || bpPrices.Prices.Count == 0)
-                return;
+                return false;
 
             var priceMap = bpPrices.Prices
                 .Where(p => p.ItemCode != null)
                 .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
 
             var pricesChanged = false;
+            var updatedLines = new List<CreateSalesOrderLineRequest>();
 
             foreach (var line in order.Lines!)
             {
+                var updatedUnitPrice = line.UnitPrice;
                 if (priceMap.TryGetValue(line.ItemCode, out var price))
                 {
                     if (line.UnitPrice != price)
                         pricesChanged = true;
 
-                    line.UnitPrice = price;
-                    var discountMultiplier = line.DiscountPercent > 0 ? (1 - line.DiscountPercent / 100m) : 1m;
-                    line.LineTotal = Math.Round(line.Quantity * price * discountMultiplier, 2);
+                    updatedUnitPrice = price;
                 }
+
+                updatedLines.Add(new CreateSalesOrderLineRequest
+                {
+                    ItemCode = line.ItemCode,
+                    ItemDescription = line.ItemDescription,
+                    Quantity = line.Quantity,
+                    UnitPrice = updatedUnitPrice,
+                    DiscountPercent = line.DiscountPercent,
+                    TaxPercent = line.TaxPercent,
+                    WarehouseCode = line.WarehouseCode,
+                    UoMCode = line.UoMCode,
+                    BatchNumber = line.BatchNumber
+                });
             }
 
-            order.SubTotal = order.Lines!.Sum(l => l.LineTotal);
-            var taxRate = order.Lines!.FirstOrDefault()?.TaxPercent ?? 0m;
-            order.TaxAmount = taxRate > 0 ? Math.Round(order.SubTotal * taxRate / 100m, 2) : 0m;
-            var orderDiscountMultiplier = order.DiscountPercent > 0 ? (1 - order.DiscountPercent / 100m) : 1m;
-            order.DocTotal = Math.Round((order.SubTotal + order.TaxAmount) * orderDiscountMultiplier, 2);
-
             if (!pricesChanged)
-                return;
+                return false;
 
             var updateRequest = new CreateSalesOrderRequest
             {
@@ -2397,35 +2419,151 @@
                 MerchandiserNotes = order.MerchandiserNotes,
                 DeviceInfo = order.DeviceInfo,
                 RowVersion = order.RowVersion,
-                Lines = order.Lines.Select(line => new CreateSalesOrderLineRequest
-                {
-                    ItemCode = line.ItemCode,
-                    ItemDescription = line.ItemDescription,
-                    Quantity = line.Quantity,
-                    UnitPrice = line.UnitPrice,
-                    DiscountPercent = line.DiscountPercent,
-                    TaxPercent = line.TaxPercent,
-                    WarehouseCode = line.WarehouseCode,
-                    UoMCode = line.UoMCode,
-                    BatchNumber = line.BatchNumber
-                }).ToList()
+                Lines = updatedLines
             };
 
             var updatedOrder = await SalesOrderService.UpdateSalesOrderAsync(order.Id, updateRequest);
             if (updatedOrder != null)
             {
-                order.SubTotal = updatedOrder.SubTotal;
-                order.TaxAmount = updatedOrder.TaxAmount;
-                order.DiscountAmount = updatedOrder.DiscountAmount;
-                order.DocTotal = updatedOrder.DocTotal;
-                order.RowVersion = updatedOrder.RowVersion;
-                order.Lines = updatedOrder.Lines;
+                ApplyUpdatedOrderPricingState(order, updatedOrder);
+                return true;
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to fetch BP prices for order {OrderId} ({CardCode})", order.Id, order.CardCode);
+            Logger.LogWarning(
+                ex,
+                "Failed to fetch {PricingSource} BP prices for order {OrderId} ({CardCode})",
+                useLivePricing ? "live" : "locally stored",
+                order.Id,
+                order.CardCode);
         }
+
+        return false;
+    }
+
+    private void QueueBackgroundLivePriceRefresh(IEnumerable<SalesOrderDto> ordersToRefresh, int loadVersion)
+    {
+        var refreshCandidates = ordersToRefresh
+            .Where(CanRefreshOrderPricesInBackground)
+            .GroupBy(order => order.Id)
+            .Select(group => group.First())
+            .Where(order => !IsOrderActionBusy(order.Id))
+            .ToList();
+
+        if (refreshCandidates.Count == 0)
+            return;
+
+        _ = RefreshOrderPricesInBackgroundAsync(refreshCandidates, loadVersion);
+    }
+
+    private async Task RefreshOrderPricesInBackgroundAsync(IReadOnlyCollection<SalesOrderDto> ordersToRefresh, int loadVersion)
+    {
+        foreach (var order in ordersToRefresh)
+        {
+            if (loadVersion != ordersLoadVersion)
+                return;
+
+            if (!TryBeginBackgroundPriceRefresh(order.Id))
+                continue;
+
+            try
+            {
+                if (IsOrderActionBusy(order.Id))
+                    continue;
+
+                var pricesUpdated = await PopulateOrderPricesAsync(order, useLivePricing: true);
+                if (!pricesUpdated || loadVersion != ordersLoadVersion)
+                    continue;
+
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed background live price refresh for order {OrderId} ({CardCode})", order.Id, order.CardCode);
+            }
+            finally
+            {
+                EndBackgroundPriceRefresh(order.Id);
+            }
+        }
+    }
+
+    private async Task RefreshOrderPricesInBackgroundAsync(int orderId, int loadVersion)
+    {
+        if (!TryBeginBackgroundPriceRefresh(orderId))
+            return;
+
+        try
+        {
+            var order = FindOrderForPricingRefresh(orderId);
+            if (order == null || loadVersion != ordersLoadVersion || !CanRefreshOrderPricesInBackground(order))
+                return;
+
+            await PopulateOrderPricesAsync(order, useLivePricing: true);
+
+            if (loadVersion == ordersLoadVersion)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        finally
+        {
+            EndBackgroundPriceRefresh(orderId);
+        }
+    }
+
+    private SalesOrderDto? FindOrderForPricingRefresh(int orderId)
+    {
+        if (selectedOrder?.Id == orderId)
+            return selectedOrder;
+
+        return orders?.FirstOrDefault(order => order.Id == orderId);
+    }
+
+    private bool TryBeginBackgroundPriceRefresh(int orderId)
+    {
+        lock (backgroundPriceRefreshLock)
+        {
+            return backgroundPriceRefreshOrderIds.Add(orderId);
+        }
+    }
+
+    private void EndBackgroundPriceRefresh(int orderId)
+    {
+        lock (backgroundPriceRefreshLock)
+        {
+            backgroundPriceRefreshOrderIds.Remove(orderId);
+        }
+    }
+
+    private void ApplyUpdatedOrderPricingState(SalesOrderDto currentOrder, SalesOrderDto updatedOrder)
+    {
+        CopyUpdatedOrderPricingState(currentOrder, updatedOrder);
+
+        var listOrder = orders?.FirstOrDefault(order => order.Id == updatedOrder.Id);
+        if (listOrder != null && !ReferenceEquals(listOrder, currentOrder))
+        {
+            CopyUpdatedOrderPricingState(listOrder, updatedOrder);
+        }
+
+        if (selectedOrder != null
+            && selectedOrder.Id == updatedOrder.Id
+            && !ReferenceEquals(selectedOrder, currentOrder)
+            && !ReferenceEquals(selectedOrder, listOrder))
+        {
+            CopyUpdatedOrderPricingState(selectedOrder, updatedOrder);
+        }
+    }
+
+    private static void CopyUpdatedOrderPricingState(SalesOrderDto target, SalesOrderDto source)
+    {
+        target.SubTotal = source.SubTotal;
+        target.TaxAmount = source.TaxAmount;
+        target.DiscountAmount = source.DiscountAmount;
+        target.DocTotal = source.DocTotal;
+        target.RowVersion = source.RowVersion;
+        target.Lines = source.Lines;
     }
 
     private void NavigateToEdit(int id)

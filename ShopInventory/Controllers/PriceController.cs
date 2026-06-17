@@ -123,6 +123,7 @@ public class PriceController(IMediator mediator) : ApiControllerBase
         string cardCode,
         [FromQuery] bool? forceRefresh = null,
         [FromQuery] string[]? itemCodes = null,
+        [FromQuery] bool useLivePricing = true,
         CancellationToken cancellationToken = default)
     {
         if (forceRefresh == true)
@@ -139,7 +140,9 @@ public class PriceController(IMediator mediator) : ApiControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var result = await mediator.Send(new GetPricesByBusinessPartnerQuery(cardCode, false, requestedItemCodes), cancellationToken);
+        var result = await mediator.Send(
+            new GetPricesByBusinessPartnerQuery(cardCode, false, requestedItemCodes, useLivePricing),
+            cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

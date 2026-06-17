@@ -7,5 +7,6 @@ namespace ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
 public sealed record GetPricesByBusinessPartnerQuery(
     string CardCode,
     bool ForceRefresh,
-    IReadOnlyCollection<string>? ItemCodes = null
+    IReadOnlyCollection<string>? ItemCodes = null,
+    bool UseLivePricing = true
 ) : IRequest<ErrorOr<ItemPricesByListResponseDto>>;

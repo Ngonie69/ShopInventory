@@ -9,6 +9,7 @@ internal static class PodInvoiceCreatorLocations
             [34] = ("Rose", "Factory-Dispatch"),
             [15] = ("Fiona Cheeseman", "Cheeseman DC Meyrick"),
             [74] = ("Sarah", "Factory-Dispatch"),
+            [77] = ("User 77", "Graniteside"),
             [29] = ("Cheeseman Bulawayo Manager", "Cheeseman DC Byo"),
             [50] = ("Darlington", "Cheeseman DC Harare"),
             [12] = ("Alice", "Factory-Dispatch"),

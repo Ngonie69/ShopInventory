@@ -1,7 +1,8 @@
 @page "/customer-portal/pods"
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
-@inject IPodService PodService
+@using System.Net.Http.Json
+@inject HttpClient Http
 @inject ICustomerPortalSessionService CustomerSession
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerPods> Logger
@@ -37,7 +38,7 @@
                         {
                             <span class="badge bg-light text-dark mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                    ?? selectedAccountFilter)
+                                                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -72,6 +73,18 @@
                 <a href="/customer-portal/login" class="cpod-nav-btn cpod-nav-primary" style="text-decoration:none;">
                     <i class="bi bi-box-arrow-in-right me-1"></i>Login to Portal
                 </a>
+            </div>
+        </div>
+    }
+    else if (isLoading)
+    {
+        <div class="cpod-card">
+            <div class="cpod-auth-state">
+                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <h5 class="cpod-empty-title mt-3">Loading PODs</h5>
+                <p class="cpod-empty-sub">Retrieving proof of delivery records for your account.</p>
             </div>
         </div>
     }
@@ -213,6 +226,13 @@
                                 <span class="cpod-record-count">@(podResponse?.TotalCount ?? 0) total</span>
                             </div>
                             <div class="cpod-table-wrap">
+                                @if (!string.IsNullOrWhiteSpace(loadErrorMessage))
+                                {
+                                    <div class="alert alert-warning m-3 mb-0" role="alert">
+                                        @loadErrorMessage
+                                    </div>
+                                }
+
                                 @if (podResponse?.Items?.Any() == true)
                                 {
                                     var groupedPods = podResponse.Items.GroupBy(p => p.InvoiceDocEntry).ToList();
@@ -243,7 +263,7 @@
                                                                 {
                                                                     <td rowspan="@pods.Count" class="align-middle">
                                                                         <span class="cpod-invoice-badge">@(first.InvoiceDocNum > 0 ?
-                                                                                                                    first.InvoiceDocNum.ToString() : "-")</span>
+                                                                                                                                                                                                                                                                            first.InvoiceDocNum.ToString() : "-")</span>
                                                                         </td>
                                                                         <td rowspan="@pods.Count" class="align-middle">
                                                                             <div class="cpod-customer-name">@(first.CardName ?? "-")</div>
@@ -293,7 +313,7 @@
                                                         <div class="cpod-mobile-header-block">
                                                             <div class="cpod-mobile-label">Invoice #</div>
                                                             <span class="cpod-invoice-badge">@(first.InvoiceDocNum > 0 ? first.InvoiceDocNum.ToString()
-                                                                                                : "-")</span>
+                                                                                                                                                                                                                                : "-")</span>
                                                             </div>
                                                             <div class="cpod-mobile-header-block cpod-mobile-customer-block">
                                                                 <div class="cpod-mobile-label">Customer</div>
@@ -376,7 +396,7 @@
                                                     <div class="cpod-pagination">
                                                         <span class="cpod-pagination-info">
                                                             Showing @((currentPage - 1) * pageSize + 1)–@Math.Min(currentPage * pageSize,
-                                                                                podResponse.TotalCount)
+                                                                                                                                                                                                        podResponse.TotalCount)
                                                             of @podResponse.TotalCount
                                                         </span>
                                                         <div class="cpod-pagination-btns">
@@ -392,7 +412,7 @@
                                                     </div>
                                                 }
                                             }
-                else
+                else if (string.IsNullOrWhiteSpace(loadErrorMessage))
                                             {
                                                 <div class="cpod-empty-state">
                                                     <div class="cpod-empty-icon">
@@ -1084,7 +1104,7 @@
     private CustomerPortalSession? portalSession;
     private CustomerInfo? customerInfo;
     private PodAttachmentListResponse? podResponse;
-    private bool isLoading = false;
+    private bool isLoading = true;
     private bool hasLoaded = false;
     private int currentPage = 1;
     private const int pageSize = 20;
@@ -1093,6 +1113,7 @@
     private bool isMultiAccount;
     private string selectedAccountFilter = "";
     private List<LinkedAccountInfo> linkedAccounts = new();
+    private string? loadErrorMessage;
 
     // Viewer state
     private bool showViewer;
@@ -1107,6 +1128,16 @@
         if (firstRender)
         {
             await LoadCustomerInfo();
+
+            if (customerInfo != null)
+            {
+                await LoadData();
+            }
+            else
+            {
+                isLoading = false;
+            }
+
             StateHasChanged();
         }
     }
@@ -1151,6 +1182,88 @@
         return new List<string>();
     }
 
+    private static PodAttachmentListResponse CreateEmptyPodResponse(int page, int pageSize)
+    {
+        return new PodAttachmentListResponse
+        {
+            Items = new List<PodAttachmentItemDto>(),
+            TotalCount = 0,
+            Page = page,
+            PageSize = pageSize,
+            HasMore = false
+        };
+    }
+
+    private async Task<PodAttachmentListResponse> GetPodsForCurrentScopeAsync(int page)
+    {
+        var cardCodes = await ResolveCardCodesAsync();
+        if (cardCodes.Count == 0)
+        {
+            loadErrorMessage = "We couldn't determine which account to load PODs for.";
+            return CreateEmptyPodResponse(page, pageSize);
+        }
+
+        var queryParams = new List<string>
+        {
+            $"page={page}",
+            $"pageSize={pageSize}",
+            $"cardCode={Uri.EscapeDataString(string.Join(",", cardCodes))}"
+        };
+
+        if (fromDate.HasValue)
+        {
+            queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
+        }
+
+        if (toDate.HasValue)
+        {
+            queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+        }
+
+        var url = $"api/invoice/pods?{string.Join("&", queryParams)}";
+        using var response = await Http.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            Logger.LogWarning(
+                "Customer POD API GET {Url} failed with status {StatusCode}. Response: {ResponseBody}",
+                url,
+                (int)response.StatusCode,
+                errorBody);
+            loadErrorMessage = "We couldn't load proof of delivery records right now. Please try again.";
+            return CreateEmptyPodResponse(page, pageSize);
+        }
+
+        var responseModel = await response.Content.ReadFromJsonAsync<PodAttachmentListResponse>();
+        if (responseModel == null)
+        {
+            Logger.LogWarning("Customer POD API GET {Url} returned an empty response body", url);
+            loadErrorMessage = "We couldn't read the proof of delivery response. Please try again.";
+            return CreateEmptyPodResponse(page, pageSize);
+        }
+
+        loadErrorMessage = null;
+        return responseModel;
+    }
+
+    private async Task<byte[]?> DownloadPodContentAsync(int docEntry, int attachmentId)
+    {
+        var url = $"api/invoice/{docEntry}/attachments/{attachmentId}/download";
+        using var response = await Http.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync();
+            Logger.LogWarning(
+                "Customer POD download {Url} failed with status {StatusCode}. Response: {ResponseBody}",
+                url,
+                (int)response.StatusCode,
+                errorBody);
+            return null;
+        }
+
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+
     private async Task LoadData()
     {
         if (customerInfo == null) return;
@@ -1160,8 +1273,7 @@
         try
         {
             currentPage = 1;
-            var cardCodes = await ResolveCardCodesAsync();
-            podResponse = await PodService.GetAllPodsForAccountsAsync(currentPage, pageSize, cardCodes, fromDate, toDate);
+            podResponse = await GetPodsForCurrentScopeAsync(currentPage);
             hasLoaded = true;
         }
         catch (Exception ex)
@@ -1181,8 +1293,7 @@
 
         try
         {
-            var cardCodes = await ResolveCardCodesAsync();
-            podResponse = await PodService.GetAllPodsForAccountsAsync(currentPage, pageSize, cardCodes, fromDate, toDate);
+            podResponse = await GetPodsForCurrentScopeAsync(currentPage);
         }
         catch (Exception ex)
         {
@@ -1213,7 +1324,7 @@
                 return;
             }
 
-            var content = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
+            var content = await DownloadPodContentAsync(pod.InvoiceDocEntry, pod.Id);
             if (content == null || content.Length == 0)
             {
                 return;
@@ -1251,7 +1362,7 @@
             isLoadingViewer = true;
             StateHasChanged();
 
-            var content = await PodService.DownloadPodAsync(pod.InvoiceDocEntry, pod.Id);
+            var content = await DownloadPodContentAsync(pod.InvoiceDocEntry, pod.Id);
             if (content == null || content.Length == 0)
             {
                 showViewer = false;

@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Crates;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
@@ -91,10 +92,15 @@ public sealed class GetPodUploadStatusHandler(
 
             var docEntries = invoices.Select(i => i.DocEntry).ToList();
             var podLookup = await documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
+            var cratePodLookup = await GetCratePodStatusByInvoiceDocNumsAsync(
+                invoices.Select(invoice => invoice.DocNum).ToList(),
+                cancellationToken);
 
             var items = invoices.Select(i =>
             {
                 podLookup.TryGetValue(i.DocEntry, out var podInfo);
+                cratePodLookup.TryGetValue(i.DocNum, out var cratePodInfo);
+                var combinedPodInfo = MergePodStatusInfo(podInfo, cratePodInfo);
                 var creatorLocation = PodInvoiceCreatorLocations.GetCreatorLocation(i.UserSign);
 
                 return new PodUploadStatusItemDto
@@ -109,10 +115,10 @@ public sealed class GetPodUploadStatusHandler(
                     CreatedByUserId = i.UserSign,
                     CreatedByUserCode = creatorLocation?.UserName,
                     CreatedLocation = creatorLocation?.Location,
-                    HasPod = podInfo != null,
-                    PodUploadedAt = podInfo?.UploadedAt,
-                    PodUploadedBy = podInfo?.UploadedBy,
-                    PodUploadedByUsers = podInfo?.UploadedByUsers
+                    HasPod = combinedPodInfo is not null,
+                    PodUploadedAt = combinedPodInfo?.UploadedAt,
+                    PodUploadedBy = combinedPodInfo?.UploadedBy,
+                    PodUploadedByUsers = combinedPodInfo?.UploadedByUsers
                         .Select(uploader => new PodUploadUserSummaryDto
                         {
                             Username = uploader.Username,
@@ -122,7 +128,7 @@ public sealed class GetPodUploadStatusHandler(
                             LatestUploadedAt = uploader.LatestUploadedAt
                         })
                         .ToList() ?? new(),
-                    PodCount = podInfo?.Count ?? 0
+                    PodCount = combinedPodInfo?.Count ?? 0
                 };
             }).OrderByDescending(i => i.DocNum).ToList();
 
@@ -149,6 +155,231 @@ public sealed class GetPodUploadStatusHandler(
             logger.LogError(ex, "Error generating POD upload status report");
             return Errors.Invoice.CreationFailed(ex.Message);
         }
+    }
+
+    private async Task<Dictionary<int, PodStatusInfo>> GetCratePodStatusByInvoiceDocNumsAsync(
+        List<int> invoiceDocNums,
+        CancellationToken cancellationToken)
+    {
+        var requestedDocNums = invoiceDocNums
+            .Where(invoiceDocNum => invoiceDocNum > 0)
+            .Distinct()
+            .ToList();
+
+        if (requestedDocNums.Count == 0)
+        {
+            return [];
+        }
+
+        var latestTransactions = await context.CrateTransactions
+            .AsNoTracking()
+            .Where(transaction =>
+                EF.Functions.ILike(transaction.TransactionType, CrateTrackingConstants.TransactionTypeInvoice) &&
+                transaction.InvoiceDocNum.HasValue &&
+                requestedDocNums.Contains(transaction.InvoiceDocNum.Value))
+            .OrderByDescending(transaction => transaction.EffectiveDate)
+            .ThenByDescending(transaction => transaction.CreatedAt)
+            .Select(transaction => new
+            {
+                transaction.Id,
+                InvoiceDocNum = transaction.InvoiceDocNum!.Value
+            })
+            .ToListAsync(cancellationToken);
+
+        var latestTransactionsByDocNum = latestTransactions
+            .GroupBy(transaction => transaction.InvoiceDocNum)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        if (latestTransactionsByDocNum.Count == 0)
+        {
+            return [];
+        }
+
+        var transactionIds = latestTransactionsByDocNum.Values
+            .Select(transaction => transaction.Id)
+            .ToList();
+
+        var submissions = await context.CratePodSubmissions
+            .AsNoTracking()
+            .Where(submission => transactionIds.Contains(submission.CrateTransactionId))
+            .Select(submission => new
+            {
+                submission.Id,
+                submission.CrateTransactionId,
+                Username = submission.SubmittedByUser != null ? submission.SubmittedByUser.Username : null,
+                Role = submission.SubmittedByUser != null ? submission.SubmittedByUser.Role : null,
+                AssignedSection = submission.SubmittedByUser != null ? submission.SubmittedByUser.AssignedSection : null
+            })
+            .ToListAsync(cancellationToken);
+
+        if (submissions.Count == 0)
+        {
+            return [];
+        }
+
+        var submissionIds = submissions
+            .Select(submission => submission.Id)
+            .ToList();
+
+        var attachments = await context.DocumentAttachments
+            .AsNoTracking()
+            .Where(attachment =>
+                attachment.EntityType == CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission &&
+                submissionIds.Contains(attachment.EntityId))
+            .Select(attachment => new
+            {
+                SubmissionId = attachment.EntityId,
+                attachment.UploadedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        if (attachments.Count == 0)
+        {
+            return [];
+        }
+
+        var transactionDocNumsById = latestTransactionsByDocNum.Values
+            .ToDictionary(transaction => transaction.Id, transaction => transaction.InvoiceDocNum);
+
+        var cratePodData = submissions
+            .GroupJoin(
+                attachments,
+                submission => submission.Id,
+                attachment => attachment.SubmissionId,
+                (submission, submissionAttachments) => new
+                {
+                    submission.CrateTransactionId,
+                    submission.Username,
+                    submission.Role,
+                    submission.AssignedSection,
+                    Attachments = submissionAttachments.ToList()
+                })
+            .Where(submission =>
+                submission.Attachments.Count > 0 &&
+                transactionDocNumsById.ContainsKey(submission.CrateTransactionId))
+            .GroupBy(submission => transactionDocNumsById[submission.CrateTransactionId])
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                {
+                    var uploadedByUsers = group
+                        .Select(submission =>
+                        {
+                            var latestUpload = submission.Attachments
+                                .OrderByDescending(attachment => attachment.UploadedAt)
+                                .First();
+
+                            return new PodUploadUserSummaryInfo
+                            {
+                                Username = string.IsNullOrWhiteSpace(submission.Username)
+                                    ? "Unknown uploader"
+                                    : submission.Username.Trim(),
+                                Role = string.IsNullOrWhiteSpace(submission.Role)
+                                    ? null
+                                    : submission.Role.Trim(),
+                                AssignedSection = string.IsNullOrWhiteSpace(submission.AssignedSection)
+                                    ? null
+                                    : submission.AssignedSection.Trim(),
+                                FileCount = submission.Attachments.Count,
+                                LatestUploadedAt = latestUpload.UploadedAt
+                            };
+                        })
+                        .GroupBy(summary => summary.Username, StringComparer.OrdinalIgnoreCase)
+                        .Select(uploaderGroup =>
+                        {
+                            var latestUpload = uploaderGroup
+                                .Where(summary => summary.LatestUploadedAt.HasValue)
+                                .OrderByDescending(summary => summary.LatestUploadedAt)
+                                .FirstOrDefault() ?? uploaderGroup.First();
+
+                            return new PodUploadUserSummaryInfo
+                            {
+                                Username = uploaderGroup.Key,
+                                Role = latestUpload.Role,
+                                AssignedSection = latestUpload.AssignedSection,
+                                FileCount = uploaderGroup.Sum(summary => summary.FileCount),
+                                LatestUploadedAt = uploaderGroup.Max(summary => summary.LatestUploadedAt)
+                            };
+                        })
+                        .OrderByDescending(summary => summary.LatestUploadedAt)
+                        .ThenBy(summary => summary.Username)
+                        .ToList();
+
+                    var latestUploader = uploadedByUsers.FirstOrDefault();
+
+                    return new PodStatusInfo
+                    {
+                        UploadedAt = group
+                            .SelectMany(submission => submission.Attachments)
+                            .Max(attachment => attachment.UploadedAt),
+                        UploadedBy = latestUploader is null ||
+                            string.Equals(latestUploader.Username, "Unknown uploader", StringComparison.OrdinalIgnoreCase)
+                                ? null
+                                : latestUploader.Username,
+                        Count = group.Sum(submission => submission.Attachments.Count),
+                        UploadedByUsers = uploadedByUsers
+                    };
+                });
+
+        return cratePodData;
+    }
+
+    private static PodStatusInfo? MergePodStatusInfo(PodStatusInfo? invoicePodInfo, PodStatusInfo? cratePodInfo)
+    {
+        if (invoicePodInfo is null)
+        {
+            return cratePodInfo;
+        }
+
+        if (cratePodInfo is null)
+        {
+            return invoicePodInfo;
+        }
+
+        var uploadedByUsers = invoicePodInfo.UploadedByUsers
+            .Concat(cratePodInfo.UploadedByUsers)
+            .GroupBy(
+                summary => string.IsNullOrWhiteSpace(summary.Username)
+                    ? "Unknown uploader"
+                    : summary.Username.Trim(),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(uploaderGroup =>
+            {
+                var latestUpload = uploaderGroup
+                    .Where(summary => summary.LatestUploadedAt.HasValue)
+                    .OrderByDescending(summary => summary.LatestUploadedAt)
+                    .FirstOrDefault() ?? uploaderGroup.First();
+
+                return new PodUploadUserSummaryInfo
+                {
+                    Username = uploaderGroup.Key,
+                    Role = latestUpload.Role,
+                    AssignedSection = latestUpload.AssignedSection,
+                    FileCount = uploaderGroup.Sum(summary => summary.FileCount),
+                    LatestUploadedAt = uploaderGroup.Max(summary => summary.LatestUploadedAt)
+                };
+            })
+            .OrderByDescending(summary => summary.LatestUploadedAt)
+            .ThenBy(summary => summary.Username)
+            .ToList();
+
+        var latestUploader = uploadedByUsers.FirstOrDefault();
+        var latestInvoicePod = invoicePodInfo.UploadedAt >= cratePodInfo.UploadedAt
+            ? invoicePodInfo
+            : cratePodInfo;
+
+        return new PodStatusInfo
+        {
+            UploadedAt = invoicePodInfo.UploadedAt >= cratePodInfo.UploadedAt
+                ? invoicePodInfo.UploadedAt
+                : cratePodInfo.UploadedAt,
+            UploadedBy = latestUploader?.Username is null ||
+                string.Equals(latestUploader.Username, "Unknown uploader", StringComparison.OrdinalIgnoreCase)
+                    ? latestInvoicePod.UploadedBy
+                    : latestUploader.Username,
+            Count = invoicePodInfo.Count + cratePodInfo.Count,
+            UploadedByUsers = uploadedByUsers
+        };
     }
 
     private static PodUploadStatusReportDto BuildEmptyReport(GetPodUploadStatusQuery request)

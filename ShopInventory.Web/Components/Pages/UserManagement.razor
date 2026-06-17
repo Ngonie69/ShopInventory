@@ -77,8 +77,8 @@
             <div class="um-filter-bar">
                 <div class="um-search-box">
                     <i class="bi bi-search"></i>
-                    <input type="text" placeholder="Search by name or email..." @bind="searchTerm" @bind:event="oninput"
-                           @onkeyup="OnSearchKeyUp" />
+                    <input type="search" placeholder="Search by name or email..." @bind="searchTerm" @bind:event="oninput"
+                           @bind:after="OnSearchChanged" enterkeyhint="search" />
                 </div>
                 @if (!isPodOperatorView)
                 {
@@ -3734,13 +3734,10 @@ new();
         }
     }
 
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    private async Task OnSearchChanged()
     {
-        if (e.Key == "Enter")
-        {
-            currentPage = 1;
-            await LoadUsers();
-        }
+        currentPage = 1;
+        await LoadUsers();
     }
 
     private async Task ResetFilters()
