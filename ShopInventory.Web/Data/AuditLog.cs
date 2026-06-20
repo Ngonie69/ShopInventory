@@ -171,6 +171,7 @@ public static class AuditActions
     public const string BulkUploadPod = "BulkUploadPod";
     public const string ViewPod = "ViewPod";
     public const string DownloadPod = "DownloadPod";
+    public const string SendPodReportEmail = "SendPodReportEmail";
 
     // Customer actions
     public const string ViewCustomers = "ViewCustomers";

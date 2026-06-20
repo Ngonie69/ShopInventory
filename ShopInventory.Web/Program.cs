@@ -7,12 +7,14 @@ using MediatR;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
 using ShopInventory.Web.Configuration;
 using ShopInventory.Web.Behaviors;
+using ShopInventory.Web.Common.ProblemDetails;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Health;
@@ -121,6 +123,16 @@ try
             // Allow enough parallel invocations for bulk POD uploads (5 concurrent file reads + UI updates).
             options.MaximumParallelInvocationsPerClient = 10;
         });
+    builder.Services.AddProblemDetails(options =>
+    {
+        options.CustomizeProblemDetails = ProblemDetailsDefaults.Customize;
+    });
+    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestInputExceptionHandler>();
+    builder.Services.AddExceptionHandler<AuthorizationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestCanceledExceptionHandler>();
+    builder.Services.AddExceptionHandler<DependencyExceptionHandler>();
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
     // Add MudBlazor services
     builder.Services.AddMudServices();
@@ -323,6 +335,8 @@ try
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IPodReportEmailService, PodReportEmailService>();
+    builder.Services.AddHostedService<PodReportEmailScheduler>();
     builder.Services.Configure<StatementEmailSettings>(builder.Configuration.GetSection("StatementEmails"));
     builder.Services.AddHostedService<StatementEmailScheduler>();
 
@@ -396,6 +410,31 @@ try
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
         app.UseHsts();
     }
+    app.UseStatusCodePages(async statusCodeContext =>
+    {
+        var httpContext = statusCodeContext.HttpContext;
+        var statusCode = httpContext.Response.StatusCode;
+        if (statusCode < StatusCodes.Status400BadRequest
+            || httpContext.Response.HasStarted
+            || !ProblemDetailsDefaults.ShouldWriteProblemDetails(httpContext))
+        {
+            return;
+        }
+
+        var problemDetailsService = httpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        var problemDetails = new ProblemDetails
+        {
+            Status = statusCode,
+            Type = ProblemDetailsDefaults.GetType(statusCode)
+        };
+
+        await ProblemDetailsDefaults.WriteAsync(
+            problemDetailsService,
+            httpContext,
+            null,
+            problemDetails,
+            httpContext.RequestAborted);
+    });
 
     // Swagger proxy - must be before security middleware to avoid interference
     app.UseSwaggerProxy();

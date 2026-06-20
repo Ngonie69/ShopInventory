@@ -1,3 +1,4 @@
+using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,8 @@ public sealed class GetPodUploadStatusHandler(
     ILogger<GetPodUploadStatusHandler> logger
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
 {
+    private const decimal FullCreditTolerance = 0.01m;
+
     public async Task<ErrorOr<PodUploadStatusReportDto>> Handle(
         GetPodUploadStatusQuery request,
         CancellationToken cancellationToken)
@@ -34,18 +37,20 @@ public sealed class GetPodUploadStatusHandler(
 
         try
         {
-            var currentUser = await context.Users
-                .AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == request.UserId, cancellationToken);
+            var currentUser = request.UserId.HasValue
+                ? await context.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == request.UserId.Value, cancellationToken)
+                : null;
 
-            if (currentUser is null)
+            if (request.UserId.HasValue && currentUser is null)
                 return Errors.Auth.UserNotFound;
 
-            var isPodOperator = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase);
-            var isDriver = string.Equals(currentUser.Role, "Driver", StringComparison.OrdinalIgnoreCase);
+            var isPodOperator = string.Equals(currentUser?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase);
+            var isDriver = string.Equals(currentUser?.Role, "Driver", StringComparison.OrdinalIgnoreCase);
             HashSet<string>? assignedCustomerCodes = null;
 
-            if (isDriver)
+            if (isDriver && currentUser is not null)
             {
                 var effectiveCustomerCodes = await MobileAssignedCustomerScope.GetEffectiveCustomerCodesAsync(
                     context,
@@ -81,7 +86,7 @@ public sealed class GetPodUploadStatusHandler(
                     .ToList();
             }
 
-            if (isPodOperator)
+            if (isPodOperator && currentUser is not null)
             {
                 invoices = await FilterInvoicesForPodOperatorAsync(
                     invoices,
@@ -92,15 +97,23 @@ public sealed class GetPodUploadStatusHandler(
 
             var docEntries = invoices.Select(i => i.DocEntry).ToList();
             var podLookup = await documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
-            var cratePodLookup = await GetCratePodStatusByInvoiceDocNumsAsync(
+            var crateInvoicePodLookup = await GetCratePodStatusByInvoiceDocNumsAsync(
                 invoices.Select(invoice => invoice.DocNum).ToList(),
+                cancellationToken);
+            var fullyCreditedCreditNoteLookup = await GetFullyCreditedCreditNoteLookupAsync(
+                invoices,
                 cancellationToken);
 
             var items = invoices.Select(i =>
             {
                 podLookup.TryGetValue(i.DocEntry, out var podInfo);
-                cratePodLookup.TryGetValue(i.DocNum, out var cratePodInfo);
+                crateInvoicePodLookup.PodStatusByDocNum.TryGetValue(i.DocNum, out var cratePodInfo);
+                fullyCreditedCreditNoteLookup.TryGetValue(i.DocEntry, out var creditNoteInfo);
                 var combinedPodInfo = MergePodStatusInfo(podInfo, cratePodInfo);
+                var podTypeInfo = ResolvePodTypeInfo(
+                    podInfo,
+                    cratePodInfo,
+                    crateInvoicePodLookup.InvoiceDocNums.Contains(i.DocNum));
                 var creatorLocation = PodInvoiceCreatorLocations.GetCreatorLocation(i.UserSign);
 
                 return new PodUploadStatusItemDto
@@ -115,7 +128,12 @@ public sealed class GetPodUploadStatusHandler(
                     CreatedByUserId = i.UserSign,
                     CreatedByUserCode = creatorLocation?.UserName,
                     CreatedLocation = creatorLocation?.Location,
+                    IsFullyCredited = creditNoteInfo is not null,
+                    CreditNoteNumber = creditNoteInfo?.CreditNoteNumbers,
+                    CreditNoteReason = creditNoteInfo?.Reasons,
                     HasPod = combinedPodInfo is not null,
+                    HasProductPod = podTypeInfo.HasProductPod,
+                    HasCratePod = podTypeInfo.HasCratePod,
                     PodUploadedAt = combinedPodInfo?.UploadedAt,
                     PodUploadedBy = combinedPodInfo?.UploadedBy,
                     PodUploadedByUsers = combinedPodInfo?.UploadedByUsers
@@ -128,7 +146,9 @@ public sealed class GetPodUploadStatusHandler(
                             LatestUploadedAt = uploader.LatestUploadedAt
                         })
                         .ToList() ?? new(),
-                    PodCount = combinedPodInfo?.Count ?? 0
+                    PodCount = combinedPodInfo?.Count ?? 0,
+                    ProductPodCount = podTypeInfo.ProductPodCount,
+                    CratePodCount = podTypeInfo.CratePodCount
                 };
             }).OrderByDescending(i => i.DocNum).ToList();
 
@@ -157,7 +177,214 @@ public sealed class GetPodUploadStatusHandler(
         }
     }
 
-    private async Task<Dictionary<int, PodStatusInfo>> GetCratePodStatusByInvoiceDocNumsAsync(
+    private static PodTypeInfo ResolvePodTypeInfo(
+        PodStatusInfo? invoicePodInfo,
+        PodStatusInfo? cratePodInfo,
+        bool isCrateInvoice)
+    {
+        if (isCrateInvoice)
+        {
+            return new PodTypeInfo(
+                HasProductPod: false,
+                HasCratePod: cratePodInfo is not null || invoicePodInfo is not null,
+                ProductPodCount: 0,
+                CratePodCount: (cratePodInfo?.Count ?? 0) + (invoicePodInfo?.Count ?? 0));
+        }
+
+        return new PodTypeInfo(
+            HasProductPod: invoicePodInfo is not null,
+            HasCratePod: false,
+            ProductPodCount: invoicePodInfo?.Count ?? 0,
+            CratePodCount: 0);
+    }
+
+    private sealed record PodTypeInfo(
+        bool HasProductPod,
+        bool HasCratePod,
+        int ProductPodCount,
+        int CratePodCount);
+
+    private sealed record FullyCreditedCreditNoteInfo(
+        string CreditNoteNumbers,
+        string Reasons);
+
+    private sealed record CreditNoteLineInfo(
+        int InvoiceDocEntry,
+        int CreditNoteDocEntry,
+        int CreditNoteDocNum,
+        decimal CreditAmount,
+        string? Reason);
+
+    private sealed record CrateInvoicePodLookup(
+        HashSet<int> InvoiceDocNums,
+        Dictionary<int, PodStatusInfo> PodStatusByDocNum);
+
+    private async Task<Dictionary<int, FullyCreditedCreditNoteInfo>> GetFullyCreditedCreditNoteLookupAsync(
+        IReadOnlyList<Invoice> invoices,
+        CancellationToken cancellationToken)
+    {
+        var invoiceTotalsByDocEntry = invoices
+            .Where(invoice => invoice.DocEntry > 0)
+            .GroupBy(invoice => invoice.DocEntry)
+            .ToDictionary(
+                group => group.Key,
+                group => GetInvoiceCreditableTotal(group.First()));
+
+        if (invoiceTotalsByDocEntry.Count == 0)
+        {
+            return [];
+        }
+
+        var creditNoteLines = new List<CreditNoteLineInfo>();
+        var chunkIndex = 0;
+
+        foreach (var chunk in invoiceTotalsByDocEntry.Keys.Chunk(200))
+        {
+            chunkIndex++;
+
+            var sqlText = $@"
+SELECT
+    T0.""BaseEntry"" AS ""InvoiceDocEntry"",
+    T1.""DocEntry"" AS ""CreditNoteDocEntry"",
+    T1.""DocNum"" AS ""CreditNoteDocNum"",
+    T1.""DocTotal"" AS ""CreditNoteTotal"",
+    T0.""U_Reasons"" AS ""CreditReason""
+FROM RIN1 T0
+INNER JOIN ORIN T1
+        ON T1.""DocEntry"" = T0.""DocEntry""
+WHERE T0.""BaseType"" = 13
+  AND T0.""BaseEntry"" IN ({string.Join(", ", chunk)})
+  AND T1.""CANCELED"" = 'N'
+ORDER BY T0.""BaseEntry"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
+
+            var rows = await sapClient.ExecuteRawSqlQueryAsync(
+                $"PODCN{Random.Shared.Next(100000, 999999)}{chunkIndex:D2}",
+                $"POD credit note links {chunkIndex}",
+                sqlText,
+                cancellationToken);
+
+            foreach (var row in rows)
+            {
+                var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
+                var creditNoteDocEntry = TryGetInt32(row, "CreditNoteDocEntry");
+                var creditNoteDocNum = TryGetInt32(row, "CreditNoteDocNum");
+
+                if (!invoiceDocEntry.HasValue || !creditNoteDocEntry.HasValue || !creditNoteDocNum.HasValue)
+                {
+                    continue;
+                }
+
+                creditNoteLines.Add(new CreditNoteLineInfo(
+                    invoiceDocEntry.Value,
+                    creditNoteDocEntry.Value,
+                    creditNoteDocNum.Value,
+                    Math.Abs(GetDecimal(row, "CreditNoteTotal")),
+                    GetString(row, "CreditReason")));
+            }
+        }
+
+        return creditNoteLines
+            .GroupBy(line => line.InvoiceDocEntry)
+            .Where(group =>
+                invoiceTotalsByDocEntry.TryGetValue(group.Key, out var invoiceTotal) &&
+                IsFullyCredited(invoiceTotal, GetCreditedTotal(group)))
+            .ToDictionary(
+                group => group.Key,
+                group =>
+                {
+                    var creditNoteNumbers = group
+                        .GroupBy(line => line.CreditNoteDocEntry)
+                        .Select(noteGroup => noteGroup.First().CreditNoteDocNum)
+                        .Select(docNum => docNum.ToString(CultureInfo.InvariantCulture))
+                        .ToList();
+
+                    var reasons = group
+                        .Select(line => line.Reason?.Trim())
+                        .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    return new FullyCreditedCreditNoteInfo(
+                        string.Join(", ", creditNoteNumbers),
+                        string.Join("; ", reasons));
+                });
+    }
+
+    private static decimal GetCreditedTotal(IEnumerable<CreditNoteLineInfo> creditNoteLines) =>
+        creditNoteLines
+            .GroupBy(line => line.CreditNoteDocEntry)
+            .Sum(group => group.Max(line => line.CreditAmount));
+
+    private static decimal GetInvoiceCreditableTotal(Invoice invoice)
+    {
+        var lineTotal = invoice.DocumentLines?
+            .Where(line =>
+                line.LineTotal != 0 ||
+                !string.IsNullOrWhiteSpace(line.ItemCode) ||
+                !string.IsNullOrWhiteSpace(line.ItemDescription))
+            .Sum(line => Math.Abs(line.LineTotal)) ?? 0m;
+
+        return lineTotal > 0 ? lineTotal : Math.Abs(invoice.DocTotal);
+    }
+
+    private static bool IsFullyCredited(decimal invoiceTotal, decimal creditedTotal) =>
+        invoiceTotal > 0 && creditedTotal + FullCreditTolerance >= invoiceTotal;
+
+    private static int? TryGetInt32(IReadOnlyDictionary<string, object?> row, string key)
+    {
+        var value = GetValue(row, key);
+
+        return value switch
+        {
+            null => null,
+            int intValue => intValue,
+            long longValue when longValue is >= int.MinValue and <= int.MaxValue => (int)longValue,
+            decimal decimalValue => (int)decimalValue,
+            double doubleValue => (int)doubleValue,
+            _ when int.TryParse(value.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    private static decimal GetDecimal(IReadOnlyDictionary<string, object?> row, string key)
+    {
+        var value = GetValue(row, key);
+
+        return value switch
+        {
+            null => 0m,
+            decimal decimalValue => decimalValue,
+            int intValue => intValue,
+            long longValue => longValue,
+            double doubleValue => (decimal)doubleValue,
+            float floatValue => (decimal)floatValue,
+            _ when decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed) => parsed,
+            _ => 0m
+        };
+    }
+
+    private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
+        GetValue(row, key)?.ToString()?.Trim();
+
+    private static object? GetValue(IReadOnlyDictionary<string, object?> row, string key)
+    {
+        if (row.TryGetValue(key, out var value))
+        {
+            return value;
+        }
+
+        foreach (var pair in row)
+        {
+            if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Value;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<CrateInvoicePodLookup> GetCratePodStatusByInvoiceDocNumsAsync(
         List<int> invoiceDocNums,
         CancellationToken cancellationToken)
     {
@@ -168,7 +395,7 @@ public sealed class GetPodUploadStatusHandler(
 
         if (requestedDocNums.Count == 0)
         {
-            return [];
+            return new CrateInvoicePodLookup([], []);
         }
 
         var latestTransactions = await context.CrateTransactions
@@ -189,10 +416,11 @@ public sealed class GetPodUploadStatusHandler(
         var latestTransactionsByDocNum = latestTransactions
             .GroupBy(transaction => transaction.InvoiceDocNum)
             .ToDictionary(group => group.Key, group => group.First());
+        var crateInvoiceDocNums = latestTransactionsByDocNum.Keys.ToHashSet();
 
         if (latestTransactionsByDocNum.Count == 0)
         {
-            return [];
+            return new CrateInvoicePodLookup([], []);
         }
 
         var transactionIds = latestTransactionsByDocNum.Values
@@ -214,7 +442,7 @@ public sealed class GetPodUploadStatusHandler(
 
         if (submissions.Count == 0)
         {
-            return [];
+            return new CrateInvoicePodLookup(crateInvoiceDocNums, []);
         }
 
         var submissionIds = submissions
@@ -235,7 +463,7 @@ public sealed class GetPodUploadStatusHandler(
 
         if (attachments.Count == 0)
         {
-            return [];
+            return new CrateInvoicePodLookup(crateInvoiceDocNums, []);
         }
 
         var transactionDocNumsById = latestTransactionsByDocNum.Values
@@ -321,7 +549,7 @@ public sealed class GetPodUploadStatusHandler(
                     };
                 });
 
-        return cratePodData;
+        return new CrateInvoicePodLookup(crateInvoiceDocNums, cratePodData);
     }
 
     private static PodStatusInfo? MergePodStatusInfo(PodStatusInfo? invoicePodInfo, PodStatusInfo? cratePodInfo)

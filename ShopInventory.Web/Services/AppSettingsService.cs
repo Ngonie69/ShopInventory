@@ -264,6 +264,93 @@ public class AppSettingsService : IAppSettingsService
                 IsEditable = false
             },
 
+            // POD report email settings
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsEnabled,
+                Value = "false",
+                DataType = "bool",
+                Description = "Send scheduled POD report emails",
+                DisplayOrder = 1
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsTo,
+                Value = "",
+                DataType = "string",
+                Description = "Primary recipients for POD report emails. Separate multiple emails with commas, semicolons, or new lines.",
+                DisplayOrder = 2
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsCc,
+                Value = "",
+                DataType = "string",
+                Description = "Cc recipients for POD report emails. Separate multiple emails with commas, semicolons, or new lines.",
+                DisplayOrder = 3
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsWeeklyDayOfWeek,
+                Value = "Monday",
+                DataType = "string",
+                Description = "Day of week when the weekly POD report is sent",
+                DisplayOrder = 4
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsWeeklySendHourUtc,
+                Value = "6",
+                DataType = "int",
+                Description = "UTC hour when the weekly POD report is sent",
+                DisplayOrder = 5
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsMonthlyDayOfMonth,
+                Value = "1",
+                DataType = "int",
+                Description = "Day of month when the previous full month POD report is sent",
+                DisplayOrder = 6
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsMonthlySendHourUtc,
+                Value = "6",
+                DataType = "int",
+                Description = "UTC hour when the previous full month POD report is sent",
+                DisplayOrder = 7
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsLastWeeklySentUtc,
+                Value = "",
+                DataType = "string",
+                Description = "Last scheduled weekly POD report sent timestamp (UTC)",
+                DisplayOrder = 8,
+                IsVisible = false,
+                IsEditable = false
+            },
+            new()
+            {
+                Category = SettingCategories.EmailReports,
+                Key = SettingKeys.PodReportEmailsLastMonthlySentUtc,
+                Value = "",
+                DataType = "string",
+                Description = "Last scheduled monthly POD report sent timestamp (UTC)",
+                DisplayOrder = 9,
+                IsVisible = false,
+                IsEditable = false
+            },
+
             // Printing settings
             new()
             {

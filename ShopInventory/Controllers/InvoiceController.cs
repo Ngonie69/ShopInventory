@@ -317,7 +317,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("pod-upload-status")]
-    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
+    [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep,ApiUser")]
     [ProducesResponseType(typeof(PodUploadStatusReportDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetPodUploadStatus(
@@ -326,11 +326,11 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
-        if (userId == null)
+        if (userId == null && !User.IsInRole(ApplicationRoles.Admin) && !User.IsInRole(ApplicationRoles.ApiUser))
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetPodUploadStatusQuery(fromDate, toDate, userId.Value), cancellationToken);
+            new GetPodUploadStatusQuery(fromDate, toDate, userId), cancellationToken);
 
         return result.Match(Ok, Problem);
     }

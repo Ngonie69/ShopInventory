@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Web.Common.ProblemDetails;
+
 namespace ShopInventory.Web.Middleware;
 
 /// <summary>
@@ -73,11 +76,23 @@ public class SwaggerProxyMiddleware
 
             await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OperationCanceledException || !context.RequestAborted.IsCancellationRequested)
         {
-            context.Response.StatusCode = 502;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsJsonAsync(new { message = "Unable to reach API server." }, context.RequestAborted);
+            var problemDetailsService = context.RequestServices.GetRequiredService<IProblemDetailsService>();
+            var problemDetails = new ProblemDetails
+            {
+                Status = StatusCodes.Status502BadGateway,
+                Title = "Unable to reach API server.",
+                Type = ProblemDetailsDefaults.GetType(StatusCodes.Status502BadGateway),
+                Detail = "The Web application could not reach the ShopInventory API server."
+            };
+
+            await ProblemDetailsDefaults.WriteAsync(
+                problemDetailsService,
+                context,
+                ex,
+                problemDetails,
+                context.RequestAborted);
         }
     }
 

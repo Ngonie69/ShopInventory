@@ -59,11 +59,18 @@ public class PodUploadStatusItem
     public int? CreatedByUserId { get; set; }
     public string? CreatedByUserCode { get; set; }
     public string? CreatedLocation { get; set; }
+    public bool IsFullyCredited { get; set; }
+    public string? CreditNoteNumber { get; set; }
+    public string? CreditNoteReason { get; set; }
     public bool HasPod { get; set; }
+    public bool HasProductPod { get; set; }
+    public bool HasCratePod { get; set; }
     public DateTime? PodUploadedAt { get; set; }
     public string? PodUploadedBy { get; set; }
     public List<PodUploadUserSummary> PodUploadedByUsers { get; set; } = new();
     public int PodCount { get; set; }
+    public int ProductPodCount { get; set; }
+    public int CratePodCount { get; set; }
 }
 
 public class PodUploadUserSummary

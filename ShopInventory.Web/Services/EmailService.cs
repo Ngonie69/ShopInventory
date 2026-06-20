@@ -4,6 +4,7 @@ using MimeKit;
 using Microsoft.Extensions.Options;
 using ShopInventory.Web.Models;
 using System.Globalization;
+using System.Net.Sockets;
 
 namespace ShopInventory.Web.Services;
 
@@ -11,18 +12,54 @@ public class EmailSettings
 {
     public bool Enabled { get; set; }
     public string SmtpHost { get; set; } = string.Empty;
+    public string SmtpServer { get; set; } = string.Empty;
     public int SmtpPort { get; set; }
     public string SmtpUsername { get; set; } = string.Empty;
     public string SmtpPassword { get; set; } = string.Empty;
     public string FromEmail { get; set; } = string.Empty;
     public string FromName { get; set; } = string.Empty;
     public bool EnableSsl { get; set; }
+    public string SmtpSecurityMode { get; set; } = string.Empty;
+    public int SmtpConnectTimeoutSeconds { get; set; } = 30;
     public string ApplicationUrl { get; set; } = string.Empty;
+}
+
+public sealed record EmailAttachmentContent(string FileName, string ContentType, byte[] Content);
+
+public sealed record EmailSendResult(
+    bool Success,
+    string? FailureStage = null,
+    string? FailureMessage = null,
+    string? ExceptionType = null)
+{
+    public static EmailSendResult Sent() => new(true);
+
+    public static EmailSendResult Failed(
+        string failureStage,
+        string failureMessage,
+        string? exceptionType = null) =>
+        new(false, failureStage, failureMessage, exceptionType);
 }
 
 public interface IEmailService
 {
     Task<bool> SendEmailAsync(string toEmail, string toName, string subject, string htmlBody, string? textBody = null);
+    Task<bool> SendEmailAsync(
+        IEnumerable<string> toEmails,
+        IEnumerable<string>? ccEmails,
+        string subject,
+        string htmlBody,
+        string? textBody = null,
+        IEnumerable<EmailAttachmentContent>? attachments = null,
+        CancellationToken cancellationToken = default);
+    Task<EmailSendResult> SendEmailWithDiagnosticsAsync(
+        IEnumerable<string> toEmails,
+        IEnumerable<string>? ccEmails,
+        string subject,
+        string htmlBody,
+        string? textBody = null,
+        IEnumerable<EmailAttachmentContent>? attachments = null,
+        CancellationToken cancellationToken = default);
     Task<bool> SendInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount);
     Task<bool> SendCustomerInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount);
     Task<bool> SendPaymentReceivedAsync(string toEmail, string toName, string paymentReference, decimal amount);
@@ -59,6 +96,12 @@ public class EmailService : IEmailService
             return true;
         }
 
+        var smtpHost = ResolveSmtpHost();
+        if (!HasRequiredSmtpSettings(smtpHost, subject, 1, 0))
+        {
+            return false;
+        }
+
         try
         {
             var message = new MimeMessage();
@@ -75,12 +118,24 @@ public class EmailService : IEmailService
             message.Body = bodyBuilder.ToMessageBody();
 
             using var client = new SmtpClient();
+            var secureSocketOptions = ResolveSecureSocketOptions();
+            var timeoutMilliseconds = ResolveConnectTimeoutMilliseconds();
+            client.Timeout = timeoutMilliseconds;
 
-            var secureSocketOptions = _settings.EnableSsl
-                ? SecureSocketOptions.StartTls
-                : SecureSocketOptions.Auto;
+            _logger.LogInformation(
+                "Email SMTP delivery starting. Subject={Subject}, RecipientCount={RecipientCount}, AttachmentCount={AttachmentCount}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpSecurityMode={SmtpSecurityMode}, SmtpTimeoutMs={SmtpTimeoutMs}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsername={SmtpUsername}",
+                subject,
+                1,
+                0,
+                smtpHost,
+                _settings.SmtpPort,
+                secureSocketOptions,
+                timeoutMilliseconds,
+                _settings.EnableSsl,
+                _settings.FromEmail,
+                _settings.SmtpUsername);
 
-            await client.ConnectAsync(_settings.SmtpHost, _settings.SmtpPort, secureSocketOptions);
+            await client.ConnectAsync(smtpHost, _settings.SmtpPort, secureSocketOptions);
             await client.AuthenticateAsync(_settings.SmtpUsername, _settings.SmtpPassword);
             await client.SendAsync(message);
             await client.DisconnectAsync(true);
@@ -90,8 +145,169 @@ public class EmailService : IEmailService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email to {ToEmail} with subject: {Subject}", toEmail, subject);
+            var rootException = GetRootException(ex);
+            _logger.LogError(
+                ex,
+                "Email SMTP delivery failed. Subject={Subject}, Recipients={Recipients}, AttachmentCount={AttachmentCount}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, ExceptionType={ExceptionType}, RootExceptionType={RootExceptionType}, FailureMessage={FailureMessage}",
+                subject,
+                toEmail,
+                0,
+                smtpHost,
+                _settings.SmtpPort,
+                _settings.EnableSsl,
+                _settings.FromEmail,
+                !string.IsNullOrWhiteSpace(_settings.SmtpUsername),
+                !string.IsNullOrWhiteSpace(_settings.SmtpPassword),
+                ex.GetType().Name,
+                rootException.GetType().Name,
+                rootException.Message);
             return false;
+        }
+    }
+
+    public async Task<bool> SendEmailAsync(
+        IEnumerable<string> toEmails,
+        IEnumerable<string>? ccEmails,
+        string subject,
+        string htmlBody,
+        string? textBody = null,
+        IEnumerable<EmailAttachmentContent>? attachments = null,
+        CancellationToken cancellationToken = default) =>
+        (await SendEmailWithDiagnosticsAsync(
+            toEmails,
+            ccEmails,
+            subject,
+            htmlBody,
+            textBody,
+            attachments,
+            cancellationToken)).Success;
+
+    public async Task<EmailSendResult> SendEmailWithDiagnosticsAsync(
+        IEnumerable<string> toEmails,
+        IEnumerable<string>? ccEmails,
+        string subject,
+        string htmlBody,
+        string? textBody = null,
+        IEnumerable<EmailAttachmentContent>? attachments = null,
+        CancellationToken cancellationToken = default)
+    {
+        var toList = NormalizeEmailAddresses(toEmails);
+        var ccList = NormalizeEmailAddresses(ccEmails)
+            .Where(cc => !toList.Contains(cc, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        var attachmentList = attachments?.ToList() ?? new List<EmailAttachmentContent>();
+
+        if (toList.Count == 0)
+        {
+            _logger.LogWarning("Email sending skipped because no To recipients were provided for subject: {Subject}", subject);
+            return EmailSendResult.Failed("NoRecipients", "No To recipients were provided.");
+        }
+
+        if (!_settings.Enabled)
+        {
+            _logger.LogInformation(
+                "Email sending is disabled. Would have sent email to {Recipients} with subject: {Subject}",
+                string.Join(", ", toList),
+                subject);
+            return EmailSendResult.Sent();
+        }
+
+        var smtpHost = ResolveSmtpHost();
+        if (!HasRequiredSmtpSettings(smtpHost, subject, toList.Count, attachmentList.Count))
+        {
+            return EmailSendResult.Failed(
+                "MissingConfiguration",
+                "SMTP configuration is incomplete. Check Email:SmtpHost, Email:SmtpPort, Email:SmtpUsername, Email:SmtpPassword, and Email:FromEmail.");
+        }
+
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_settings.FromName, _settings.FromEmail));
+
+            foreach (var toEmail in toList)
+            {
+                message.To.Add(MailboxAddress.Parse(toEmail));
+            }
+
+            foreach (var ccEmail in ccList)
+            {
+                message.Cc.Add(MailboxAddress.Parse(ccEmail));
+            }
+
+            message.Subject = subject;
+
+            var bodyBuilder = new BodyBuilder
+            {
+                HtmlBody = WrapInEmailTemplate(htmlBody, subject),
+                TextBody = textBody ?? StripHtml(htmlBody)
+            };
+
+            foreach (var attachment in attachmentList)
+            {
+                bodyBuilder.Attachments.Add(
+                    attachment.FileName,
+                    attachment.Content,
+                    ContentType.Parse(attachment.ContentType));
+            }
+
+            message.Body = bodyBuilder.ToMessageBody();
+
+            using var client = new SmtpClient();
+            var secureSocketOptions = ResolveSecureSocketOptions();
+            var timeoutMilliseconds = ResolveConnectTimeoutMilliseconds();
+            client.Timeout = timeoutMilliseconds;
+
+            var attachmentBytes = attachmentList.Sum(attachment => attachment.Content.LongLength);
+            _logger.LogInformation(
+                "Email SMTP delivery starting. Subject={Subject}, RecipientCount={RecipientCount}, CcCount={CcCount}, AttachmentCount={AttachmentCount}, AttachmentBytes={AttachmentBytes}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpSecurityMode={SmtpSecurityMode}, SmtpTimeoutMs={SmtpTimeoutMs}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsername={SmtpUsername}",
+                subject,
+                toList.Count,
+                ccList.Count,
+                attachmentList.Count,
+                attachmentBytes,
+                smtpHost,
+                _settings.SmtpPort,
+                secureSocketOptions,
+                timeoutMilliseconds,
+                _settings.EnableSsl,
+                _settings.FromEmail,
+                _settings.SmtpUsername);
+
+            await client.ConnectAsync(smtpHost, _settings.SmtpPort, secureSocketOptions, cancellationToken);
+            await client.AuthenticateAsync(_settings.SmtpUsername, _settings.SmtpPassword, cancellationToken);
+            await client.SendAsync(message, cancellationToken);
+            await client.DisconnectAsync(true, cancellationToken);
+
+            _logger.LogInformation(
+                "Email sent successfully to {Recipients} with {AttachmentCount} attachment(s) and subject: {Subject}",
+                string.Join(", ", toList),
+                attachmentList.Count,
+                subject);
+            return EmailSendResult.Sent();
+        }
+        catch (Exception ex)
+        {
+            var rootException = GetRootException(ex);
+            var attachmentBytes = attachmentList.Sum(attachment => attachment.Content.LongLength);
+            _logger.LogError(
+                ex,
+                "Email SMTP delivery failed. Subject={Subject}, Recipients={Recipients}, CcRecipients={CcRecipients}, AttachmentCount={AttachmentCount}, AttachmentBytes={AttachmentBytes}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, ExceptionType={ExceptionType}, RootExceptionType={RootExceptionType}, FailureMessage={FailureMessage}",
+                subject,
+                string.Join(", ", toList),
+                string.Join(", ", ccList),
+                attachmentList.Count,
+                attachmentBytes,
+                smtpHost,
+                _settings.SmtpPort,
+                _settings.EnableSsl,
+                _settings.FromEmail,
+                !string.IsNullOrWhiteSpace(_settings.SmtpUsername),
+                !string.IsNullOrWhiteSpace(_settings.SmtpPassword),
+                ex.GetType().Name,
+                rootException.GetType().Name,
+                rootException.Message);
+            return EmailSendResult.Failed(ClassifySmtpFailure(ex), rootException.Message, rootException.GetType().Name);
         }
     }
 
@@ -429,5 +645,111 @@ public class EmailService : IEmailService
         var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", "");
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
         return text.Trim();
+    }
+
+    private static List<string> NormalizeEmailAddresses(IEnumerable<string>? addresses)
+    {
+        return (addresses ?? Enumerable.Empty<string>())
+            .Select(address => address.Trim())
+            .Where(address => !string.IsNullOrWhiteSpace(address))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private string ResolveSmtpHost() =>
+        !string.IsNullOrWhiteSpace(_settings.SmtpHost)
+            ? _settings.SmtpHost
+            : _settings.SmtpServer;
+
+    private SecureSocketOptions ResolveSecureSocketOptions()
+    {
+        if (!string.IsNullOrWhiteSpace(_settings.SmtpSecurityMode)
+            && Enum.TryParse<SecureSocketOptions>(_settings.SmtpSecurityMode, ignoreCase: true, out var configured))
+        {
+            return configured;
+        }
+
+        if (_settings.SmtpPort == 465)
+        {
+            return SecureSocketOptions.SslOnConnect;
+        }
+
+        return _settings.EnableSsl
+            ? SecureSocketOptions.StartTls
+            : SecureSocketOptions.Auto;
+    }
+
+    private int ResolveConnectTimeoutMilliseconds()
+    {
+        var timeoutSeconds = Math.Clamp(_settings.SmtpConnectTimeoutSeconds, 5, 120);
+        return checked(timeoutSeconds * 1000);
+    }
+
+    private static string ClassifySmtpFailure(Exception ex)
+    {
+        var rootException = GetRootException(ex);
+        return rootException is SocketException
+            ? "SmtpConnectionFailed"
+            : "SmtpDeliveryException";
+    }
+
+    private static Exception GetRootException(Exception ex)
+    {
+        var current = ex;
+        while (current.InnerException is not null)
+        {
+            current = current.InnerException;
+        }
+
+        return current;
+    }
+
+    private bool HasRequiredSmtpSettings(string smtpHost, string subject, int recipientCount, int attachmentCount)
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(smtpHost))
+        {
+            missing.Add("Email:SmtpHost");
+        }
+
+        if (_settings.SmtpPort <= 0)
+        {
+            missing.Add("Email:SmtpPort");
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.SmtpUsername))
+        {
+            missing.Add("Email:SmtpUsername");
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.SmtpPassword))
+        {
+            missing.Add("Email:SmtpPassword");
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.FromEmail))
+        {
+            missing.Add("Email:FromEmail");
+        }
+
+        if (missing.Count == 0)
+        {
+            return true;
+        }
+
+        _logger.LogError(
+            "Email send skipped because SMTP configuration is incomplete. Subject={Subject}, MissingSettings={MissingSettings}, RecipientCount={RecipientCount}, AttachmentCount={AttachmentCount}, Enabled={Enabled}, SmtpHostConfigured={SmtpHostConfigured}, LegacySmtpServerConfigured={LegacySmtpServerConfigured}, SmtpPort={SmtpPort}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, FromEmailConfigured={FromEmailConfigured}",
+            subject,
+            string.Join(", ", missing),
+            recipientCount,
+            attachmentCount,
+            _settings.Enabled,
+            !string.IsNullOrWhiteSpace(_settings.SmtpHost),
+            !string.IsNullOrWhiteSpace(_settings.SmtpServer),
+            _settings.SmtpPort,
+            !string.IsNullOrWhiteSpace(_settings.SmtpUsername),
+            !string.IsNullOrWhiteSpace(_settings.SmtpPassword),
+            !string.IsNullOrWhiteSpace(_settings.FromEmail));
+        return false;
     }
 }

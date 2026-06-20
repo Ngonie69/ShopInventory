@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,7 @@ using ShopInventory.Common.Idempotency;
 using ShopInventory.Authentication;
 using ShopInventory.Behaviors;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.ProblemDetails;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
@@ -31,6 +33,7 @@ using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.RateLimiting;
+using ApiProblemDetails = ShopInventory.Common.ProblemDetails.ProblemDetailsDefaults;
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -93,6 +96,36 @@ try
             options.JsonSerializerOptions.NumberHandling =
                 System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString;
         });
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var problemDetails = new ValidationProblemDetails(context.ModelState)
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "One or more validation errors occurred.",
+                Type = ApiProblemDetails.GetType(StatusCodes.Status400BadRequest),
+                Detail = "The request contains validation errors."
+            };
+            ApiProblemDetails.Apply(context.HttpContext, problemDetails);
+
+            return new BadRequestObjectResult(problemDetails)
+            {
+                ContentTypes = { "application/problem+json" }
+            };
+        };
+    });
+    builder.Services.AddProblemDetails(options =>
+    {
+        options.CustomizeProblemDetails = ApiProblemDetails.Customize;
+    });
+    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestInputExceptionHandler>();
+    builder.Services.AddExceptionHandler<AuthorizationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestCanceledExceptionHandler>();
+    builder.Services.AddExceptionHandler<SapExceptionHandler>();
+    builder.Services.AddExceptionHandler<DependencyExceptionHandler>();
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddApiVersioning(options =>
     {
@@ -362,14 +395,24 @@ try
                 context.HttpContext.Connection.RemoteIpAddress,
                 context.HttpContext.Request.Path);
 
-            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
             context.HttpContext.Response.Headers["Retry-After"] = apiRateLimitValues.WindowSeconds.ToString();
 
-            await context.HttpContext.Response.WriteAsJsonAsync(new
+            var problemDetailsService = context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+            var problemDetails = new ProblemDetails
             {
-                message = "Too many requests. Please try again later.",
-                retryAfter = apiRateLimitValues.WindowSeconds
-            }, cancellationToken);
+                Status = StatusCodes.Status429TooManyRequests,
+                Title = "Too many requests.",
+                Type = ApiProblemDetails.GetType(StatusCodes.Status429TooManyRequests),
+                Detail = "Too many requests. Please try again later."
+            };
+            problemDetails.Extensions["retryAfter"] = apiRateLimitValues.WindowSeconds;
+
+            await ApiProblemDetails.WriteAsync(
+                problemDetailsService,
+                context.HttpContext,
+                null,
+                problemDetails,
+                cancellationToken);
         };
     });
 
@@ -744,25 +787,31 @@ try
         }
     }
 
-    // Global exception handler - ensures all unhandled errors return JSON, not empty responses
     app.UseForwardedHeaders();
 
-    app.UseExceptionHandler(errorApp =>
+    app.UseExceptionHandler();
+    app.UseStatusCodePages(async statusCodeContext =>
     {
-        errorApp.Run(async context =>
+        var httpContext = statusCodeContext.HttpContext;
+        var statusCode = httpContext.Response.StatusCode;
+        if (statusCode < StatusCodes.Status400BadRequest || httpContext.Response.HasStarted)
         {
-            context.Response.ContentType = "application/json";
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            return;
+        }
 
-            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-            var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
-            if (exceptionFeature != null)
-            {
-                logger.LogError(exceptionFeature.Error, "Unhandled exception on {Path}", context.Request.Path);
-            }
+        var problemDetailsService = httpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        var problemDetails = new ProblemDetails
+        {
+            Status = statusCode,
+            Type = ApiProblemDetails.GetType(statusCode)
+        };
 
-            await context.Response.WriteAsJsonAsync(new { message = "An internal error occurred. Please try again." });
-        });
+        await ApiProblemDetails.WriteAsync(
+            problemDetailsService,
+            httpContext,
+            null,
+            problemDetails,
+            httpContext.RequestAborted);
     });
 
     // Response compression - must be before any middleware that writes response body

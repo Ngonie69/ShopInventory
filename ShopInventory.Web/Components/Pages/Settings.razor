@@ -17,6 +17,7 @@
 @inject IThemeService ThemeService
 @inject ISAPSettingsService SAPSettingsService
 @inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
+@inject IPodReportEmailService PodReportEmailService
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -117,6 +118,11 @@
                             <span>@category</span>
                         </button>
                     }
+                    <button class="@($"sidebar-item {(selectedCategory == SettingCategories.EmailReports ? "active" : "")}")"
+                            @onclick="() => SelectCategory(SettingCategories.EmailReports)">
+                        <i class="bi bi-envelope-paper"></i>
+                        <span>Email Reports</span>
+                    </button>
                 </div>
                 <div class="sidebar-group">
                     <span class="sidebar-group-label">System</span>
@@ -673,6 +679,163 @@
                                             </MudButton>
                                         </div>
                                     }
+                                </div>
+                            }
+        else if (selectedCategory == SettingCategories.EmailReports)
+                            {
+                                <div class="settings-section pod-email-section" style="animation-delay: 0.05s;">
+                                    <div class="section-header">
+                                        <div class="section-icon section-icon-blue">
+                                            <i class="bi bi-envelope-paper"></i>
+                                        </div>
+                                        <div>
+                                            <h5 class="section-title">POD Email Reports</h5>
+                                            <p class="section-desc">Weekly and full-month POD report emails with Excel attachments.</p>
+                                        </div>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(podEmailMessage))
+                                    {
+                                        <div class="settings-alert @(podEmailMessageSuccess ? "settings-alert-success" : "settings-alert-error")">
+                                            <i class="bi @(podEmailMessageSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                                            <span>@podEmailMessage</span>
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="settings-alert-close"
+                                                           OnClick="() => podEmailMessage = null" Size="Size.Small" />
+                                        </div>
+                                    }
+
+                                    <div class="pod-email-overview">
+                                        <div class="pod-email-stat">
+                                            <span>To</span>
+                                            <strong>@GetPodEmailRecipientCount(SettingKeys.PodReportEmailsTo)</strong>
+                                        </div>
+                                        <div class="pod-email-stat">
+                                            <span>Cc</span>
+                                            <strong>@GetPodEmailRecipientCount(SettingKeys.PodReportEmailsCc)</strong>
+                                        </div>
+                                        <div class="pod-email-stat pod-email-stat-wide">
+                                            <span>Weekly</span>
+                                            <strong>@GetValue(SettingKeys.PodReportEmailsWeeklyDayOfWeek) @NormalizeHour(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc)):00 UTC</strong>
+                                        </div>
+                                        <div class="pod-email-stat pod-email-stat-wide">
+                                            <span>Monthly</span>
+                                            <strong>Day @NormalizeDayOfMonth(GetValue(SettingKeys.PodReportEmailsMonthlyDayOfMonth)) @NormalizeHour(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc)):00 UTC</strong>
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-items">
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-calendar-check me-1"></i>Scheduled Sending
+                                                </label>
+                                                <span class="setting-desc">Controls whether the weekly and full-month POD reports are sent automatically.</span>
+                                            </div>
+                                            <div class="setting-control">
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" checked="@GetBoolValue(SettingKeys.PodReportEmailsEnabled)"
+                                                           @onchange="e => OnBoolSettingChanged(SettingKeys.PodReportEmailsEnabled, e)" />
+                                                    <span class="toggle-slider"></span>
+                                                    <span class="toggle-text">@(GetBoolValue(SettingKeys.PodReportEmailsEnabled) ? "On" : "Off")</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-item pod-email-recipient-row">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-person-lines-fill me-1"></i>To Recipients
+                                                </label>
+                                                <span class="setting-desc">Separate multiple addresses with commas, semicolons, or new lines.</span>
+                                            </div>
+                                            <div class="setting-control pod-email-control-wide">
+                                                <textarea class="field-input pod-email-textarea"
+                                                          value="@GetValue(SettingKeys.PodReportEmailsTo)"
+                                                          @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsTo, e.Value?.ToString())"></textarea>
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-item pod-email-recipient-row">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-person-plus me-1"></i>Cc Recipients
+                                                </label>
+                                                <span class="setting-desc">Optional copied recipients for scheduled and manual sends.</span>
+                                            </div>
+                                            <div class="setting-control pod-email-control-wide">
+                                                <textarea class="field-input pod-email-textarea"
+                                                          value="@GetValue(SettingKeys.PodReportEmailsCc)"
+                                                          @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsCc, e.Value?.ToString())"></textarea>
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-calendar-week me-1"></i>Weekly Schedule
+                                                </label>
+                                                <span class="setting-desc">Sends the previous completed seven-day period.</span>
+                                                <span class="setting-meta">
+                                                    <i class="bi bi-clock-history"></i> Last sent: @FormatPodEmailLastSent(SettingKeys.PodReportEmailsLastWeeklySentUtc)
+                                                </span>
+                                            </div>
+                                            <div class="setting-control pod-email-schedule-controls">
+                                                <select class="field-input field-input-sm" value="@GetValue(SettingKeys.PodReportEmailsWeeklyDayOfWeek)"
+                                                        @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklyDayOfWeek, e.Value?.ToString())">
+                                                    @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                                    {
+                                                        <option value="@day">@day</option>
+                                                    }
+                                                </select>
+                                                <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
+                                                       value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc))"
+                                                       @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklySendHourUtc, e.Value?.ToString())" />
+                                            </div>
+                                        </div>
+
+                                        <div class="setting-item">
+                                            <div class="setting-info">
+                                                <label class="setting-label">
+                                                    <i class="bi bi-calendar-month me-1"></i>Full Month Schedule
+                                                </label>
+                                                <span class="setting-desc">Sends the previous completed calendar month.</span>
+                                                <span class="setting-meta">
+                                                    <i class="bi bi-clock-history"></i> Last sent: @FormatPodEmailLastSent(SettingKeys.PodReportEmailsLastMonthlySentUtc)
+                                                </span>
+                                            </div>
+                                            <div class="setting-control pod-email-schedule-controls">
+                                                <input type="number" min="1" max="31" class="field-input field-input-sm pod-email-day-input"
+                                                       value="@NormalizeDayOfMonth(GetValue(SettingKeys.PodReportEmailsMonthlyDayOfMonth))"
+                                                       @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlyDayOfMonth, e.Value?.ToString())" />
+                                                <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
+                                                       value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc))"
+                                                       @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlySendHourUtc, e.Value?.ToString())" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="section-actions">
+                                        <MudButton OnClick="() => SendPodReportEmail(PodReportEmailPeriodKind.Weekly)"
+                                                   Variant="Variant.Outlined" Color="Color.Primary"
+                                                   Disabled="@(isSendingWeeklyPodReport || isSendingMonthlyPodReport)"
+                                                   StartIcon="@Icons.Material.Filled.Send">
+                                            @if (isSendingWeeklyPodReport)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                            }
+                                            Send Weekly Now
+                                        </MudButton>
+                                        <MudButton OnClick="() => SendPodReportEmail(PodReportEmailPeriodKind.Monthly)"
+                                                   Variant="Variant.Filled" Color="Color.Primary"
+                                                   Disabled="@(isSendingWeeklyPodReport || isSendingMonthlyPodReport)"
+                                                   StartIcon="@Icons.Material.Filled.Send">
+                                            @if (isSendingMonthlyPodReport)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                            }
+                                            Send Full Month Now
+                                        </MudButton>
+                                    </div>
                                 </div>
                             }
         else if (selectedCategory == SettingCategories.Printing)
@@ -1432,6 +1595,14 @@
     private string? printingMessage;
     private bool printingMessageSuccess = true;
 
+    // POD report email fields
+    private bool isSendingWeeklyPodReport = false;
+    private bool isSendingMonthlyPodReport = false;
+    private string? podEmailMessage;
+    private bool podEmailMessageSuccess = true;
+    private DateTime? podReportLastWeeklySentUtc;
+    private DateTime? podReportLastMonthlySentUtc;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadCurrentUser();
@@ -1483,6 +1654,7 @@
                 .Where(c => c != PaymentsCategory)
                 .ToList();
             editedValues = allSettings.ToDictionary(s => s.Key, s => s.Value);
+            await LoadPodReportEmailMetadata();
             SelectCategory(selectedCategory);
         }
         catch (Exception ex)
@@ -1510,6 +1682,74 @@
     {
         var value = GetValue(key);
         return bool.TryParse(value, out var result) && result;
+    }
+
+    private async Task LoadPodReportEmailMetadata()
+    {
+        podReportLastWeeklySentUtc = ParseUtcSetting(
+            await SettingsService.GetValueAsync(SettingKeys.PodReportEmailsLastWeeklySentUtc));
+        podReportLastMonthlySentUtc = ParseUtcSetting(
+            await SettingsService.GetValueAsync(SettingKeys.PodReportEmailsLastMonthlySentUtc));
+    }
+
+    private int GetPodEmailRecipientCount(string key) => ParseEmailRecipients(GetValue(key)).Count;
+
+    private static List<string> ParseEmailRecipients(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return new();
+        }
+
+        return value
+            .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(address => !string.IsNullOrWhiteSpace(address))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static int NormalizeHour(string? value)
+    {
+        var hour = int.TryParse(value, out var parsed) ? parsed : 6;
+        return Math.Clamp(hour, 0, 23);
+    }
+
+    private static int NormalizeDayOfMonth(string? value)
+    {
+        var day = int.TryParse(value, out var parsed) ? parsed : 1;
+        return Math.Clamp(day, 1, 31);
+    }
+
+    private string FormatPodEmailLastSent(string key)
+    {
+        var value = key == SettingKeys.PodReportEmailsLastWeeklySentUtc
+            ? podReportLastWeeklySentUtc
+            : podReportLastMonthlySentUtc;
+
+        return value.HasValue
+            ? IAuditService.ToCAT(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)).ToString("dd MMM yyyy HH:mm")
+            : "Never";
+    }
+
+    private static DateTime? ParseUtcSetting(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (DateTime.TryParse(
+            value,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind,
+            out var parsed))
+        {
+            return parsed.Kind == DateTimeKind.Utc
+                ? parsed
+                : DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+        }
+
+        return null;
     }
 
     private List<string> GetSavedPrintersList()
@@ -1808,6 +2048,93 @@
         }
     }
 
+    private async Task SendPodReportEmail(PodReportEmailPeriodKind periodKind)
+    {
+        var isWeekly = periodKind == PodReportEmailPeriodKind.Weekly;
+        if (isWeekly)
+        {
+            isSendingWeeklyPodReport = true;
+        }
+        else
+        {
+            isSendingMonthlyPodReport = true;
+        }
+
+        podEmailMessage = null;
+        podEmailMessageSuccess = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation(
+                "Manual {PeriodKind} POD report email requested from Settings by {Username}. PendingSettingChanges={PendingSettingChanges}",
+                periodKind,
+                currentUsername,
+                hasChanges);
+
+            if (hasChanges)
+            {
+                await SettingsService.SaveSettingsAsync(editedValues, currentUsername);
+                await AppSettingsProvider.ReloadAsync();
+                hasChanges = false;
+            }
+
+            var result = await PodReportEmailService.SendLatestAsync(periodKind, currentUsername);
+            podEmailMessageSuccess = result.Success;
+            podEmailMessage = result.Success
+                ? $"{result.Message} Total: {result.TotalInvoices:N0}, uploaded: {result.UploadedCount:N0}, pending: {result.PendingCount:N0}."
+                : result.Message;
+
+            if (result.Success)
+            {
+                Logger.LogInformation(
+                    "Manual {PeriodKind} POD report email succeeded for {Username}. TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}",
+                    periodKind,
+                    currentUsername,
+                    result.TotalInvoices,
+                    result.UploadedCount,
+                    result.PendingCount);
+
+                await LogAudit(
+                    AuditActions.UpdateSettings,
+                    $"Sent {periodKind} POD report email manually: total {result.TotalInvoices}, uploaded {result.UploadedCount}, pending {result.PendingCount}");
+            }
+            else
+            {
+                Logger.LogWarning(
+                    "Manual {PeriodKind} POD report email failed for {Username}. Message={Message}",
+                    periodKind,
+                    currentUsername,
+                    result.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                ex,
+                "Manual {PeriodKind} POD report email threw an exception for {Username}.",
+                periodKind,
+                currentUsername);
+            podEmailMessageSuccess = false;
+            podEmailMessage = $"Failed to send POD report email: {ex.Message}";
+        }
+        finally
+        {
+            if (isWeekly)
+            {
+                isSendingWeeklyPodReport = false;
+            }
+            else
+            {
+                isSendingMonthlyPodReport = false;
+            }
+
+            StateHasChanged();
+        }
+    }
+
     private string GetCategoryIcon(string category) => category switch
     {
         SettingCategories.General => "bi-sliders2",
@@ -1817,6 +2144,7 @@
         SettingCategories.Security => "bi-shield-lock",
         SettingCategories.Printing => "bi-printer",
         SettingCategories.Payments => "bi-cash-coin",
+        SettingCategories.EmailReports => "bi-envelope-paper",
         "Data Management" => "bi-arrow-repeat",
         "User Management" => "bi-person-plus",
         _ => "bi-sliders"
@@ -1830,6 +2158,7 @@
         SettingCategories.Audit => "section-icon-teal",
         SettingCategories.Security => "section-icon-red",
         SettingCategories.Printing => "section-icon-amber",
+        SettingCategories.EmailReports => "section-icon-blue",
         _ => "section-icon-dark"
     };
 
@@ -1842,6 +2171,7 @@
         SettingCategories.Security => "Security policies and access control settings.",
         SettingCategories.Printing => "Invoice printing preferences and printer configuration.",
         SettingCategories.Payments => "Default G/L account and allowed business partners for incoming payments.",
+        SettingCategories.EmailReports => "POD report recipients, schedule, and manual email sending.",
         _ => "Configure settings for this category."
     };
 
