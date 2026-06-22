@@ -211,6 +211,19 @@ public class OrderFulfillmentItem
     public decimal FulfillmentPercent { get; set; }
     public bool IsOverdue { get; set; }
     public int DaysOverdue { get; set; }
+    public List<OrderLineDetail> Lines { get; set; } = new();
+}
+
+public class OrderLineDetail
+{
+    public string ItemCode { get; set; } = string.Empty;
+    public string ItemDescription { get; set; } = string.Empty;
+    public string WarehouseCode { get; set; } = string.Empty;
+    public decimal QuantityOrdered { get; set; }
+    public decimal QuantityDelivered { get; set; }
+    public decimal QuantityPending { get; set; }
+    public decimal LineTotal { get; set; }
+    public string LineStatus { get; set; } = string.Empty;
 }
 
 public class FulfillmentByCustomer

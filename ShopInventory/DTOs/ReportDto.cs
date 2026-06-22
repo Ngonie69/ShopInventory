@@ -274,7 +274,7 @@ public class TopCustomerDto
 #region Order Fulfillment Reports
 
 /// <summary>
-/// Comprehensive order fulfillment report
+/// Sales order vs invoice report. The delivered fields carry invoiced metrics for compatibility.
 /// </summary>
 public class OrderFulfillmentReportDto
 {
@@ -302,7 +302,7 @@ public class OrderFulfillmentReportDto
 }
 
 /// <summary>
-/// Individual order fulfillment detail
+/// Individual sales order vs invoice detail
 /// </summary>
 public class OrderFulfillmentItemDto
 {
@@ -327,7 +327,7 @@ public class OrderFulfillmentItemDto
 }
 
 /// <summary>
-/// Order line fulfillment detail
+/// Order line invoice comparison detail
 /// </summary>
 public class OrderLineDetailDto
 {
@@ -338,7 +338,7 @@ public class OrderLineDetailDto
     public decimal QuantityDelivered { get; set; }
     public decimal QuantityPending { get; set; }
     public decimal LineTotal { get; set; }
-    public string LineStatus { get; set; } = string.Empty; // Fulfilled, Partial, Pending
+    public string LineStatus { get; set; } = string.Empty; // Invoiced, Partial, Pending
 }
 
 /// <summary>

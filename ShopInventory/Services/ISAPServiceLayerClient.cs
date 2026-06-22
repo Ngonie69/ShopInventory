@@ -101,6 +101,11 @@ public interface ISAPServiceLayerClient
     Task<List<PriceListDto>> GetPriceListsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Creates a scoped in-memory cache for resolving related price lists during a single sync operation.
+    /// </summary>
+    IDisposable BeginPriceListResolutionScope();
+
+    /// <summary>
     /// Gets prices for all items from a specific price list
     /// </summary>
     Task<List<ItemPriceByListDto>> GetPricesByPriceListAsync(int priceListNum, CancellationToken cancellationToken = default);

@@ -21,6 +21,12 @@ public class SAPSettings
     /// </summary>
     public int LongRunningRequestTimeoutMinutes { get; set; } = 20;
 
+    /// <summary>
+    /// Maximum number of concurrent outbound requests allowed to SAP Service Layer
+    /// across the API process.
+    /// </summary>
+    public int MaxConcurrentRequests { get; set; } = 6;
+
     public bool SkipCertificateValidation { get; set; }
 
     /// <summary>

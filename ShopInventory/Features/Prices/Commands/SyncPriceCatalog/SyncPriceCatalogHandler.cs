@@ -6,6 +6,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Prices;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -15,6 +16,7 @@ public sealed class SyncPriceCatalogHandler(
     ISAPServiceLayerClient sapClient,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
+    BackgroundWorkerLeaderElector leaderElector,
     ILogger<SyncPriceCatalogHandler> logger
 ) : IRequestHandler<SyncPriceCatalogCommand, ErrorOr<object>>
 {
@@ -25,9 +27,24 @@ public sealed class SyncPriceCatalogHandler(
         if (!settings.Value.Enabled)
             return Errors.Price.SapDisabled;
 
+        using var syncLease = await PriceCatalogSyncGate.TryEnterAsync(cancellationToken);
+        if (syncLease is null)
+        {
+            logger.LogWarning("Skipped full price catalog sync because another SAP price sync is already running");
+            return Errors.Price.SyncAlreadyRunning;
+        }
+
+        await using var clusterLease = await leaderElector.TryAcquireAsync(PriceCatalogSyncGate.ClusterLockName, cancellationToken);
+        if (clusterLease is null)
+        {
+            logger.LogWarning("Skipped full price catalog sync because another API instance is already running SAP price sync");
+            return Errors.Price.SyncAlreadyRunning;
+        }
+
         try
         {
             logger.LogInformation("Starting full price catalog sync from SAP");
+            using var priceResolutionScope = sapClient.BeginPriceListResolutionScope();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var syncTime = DateTime.UtcNow;
 
@@ -49,8 +66,10 @@ public sealed class SyncPriceCatalogHandler(
                 if (sapPrices.Count == 0 && priceList.IsActive)
                 {
                     logger.LogWarning(
-                        "No item prices returned from SAP for active price list {PriceListNum}; retaining existing cached prices for this list",
-                        priceList.ListNum);
+                        "No item prices returned from SAP for active price list {PriceListNum} (base {BasePriceList}, factor {Factor}); retaining existing cached prices for this list",
+                        priceList.ListNum,
+                        priceList.BasePriceList,
+                        priceList.Factor);
                     continue;
                 }
 

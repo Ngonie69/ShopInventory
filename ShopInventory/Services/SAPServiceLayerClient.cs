@@ -43,6 +43,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private static readonly SemaphoreSlim _businessPartnerCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _glAccountsCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _priceListCacheLock = new(1, 1);
+    private static readonly AsyncLocal<Dictionary<int, List<ItemPriceByListDto>>?> _priceListResolutionCache = new();
 
     // Regex for validating SAP identifiers (item codes, warehouse codes, card codes, etc.)
     // Allows alphanumeric, dashes, underscores, dots, spaces, forward slashes
@@ -102,6 +103,30 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private HttpClient GetLongRunningHttpClient()
     {
         return _httpClientFactory.CreateClient("SAPServiceLayerLongRunning");
+    }
+
+    public IDisposable BeginPriceListResolutionScope()
+    {
+        var previousCache = _priceListResolutionCache.Value;
+        _priceListResolutionCache.Value = new Dictionary<int, List<ItemPriceByListDto>>();
+
+        return new PriceListResolutionScope(previousCache);
+    }
+
+    private sealed class PriceListResolutionScope(Dictionary<int, List<ItemPriceByListDto>>? previousCache) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _priceListResolutionCache.Value = previousCache;
+        }
     }
 
     private async Task<HttpResponseMessage> SendSapRequestWithTransientRetryAsync(
@@ -3639,14 +3664,29 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             return [];
         }
 
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
+        try
+        {
+            var resolutionCache = _priceListResolutionCache.Value;
+            if (resolutionCache is not null && resolutionCache.TryGetValue(priceListNum, out var cachedPrices))
+            {
+                _logger.LogDebug("Using scoped SAP price-list cache for price list {PriceListNum}", priceListNum);
+                return cachedPrices;
+            }
 
-        // Use unique query code per invocation to prevent race conditions between concurrent requests
-        var suffix = Random.Shared.Next(100000, 999999);
-        var queryCode = $"SH_PL{priceListNum}_{suffix}";
+            await EnsureAuthenticatedAsync(cancellationToken);
+            var priceLists = await GetPriceListsAsync(cancellationToken);
+            var priceList = priceLists.FirstOrDefault(list => list.ListNum == priceListNum);
+            var isDerivedPriceList = TryGetPriceListDerivation(
+                priceList,
+                priceListNum,
+                out var basePriceList,
+                out var factor);
 
-        var sqlText = $@"
+            // Use unique query code per invocation to prevent race conditions between concurrent requests
+            var suffix = Random.Shared.Next(100000, 999999);
+            var queryCode = $"SH_PL{priceListNum}_{suffix}";
+
+            var sqlText = $@"
 SELECT T0.""ItemCode"",
        T1.""ItemName"",
        T1.""FrgnName"",
@@ -3663,53 +3703,64 @@ WHERE T0.""PriceList"" = {priceListNum}
   AND T0.""Price"" > 0
 ORDER BY T0.""ItemCode""";
 
-        List<ItemPriceByListDto> prices;
-        var sqlQueryFailed = false;
-        try
-        {
+            List<ItemPriceByListDto> prices;
+            var sqlQueryFailed = false;
             try
             {
-                await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, cancellationToken);
-                prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, cancellationToken);
+                try
+                {
+                    await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, cancellationToken);
+                    prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, isDerivedPriceList, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    sqlQueryFailed = true;
+                    _logger.LogWarning(
+                        ex,
+                        "SQL query path failed for price list {PriceListNum}; falling back to OData Items API",
+                        priceListNum);
+                    prices = [];
+                }
             }
-            catch (OperationCanceledException)
+            finally
             {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                sqlQueryFailed = true;
-                _logger.LogWarning(
-                    ex,
-                    "SQL query path failed for price list {PriceListNum}; falling back to OData Items API",
-                    priceListNum);
-                prices = [];
-            }
-        }
-        finally
-        {
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
-        }
-
-        // If SQL query returned empty, fall back to OData Items API
-        // This handles derived price lists and race conditions with SQL queries
-        if (prices.Count == 0)
-        {
-            if (sqlQueryFailed)
-            {
-                _logger.LogInformation("Using OData Items API fallback for price list {PriceListNum} after SQL query failure", priceListNum);
-            }
-            else
-            {
-                _logger.LogWarning("SQL query returned 0 prices for price list {PriceListNum}, falling back to OData Items API", priceListNum);
+                await TryDeleteQueryAsync(queryCode, cancellationToken);
             }
 
-            prices = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
-        }
+            // If SQL query returned empty, fall back to OData Items API for direct lists.
+            // Derived lists often have no direct ITM1 rows, so skip the full item scan and derive from BASE_NUM/Factor below.
+            if (prices.Count == 0)
+            {
+                if (isDerivedPriceList && !sqlQueryFailed)
+                {
+                    _logger.LogInformation(
+                        "Price list {PriceListNum} has no direct item prices; deriving from base price list {BasePriceList} with factor {Factor}",
+                        priceListNum,
+                        basePriceList,
+                        factor);
+                }
+                else if (sqlQueryFailed)
+                {
+                    _logger.LogInformation("Using OData Items API fallback for price list {PriceListNum} after SQL query failure", priceListNum);
+                    prices = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
+                }
+                else
+                {
+                    _logger.LogWarning("SQL query returned 0 prices for price list {PriceListNum}, falling back to OData Items API", priceListNum);
+                    prices = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
+                }
+            }
 
-        try
-        {
-            prices = await MergeDerivedPriceListItemsAsync(priceListNum, prices, visitedPriceLists, cancellationToken);
+            prices = await MergeDerivedPriceListItemsAsync(priceListNum, prices, priceLists, visitedPriceLists, cancellationToken);
+            resolutionCache ??= _priceListResolutionCache.Value;
+            if (resolutionCache is not null)
+            {
+                resolutionCache[priceListNum] = prices;
+            }
 
             _logger.LogInformation("Retrieved {Count} item prices from price list {ListNum}",
                 prices.Count, priceListNum);
@@ -3725,15 +3776,12 @@ ORDER BY T0.""ItemCode""";
     private async Task<List<ItemPriceByListDto>> MergeDerivedPriceListItemsAsync(
         int priceListNum,
         List<ItemPriceByListDto> prices,
+        IReadOnlyCollection<PriceListDto> priceLists,
         ISet<int> visitedPriceLists,
         CancellationToken cancellationToken)
     {
-        var priceLists = await GetPriceListsAsync(cancellationToken);
         var priceList = priceLists.FirstOrDefault(list => list.ListNum == priceListNum);
-        if (priceList is null ||
-            !int.TryParse(priceList.BasePriceList, NumberStyles.Integer, CultureInfo.InvariantCulture, out var basePriceList) ||
-            basePriceList <= 0 ||
-            basePriceList == priceListNum)
+        if (!TryGetPriceListDerivation(priceList, priceListNum, out var basePriceList, out var factor))
         {
             return prices;
         }
@@ -3747,7 +3795,6 @@ ORDER BY T0.""ItemCode""";
             return prices;
         }
 
-        var factor = priceList.Factor.GetValueOrDefault(1m);
         if (factor <= 0)
         {
             _logger.LogWarning(
@@ -3757,7 +3804,7 @@ ORDER BY T0.""ItemCode""";
             return prices;
         }
 
-        var priceListName = priceList.ListName ?? prices.FirstOrDefault()?.PriceListName ?? $"Price List {priceListNum}";
+        var priceListName = priceList!.ListName ?? prices.FirstOrDefault()?.PriceListName ?? $"Price List {priceListNum}";
         var mergedPrices = new Dictionary<string, ItemPriceByListDto>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var price in prices)
@@ -3820,6 +3867,27 @@ ORDER BY T0.""ItemCode""";
         return mergedPrices.Values
             .OrderBy(price => price.ItemCode, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static bool TryGetPriceListDerivation(
+        PriceListDto? priceList,
+        int priceListNum,
+        out int basePriceList,
+        out decimal factor)
+    {
+        basePriceList = 0;
+        factor = 1m;
+
+        if (priceList is null ||
+            !int.TryParse(priceList.BasePriceList, NumberStyles.Integer, CultureInfo.InvariantCulture, out basePriceList) ||
+            basePriceList <= 0 ||
+            basePriceList == priceListNum)
+        {
+            return false;
+        }
+
+        factor = priceList.Factor.GetValueOrDefault(1m);
+        return factor > 0;
     }
 
     /// <summary>
@@ -3968,7 +4036,11 @@ ORDER BY T0.""ItemCode""";
         return (prices, nextLink);
     }
 
-    private async Task<List<ItemPriceByListDto>> ExecutePriceListQueryAsync(string queryCode, int priceListNum, CancellationToken cancellationToken)
+    private async Task<List<ItemPriceByListDto>> ExecutePriceListQueryAsync(
+        string queryCode,
+        int priceListNum,
+        bool isDerivedPriceList,
+        CancellationToken cancellationToken)
     {
         var prices = new List<ItemPriceByListDto>();
         var syncHttpClient = GetLongRunningHttpClient();
@@ -4034,8 +4106,18 @@ ORDER BY T0.""ItemCode""";
 
             if (pagePrices.Count == 0 && skip == 0)
             {
-                _logger.LogWarning("SQL query '{QueryCode}' returned 0 items on first page. Response: {Response}",
-                    queryCode, responseContent.Length > 2000 ? responseContent[..2000] : responseContent);
+                if (isDerivedPriceList)
+                {
+                    _logger.LogInformation(
+                        "SQL query '{QueryCode}' returned 0 direct items for derived price list {PriceListNum}; base-list derivation will be attempted",
+                        queryCode,
+                        priceListNum);
+                }
+                else
+                {
+                    _logger.LogWarning("SQL query '{QueryCode}' returned 0 items on first page. Response: {Response}",
+                        queryCode, responseContent.Length > 2000 ? responseContent[..2000] : responseContent);
+                }
             }
 
             prices.AddRange(pagePrices);
@@ -5511,107 +5593,94 @@ ORDER BY T0.""ItemCode""";
 
     /// <summary>
     /// Execute a raw SQL query via SAP Service Layer and return results as dictionaries.
-    /// Creates the query if it doesn't exist, executes it, then deletes it.
+    /// Uses the ad-hoc SQL endpoint to avoid creating and deleting temporary SQLQueries.
     /// </summary>
     public async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
+        var allRows = new List<Dictionary<string, object?>>();
+        var skip = 0;
+        var hasMore = true;
+        var payloadJson = JsonSerializer.Serialize(new { SqlText = sqlText });
 
-        // Try to delete any existing query with this code first
-        try
+        while (hasMore)
         {
-            var delReq = new HttpRequestMessage(HttpMethod.Delete, $"SQLQueries('{queryCode}')");
-            delReq.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            await _httpClient.SendAsync(delReq, cancellationToken);
-        }
-        catch { /* ignore */ }
+            var url = skip == 0
+                ? "SQLQueries('sql01')/List"
+                : $"SQLQueries('sql01')/List?$skip={skip}";
 
-        // Create the query
-        await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
-
-        try
-        {
-            // Execute and collect all pages
-            var allRows = new List<Dictionary<string, object?>>();
-            int skip = 0;
-            bool hasMore = true;
-
-            while (hasMore)
+            HttpRequestMessage CreateRequest(string? sessionId)
             {
-                var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                var request = new HttpRequestMessage(HttpMethod.Post, url);
+                request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", "odata.maxpagesize=500");
-
-                var response = await _httpClient.SendAsync(request, cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-                    request = new HttpRequestMessage(HttpMethod.Get, url);
-                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    request.Headers.Add("Prefer", "odata.maxpagesize=500");
-                    response = await _httpClient.SendAsync(request, cancellationToken);
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("Failed to execute SQL query {Code}: {Status} - {Error}", queryCode, response.StatusCode, errContent);
-                    throw new Exception($"Failed to execute SQL query: {response.StatusCode} - {errContent}");
-                }
-
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                using var doc = JsonDocument.Parse(content);
-
-                if (!doc.RootElement.TryGetProperty("value", out var valueArray))
-                {
-                    hasMore = false;
-                    continue;
-                }
-
-                int pageCount = 0;
-                foreach (var row in valueArray.EnumerateArray())
-                {
-                    var dict = new Dictionary<string, object?>();
-                    foreach (var prop in row.EnumerateObject())
-                    {
-                        dict[prop.Name] = prop.Value.ValueKind switch
-                        {
-                            JsonValueKind.String => prop.Value.GetString(),
-                            JsonValueKind.Number => prop.Value.TryGetInt64(out var l) ? l : prop.Value.GetDecimal(),
-                            JsonValueKind.True => true,
-                            JsonValueKind.False => false,
-                            JsonValueKind.Null => null,
-                            _ => prop.Value.GetRawText()
-                        };
-                    }
-                    allRows.Add(dict);
-                    pageCount++;
-                }
-
-                hasMore = (doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                           doc.RootElement.TryGetProperty("@odata.nextLink", out _)) && pageCount > 0;
-                skip += pageCount;
+                request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+                return request;
             }
 
-            _logger.LogInformation("SQL query {Code} returned {Count} rows", queryCode, allRows.Count);
-            return allRows;
-        }
-        finally
-        {
-            // Clean up - delete the query
-            try
+            var requestSession = _sessionId;
+            var response = await _httpClient.SendAsync(CreateRequest(requestSession), cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                var delReq = new HttpRequestMessage(HttpMethod.Delete, $"SQLQueries('{queryCode}')");
-                delReq.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                await _httpClient.SendAsync(delReq, cancellationToken);
+                await HandleAuthFailureAsync(requestSession, cancellationToken);
+                response = await _httpClient.SendAsync(CreateRequest(_sessionId), cancellationToken);
             }
-            catch { /* ignore cleanup errors */ }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                if (IsSapNoMatchingRecordsError(response.StatusCode, errContent))
+                {
+                    _logger.LogInformation(
+                        "SQL query {Code} ({Name}) returned no matching SAP records; treating as an empty result set",
+                        queryCode,
+                        queryName);
+                    return allRows;
+                }
+
+                _logger.LogError("Failed to execute SQL query {Code} ({Name}): {Status} - {Error}", queryCode, queryName, response.StatusCode, errContent);
+                throw new Exception($"Failed to execute SQL query: {response.StatusCode} - {errContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+
+            if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                hasMore = false;
+                continue;
+            }
+
+            var pageCount = 0;
+            foreach (var row in valueArray.EnumerateArray())
+            {
+                var dict = new Dictionary<string, object?>();
+                foreach (var prop in row.EnumerateObject())
+                {
+                    dict[prop.Name] = prop.Value.ValueKind switch
+                    {
+                        JsonValueKind.String => prop.Value.GetString(),
+                        JsonValueKind.Number => prop.Value.TryGetInt64(out var l) ? l : prop.Value.GetDecimal(),
+                        JsonValueKind.True => true,
+                        JsonValueKind.False => false,
+                        JsonValueKind.Null => null,
+                        _ => prop.Value.GetRawText()
+                    };
+                }
+
+                allRows.Add(dict);
+                pageCount++;
+            }
+
+            hasMore = (doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                       doc.RootElement.TryGetProperty("@odata.nextLink", out _)) && pageCount > 0;
+            skip += pageCount;
         }
+
+        _logger.LogInformation("SQL query {Code} ({Name}) returned {Count} rows", queryCode, queryName, allRows.Count);
+        return allRows;
     }
 
     private async Task<List<StockQuantityDto>> ExecuteStockQueryWithParameterAsync(
@@ -11737,6 +11806,7 @@ ORDER BY T0.""DocEntry"" DESC";
 
             using var testClient = new HttpClient(new HttpClientHandler
             {
+                UseCookies = false,
                 ServerCertificateCustomValidationCallback = (_, certificate, _, errors) =>
                 {
                     if (errors == System.Net.Security.SslPolicyErrors.None)

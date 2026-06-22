@@ -19,7 +19,9 @@ public class SalesOrderService : ISalesOrderService
 {
     private const int MaxCommentsLength = 1000;
     private const int MaxCreateOrderAttempts = 5;
+    private const string SapPostingUncertainSyncErrorPrefix = "The SAP posting result is uncertain";
     private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan SapPostingUncertainRetryHold = TimeSpan.FromMinutes(5);
 
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
@@ -597,7 +599,7 @@ public class SalesOrderService : ISalesOrderService
                         order.IsSynced = false;
                         order.SyncError = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
                         order.UpdatedAt = DateTime.UtcNow;
-                        await _context.SaveChangesAsync(cancellationToken);
+                        await _context.SaveChangesAsync(CancellationToken.None);
 
                         _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order remains Draft.", order.OrderNumber);
                     }
@@ -1042,6 +1044,11 @@ public class SalesOrderService : ISalesOrderService
             return MapToDto(order);
         }
 
+        if (await TryResolveUncertainSapPostingAsync(order, cancellationToken))
+        {
+            return MapToDto(order);
+        }
+
         if (order.Status == SalesOrderStatus.Approved && !HasSapDocNum(order))
         {
             _logger.LogWarning(
@@ -1108,6 +1115,10 @@ public class SalesOrderService : ISalesOrderService
         {
             await PostApprovedOrderToSapAsync(order, cancellationToken, postingLockHeld: true);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             order.Status = originalStatus;
@@ -1120,7 +1131,7 @@ public class SalesOrderService : ISalesOrderService
             order.SyncError = TruncateSyncError(ex.Message);
             order.UpdatedAt = DateTime.UtcNow;
 
-            await _context.SaveChangesAsync(cancellationToken);
+            await _context.SaveChangesAsync(CancellationToken.None);
 
             _logger.LogError(
                 ex,
@@ -1352,12 +1363,21 @@ public class SalesOrderService : ISalesOrderService
             return MapToDto(order);
         }
 
+        if (await TryResolveUncertainSapPostingAsync(order, cancellationToken))
+        {
+            return MapToDto(order);
+        }
+
         try
         {
             await PopulateSAPPricesAsync(order, cancellationToken);
             await PostApprovedOrderToSapAsync(order, cancellationToken, postingLockHeld: true);
 
             return MapToDto(order);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -1370,7 +1390,7 @@ public class SalesOrderService : ISalesOrderService
 
             order.SyncError = TruncateSyncError(ex.Message);
             order.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync(cancellationToken);
+            await _context.SaveChangesAsync(CancellationToken.None);
 
             _logger.LogError(ex, "Failed to post sales order {OrderNumber} to SAP", order.OrderNumber);
             throw;
@@ -1433,22 +1453,90 @@ public class SalesOrderService : ISalesOrderService
             return;
         }
 
-        var sapOrder = await _sapClient.CreateSalesOrderAsync(order, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        if (sapOrder.DocNum <= 0)
-            throw new InvalidOperationException("SAP created the sales order but did not return a document number.");
+        var sapCreateReturned = false;
 
-        ApplySapDocumentToLocalOrder(order, sapOrder);
+        try
+        {
+            var sapOrder = await _sapClient.CreateSalesOrderAsync(order, CancellationToken.None);
+            sapCreateReturned = true;
 
-        await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken);
+            if (sapOrder.DocNum <= 0)
+                throw new InvalidOperationException("SAP created the sales order but did not return a document number.");
 
-        await _context.SaveChangesAsync(cancellationToken);
+            ApplySapDocumentToLocalOrder(order, sapOrder);
 
-        _logger.LogInformation(
-            "Posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+            await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, CancellationToken.None);
+
+            await _context.SaveChangesAsync(CancellationToken.None);
+
+            _logger.LogInformation(
+                "Posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                order.OrderNumber,
+                sapOrder.DocEntry,
+                sapOrder.DocNum);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "SAP sales order create for {OrderNumber} did not complete cleanly. Checking SAP for an already-created document before allowing a retry.",
+                order.OrderNumber);
+
+            if (await TryAttachExistingSapSalesOrderWithRetryAsync(
+                    order,
+                    "post-create failure reconciliation",
+                    CancellationToken.None))
+            {
+                return;
+            }
+
+            if (sapCreateReturned || IsPotentiallyUncertainSapCreateFailure(ex))
+            {
+                throw new InvalidOperationException(BuildUncertainSapPostingMessage(order.OrderNumber), ex);
+            }
+
+            throw;
+        }
+    }
+
+    private async Task<bool> TryResolveUncertainSapPostingAsync(
+        SalesOrderEntity order,
+        CancellationToken cancellationToken)
+    {
+        if (!IsSapPostingUncertain(order))
+        {
+            return false;
+        }
+
+        if (await TryAttachExistingSapSalesOrderWithRetryAsync(
+                order,
+                "uncertain previous posting reconciliation",
+                cancellationToken))
+        {
+            return true;
+        }
+
+        var retryBlockedUntil = order.UpdatedAt.Add(SapPostingUncertainRetryHold);
+        var now = DateTime.UtcNow;
+        if (retryBlockedUntil > now)
+        {
+            var waitMinutes = Math.Max(1, (int)Math.Ceiling((retryBlockedUntil - now).TotalMinutes));
+            throw new InvalidOperationException(
+                $"{SapPostingUncertainSyncErrorPrefix} for sales order {order.OrderNumber}. SAP has not returned the document by U_OrderNumber yet, so automatic reposting is blocked for another {waitMinutes} minute(s) to prevent a duplicate.");
+        }
+
+        _logger.LogWarning(
+            "Clearing uncertain SAP posting marker for sales order {OrderId} ({OrderNumber}) after {HoldMinutes} minutes because no SAP document was found by U_OrderNumber. A new post attempt will be allowed.",
+            order.Id,
             order.OrderNumber,
-            sapOrder.DocEntry,
-            sapOrder.DocNum);
+            SapPostingUncertainRetryHold.TotalMinutes);
+
+        order.SyncError = null;
+        order.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(cancellationToken);
+        return false;
     }
 
     private async Task<bool> TryAttachExistingSapSalesOrderAsync(
@@ -1481,6 +1569,60 @@ public class SalesOrderService : ISalesOrderService
 
         return true;
     }
+
+    private async Task<bool> TryAttachExistingSapSalesOrderWithRetryAsync(
+        SalesOrderEntity order,
+        string reason,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 5;
+        var delay = TimeSpan.FromMilliseconds(500);
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            if (await TryAttachExistingSapSalesOrderAsync(order, reason, cancellationToken))
+            {
+                return true;
+            }
+
+            if (attempt == maxAttempts)
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(delay.TotalMilliseconds * attempt), cancellationToken);
+        }
+
+        _logger.LogWarning(
+            "No existing SAP sales order with U_OrderNumber {OrderNumber} was found after {AttemptCount} reconciliation attempts.",
+            order.OrderNumber,
+            maxAttempts);
+
+        return false;
+    }
+
+    private static bool IsSapPostingUncertain(SalesOrderEntity order)
+        => !HasSapDocNum(order)
+           && !string.IsNullOrWhiteSpace(order.SyncError)
+           && order.SyncError.StartsWith(SapPostingUncertainSyncErrorPrefix, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPotentiallyUncertainSapCreateFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OperationCanceledException
+                || current is TimeoutException
+                || current is System.Net.Http.HttpRequestException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string BuildUncertainSapPostingMessage(string orderNumber)
+        => $"{SapPostingUncertainSyncErrorPrefix} for sales order {orderNumber}. The app could not confirm whether SAP accepted the create request, so duplicate prevention has blocked automatic reposting until SAP can be checked by U_OrderNumber.";
 
     private static void ApplySapDocumentToLocalOrder(SalesOrderEntity order, SAPSalesOrder sapOrder)
     {

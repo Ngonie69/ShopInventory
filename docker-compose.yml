@@ -42,6 +42,7 @@ services:
       - SAP__CompanyDB=${SAP_COMPANY_DB}
       - SAP__Username=${SAP_USERNAME}
       - SAP__Password=${SAP_PASSWORD}
+      - SAP__MaxConcurrentRequests=${SAP_MAX_CONCURRENT_REQUESTS:-6}
       - SAP__AllowedServerCertificateThumbprints__0=${SAP_CERT_THUMBPRINT:-}
       - Webhooks__WebhookSecret=${SAP_WEBHOOK_SECRET:-}
       - Security__ApiKeys__0__Key=${API_KEY_MAIN}

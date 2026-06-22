@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
+
 namespace ShopInventory.Middleware;
 
 /// <summary>
@@ -5,21 +8,44 @@ namespace ShopInventory.Middleware;
 /// Prevents parallel operations (Task.WhenAll in validation/reports) from overwhelming SAP
 /// with too many simultaneous requests on a single session.
 /// </summary>
-public class SAPConcurrencyHandler : DelegatingHandler
+public sealed class SAPConcurrencyHandler : DelegatingHandler
 {
-    private static readonly SemaphoreSlim _semaphore = new(10, 10);
+    private static readonly object SemaphoreGate = new();
+    private static SemaphoreSlim? _semaphore;
+    private static int _semaphoreLimit;
+    private readonly int _maxConcurrentRequests;
+
+    public SAPConcurrencyHandler(IOptions<SAPSettings> settings)
+    {
+        _maxConcurrentRequests = Math.Max(1, settings.Value.MaxConcurrentRequests);
+    }
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        await _semaphore.WaitAsync(cancellationToken);
+        var semaphore = GetSemaphore(_maxConcurrentRequests);
+        await semaphore.WaitAsync(cancellationToken);
         try
         {
             return await base.SendAsync(request, cancellationToken);
         }
         finally
         {
-            _semaphore.Release();
+            semaphore.Release();
+        }
+    }
+
+    private static SemaphoreSlim GetSemaphore(int maxConcurrentRequests)
+    {
+        lock (SemaphoreGate)
+        {
+            if (_semaphore is null || _semaphoreLimit != maxConcurrentRequests)
+            {
+                _semaphore = new SemaphoreSlim(maxConcurrentRequests, maxConcurrentRequests);
+                _semaphoreLimit = maxConcurrentRequests;
+            }
+
+            return _semaphore;
         }
     }
 }

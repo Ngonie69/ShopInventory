@@ -1,0 +1,553 @@
+@page "/reports/order-fulfillment"
+@attribute [Authorize(Roles = UserRoles.InsightsRoles)]
+@inject IReportService ReportService
+@inject IReportExportService ExportService
+@inject IJSRuntime JS
+@rendermode InteractiveServer
+
+@{
+    var filteredLines = GetFilteredLines().ToList();
+    var displayedLines = filteredLines.Take(MaxDisplayedLines).ToList();
+    var filteredOrders = GetFilteredOrders().ToList();
+    var filteredTotals = CalculateLineTotals(filteredLines);
+}
+
+<PageTitle>Sales Order vs Invoice - Shop Inventory</PageTitle>
+
+<div class="of-page">
+    <section class="of-header">
+        <div>
+            <span class="of-kicker">Sales Operations</span>
+            <h1>Sales order vs invoice</h1>
+            <p>Review ordered quantities, invoiced quantities, pending invoice quantities, and line values for the selected period.</p>
+        </div>
+        <div class="of-header-actions">
+            <button type="button" class="of-button of-button--secondary" @onclick="ExportToExcelAsync"
+                    disabled="@(isLoading || isExporting || report is null)">
+                @(isExporting ? "Exporting..." : "Export Excel")
+            </button>
+        </div>
+    </section>
+
+    <section class="of-filter-panel">
+        <label class="of-field">
+            <span>From</span>
+            <InputDate class="of-input" @bind-Value="fromDate" @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
+        </label>
+        <label class="of-field">
+            <span>To</span>
+            <InputDate class="of-input" @bind-Value="toDate" @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
+        </label>
+        <label class="of-field">
+            <span>Quick range</span>
+            <select class="of-select" value="@quickRangeDays" @onchange="OnQuickRangeChanged" disabled="@isLoading">
+                <option value="0">Select range</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="180">Last 6 months</option>
+                <option value="365">Last year</option>
+            </select>
+        </label>
+        <label class="of-field of-field--wide">
+            <span>Search</span>
+            <input class="of-input" type="search" placeholder="Order, customer, item, warehouse"
+                   @bind="searchText" @bind:event="oninput" disabled="@isLoading" />
+        </label>
+        <label class="of-field">
+            <span>Line status</span>
+            <select class="of-select" @bind="lineStatusFilter" disabled="@isLoading">
+                <option value="All">All lines</option>
+                <option value="Pending">Pending</option>
+                <option value="Partial">Partial</option>
+                <option value="Invoiced">Invoiced</option>
+                <option value="Cancelled">Cancelled</option>
+            </select>
+        </label>
+        <div class="of-filter-actions">
+            <button type="button" class="of-button of-button--primary" @onclick="LoadReportAsync" disabled="@(isLoading || !HasSelectedRange)">
+                @(isLoading ? "Loading..." : PrimaryActionLabel)
+            </button>
+            <button type="button" class="of-button of-button--secondary" @onclick="ResetFiltersAsync" disabled="@isLoading">
+                Reset
+            </button>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="of-alert of-alert--error" role="alert">@errorMessage</div>
+    }
+
+    @if (isLoading)
+    {
+        <section class="of-state">
+            <div class="spinner-border text-primary" role="status"></div>
+            <strong>Loading sales order vs invoice</strong>
+            <span>Fetching sales order and invoice quantities from SAP.</span>
+        </section>
+    }
+    else if (!hasLoaded)
+    {
+        <section class="of-state">
+            <strong>Ready to load</strong>
+            <span>Choose a date range and load the sales order vs invoice report.</span>
+        </section>
+    }
+    else if (report is null || report.TotalOrders == 0)
+    {
+        <section class="of-state">
+            <strong>No sales order vs invoice data found</strong>
+            <span>Try a wider date range or clear the filters.</span>
+        </section>
+    }
+    else
+    {
+        <section class="of-metrics">
+            <article class="of-metric">
+                <span>Total orders</span>
+                <strong>@report.TotalOrders.ToString("N0")</strong>
+                <small>@report.OpenOrders.ToString("N0") open, @report.ClosedOrders.ToString("N0") closed</small>
+            </article>
+            <article class="of-metric">
+                <span>Invoice rate</span>
+                <strong>@report.FulfillmentRatePercent.ToString("N1")%</strong>
+                <small>@report.FullyDeliveredLines.ToString("N0") invoiced lines</small>
+            </article>
+            <article class="of-metric">
+                <span>Quantity ordered</span>
+                <strong>@report.Orders.Sum(order => order.TotalQuantityOrdered).ToString("N2")</strong>
+                <small>@report.Orders.Sum(order => order.TotalQuantityDelivered).ToString("N2") invoiced</small>
+            </article>
+            <article class="of-metric of-metric--warning">
+                <span>Quantity pending</span>
+                <strong>@report.Orders.Sum(order => order.TotalQuantityPending).ToString("N2")</strong>
+                <small>@report.UndeliveredLines.ToString("N0") pending lines</small>
+            </article>
+            <article class="of-metric of-metric--money">
+                <span>Total order value</span>
+                <strong>@FormatMoneyPair(report.TotalOrderValueUSD, report.TotalOrderValueZIG)</strong>
+                <small>Invoiced @FormatMoneyPair(report.TotalDeliveredValueUSD, report.TotalDeliveredValueZIG)</small>
+            </article>
+            <article class="of-metric of-metric--danger">
+                <span>Pending value</span>
+                <strong>@FormatMoneyPair(report.TotalPendingValueUSD, report.TotalPendingValueZIG)</strong>
+                <small>Based on pending line quantities</small>
+            </article>
+        </section>
+
+        <section class="of-panel">
+            <div class="of-panel-header">
+                <div>
+                    <h2>Item invoice lines</h2>
+                    <p>@filteredLines.Count.ToString("N0") matching lines. Showing @displayedLines.Count.ToString("N0").</p>
+                </div>
+                <div class="of-mini-totals">
+                    <span>Ordered <strong>@filteredTotals.Ordered.ToString("N2")</strong></span>
+                    <span>Invoiced <strong>@filteredTotals.Delivered.ToString("N2")</strong></span>
+                    <span>Pending <strong>@filteredTotals.Pending.ToString("N2")</strong></span>
+                    <span>Value <strong>@FormatMoneyPair(filteredTotals.ValueUsd, filteredTotals.ValueZig)</strong></span>
+                    <span>Pending value <strong>@FormatMoneyPair(filteredTotals.PendingUsd, filteredTotals.PendingZig)</strong></span>
+                </div>
+            </div>
+
+            @if (!displayedLines.Any())
+            {
+                <div class="of-empty">
+                    <strong>No matching item lines</strong>
+                    <span>Clear the search or choose a different line status.</span>
+                </div>
+            }
+            else
+            {
+                @if (filteredLines.Count > MaxDisplayedLines)
+                {
+                    <div class="of-alert of-alert--info">
+                        Showing the first @MaxDisplayedLines.ToString("N0") lines. Refine the search or date range to narrow the result.
+                    </div>
+                }
+
+                <div class="of-table-wrap">
+                    <table class="of-table mobile-card-table">
+                        <thead>
+                            <tr>
+                                <th>Order</th>
+                                <th>Customer</th>
+                                <th>Item</th>
+                                <th>Warehouse</th>
+                                <th>Status</th>
+                                <th class="text-end">Qty ordered</th>
+                                <th class="text-end">Qty invoiced</th>
+                                <th class="text-end">Qty pending</th>
+                                <th class="text-end">Line value</th>
+                                <th class="text-end">Pending value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in displayedLines)
+                            {
+                                <tr class="@GetLineRowClass(row.Line)">
+                                    <td data-label="Order">
+                                        <strong>@row.Order.DocNum</strong>
+                                        <span>@FormatDate(row.Order.OrderDate)</span>
+                                    </td>
+                                    <td data-label="Customer">
+                                        <strong>@row.Order.CardName</strong>
+                                        <span>@row.Order.CardCode</span>
+                                    </td>
+                                    <td data-label="Item">
+                                        <strong>@row.Line.ItemDescription</strong>
+                                        <span>@row.Line.ItemCode</span>
+                                    </td>
+                                    <td data-label="Warehouse">@row.Line.WarehouseCode</td>
+                                    <td data-label="Status">
+                                        <span class="@GetLineStatusClass(row.Line.LineStatus)">@row.Line.LineStatus</span>
+                                    </td>
+                                    <td data-label="Qty ordered" class="text-end">@row.Line.QuantityOrdered.ToString("N2")</td>
+                                    <td data-label="Qty invoiced" class="text-end">@row.Line.QuantityDelivered.ToString("N2")</td>
+                                    <td data-label="Qty pending" class="text-end of-pending-qty">@row.Line.QuantityPending.ToString("N2")</td>
+                                    <td data-label="Line value" class="text-end fw-semibold">@FormatMoney(row.Line.LineTotal, row.Order.DocCurrency)</td>
+                                    <td data-label="Pending value" class="text-end fw-semibold">@FormatMoney(CalculatePendingLineValue(row.Line), row.Order.DocCurrency)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="of-panel">
+            <div class="of-panel-header">
+                <div>
+                    <h2>Order summary</h2>
+                    <p>@filteredOrders.Count.ToString("N0") matching orders with quantity and value rollups.</p>
+                </div>
+            </div>
+
+            <div class="of-table-wrap">
+                <table class="of-table mobile-card-table">
+                    <thead>
+                        <tr>
+                            <th>Order</th>
+                            <th>Customer</th>
+                            <th>Status</th>
+                            <th class="text-end">Order value</th>
+                            <th class="text-end">Qty ordered</th>
+                            <th class="text-end">Qty invoiced</th>
+                            <th class="text-end">Qty pending</th>
+                            <th>Invoice %</th>
+                            <th>Due</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var order in filteredOrders.Take(150))
+                        {
+                            <tr>
+                                <td data-label="Order">
+                                    <strong>@order.DocNum</strong>
+                                    <span>@FormatDate(order.OrderDate)</span>
+                                </td>
+                                <td data-label="Customer">
+                                    <strong>@order.CardName</strong>
+                                    <span>@order.CardCode</span>
+                                </td>
+                                <td data-label="Status">
+                                    <span class="@GetOrderStatusClass(order.Status)">@order.Status</span>
+                                </td>
+                                <td data-label="Order value" class="text-end fw-semibold">@FormatMoney(order.OrderTotal, order.DocCurrency)</td>
+                                <td data-label="Qty ordered" class="text-end">@order.TotalQuantityOrdered.ToString("N2")</td>
+                                <td data-label="Qty invoiced" class="text-end">@order.TotalQuantityDelivered.ToString("N2")</td>
+                                <td data-label="Qty pending" class="text-end of-pending-qty">@order.TotalQuantityPending.ToString("N2")</td>
+                                <td data-label="Invoice %">
+                                    <div class="of-progress">
+                                        <span style="@GetProgressStyle(order.FulfillmentPercent)"></span>
+                                    </div>
+                                    <small>@order.FulfillmentPercent.ToString("N1")%</small>
+                                </td>
+                                <td data-label="Due">
+                                    @if (order.IsOverdue)
+                                    {
+                                        <span class="of-overdue">@order.DaysOverdue.ToString("N0") days overdue</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@FormatDate(order.DueDate)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private const int MaxDisplayedLines = 500;
+
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private int quickRangeDays;
+    private string searchText = string.Empty;
+    private string lineStatusFilter = "All";
+    private string? errorMessage;
+    private bool isLoading;
+    private bool isExporting;
+    private bool hasLoaded;
+    private OrderFulfillmentReport? report;
+
+    private bool HasSelectedRange => fromDate.HasValue && toDate.HasValue;
+
+    private string PrimaryActionLabel => hasLoaded ? "Refresh report" : "Load report";
+
+    private async Task LoadReportAsync()
+    {
+        if (!fromDate.HasValue || !toDate.HasValue)
+        {
+            errorMessage = "Select both From and To dates.";
+            return;
+        }
+
+        if (fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "From date cannot be after To date.";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+        report = null;
+        hasLoaded = false;
+
+        try
+        {
+            report = await ReportService.GetOrderFulfillmentAsync(fromDate.Value.Date, toDate.Value.Date);
+            hasLoaded = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load sales order vs invoice: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OnQuickRangeChanged(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var days))
+            return;
+
+        quickRangeDays = days;
+        if (quickRangeDays <= 0)
+        {
+            fromDate = null;
+            toDate = null;
+            ClearLoadedReport();
+            return;
+        }
+
+        toDate = DateTime.UtcNow.Date;
+        fromDate = toDate.Value.AddDays(-days);
+        ClearLoadedReport();
+    }
+
+    private Task ResetFiltersAsync()
+    {
+        quickRangeDays = 0;
+        toDate = null;
+        fromDate = null;
+        searchText = string.Empty;
+        lineStatusFilter = "All";
+        ClearLoadedReport();
+        return Task.CompletedTask;
+    }
+
+    private void OnDateRangeChanged()
+    {
+        quickRangeDays = 0;
+        ClearLoadedReport();
+    }
+
+    private void ClearLoadedReport()
+    {
+        report = null;
+        hasLoaded = false;
+        errorMessage = null;
+    }
+
+    private async Task ExportToExcelAsync()
+    {
+        if (report is null)
+            return;
+
+        isExporting = true;
+        errorMessage = null;
+
+        try
+        {
+            var bytes = ExportService.ExportOrderFulfillmentToExcel(report);
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"Sales_Order_vs_Invoice_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx",
+                Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            isExporting = false;
+        }
+    }
+
+    private IEnumerable<FulfillmentLineRow> GetFilteredLines()
+    {
+        var rows = report?.Orders
+            .SelectMany(order => order.Lines.Select(line => new FulfillmentLineRow(order, line)))
+            ?? Enumerable.Empty<FulfillmentLineRow>();
+
+        if (lineStatusFilter != "All")
+        {
+            rows = rows.Where(row => string.Equals(row.Line.LineStatus, lineStatusFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            rows = rows.Where(row => MatchesSearch(row, searchText));
+        }
+
+        return rows
+            .OrderByDescending(row => row.Line.QuantityPending > 0)
+            .ThenBy(row => row.Line.LineStatus == "Invoiced")
+            .ThenByDescending(row => row.Order.OrderDate)
+            .ThenBy(row => row.Order.DocNum)
+            .ThenBy(row => row.Line.ItemDescription);
+    }
+
+    private IEnumerable<OrderFulfillmentItem> GetFilteredOrders()
+    {
+        var orders = report?.Orders.AsEnumerable() ?? Enumerable.Empty<OrderFulfillmentItem>();
+
+        if (lineStatusFilter != "All")
+        {
+            orders = orders.Where(order => order.Lines.Any(line =>
+                string.Equals(line.LineStatus, lineStatusFilter, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            orders = orders.Where(order =>
+                Matches(order.DocNum.ToString(), searchText)
+                || Matches(order.CardCode, searchText)
+                || Matches(order.CardName, searchText)
+                || order.Lines.Any(line => Matches(line.ItemCode, searchText)
+                    || Matches(line.ItemDescription, searchText)
+                    || Matches(line.WarehouseCode, searchText)));
+        }
+
+        return orders
+            .OrderByDescending(order => order.TotalQuantityPending > 0)
+            .ThenByDescending(order => order.OrderDate)
+            .ThenBy(order => order.DocNum);
+    }
+
+    private static bool MatchesSearch(FulfillmentLineRow row, string search) =>
+        Matches(row.Order.DocNum.ToString(), search)
+        || Matches(row.Order.CardCode, search)
+        || Matches(row.Order.CardName, search)
+        || Matches(row.Line.ItemCode, search)
+        || Matches(row.Line.ItemDescription, search)
+        || Matches(row.Line.WarehouseCode, search);
+
+    private static bool Matches(string? value, string search) =>
+        !string.IsNullOrWhiteSpace(value)
+        && value.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+    private static (decimal Ordered, decimal Delivered, decimal Pending, decimal ValueUsd, decimal ValueZig, decimal PendingUsd, decimal PendingZig)
+        CalculateLineTotals(IReadOnlyCollection<FulfillmentLineRow> rows)
+    {
+        decimal ordered = 0;
+        decimal delivered = 0;
+        decimal pending = 0;
+        decimal valueUsd = 0;
+        decimal valueZig = 0;
+        decimal pendingUsd = 0;
+        decimal pendingZig = 0;
+
+        foreach (var row in rows)
+        {
+            ordered += row.Line.QuantityOrdered;
+            delivered += row.Line.QuantityDelivered;
+            pending += row.Line.QuantityPending;
+
+            if (IsZigCurrency(row.Order.DocCurrency))
+            {
+                valueZig += row.Line.LineTotal;
+                pendingZig += CalculatePendingLineValue(row.Line);
+            }
+            else
+            {
+                valueUsd += row.Line.LineTotal;
+                pendingUsd += CalculatePendingLineValue(row.Line);
+            }
+        }
+
+        return (ordered, delivered, pending, valueUsd, valueZig, pendingUsd, pendingZig);
+    }
+
+    private static decimal CalculatePendingLineValue(OrderLineDetail line) =>
+        line.QuantityOrdered > 0
+            ? Math.Round(line.LineTotal * line.QuantityPending / line.QuantityOrdered, 2)
+            : 0;
+
+    private static string FormatDate(DateTime value) =>
+        value == default || value == DateTime.MinValue ? "-" : value.ToString("dd MMM yyyy");
+
+    private static string FormatMoney(decimal value, string? currency) =>
+        IsZigCurrency(currency) ? $"ZIG {value:N2}" : $"${value:N2}";
+
+    private static string FormatMoneyPair(decimal usd, decimal zig)
+    {
+        if (zig > 0 && usd > 0)
+            return $"${usd:N2} / ZIG {zig:N2}";
+
+        return zig > 0 ? $"ZIG {zig:N2}" : $"${usd:N2}";
+    }
+
+    private static bool IsZigCurrency(string? currency) =>
+        string.Equals(currency, "ZIG", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(currency, "ZiG", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetLineStatusClass(string status) =>
+        status switch
+        {
+            "Invoiced" => "of-status of-status--fulfilled",
+            "Fulfilled" => "of-status of-status--fulfilled",
+            "Partial" => "of-status of-status--partial",
+            "Cancelled" => "of-status of-status--cancelled",
+            _ => "of-status of-status--pending"
+        };
+
+    private static string GetOrderStatusClass(string status) =>
+        status switch
+        {
+            "Closed" => "of-status of-status--fulfilled",
+            "Cancelled" => "of-status of-status--cancelled",
+            _ => "of-status of-status--pending"
+        };
+
+    private static string GetLineRowClass(OrderLineDetail line) =>
+        line.QuantityPending > 0 ? "of-line-needs-action" : string.Empty;
+
+    private static string GetProgressStyle(decimal value)
+    {
+        var width = Math.Clamp(value, 0, 100);
+        return $"width: {width:N0}%;";
+    }
+
+    private sealed record FulfillmentLineRow(OrderFulfillmentItem Order, OrderLineDetail Line);
+}

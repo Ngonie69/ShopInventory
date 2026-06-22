@@ -86,6 +86,11 @@ public class ReportExportService : IReportExportService
     private static string FormatCatDate(DateTime utcDateTime) =>
         IAuditService.ToCAT(EnsureUtc(utcDateTime)).ToString("dd MMM yyyy");
 
+    private static decimal CalculatePendingLineValue(OrderLineDetail line) =>
+        line.QuantityOrdered > 0
+            ? Math.Round(line.LineTotal * line.QuantityPending / line.QuantityOrdered, 2)
+            : 0;
+
     /// <summary>
     /// Creates the professional report header on a worksheet and returns the next available row.
     /// </summary>
@@ -670,11 +675,11 @@ public class ReportExportService : IReportExportService
         using var workbook = new XLWorkbook();
 
         // ── Dashboard Sheet ──
-        var dash = workbook.Worksheets.Add("Fulfillment Dashboard");
-        int row = WriteReportHeader(dash, "Order Fulfillment Report", 4, report.FromDate, report.ToDate);
+        var dash = workbook.Worksheets.Add("Invoice Dashboard");
+        int row = WriteReportHeader(dash, "Sales Order vs Invoice Report", 4, report.FromDate, report.ToDate);
 
         WriteKpiCard(dash, row, 1, "Total Orders", report.TotalOrders.ToString("N0"));
-        WriteKpiCard(dash, row, 2, "Fulfillment Rate", $"{report.FulfillmentRatePercent:N1}%", report.FulfillmentRatePercent >= 80 ? SuccessGreen : DangerRed);
+        WriteKpiCard(dash, row, 2, "Invoice Rate", $"{report.FulfillmentRatePercent:N1}%", report.FulfillmentRatePercent >= 80 ? SuccessGreen : DangerRed);
         WriteKpiCard(dash, row, 3, "Open Orders", report.OpenOrders.ToString("N0"), WarningOrange);
         WriteKpiCard(dash, row, 4, "Pending Value (USD)", $"${report.TotalPendingValueUSD:N2}", DangerRed);
         row += 3;
@@ -688,15 +693,15 @@ public class ReportExportService : IReportExportService
         WriteKpiRow(dash, row, "Open Orders", report.OpenOrders.ToString("N0")); row++;
         WriteKpiRow(dash, row, "Closed Orders", report.ClosedOrders.ToString("N0")); row++;
         WriteKpiRow(dash, row, "Cancelled Orders", report.CancelledOrders.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Fulfillment Rate", $"{report.FulfillmentRatePercent:N1}%", true); row++;
+        WriteKpiRow(dash, row, "Invoice Rate", $"{report.FulfillmentRatePercent:N1}%", true); row++;
         WriteKpiRow(dash, row, "Total Order Value (USD)", $"${report.TotalOrderValueUSD:N2}", true); row++;
         WriteKpiRow(dash, row, "Total Order Value (ZIG)", $"ZIG {report.TotalOrderValueZIG:N2}"); row++;
-        WriteKpiRow(dash, row, "Delivered Value (USD)", $"${report.TotalDeliveredValueUSD:N2}"); row++;
+        WriteKpiRow(dash, row, "Invoiced Value (USD)", $"${report.TotalDeliveredValueUSD:N2}"); row++;
         WriteKpiRow(dash, row, "Pending Value (USD)", $"${report.TotalPendingValueUSD:N2}"); row++;
         WriteKpiRow(dash, row, "Total Line Items", report.TotalLineItems.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Fully Delivered Lines", report.FullyDeliveredLines.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Partially Delivered Lines", report.PartiallyDeliveredLines.ToString("N0")); row++;
-        WriteKpiRow(dash, row, "Undelivered Lines", report.UndeliveredLines.ToString("N0")); row++;
+        WriteKpiRow(dash, row, "Fully Invoiced Lines", report.FullyDeliveredLines.ToString("N0")); row++;
+        WriteKpiRow(dash, row, "Partially Invoiced Lines", report.PartiallyDeliveredLines.ToString("N0")); row++;
+        WriteKpiRow(dash, row, "Pending Invoice Lines", report.UndeliveredLines.ToString("N0")); row++;
 
         WriteFooter(dash, row, 4);
         FinalizeSheet(dash, 4);
@@ -707,8 +712,8 @@ public class ReportExportService : IReportExportService
 
         ws.Cell(oRow, 1).Value = "Order#"; ws.Cell(oRow, 2).Value = "Date"; ws.Cell(oRow, 3).Value = "Due Date";
         ws.Cell(oRow, 4).Value = "Customer"; ws.Cell(oRow, 5).Value = "Currency"; ws.Cell(oRow, 6).Value = "Total";
-        ws.Cell(oRow, 7).Value = "Status"; ws.Cell(oRow, 8).Value = "Qty Ordered"; ws.Cell(oRow, 9).Value = "Qty Delivered";
-        ws.Cell(oRow, 10).Value = "Qty Pending"; ws.Cell(oRow, 11).Value = "Fulfillment %"; ws.Cell(oRow, 12).Value = "Overdue";
+        ws.Cell(oRow, 7).Value = "Status"; ws.Cell(oRow, 8).Value = "Qty Ordered"; ws.Cell(oRow, 9).Value = "Qty Invoiced";
+        ws.Cell(oRow, 10).Value = "Qty Pending"; ws.Cell(oRow, 11).Value = "Invoice %"; ws.Cell(oRow, 12).Value = "Overdue";
         StyleTableHeader(ws, oRow, 12);
         int freezeAt = oRow;
         oRow++;
@@ -740,15 +745,60 @@ public class ReportExportService : IReportExportService
         WriteFooter(ws, oRow, 12);
         FinalizeSheet(ws, 12, freezeAt, landscape: true);
 
+        // ── Item Line Detail Sheet ──
+        if (report.Orders.Any(order => order.Lines.Any()))
+        {
+            var lws = workbook.Worksheets.Add("Item Lines");
+            int lRow = WriteReportHeader(lws, "Item Invoice Lines", 12, report.FromDate, report.ToDate);
+
+            lws.Cell(lRow, 1).Value = "Order#"; lws.Cell(lRow, 2).Value = "Date"; lws.Cell(lRow, 3).Value = "Customer";
+            lws.Cell(lRow, 4).Value = "Item Code"; lws.Cell(lRow, 5).Value = "Description"; lws.Cell(lRow, 6).Value = "Warehouse";
+            lws.Cell(lRow, 7).Value = "Status"; lws.Cell(lRow, 8).Value = "Qty Ordered"; lws.Cell(lRow, 9).Value = "Qty Invoiced";
+            lws.Cell(lRow, 10).Value = "Qty Pending"; lws.Cell(lRow, 11).Value = "Line Value"; lws.Cell(lRow, 12).Value = "Pending Value";
+            StyleTableHeader(lws, lRow, 12);
+            int lineFreeze = lRow;
+            lRow++;
+            int lineStart = lRow;
+
+            foreach (var order in report.Orders)
+            {
+                foreach (var line in order.Lines)
+                {
+                    lws.Cell(lRow, 1).Value = order.DocNum;
+                    lws.Cell(lRow, 2).Value = order.OrderDate.ToString("dd MMM yyyy");
+                    lws.Cell(lRow, 3).Value = $"{order.CardName} ({order.CardCode})";
+                    lws.Cell(lRow, 4).Value = line.ItemCode;
+                    lws.Cell(lRow, 5).Value = line.ItemDescription;
+                    lws.Cell(lRow, 6).Value = line.WarehouseCode;
+                    lws.Cell(lRow, 7).Value = line.LineStatus;
+                    lws.Cell(lRow, 8).Value = line.QuantityOrdered; lws.Cell(lRow, 8).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 9).Value = line.QuantityDelivered; lws.Cell(lRow, 9).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 10).Value = line.QuantityPending; lws.Cell(lRow, 10).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 11).Value = line.LineTotal; lws.Cell(lRow, 11).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 12).Value = CalculatePendingLineValue(line); lws.Cell(lRow, 12).Style.NumberFormat.Format = "#,##0.00";
+                    if (line.QuantityPending > 0)
+                    {
+                        lws.Cell(lRow, 10).Style.Font.FontColor = WarningOrange;
+                        lws.Cell(lRow, 12).Style.Font.FontColor = DangerRed;
+                    }
+                    lRow++;
+                }
+            }
+
+            StyleDataRows(lws, lineStart, lRow - 1, 12);
+            WriteFooter(lws, lRow, 12);
+            FinalizeSheet(lws, 12, lineFreeze, landscape: true);
+        }
+
         // ── By Customer Sheet ──
         if (report.FulfillmentByCustomer.Any())
         {
             var cws = workbook.Worksheets.Add("By Customer");
-            int cRow = WriteReportHeader(cws, "Fulfillment by Customer", 8, report.FromDate, report.ToDate);
+            int cRow = WriteReportHeader(cws, "Invoice by Customer", 8, report.FromDate, report.ToDate);
 
             cws.Cell(cRow, 1).Value = "Customer"; cws.Cell(cRow, 2).Value = "Code"; cws.Cell(cRow, 3).Value = "Total Orders";
-            cws.Cell(cRow, 4).Value = "Open"; cws.Cell(cRow, 5).Value = "Closed"; cws.Cell(cRow, 6).Value = "Order Value (USD)";
-            cws.Cell(cRow, 7).Value = "Fulfillment %"; cws.Cell(cRow, 8).Value = "Pending Value (USD)";
+            cws.Cell(cRow, 4).Value = "Pending Invoice"; cws.Cell(cRow, 5).Value = "Fully Invoiced"; cws.Cell(cRow, 6).Value = "Order Value (USD)";
+            cws.Cell(cRow, 7).Value = "Invoice %"; cws.Cell(cRow, 8).Value = "Pending Value (USD)";
             StyleTableHeader(cws, cRow, 8);
             int cFreeze = cRow;
             cRow++;

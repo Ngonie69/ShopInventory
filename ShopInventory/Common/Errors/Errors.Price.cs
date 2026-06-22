@@ -23,5 +23,8 @@ public static partial class Errors
 
         public static Error SapConnectionError(string message) =>
             Error.Failure("Price.SapConnectionError", $"Network error connecting to SAP: {message}");
+
+        public static Error SyncAlreadyRunning =
+            Error.Conflict("Price.SyncAlreadyRunning", "A SAP price catalog sync is already running. Try again after it finishes.");
     }
 }

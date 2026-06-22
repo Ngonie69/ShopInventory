@@ -623,6 +623,8 @@ try
 
         return new SocketsHttpHandler
         {
+            UseCookies = false,
+            MaxConnectionsPerServer = Math.Max(1, sapSettings.MaxConcurrentRequests),
             SslOptions = new System.Net.Security.SslClientAuthenticationOptions
             {
                 RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
@@ -675,6 +677,8 @@ try
 
         return new SocketsHttpHandler
         {
+            UseCookies = false,
+            MaxConnectionsPerServer = Math.Max(1, sapSettings.MaxConcurrentRequests),
             SslOptions = new System.Net.Security.SslClientAuthenticationOptions
             {
                 // Invalid certificates are only allowed when explicitly enabled in configuration.
@@ -1065,4 +1069,3 @@ static void ApplyThreadPoolTuning(ThreadPoolPerformanceOptions options)
         maxWorkerThreads,
         maxCompletionPortThreads);
 }
-
