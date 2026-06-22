@@ -1873,6 +1873,9 @@
     private bool showCreateCreditNoteModal = false;
     private bool isCreatingCreditNote = false;
     private string? creditNoteReason;
+    // Stable idempotency key for the open credit-note modal; minted when the modal opens and reused
+    // across retries so a lost-response retry is deduplicated instead of posting a duplicate credit note.
+    private string? creditNoteClientRequestId;
     private List<CreditNoteLineSelection>? creditNoteLines;
     private bool selectAllLines = false;
     private string? creditNoteMessage;
@@ -2340,6 +2343,7 @@
 
         selectAllLines = true;
         creditNoteReason = null;
+        creditNoteClientRequestId = Guid.NewGuid().ToString("N");
         showCreateCreditNoteModal = true;
     }
 
@@ -2401,7 +2405,8 @@
             var result = await CreditNoteService.CreateFromInvoiceAsync(
             selectedInvoice.DocEntry,
             selectedLines,
-            creditNoteReason
+            creditNoteReason,
+            creditNoteClientRequestId
             );
 
             _progressCancellationTokenSource?.Cancel();

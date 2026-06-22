@@ -1125,6 +1125,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocNum"" DESC, T1.""LineNum""";
         var directInvoiceSql = $@"SELECT
     T1.""BaseEntry"" AS ""OrderDocEntry"",
     T1.""BaseLine"" AS ""OrderLineNum"",
+    T0.""DocNum"" AS ""InvoiceDocNum"",
     SUM(T1.""Quantity"") AS ""QuantityInvoiced"",
     SUM(T1.""LineTotal"") AS ""InvoicedLineTotal""
 FROM OINV T0
@@ -1133,11 +1134,12 @@ INNER JOIN ORDR O0 ON O0.""DocEntry"" = T1.""BaseEntry""
 WHERE T1.""BaseType"" = 17
   AND T0.""CANCELED"" = 'N'
   AND O0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
-GROUP BY T1.""BaseEntry"", T1.""BaseLine""";
+GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
         var deliveryInvoiceSql = $@"SELECT
     D1.""BaseEntry"" AS ""OrderDocEntry"",
     D1.""BaseLine"" AS ""OrderLineNum"",
+    T0.""DocNum"" AS ""InvoiceDocNum"",
     SUM(T1.""Quantity"") AS ""QuantityInvoiced"",
     SUM(T1.""LineTotal"") AS ""InvoicedLineTotal""
 FROM OINV T0
@@ -1147,7 +1149,7 @@ INNER JOIN ORDR O0 ON O0.""DocEntry"" = D1.""BaseEntry""
 WHERE D1.""BaseType"" = 17
   AND T0.""CANCELED"" = 'N'
   AND O0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
-GROUP BY D1.""BaseEntry"", D1.""BaseLine""";
+GROUP BY D1.""BaseEntry"", D1.""BaseLine"", T0.""DocNum""";
 
         var customerRows = await ExecuteReportSqlAsync("ORD_FULF_CUST", "Sales Order Vs Invoice By Customer", customerSql, cancellationToken);
         var dailyRows = await ExecuteReportSqlAsync("ORD_FULF_DAILY", "Sales Order Vs Invoice Daily", dailySql, cancellationToken);
@@ -1376,7 +1378,8 @@ GROUP BY D1.""BaseEntry"", D1.""BaseLine""";
                     QuantityDelivered = deliveredQuantity,
                     QuantityPending = pendingQuantity,
                     LineTotal = Math.Round(lineTotal, 2),
-                    LineStatus = lineStatus
+                    LineStatus = lineStatus,
+                    InvoiceNumbers = GetRowString(row, "InvoiceNumbers")
                 });
 
                 totalLineItems++;
@@ -1468,7 +1471,7 @@ GROUP BY D1.""BaseEntry"", D1.""BaseLine""";
         IEnumerable<Dictionary<string, object?>> directInvoiceRows,
         IEnumerable<Dictionary<string, object?>> deliveryInvoiceRows)
     {
-        var invoiceByOrderLine = new Dictionary<(int DocEntry, int LineNum), (decimal Quantity, decimal Value)>();
+        var invoiceByOrderLine = new Dictionary<(int DocEntry, int LineNum), (decimal Quantity, decimal Value, SortedSet<int> InvoiceNumbers)>();
 
         AddInvoiceRows(directInvoiceRows);
         AddInvoiceRows(deliveryInvoiceRows);
@@ -1483,6 +1486,9 @@ GROUP BY D1.""BaseEntry"", D1.""BaseLine""";
             row["QuantityInvoiced"] = invoicedQuantity;
             row["InvoicedLineTotal"] = Math.Max(0, invoiceMetrics.Value);
             row["QuantityPending"] = Math.Max(0, orderedQuantity - invoicedQuantity);
+            row["InvoiceNumbers"] = invoiceMetrics.InvoiceNumbers is { Count: > 0 }
+                ? string.Join(", ", invoiceMetrics.InvoiceNumbers)
+                : string.Empty;
         }
 
         void AddInvoiceRows(IEnumerable<Dictionary<string, object?>> rows)
@@ -1492,11 +1498,15 @@ GROUP BY D1.""BaseEntry"", D1.""BaseLine""";
                 var key = (GetRowInt(row, "OrderDocEntry"), GetRowInt(row, "OrderLineNum"));
                 var quantity = Math.Max(0, GetRowDecimal(row, "QuantityInvoiced"));
                 var value = Math.Max(0, GetRowDecimal(row, "InvoicedLineTotal"));
+                var invoiceNumber = GetRowInt(row, "InvoiceDocNum");
 
                 if (!invoiceByOrderLine.TryGetValue(key, out var existing))
-                    existing = (0, 0);
+                    existing = (0, 0, new SortedSet<int>());
 
-                invoiceByOrderLine[key] = (existing.Quantity + quantity, existing.Value + value);
+                if (invoiceNumber > 0)
+                    existing.InvoiceNumbers.Add(invoiceNumber);
+
+                invoiceByOrderLine[key] = (existing.Quantity + quantity, existing.Value + value, existing.InvoiceNumbers);
             }
         }
     }

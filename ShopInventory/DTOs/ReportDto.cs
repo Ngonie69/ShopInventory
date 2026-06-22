@@ -339,6 +339,7 @@ public class OrderLineDetailDto
     public decimal QuantityPending { get; set; }
     public decimal LineTotal { get; set; }
     public string LineStatus { get; set; } = string.Empty; // Invoiced, Partial, Pending
+    public string InvoiceNumbers { get; set; } = string.Empty; // Invoice DocNum(s) raised against this order line, comma-separated
 }
 
 /// <summary>

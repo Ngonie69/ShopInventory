@@ -140,7 +140,15 @@ public class PaymentService : IPaymentService
         {
             _logger.LogInformation("Sending incoming payment creation request for customer {CardCode}", request.CardCode);
 
-            var response = await _httpClient.PostAsJsonAsync("api/incomingpayment", request);
+            var clientRequestId = EnsureClientRequestId(request);
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/incomingpayment")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+            var response = await _httpClient.SendAsync(httpRequest);
 
             _logger.LogInformation("Incoming payment API response: {StatusCode}", response.StatusCode);
 
@@ -189,6 +197,18 @@ public class PaymentService : IPaymentService
             _logger.LogError(ex, "Unexpected error creating incoming payment");
             throw;
         }
+    }
+
+    private static string EnsureClientRequestId(CreateIncomingPaymentRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
     }
 
     public async Task<(bool Success, string Message)> UploadPaymentAttachmentAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null)

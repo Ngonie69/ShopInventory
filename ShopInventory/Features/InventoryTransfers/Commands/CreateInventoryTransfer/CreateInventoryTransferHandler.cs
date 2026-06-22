@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Validation;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -22,6 +23,7 @@ public sealed class CreateInventoryTransferHandler(
     IAuditService auditService,
     INotificationService notificationService,
     SapCircuitBreakerState sapCircuitBreakerState,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<SAPSettings> settings,
     ILogger<CreateInventoryTransferHandler> logger
 ) : IRequestHandler<CreateInventoryTransferCommand, ErrorOr<InventoryTransferCreatedResponseDto>>
@@ -44,6 +46,77 @@ public sealed class CreateInventoryTransferHandler(
             $"Quantity validation failed: {string.Join("; ", quantityErrors)}");
         }
 
+        var idempotencyKey = string.IsNullOrWhiteSpace(request.ClientRequestId)
+            ? null
+            : request.ClientRequestId.Trim();
+
+        if (idempotencyKey is null)
+            return await HandleCoreAsync(request, cancellationToken);
+
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+        try
+        {
+            var acquireResult = await idempotencyRequestStore.TryAcquireAsync<InventoryTransferCreatedResponseDto>(
+                "inventorytransfers.create",
+                idempotencyKey,
+                request,
+                cancellationToken);
+
+            switch (acquireResult.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                    logger.LogWarning("Replaying inventory transfer creation for idempotency key {Key}", idempotencyKey);
+                    return acquireResult.Response;
+                case IdempotencyAcquireOutcome.InProgress:
+                    return Errors.Idempotency.RequestInProgress("inventory transfer creation");
+                case IdempotencyAcquireOutcome.RequestMismatch:
+                    return Errors.Idempotency.RequestMismatch("inventory transfer creation");
+                case IdempotencyAcquireOutcome.Acquired:
+                    idempotencyRequestId = acquireResult.RequestId;
+                    releaseIdempotencyRequest = true;
+                    break;
+            }
+
+            var result = await HandleCoreAsync(request, cancellationToken);
+
+            // Complete on any successful terminal result (posted OR queued) so a retry replays it
+            // instead of posting/queuing a duplicate.
+            if (idempotencyRequestId.HasValue && !result.IsError)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist inventory transfer idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release inventory transfer idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+        }
+    }
+
+    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> HandleCoreAsync(
+        CreateInventoryTransferRequest request,
+        CancellationToken cancellationToken)
+    {
         if (sapCircuitBreakerState.IsOpen && CanQueueFallback(request))
         {
             return await QueueTransferFallbackAsync(request, cancellationToken);

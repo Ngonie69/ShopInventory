@@ -224,6 +224,7 @@ public class OrderLineDetail
     public decimal QuantityPending { get; set; }
     public decimal LineTotal { get; set; }
     public string LineStatus { get; set; } = string.Empty;
+    public string InvoiceNumbers { get; set; } = string.Empty;
 }
 
 public class FulfillmentByCustomer

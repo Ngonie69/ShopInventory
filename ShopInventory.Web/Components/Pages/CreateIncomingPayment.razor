@@ -1542,6 +1542,9 @@
 @code {
     // State
     private bool isSubmitting = false;
+    // Stable idempotency key for the current payment entry. Reused across failure retries so a
+    // lost-response retry is deduplicated; regenerated in ClearForm() once a payment succeeds.
+    private string clientRequestId = Guid.NewGuid().ToString("N");
     private string? successMessage;
     private string? errorMessage;
 
@@ -1954,7 +1957,8 @@ new()
                 TransferDate = transferDate?.ToString("yyyy-MM-dd"),
                 TransferAccount = transferAccount,
                 CheckSum = checkSum,
-                CreditSum = creditSum
+                CreditSum = creditSum,
+                ClientRequestId = clientRequestId
             };
 
             // Add invoice lines if any
@@ -2079,6 +2083,8 @@ VoucherNum = creditVoucherNum
 
     private void ClearForm()
     {
+        // New payment entry gets a fresh idempotency key so it is not treated as a retry of the last one.
+        clientRequestId = Guid.NewGuid().ToString("N");
         selectedBusinessPartner = null;
         bpSearchTerm = "";
         docDate = DateTime.Today;

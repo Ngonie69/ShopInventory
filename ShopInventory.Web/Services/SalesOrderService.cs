@@ -214,7 +214,18 @@ public class SalesOrderService : ISalesOrderService
     public async Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request)
     {
         await EnsureAuthenticationAsync();
-        var response = await _httpClient.PostAsJsonAsync("api/salesorder", request);
+
+        var clientRequestId = EnsureClientRequestId(request);
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/salesorder")
+        {
+            Content = JsonContent.Create(request)
+        };
+        // Sent both as a header (for IdempotencyMiddleware) and in the body as ClientRequestId
+        // (for durable DB-backed dedup) so a retried submission cannot create a second order.
+        httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+        var response = await _httpClient.SendAsync(httpRequest);
         if (response.IsSuccessStatusCode)
         {
             return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -226,6 +237,18 @@ public class SalesOrderService : ISalesOrderService
             response.StatusCode,
             errorBody,
             "We couldn't create this sales order right now. Please try again.");
+    }
+
+    private static string EnsureClientRequestId(CreateSalesOrderRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
     }
 
     public async Task<SalesOrderDto?> UpdateSalesOrderAsync(int id, CreateSalesOrderRequest request)

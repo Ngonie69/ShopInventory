@@ -176,6 +176,7 @@
                                 <th>Item</th>
                                 <th>Warehouse</th>
                                 <th>Status</th>
+                                <th>Invoice(s)</th>
                                 <th class="text-end">Qty ordered</th>
                                 <th class="text-end">Qty invoiced</th>
                                 <th class="text-end">Qty pending</th>
@@ -202,6 +203,16 @@
                                     <td data-label="Warehouse">@row.Line.WarehouseCode</td>
                                     <td data-label="Status">
                                         <span class="@GetLineStatusClass(row.Line.LineStatus)">@row.Line.LineStatus</span>
+                                    </td>
+                                    <td data-label="Invoice(s)">
+                                        @if (!string.IsNullOrWhiteSpace(row.Line.InvoiceNumbers))
+                                        {
+                                            <span class="of-invoice-nums">@row.Line.InvoiceNumbers</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
                                     </td>
                                     <td data-label="Qty ordered" class="text-end">@row.Line.QuantityOrdered.ToString("N2")</td>
                                     <td data-label="Qty invoiced" class="text-end">@row.Line.QuantityDelivered.ToString("N2")</td>

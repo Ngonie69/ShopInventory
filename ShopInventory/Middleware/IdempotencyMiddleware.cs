@@ -30,6 +30,27 @@ public class IdempotencyMiddleware
             "/api/quotation", "/api/purchasequotation"
     };
 
+    // Exact "METHOD /path" endpoints that MUST carry an Idempotency-Key; keyless requests are
+    // rejected with 428. Scoped to endpoints whose clients are known to send the key, so existing
+    // callers that don't yet (sub-routes like {id}/approve, {id}/status, and other create
+    // endpoints) keep working. Promote an endpoint here once its client sends the key.
+    private static readonly HashSet<string> IdempotencyEnforcedEndpoints = new(StringComparer.OrdinalIgnoreCase)
+    {
+            "POST /api/salesorder",
+            "POST /api/creditnote",
+            "POST /api/invoice",
+            "POST /api/incomingpayment",
+            "POST /api/inventorytransfer",
+    };
+
+    // Parameterized create routes that MUST carry an Idempotency-Key, matched by prefix because the
+    // path contains a variable segment (e.g. .../from-invoice/{invoiceId}). Keep these specific enough
+    // that they cannot match an unrelated sub-route.
+    private static readonly string[] IdempotencyEnforcedPrefixes =
+    {
+            "POST /api/creditnote/from-invoice/",
+    };
+
     public IdempotencyMiddleware(RequestDelegate next, ILogger<IdempotencyMiddleware> logger)
     {
         _next = next;
@@ -84,8 +105,25 @@ public class IdempotencyMiddleware
         }
         else if (requiresIdempotency)
         {
-            // Warn but don't block - idempotency key recommended for critical operations
-            _logger.LogDebug("No Idempotency-Key provided for business-critical path {Path} from IP {Ip}",
+            var endpointKey = $"{context.Request.Method} {path.TrimEnd('/')}";
+            if (IdempotencyEnforcedEndpoints.Contains(endpointKey)
+                || IdempotencyEnforcedPrefixes.Any(prefix => endpointKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogWarning(
+                    "Rejected keyless request to enforced idempotent endpoint {Endpoint} from IP {Ip}",
+                    endpointKey, context.Connection.RemoteIpAddress);
+
+                context.Response.StatusCode = StatusCodes.Status428PreconditionRequired;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    message = "This operation requires an Idempotency-Key header to prevent duplicate documents being posted to SAP.",
+                    path = path.TrimEnd('/')
+                });
+                return;
+            }
+
+            // Other business-critical paths: warn loudly but don't block yet (clients not updated).
+            _logger.LogWarning("No Idempotency-Key provided for business-critical path {Path} from IP {Ip}",
                 path, context.Connection.RemoteIpAddress);
             await _next(context);
         }

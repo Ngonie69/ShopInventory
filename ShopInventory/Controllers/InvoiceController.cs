@@ -44,6 +44,11 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
         [FromQuery] BatchAllocationStrategy allocationStrategy = BatchAllocationStrategy.FEFO,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(
             new CreateInvoiceCommand(request, autoAllocateBatches, allocationStrategy, GetUserId(), GetUsername()), cancellationToken);
 

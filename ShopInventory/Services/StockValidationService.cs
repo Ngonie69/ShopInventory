@@ -132,6 +132,13 @@ public class CreateInventoryTransferRequest
     public string? ToWarehouse { get; set; }
 
     /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Deduplicates retried submissions across both the synchronous SAP post and the
+    /// queue-fallback path so a duplicate inventory transfer is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
+
+    /// <summary>
     /// Optional document date (defaults to today)
     /// </summary>
     public string? DocDate { get; set; }
@@ -259,6 +266,13 @@ public class CreateIncomingPaymentRequest
     /// Optional remarks
     /// </summary>
     public string? Remarks { get; set; }
+
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Deduplicates retried submissions across both the synchronous SAP post and the
+    /// queue-fallback path so a duplicate incoming payment is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
 
     /// <summary>
     /// G/L account code for cash payments (overrides SAP default)

@@ -186,7 +186,15 @@ public class InventoryTransferService : IInventoryTransferService
             _logger.LogInformation("Creating inventory transfer from {FromWarehouse} to {ToWarehouse} with {LineCount} lines",
                 request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
-            var response = await _httpClient.PostAsJsonAsync("api/inventorytransfer", request);
+            var clientRequestId = EnsureClientRequestId(request);
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/inventorytransfer")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+            var response = await _httpClient.SendAsync(httpRequest);
 
             _logger.LogInformation("Inventory transfer API response: {StatusCode}", response.StatusCode);
 
@@ -279,6 +287,18 @@ public class InventoryTransferService : IInventoryTransferService
                 ex,
                 "We couldn't create this inventory transfer right now. Please try again."), null);
         }
+    }
+
+    private static string EnsureClientRequestId(CreateInventoryTransferDto request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
     }
 
     #endregion

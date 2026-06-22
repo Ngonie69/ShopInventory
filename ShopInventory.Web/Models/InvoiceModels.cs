@@ -73,6 +73,7 @@ public class CreateInvoiceRequest
     public string? Comments { get; set; }
     public string? DocCurrency { get; set; }
     public decimal? CrateQuantity { get; set; }
+    public string? ClientRequestId { get; set; }
     public List<CreateInvoiceLineRequest> Lines { get; set; } = new();
 }
 

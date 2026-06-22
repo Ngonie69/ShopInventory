@@ -128,6 +128,7 @@ public class CreateInventoryTransferDto
     public string? DocDate { get; set; }
     public string? DueDate { get; set; }
     public string? Comments { get; set; }
+    public string? ClientRequestId { get; set; }
     public List<CreateInventoryTransferLineDto> Lines { get; set; } = new();
 }
 

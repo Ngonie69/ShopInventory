@@ -260,6 +260,12 @@ public class CreateCreditNoteRequest
     public bool RestockItems { get; set; } = true;
     public string? RestockWarehouseCode { get; set; }
 
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Used to deduplicate retried submissions so a duplicate credit note is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateCreditNoteLineRequest> Lines { get; set; } = new();

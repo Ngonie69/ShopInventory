@@ -10,7 +10,7 @@ public interface ICreditNoteService
     Task<CreditNoteDto?> GetCreditNoteByNumberAsync(string creditNoteNumber);
     Task<CreditNotesByInvoiceResponse?> GetCreditNotesForInvoiceAsync(int invoiceId);
     Task<CreditNoteDto?> CreateCreditNoteAsync(CreateCreditNoteRequest request);
-    Task<CreateCreditNoteResult> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason);
+    Task<CreateCreditNoteResult> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason, string? clientRequestId = null);
     Task<CreditNoteDto?> ApproveAsync(int id);
     Task<bool> DeleteCreditNoteAsync(int id);
 }
@@ -95,7 +95,15 @@ public class CreditNoteService : ICreditNoteService
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("api/creditnote", request);
+            var clientRequestId = EnsureClientRequestId(request);
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/creditnote")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+            var response = await _httpClient.SendAsync(httpRequest);
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<CreditNoteDto>();
@@ -111,13 +119,34 @@ public class CreditNoteService : ICreditNoteService
         }
     }
 
-    public async Task<CreateCreditNoteResult> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason)
+    private static string EnsureClientRequestId(CreateCreditNoteRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
+    }
+
+    public async Task<CreateCreditNoteResult> CreateFromInvoiceAsync(int invoiceId, List<CreateCreditNoteLineRequest> lines, string reason, string? clientRequestId = null)
     {
         try
         {
-            // API expects only Reason and Lines in the body (InvoiceId is in the URL)
-            var request = new { Lines = lines, Reason = reason };
-            var response = await _httpClient.PostAsJsonAsync($"api/creditnote/from-invoice/{invoiceId}", request);
+            var key = string.IsNullOrWhiteSpace(clientRequestId) ? Guid.NewGuid().ToString("N") : clientRequestId.Trim();
+
+            // API expects Reason, Lines and ClientRequestId in the body (InvoiceId is in the URL)
+            var request = new { Lines = lines, Reason = reason, ClientRequestId = key };
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"api/creditnote/from-invoice/{invoiceId}")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", key);
+
+            var response = await _httpClient.SendAsync(httpRequest);
             if (response.IsSuccessStatusCode)
             {
                 var creditNote = await response.Content.ReadFromJsonAsync<CreditNoteDto>();

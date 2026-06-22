@@ -1382,6 +1382,9 @@
     private bool isLoadingWarehouses = true;
     private bool isLoadingProducts = true;
     private bool isSubmitting = false;
+    // Stable idempotency key for this transfer entry; reused across retries so a lost-response
+    // retry is deduplicated. The page navigates away on success, so each new transfer gets a fresh key.
+    private readonly string clientRequestId = Guid.NewGuid().ToString("N");
     private bool showDocDetails = false;
     private string? errorMessage;
     private string? successMessage;
@@ -1731,6 +1734,7 @@
                 DocDate = (docDate ?? DateTime.Today).ToString("yyyy-MM-dd"),
                 DueDate = dueDate?.ToString("yyyy-MM-dd"),
                 Comments = BuildComments(),
+                ClientRequestId = clientRequestId,
 
                 Lines = lines.Select(l => new CreateInventoryTransferLineDto
                 {

@@ -47,11 +47,17 @@ public sealed class CreateInvoiceHandler(
 
         try
         {
-            if (!string.IsNullOrWhiteSpace(request.U_Van_saleorder))
+            // Prefer the U_Van_saleorder business key; fall back to a client-supplied idempotency key
+            // (Idempotency-Key header) so plain web invoices without a van-sale-order are also deduped.
+            var idempotencyKey = !string.IsNullOrWhiteSpace(request.U_Van_saleorder)
+                ? request.U_Van_saleorder
+                : (string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim());
+
+            if (idempotencyKey is not null)
             {
                 var acquireResult = await idempotencyRequestStore.TryAcquireAsync<InvoiceCreatedResponseDto>(
                     "invoices.create",
-                    request.U_Van_saleorder,
+                    idempotencyKey,
                     request,
                     cancellationToken);
 

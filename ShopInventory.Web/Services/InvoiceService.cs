@@ -193,7 +193,15 @@ public class InvoiceService : IInvoiceService
 
             // Use auto-allocation with FEFO (First Expiry First Out) strategy
             // This ensures batches are automatically selected based on expiry dates
-            var response = await _httpClient.PostAsJsonAsync("api/invoice?autoAllocateBatches=true&allocationStrategy=FEFO", request);
+            var clientRequestId = EnsureClientRequestId(request);
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/invoice?autoAllocateBatches=true&allocationStrategy=FEFO")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+            var response = await _httpClient.SendAsync(httpRequest);
 
             _logger.LogInformation("Invoice API response: {StatusCode}", response.StatusCode);
 
@@ -248,6 +256,18 @@ public class InvoiceService : IInvoiceService
                 ex,
                 "We couldn't create this invoice right now. Please try again."), null, null);
         }
+    }
+
+    private static string EnsureClientRequestId(CreateInvoiceRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
     }
 
     /// <summary>

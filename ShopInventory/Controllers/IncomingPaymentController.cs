@@ -35,6 +35,11 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
         [FromBody] CreateIncomingPaymentRequest request,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new CreateIncomingPaymentCommand(request, GetUserId()), cancellationToken);
         return result.Match(
             value =>

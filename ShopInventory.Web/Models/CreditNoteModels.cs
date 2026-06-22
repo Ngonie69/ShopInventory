@@ -106,6 +106,7 @@ public class CreateCreditNoteRequest
     public string? Currency { get; set; } = "USD";
     public bool RestockItems { get; set; } = true;
     public string? RestockWarehouseCode { get; set; }
+    public string? ClientRequestId { get; set; }
     public List<CreateCreditNoteLineRequest> Lines { get; set; } = new();
 }
 

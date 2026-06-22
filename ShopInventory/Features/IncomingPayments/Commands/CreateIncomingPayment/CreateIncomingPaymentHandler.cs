@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Notifications;
@@ -18,6 +19,7 @@ public sealed class CreateIncomingPaymentHandler(
     IAuditService auditService,
     INotificationService notificationService,
     SapCircuitBreakerState sapCircuitBreakerState,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<SAPSettings> settings,
     ILogger<CreateIncomingPaymentHandler> logger
 ) : IRequestHandler<CreateIncomingPaymentCommand, ErrorOr<IncomingPaymentCreatedResponseDto>>
@@ -40,9 +42,81 @@ public sealed class CreateIncomingPaymentHandler(
                 $"Amount validation failed - negative amounts are not allowed: {string.Join("; ", amountErrors)}");
         }
 
+        var idempotencyKey = string.IsNullOrWhiteSpace(request.ClientRequestId)
+            ? null
+            : request.ClientRequestId.Trim();
+
+        if (idempotencyKey is null)
+            return await HandleCoreAsync(request, command.CreatedBy, cancellationToken);
+
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+        try
+        {
+            var acquireResult = await idempotencyRequestStore.TryAcquireAsync<IncomingPaymentCreatedResponseDto>(
+                "incomingpayments.create",
+                idempotencyKey,
+                request,
+                cancellationToken);
+
+            switch (acquireResult.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                    logger.LogWarning("Replaying incoming payment creation for idempotency key {Key}", idempotencyKey);
+                    return acquireResult.Response;
+                case IdempotencyAcquireOutcome.InProgress:
+                    return Errors.Idempotency.RequestInProgress("incoming payment creation");
+                case IdempotencyAcquireOutcome.RequestMismatch:
+                    return Errors.Idempotency.RequestMismatch("incoming payment creation");
+                case IdempotencyAcquireOutcome.Acquired:
+                    idempotencyRequestId = acquireResult.RequestId;
+                    releaseIdempotencyRequest = true;
+                    break;
+            }
+
+            var result = await HandleCoreAsync(request, command.CreatedBy, cancellationToken);
+
+            // Complete on any successful terminal result (posted OR queued) so a retry replays it
+            // instead of posting/queuing a duplicate.
+            if (idempotencyRequestId.HasValue && !result.IsError)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist incoming payment idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release incoming payment idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+        }
+    }
+
+    private async Task<ErrorOr<IncomingPaymentCreatedResponseDto>> HandleCoreAsync(
+        CreateIncomingPaymentRequest request,
+        string? createdBy,
+        CancellationToken cancellationToken)
+    {
         if (sapCircuitBreakerState.IsOpen)
         {
-            return await QueuePaymentFallbackAsync(request, command.CreatedBy, cancellationToken);
+            return await QueuePaymentFallbackAsync(request, createdBy, cancellationToken);
         }
 
         try
@@ -103,7 +177,7 @@ public sealed class CreateIncomingPaymentHandler(
         catch (Exception ex) when (SapFailureClassifier.IsTransient(ex, cancellationToken))
         {
             logger.LogWarning(ex, "SAP is unavailable while creating incoming payment. Falling back to queue.");
-            return await QueuePaymentFallbackAsync(request, command.CreatedBy, cancellationToken);
+            return await QueuePaymentFallbackAsync(request, createdBy, cancellationToken);
         }
         catch (Exception ex)
         {

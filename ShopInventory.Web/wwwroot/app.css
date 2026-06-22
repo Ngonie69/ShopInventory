@@ -11733,6 +11733,12 @@ canvas {
     font-weight: 800;
 }
 
+.of-invoice-nums {
+    color: #1d4ed8 !important;
+    font-weight: 600;
+    font-size: 0.85rem !important;
+}
+
 .of-status {
     display: inline-flex;
     align-items: center;
@@ -11905,6 +11911,10 @@ canvas {
 .dark-theme .of-status--cancelled {
     color: #cbd5e1;
     background: #334155;
+}
+
+.dark-theme .of-invoice-nums {
+    color: #93c5fd !important;
 }
 
 .dark-theme .of-progress {

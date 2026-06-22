@@ -31,6 +31,11 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         [FromBody] CreateInventoryTransferRequest request,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new CreateInventoryTransferCommand(request), cancellationToken);
         return result.Match(
             value =>
