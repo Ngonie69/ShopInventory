@@ -1,4 +1,4 @@
-using System.Globalization;
+using ShopInventory.Web.Data;
 
 namespace ShopInventory.Web.Services;
 
@@ -33,89 +33,116 @@ public sealed class PodReportEmailScheduler(
     private async Task ProcessAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
-        var reportEmailService = scope.ServiceProvider.GetRequiredService<IPodReportEmailService>();
-        var options = await reportEmailService.GetOptionsAsync();
+        var settingsService = scope.ServiceProvider.GetRequiredService<IAppSettingsService>();
 
-        if (!options.Enabled || options.To.Count == 0)
+        // Master toggle gates all scheduled sending; individual schedules also have their own Enabled flag.
+        var masterEnabled = ParseBool(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsEnabled));
+        if (!masterEnabled)
         {
             return;
         }
 
-        var nowUtc = DateTime.UtcNow;
-        var weeklySchedule = GetMostRecentWeeklyScheduleUtc(
-            nowUtc,
-            options.WeeklyDayOfWeek,
-            options.WeeklySendHourUtc);
-
-        if (!options.LastWeeklySentUtc.HasValue || options.LastWeeklySentUtc.Value < weeklySchedule)
+        var scheduleService = scope.ServiceProvider.GetRequiredService<IPodReportEmailScheduleService>();
+        var schedules = await scheduleService.GetSchedulesAsync(cancellationToken);
+        if (schedules.Count == 0)
         {
-            var (fromDate, toDate) = GetWeeklyPeriod(weeklySchedule);
-            await SendScheduledReportAsync(
-                reportEmailService,
-                PodReportEmailPeriodKind.Weekly,
-                weeklySchedule,
-                fromDate,
-                toDate,
-                cancellationToken);
+            return;
         }
 
-        var monthlySchedule = GetMostRecentMonthlyScheduleUtc(
-            nowUtc,
-            options.MonthlyDayOfMonth,
-            options.MonthlySendHourUtc);
+        var reportEmailService = scope.ServiceProvider.GetRequiredService<IPodReportEmailService>();
+        var nowUtc = DateTime.UtcNow;
 
-        if (!options.LastMonthlySentUtc.HasValue || options.LastMonthlySentUtc.Value < monthlySchedule)
+        foreach (var schedule in schedules)
         {
-            var (fromDate, toDate) = GetMonthlyPeriod(monthlySchedule);
-            await SendScheduledReportAsync(
-                reportEmailService,
-                PodReportEmailPeriodKind.Monthly,
-                monthlySchedule,
-                fromDate,
-                toDate,
-                cancellationToken);
+            if (!schedule.Enabled)
+            {
+                continue;
+            }
+
+            var frequency = PodReportEmailService.ParseFrequency(schedule.Frequency);
+            var dueUtc = ComputeMostRecentDueUtc(schedule, frequency, nowUtc);
+
+            // Floor at the last send, or the anchor for never-sent schedules so a brand-new
+            // schedule doesn't immediately fire for an already-elapsed period.
+            var floorUtc = schedule.LastSentUtc ?? schedule.AnchorDateUtc;
+
+            if (dueUtc <= floorUtc)
+            {
+                continue;
+            }
+
+            await SendScheduledReportAsync(reportEmailService, scheduleService, schedule, dueUtc, cancellationToken);
         }
     }
 
     private async Task SendScheduledReportAsync(
         IPodReportEmailService reportEmailService,
-        PodReportEmailPeriodKind periodKind,
-        DateTime scheduledUtc,
-        DateTime fromDate,
-        DateTime toDate,
+        IPodReportEmailScheduleService scheduleService,
+        PodReportEmailSchedule schedule,
+        DateTime dueUtc,
         CancellationToken cancellationToken)
     {
-        var result = await reportEmailService.SendForPeriodAsync(
-            periodKind,
-            fromDate,
-            toDate,
-            "System schedule",
-            cancellationToken);
+        var result = await reportEmailService.SendForScheduleAsync(schedule, "System schedule", cancellationToken);
 
         if (!result.Success)
         {
             logger.LogWarning(
-                "Scheduled {PeriodKind} POD report email failed for {FromDate} - {ToDate}: {Message}",
-                periodKind,
-                fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                "Scheduled POD report email failed for schedule {ScheduleName} (#{ScheduleId}): {Message}",
+                schedule.Name,
+                schedule.Id,
                 result.Message);
             return;
         }
 
-        await reportEmailService.MarkScheduledSentAsync(periodKind, scheduledUtc, cancellationToken);
+        await scheduleService.MarkSentAsync(schedule.Id, dueUtc, cancellationToken);
         logger.LogInformation(
-            "Scheduled {PeriodKind} POD report email sent for {FromDate} - {ToDate}.",
-            periodKind,
-            fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-            toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            "Scheduled POD report email sent for schedule {ScheduleName} (#{ScheduleId}).",
+            schedule.Name,
+            schedule.Id);
+    }
+
+    private static DateTime ComputeMostRecentDueUtc(
+        PodReportEmailSchedule schedule,
+        PodReportEmailFrequency frequency,
+        DateTime nowUtc)
+    {
+        var hour = Math.Clamp(schedule.SendHourUtc, 0, 23);
+
+        return frequency switch
+        {
+            PodReportEmailFrequency.Daily => GetMostRecentDailyScheduleUtc(nowUtc, hour),
+            PodReportEmailFrequency.Weekly => GetMostRecentWeeklyScheduleUtc(nowUtc, ResolveDayOfWeek(schedule.DayOfWeek), hour),
+            PodReportEmailFrequency.Monthly => GetMostRecentMonthlyScheduleUtc(nowUtc, schedule.DayOfMonth ?? 1, hour),
+            PodReportEmailFrequency.EveryNDays => GetMostRecentEveryNDaysScheduleUtc(
+                nowUtc,
+                schedule.AnchorDateUtc,
+                PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
+                hour),
+            _ => GetMostRecentWeeklyScheduleUtc(nowUtc, ResolveDayOfWeek(schedule.DayOfWeek), hour)
+        };
+    }
+
+    private static DayOfWeek ResolveDayOfWeek(int? dayOfWeek)
+    {
+        var value = Math.Clamp(dayOfWeek ?? (int)DayOfWeek.Monday, 0, 6);
+        return (DayOfWeek)value;
+    }
+
+    private static DateTime GetMostRecentDailyScheduleUtc(DateTime utcNow, int hourUtc)
+    {
+        var scheduled = DateTime.SpecifyKind(utcNow.Date.AddHours(hourUtc), DateTimeKind.Utc);
+        if (scheduled > utcNow)
+        {
+            scheduled = scheduled.AddDays(-1);
+        }
+
+        return scheduled;
     }
 
     private static DateTime GetMostRecentWeeklyScheduleUtc(DateTime utcNow, DayOfWeek targetDay, int hourUtc)
     {
-        var clampedHour = Math.Clamp(hourUtc, 0, 23);
         var dayOffset = (int)targetDay - (int)utcNow.DayOfWeek;
-        var scheduled = utcNow.Date.AddDays(dayOffset).AddHours(clampedHour);
+        var scheduled = utcNow.Date.AddDays(dayOffset).AddHours(hourUtc);
 
         if (scheduled > utcNow)
         {
@@ -128,34 +155,41 @@ public sealed class PodReportEmailScheduler(
     private static DateTime GetMostRecentMonthlyScheduleUtc(DateTime utcNow, int dayOfMonth, int hourUtc)
     {
         var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
-        var clampedHour = Math.Clamp(hourUtc, 0, 23);
         var daysInMonth = DateTime.DaysInMonth(utcNow.Year, utcNow.Month);
         var targetDay = Math.Min(clampedDay, daysInMonth);
-        var scheduled = new DateTime(utcNow.Year, utcNow.Month, targetDay, clampedHour, 0, 0, DateTimeKind.Utc);
+        var scheduled = new DateTime(utcNow.Year, utcNow.Month, targetDay, hourUtc, 0, 0, DateTimeKind.Utc);
 
         if (scheduled > utcNow)
         {
             var previousMonth = utcNow.AddMonths(-1);
             var previousMonthDays = DateTime.DaysInMonth(previousMonth.Year, previousMonth.Month);
             var previousTargetDay = Math.Min(clampedDay, previousMonthDays);
-            scheduled = new DateTime(previousMonth.Year, previousMonth.Month, previousTargetDay, clampedHour, 0, 0, DateTimeKind.Utc);
+            scheduled = new DateTime(previousMonth.Year, previousMonth.Month, previousTargetDay, hourUtc, 0, 0, DateTimeKind.Utc);
         }
 
         return scheduled;
     }
 
-    private static (DateTime fromDate, DateTime toDate) GetWeeklyPeriod(DateTime scheduledUtc)
+    private static DateTime GetMostRecentEveryNDaysScheduleUtc(DateTime utcNow, DateTime anchorDateUtc, int intervalDays, int hourUtc)
     {
-        var toDate = scheduledUtc.Date.AddDays(-1);
-        var fromDate = toDate.AddDays(-6);
-        return (fromDate, toDate);
+        var anchorInstant = DateTime.SpecifyKind(anchorDateUtc.Date.AddHours(hourUtc), DateTimeKind.Utc);
+        if (utcNow < anchorInstant)
+        {
+            // First occurrence has not happened yet.
+            return DateTime.MinValue;
+        }
+
+        var daysSince = (utcNow.Date - anchorInstant.Date).Days;
+        var periodsElapsed = daysSince / intervalDays;
+        var scheduled = anchorInstant.AddDays(periodsElapsed * intervalDays);
+
+        if (scheduled > utcNow)
+        {
+            scheduled = scheduled.AddDays(-intervalDays);
+        }
+
+        return scheduled;
     }
 
-    private static (DateTime fromDate, DateTime toDate) GetMonthlyPeriod(DateTime scheduledUtc)
-    {
-        var currentMonthStart = new DateTime(scheduledUtc.Year, scheduledUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var fromDate = currentMonthStart.AddMonths(-1);
-        var toDate = currentMonthStart.AddDays(-1);
-        return (fromDate, toDate);
-    }
+    private static bool ParseBool(string? value) => bool.TryParse(value, out var parsed) && parsed;
 }

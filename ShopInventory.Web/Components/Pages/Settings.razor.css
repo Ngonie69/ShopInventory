@@ -885,9 +885,35 @@ select.field-input-sm {
 
 .pod-email-schedule-controls {
     display: flex;
-    gap: 0.6rem;
-    align-items: center;
+    gap: 1rem;
+    align-items: flex-start;
     flex-wrap: wrap;
+}
+
+.pod-email-field {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.3rem;
+}
+
+.pod-email-field-label {
+    color: var(--text-muted, #64748b);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pod-email-field-hint {
+    color: var(--text-muted, #64748b);
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pod-email-day-select {
+    min-width: 150px;
 }
 
 .pod-email-hour-input,

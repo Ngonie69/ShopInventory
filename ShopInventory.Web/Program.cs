@@ -335,6 +335,7 @@ try
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IPodReportEmailScheduleService, PodReportEmailScheduleService>();
     builder.Services.AddScoped<IPodReportEmailService, PodReportEmailService>();
     builder.Services.AddHostedService<PodReportEmailScheduler>();
     builder.Services.Configure<StatementEmailSettings>(builder.Configuration.GetSection("StatementEmails"));
