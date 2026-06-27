@@ -89,8 +89,11 @@ public class ReportService : IReportService
     private static string BuildReportQueryCode(string prefix) =>
         $"{prefix}_{Random.Shared.Next(100000, 999999)}";
 
+    // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form. A bare 'yyyyMMdd'
+    // string is accepted as a valid literal but never matches stored dates, so the
+    // query silently returns zero rows (SAP -2028) instead of erroring.
     private static string ToSapSqlDate(DateTime date) =>
-        date.Date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        date.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static string SanitizeSqlValue(string value) =>
         value.Replace("'", "''");
@@ -1085,14 +1088,14 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating sales order vs invoice report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var fromStr = fromDate.ToString("yyyyMMdd");
-        var toStr = toDate.ToString("yyyyMMdd");
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
 
         // 1) Summary by customer + status + currency — aggregated, far fewer rows than individual orders
-        var customerSql = $@"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
+        var customerSql = $@"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' AND T0.""CANCELED"" = 'N' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
 
         // 2) Daily summary — one row per date+status+currency
-        var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
+        var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' AND T0.""CANCELED"" = 'N' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
         // 3) Order line detail used by the dedicated order-vs-invoice page and exports.
         var detailSql = $@"SELECT
@@ -1112,16 +1115,17 @@ public class ReportService : IReportService
     T1.""WhsCode"" AS ""WarehouseCode"",
     COALESCE(T1.""Quantity"", 0) AS ""QuantityOrdered"",
     COALESCE(T1.""Quantity"", 0) AS ""QuantityPending"",
+    COALESCE(T1.""Price"", 0) AS ""UnitPrice"",
     COALESCE(T1.""LineTotal"", 0) AS ""LineTotal"",
     T1.""LineStatus"" AS ""LineStatus""
 FROM ORDR T0
 INNER JOIN RDR1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+  AND T0.""CANCELED"" = 'N'
 ORDER BY T0.""DocDate"" DESC, T0.""DocNum"" DESC, T1.""LineNum""";
 
-        // Invoices can be copied directly from sales orders, or from delivery notes
-        // that were originally copied from sales orders. Pull both paths separately
-        // and merge in C# to keep the Service Layer SQL simple.
+        // Match invoices raised directly from the sales order (INV1.BaseType = 17),
+        // line-for-line on BaseEntry/BaseLine, excluding cancelled orders and invoices.
         var directInvoiceSql = $@"SELECT
     T1.""BaseEntry"" AS ""OrderDocEntry"",
     T1.""BaseLine"" AS ""OrderLineNum"",
@@ -1133,30 +1137,15 @@ INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
 INNER JOIN ORDR O0 ON O0.""DocEntry"" = T1.""BaseEntry""
 WHERE T1.""BaseType"" = 17
   AND T0.""CANCELED"" = 'N'
+  AND O0.""CANCELED"" = 'N'
   AND O0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
 GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
-
-        var deliveryInvoiceSql = $@"SELECT
-    D1.""BaseEntry"" AS ""OrderDocEntry"",
-    D1.""BaseLine"" AS ""OrderLineNum"",
-    T0.""DocNum"" AS ""InvoiceDocNum"",
-    SUM(T1.""Quantity"") AS ""QuantityInvoiced"",
-    SUM(T1.""LineTotal"") AS ""InvoicedLineTotal""
-FROM OINV T0
-INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
-INNER JOIN DLN1 D1 ON T1.""BaseType"" = 15 AND T1.""BaseEntry"" = D1.""DocEntry"" AND T1.""BaseLine"" = D1.""LineNum""
-INNER JOIN ORDR O0 ON O0.""DocEntry"" = D1.""BaseEntry""
-WHERE D1.""BaseType"" = 17
-  AND T0.""CANCELED"" = 'N'
-  AND O0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
-GROUP BY D1.""BaseEntry"", D1.""BaseLine"", T0.""DocNum""";
 
         var customerRows = await ExecuteReportSqlAsync("ORD_FULF_CUST", "Sales Order Vs Invoice By Customer", customerSql, cancellationToken);
         var dailyRows = await ExecuteReportSqlAsync("ORD_FULF_DAILY", "Sales Order Vs Invoice Daily", dailySql, cancellationToken);
         var detailRows = await ExecuteReportSqlAsync("ORD_FULF_LINE", "Order Vs Invoice Lines", detailSql, cancellationToken);
         var directInvoiceRows = await ExecuteReportSqlAsync("ORDINV_DIR", "Sales Order Direct Invoice Lines", directInvoiceSql, cancellationToken);
-        var deliveryInvoiceRows = await ExecuteReportSqlAsync("ORDINV_DLV", "Sales Order Delivery Invoice Lines", deliveryInvoiceSql, cancellationToken);
-        ApplyOrderInvoiceMetrics(detailRows, directInvoiceRows, deliveryInvoiceRows);
+        ApplyOrderInvoiceMetrics(detailRows, directInvoiceRows);
 
         // Process customer aggregation into totals and by-customer breakdown
         int totalOrders = 0, openOrders = 0, closedOrders = 0, cancelledOrders = 0;
@@ -1377,7 +1366,9 @@ GROUP BY D1.""BaseEntry"", D1.""BaseLine"", T0.""DocNum""";
                     QuantityOrdered = orderedQuantity,
                     QuantityDelivered = deliveredQuantity,
                     QuantityPending = pendingQuantity,
+                    UnitPrice = Math.Round(Math.Max(0, GetRowDecimal(row, "UnitPrice")), 2),
                     LineTotal = Math.Round(lineTotal, 2),
+                    InvoicedValue = Math.Round(Math.Max(0, GetRowDecimal(row, "InvoicedLineTotal")), 2),
                     LineStatus = lineStatus,
                     InvoiceNumbers = GetRowString(row, "InvoiceNumbers")
                 });
@@ -1468,13 +1459,11 @@ GROUP BY D1.""BaseEntry"", D1.""BaseLine"", T0.""DocNum""";
 
     private static void ApplyOrderInvoiceMetrics(
         List<Dictionary<string, object?>> detailRows,
-        IEnumerable<Dictionary<string, object?>> directInvoiceRows,
-        IEnumerable<Dictionary<string, object?>> deliveryInvoiceRows)
+        IEnumerable<Dictionary<string, object?>> directInvoiceRows)
     {
         var invoiceByOrderLine = new Dictionary<(int DocEntry, int LineNum), (decimal Quantity, decimal Value, SortedSet<int> InvoiceNumbers)>();
 
         AddInvoiceRows(directInvoiceRows);
-        AddInvoiceRows(deliveryInvoiceRows);
 
         foreach (var row in detailRows)
         {

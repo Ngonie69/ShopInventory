@@ -222,7 +222,9 @@ public class OrderLineDetail
     public decimal QuantityOrdered { get; set; }
     public decimal QuantityDelivered { get; set; }
     public decimal QuantityPending { get; set; }
+    public decimal UnitPrice { get; set; }
     public decimal LineTotal { get; set; }
+    public decimal InvoicedValue { get; set; }
     public string LineStatus { get; set; } = string.Empty;
     public string InvoiceNumbers { get; set; } = string.Empty;
 }

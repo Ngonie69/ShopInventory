@@ -749,14 +749,15 @@ public class ReportExportService : IReportExportService
         if (report.Orders.Any(order => order.Lines.Any()))
         {
             var lws = workbook.Worksheets.Add("Item Lines");
-            int lRow = WriteReportHeader(lws, "Item Invoice Lines", 13, report.FromDate, report.ToDate);
+            int lRow = WriteReportHeader(lws, "Item Invoice Lines", 16, report.FromDate, report.ToDate);
 
             lws.Cell(lRow, 1).Value = "Order#"; lws.Cell(lRow, 2).Value = "Date"; lws.Cell(lRow, 3).Value = "Customer";
             lws.Cell(lRow, 4).Value = "Item Code"; lws.Cell(lRow, 5).Value = "Description"; lws.Cell(lRow, 6).Value = "Warehouse";
-            lws.Cell(lRow, 7).Value = "Status"; lws.Cell(lRow, 8).Value = "Invoice(s)"; lws.Cell(lRow, 9).Value = "Qty Ordered";
-            lws.Cell(lRow, 10).Value = "Qty Invoiced"; lws.Cell(lRow, 11).Value = "Qty Pending"; lws.Cell(lRow, 12).Value = "Line Value";
-            lws.Cell(lRow, 13).Value = "Pending Value";
-            StyleTableHeader(lws, lRow, 13);
+            lws.Cell(lRow, 7).Value = "Status"; lws.Cell(lRow, 8).Value = "Invoice(s)"; lws.Cell(lRow, 9).Value = "Unit Price";
+            lws.Cell(lRow, 10).Value = "Qty Ordered"; lws.Cell(lRow, 11).Value = "Qty Invoiced"; lws.Cell(lRow, 12).Value = "Qty Pending";
+            lws.Cell(lRow, 13).Value = "Fulfil %"; lws.Cell(lRow, 14).Value = "Ordered Value"; lws.Cell(lRow, 15).Value = "Invoiced Value";
+            lws.Cell(lRow, 16).Value = "Pending Value";
+            StyleTableHeader(lws, lRow, 16);
             int lineFreeze = lRow;
             lRow++;
             int lineStart = lRow;
@@ -773,23 +774,26 @@ public class ReportExportService : IReportExportService
                     lws.Cell(lRow, 6).Value = line.WarehouseCode;
                     lws.Cell(lRow, 7).Value = line.LineStatus;
                     lws.Cell(lRow, 8).Value = line.InvoiceNumbers;
-                    lws.Cell(lRow, 9).Value = line.QuantityOrdered; lws.Cell(lRow, 9).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 10).Value = line.QuantityDelivered; lws.Cell(lRow, 10).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 11).Value = line.QuantityPending; lws.Cell(lRow, 11).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 12).Value = line.LineTotal; lws.Cell(lRow, 12).Style.NumberFormat.Format = "#,##0.00";
-                    lws.Cell(lRow, 13).Value = CalculatePendingLineValue(line); lws.Cell(lRow, 13).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 9).Value = line.UnitPrice; lws.Cell(lRow, 9).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 10).Value = line.QuantityOrdered; lws.Cell(lRow, 10).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 11).Value = line.QuantityDelivered; lws.Cell(lRow, 11).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 12).Value = line.QuantityPending; lws.Cell(lRow, 12).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 13).Value = line.QuantityOrdered > 0 ? line.QuantityDelivered / line.QuantityOrdered : 0; lws.Cell(lRow, 13).Style.NumberFormat.Format = "0.0%";
+                    lws.Cell(lRow, 14).Value = line.LineTotal; lws.Cell(lRow, 14).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 15).Value = line.InvoicedValue; lws.Cell(lRow, 15).Style.NumberFormat.Format = "#,##0.00";
+                    lws.Cell(lRow, 16).Value = CalculatePendingLineValue(line); lws.Cell(lRow, 16).Style.NumberFormat.Format = "#,##0.00";
                     if (line.QuantityPending > 0)
                     {
-                        lws.Cell(lRow, 11).Style.Font.FontColor = WarningOrange;
-                        lws.Cell(lRow, 13).Style.Font.FontColor = DangerRed;
+                        lws.Cell(lRow, 12).Style.Font.FontColor = WarningOrange;
+                        lws.Cell(lRow, 16).Style.Font.FontColor = DangerRed;
                     }
                     lRow++;
                 }
             }
 
-            StyleDataRows(lws, lineStart, lRow - 1, 13);
-            WriteFooter(lws, lRow, 13);
-            FinalizeSheet(lws, 13, lineFreeze, landscape: true);
+            StyleDataRows(lws, lineStart, lRow - 1, 16);
+            WriteFooter(lws, lRow, 16);
+            FinalizeSheet(lws, 16, lineFreeze, landscape: true);
         }
 
         // ── By Customer Sheet ──
