@@ -22,6 +22,8 @@ public class SalesOrderService : ISalesOrderService
     private const string SapPostingUncertainSyncErrorPrefix = "The SAP posting result is uncertain";
     private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SapPostingUncertainRetryHold = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MobileDuplicateCustomerRefLookback = TimeSpan.FromDays(7);
+    private static readonly TimeSpan MobileDuplicateDeviceLocationLookback = TimeSpan.FromHours(36);
 
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
@@ -1453,6 +1455,8 @@ public class SalesOrderService : ISalesOrderService
             return;
         }
 
+        await EnsureMobileOrderIsNotDuplicateOfPostedOrderAsync(order, cancellationToken);
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var sapCreateReturned = false;
@@ -1539,6 +1543,50 @@ public class SalesOrderService : ISalesOrderService
         return false;
     }
 
+    private async Task EnsureMobileOrderIsNotDuplicateOfPostedOrderAsync(
+        SalesOrderEntity order,
+        CancellationToken cancellationToken)
+    {
+        if (order.Source != SalesOrderSource.Mobile || order.CreatedByUserId is null)
+        {
+            return;
+        }
+
+        var candidateWindowStart = order.CreatedAt.Subtract(MobileDuplicateCustomerRefLookback);
+        var candidateWindowEnd = order.CreatedAt.Add(MobileDuplicateCustomerRefLookback);
+        var candidates = await _context.SalesOrders
+            .AsNoTracking()
+            .Include(o => o.Lines)
+            .Where(o => o.Id != order.Id)
+            .Where(o => o.Source == SalesOrderSource.Mobile)
+            .Where(o => o.CreatedByUserId == order.CreatedByUserId)
+            .Where(o => o.CardCode == order.CardCode)
+            .Where(o => o.SAPDocNum.HasValue && o.SAPDocNum > 0)
+            .Where(o => o.Status != SalesOrderStatus.Cancelled && o.Status != SalesOrderStatus.Rejected)
+            .Where(o => o.CreatedAt >= candidateWindowStart && o.CreatedAt <= candidateWindowEnd)
+            .ToListAsync(cancellationToken);
+
+        var duplicate = candidates.FirstOrDefault(candidate => IsDuplicateMobileOrder(order, candidate));
+        if (duplicate is null)
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "Blocked mobile sales order {OrderId} ({OrderNumber}) from posting to SAP because it matches already-posted mobile order {DuplicateOrderId} ({DuplicateOrderNumber}) DocEntry={DocEntry}, DocNum={DocNum}. CurrentClientRequestId={CurrentClientRequestId}; DuplicateClientRequestId={DuplicateClientRequestId}",
+            order.Id,
+            order.OrderNumber,
+            duplicate.Id,
+            duplicate.OrderNumber,
+            duplicate.SAPDocEntry,
+            duplicate.SAPDocNum,
+            order.ClientRequestId,
+            duplicate.ClientRequestId);
+
+        throw new InvalidOperationException(
+            $"This mobile sales order appears to be a duplicate of {duplicate.OrderNumber}, which was already posted to SAP as document #{duplicate.SAPDocNum}. Approval was blocked to prevent a duplicate SAP order.");
+    }
+
     private async Task<bool> TryAttachExistingSapSalesOrderAsync(
         SalesOrderEntity order,
         string reason,
@@ -1623,6 +1671,114 @@ public class SalesOrderService : ISalesOrderService
 
     private static string BuildUncertainSapPostingMessage(string orderNumber)
         => $"{SapPostingUncertainSyncErrorPrefix} for sales order {orderNumber}. The app could not confirm whether SAP accepted the create request, so duplicate prevention has blocked automatic reposting until SAP can be checked by U_OrderNumber.";
+
+    private static bool IsDuplicateMobileOrder(SalesOrderEntity order, SalesOrderEntity candidate)
+    {
+        var hasCustomerRefAnchor = SameNonEmptyText(order.CustomerRefNo, candidate.CustomerRefNo);
+        var hasDeviceLocationAnchor = SameNonEmptyText(order.DeviceInfo, candidate.DeviceInfo)
+            && CoordinatesMatch(order, candidate);
+
+        if (!hasCustomerRefAnchor && !hasDeviceLocationAnchor)
+        {
+            return false;
+        }
+
+        var allowedAge = hasCustomerRefAnchor
+            ? MobileDuplicateCustomerRefLookback
+            : MobileDuplicateDeviceLocationLookback;
+
+        if (AbsoluteDifference(order.CreatedAt, candidate.CreatedAt) > allowedAge)
+        {
+            return false;
+        }
+
+        return SameOptionalDate(order.DeliveryDate, candidate.DeliveryDate)
+            && SameOptionalText(order.WarehouseCode, candidate.WarehouseCode)
+            && order.DiscountPercent == candidate.DiscountPercent
+            && MobileOrderLinesMatch(order.Lines, candidate.Lines);
+    }
+
+    private static bool MobileOrderLinesMatch(
+        IEnumerable<SalesOrderLineEntity> orderLines,
+        IEnumerable<SalesOrderLineEntity> candidateLines)
+    {
+        var orderSignatures = BuildMobileOrderLineSignatures(orderLines);
+        var candidateSignatures = BuildMobileOrderLineSignatures(candidateLines);
+
+        if (orderSignatures.Count != candidateSignatures.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < orderSignatures.Count; i++)
+        {
+            if (!orderSignatures[i].Equals(candidateSignatures[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static List<MobileOrderLineSignature> BuildMobileOrderLineSignatures(
+        IEnumerable<SalesOrderLineEntity> lines)
+        => lines
+            .Select(line => new MobileOrderLineSignature(
+                NormalizeOptionalText(line.ItemCode),
+                NormalizeOptionalText(line.WarehouseCode),
+                NormalizeOptionalText(line.UoMCode),
+                NormalizeOptionalText(line.CostCentreCode),
+                line.Quantity,
+                line.DiscountPercent))
+            .OrderBy(signature => signature.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(signature => signature.WarehouseCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(signature => signature.UoMCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(signature => signature.CostCentreCode, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(signature => signature.Quantity)
+            .ThenBy(signature => signature.DiscountPercent)
+            .ToList();
+
+    private static bool SameNonEmptyText(string? left, string? right)
+    {
+        var normalizedLeft = NormalizeOptionalText(left);
+        return normalizedLeft.Length > 0
+            && string.Equals(normalizedLeft, NormalizeOptionalText(right), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool SameOptionalText(string? left, string? right)
+        => string.Equals(NormalizeOptionalText(left), NormalizeOptionalText(right), StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeOptionalText(string? value)
+        => string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+    private static bool SameOptionalDate(DateTime? left, DateTime? right)
+        => left?.Date == right?.Date;
+
+    private static bool CoordinatesMatch(SalesOrderEntity order, SalesOrderEntity candidate)
+    {
+        if (!order.Latitude.HasValue
+            || !order.Longitude.HasValue
+            || !candidate.Latitude.HasValue
+            || !candidate.Longitude.HasValue)
+        {
+            return false;
+        }
+
+        return Math.Abs(order.Latitude.Value - candidate.Latitude.Value) <= 0.0001m
+            && Math.Abs(order.Longitude.Value - candidate.Longitude.Value) <= 0.0001m;
+    }
+
+    private static TimeSpan AbsoluteDifference(DateTime left, DateTime right)
+        => left >= right ? left - right : right - left;
+
+    private readonly record struct MobileOrderLineSignature(
+        string ItemCode,
+        string WarehouseCode,
+        string UoMCode,
+        string CostCentreCode,
+        decimal Quantity,
+        decimal DiscountPercent);
 
     private static void ApplySapDocumentToLocalOrder(SalesOrderEntity order, SAPSalesOrder sapOrder)
     {
