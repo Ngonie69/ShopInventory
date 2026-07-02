@@ -12,17 +12,6 @@ public enum PodReportEmailPeriodKind
     Monthly
 }
 
-public sealed record PodReportEmailScheduleOptions(
-    bool Enabled,
-    IReadOnlyList<string> To,
-    IReadOnlyList<string> Cc,
-    DayOfWeek WeeklyDayOfWeek,
-    int WeeklySendHourUtc,
-    int MonthlyDayOfMonth,
-    int MonthlySendHourUtc,
-    DateTime? LastWeeklySentUtc,
-    DateTime? LastMonthlySentUtc);
-
 public sealed record PodReportEmailSendResult(
     bool Success,
     string Message,
@@ -32,20 +21,18 @@ public sealed record PodReportEmailSendResult(
 
 public interface IPodReportEmailService
 {
-    Task<PodReportEmailScheduleOptions> GetOptionsAsync();
     Task<PodReportEmailSendResult> SendLatestAsync(
         PodReportEmailPeriodKind periodKind,
         string triggeredBy,
         CancellationToken cancellationToken = default);
-    Task<PodReportEmailSendResult> SendForPeriodAsync(
-        PodReportEmailPeriodKind periodKind,
-        DateTime fromDate,
-        DateTime toDate,
+
+    /// <summary>
+    /// Sends the POD report for the period implied by the schedule's frequency to the schedule's
+    /// own recipient list. Used by both the manual "Send now" action and the background scheduler.
+    /// </summary>
+    Task<PodReportEmailSendResult> SendForScheduleAsync(
+        PodReportEmailSchedule schedule,
         string triggeredBy,
-        CancellationToken cancellationToken = default);
-    Task MarkScheduledSentAsync(
-        PodReportEmailPeriodKind periodKind,
-        DateTime scheduledUtc,
         CancellationToken cancellationToken = default);
 }
 
@@ -67,69 +54,99 @@ public sealed class PodReportEmailService(
     private static readonly EventId SendCompletedEvent = new(7205, "PodReportEmailSendCompleted");
     private static readonly EventId SendFailedEvent = new(7206, "PodReportEmailSendFailed");
 
-    public async Task<PodReportEmailScheduleOptions> GetOptionsAsync()
-    {
-        var enabled = ParseBool(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsEnabled));
-        var to = ParseRecipients(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsTo));
-        var cc = ParseRecipients(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsCc));
-        var weeklyDay = ParseDayOfWeek(
-            await settingsService.GetValueAsync(SettingKeys.PodReportEmailsWeeklyDayOfWeek),
-            DayOfWeek.Monday);
-        var weeklyHour = ParseHour(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsWeeklySendHourUtc), 6);
-        var monthlyDay = ParseDayOfMonth(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsMonthlyDayOfMonth), 1);
-        var monthlyHour = ParseHour(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsMonthlySendHourUtc), 6);
-        var lastWeeklySent = ParseUtc(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsLastWeeklySentUtc));
-        var lastMonthlySent = ParseUtc(await settingsService.GetValueAsync(SettingKeys.PodReportEmailsLastMonthlySentUtc));
-
-        return new PodReportEmailScheduleOptions(
-            enabled,
-            to,
-            cc,
-            weeklyDay,
-            weeklyHour,
-            monthlyDay,
-            monthlyHour,
-            lastWeeklySent,
-            lastMonthlySent);
-    }
-
     public async Task<PodReportEmailSendResult> SendLatestAsync(
         PodReportEmailPeriodKind periodKind,
         string triggeredBy,
         CancellationToken cancellationToken = default)
     {
+        var frequency = periodKind == PodReportEmailPeriodKind.Monthly
+            ? PodReportEmailFrequency.Monthly
+            : PodReportEmailFrequency.Weekly;
+        var (fromDate, toDate) = GetPeriod(frequency, null, DateTime.UtcNow);
+        var frequencyLabel = GetFrequencyLabel(frequency, null);
+        var fileSlug = GetFrequencySlug(frequency, null);
         var nowUtc = DateTime.UtcNow;
-        var (fromDate, toDate) = periodKind == PodReportEmailPeriodKind.Weekly
-            ? GetPreviousSevenDayPeriod(nowUtc)
-            : GetPreviousCalendarMonthPeriod(nowUtc);
+        var schedule = new PodReportEmailSchedule
+        {
+            Name = periodKind == PodReportEmailPeriodKind.Monthly
+                ? "Manual full-month POD report"
+                : "Manual weekly POD report",
+            Enabled = true,
+            Frequency = frequency.ToString(),
+            ToRecipients = await settingsService.GetValueAsync(SettingKeys.PodReportEmailsTo) ?? string.Empty,
+            CcRecipients = await settingsService.GetValueAsync(SettingKeys.PodReportEmailsCc) ?? string.Empty,
+            AnchorDateUtc = nowUtc,
+            CreatedAtUtc = nowUtc,
+            LastModifiedAtUtc = nowUtc,
+            LastModifiedBy = triggeredBy
+        };
 
-        return await SendForPeriodAsync(periodKind, fromDate, toDate, triggeredBy, cancellationToken);
+        return await SendCoreAsync(
+            schedule,
+            frequencyLabel,
+            fileSlug,
+            fromDate,
+            toDate,
+            ParseRecipients(schedule.ToRecipients),
+            ParseRecipients(schedule.CcRecipients),
+            triggeredBy,
+            cancellationToken);
     }
 
-    public async Task<PodReportEmailSendResult> SendForPeriodAsync(
-        PodReportEmailPeriodKind periodKind,
-        DateTime fromDate,
-        DateTime toDate,
+    public async Task<PodReportEmailSendResult> SendForScheduleAsync(
+        PodReportEmailSchedule schedule,
         string triggeredBy,
         CancellationToken cancellationToken = default)
     {
-        var frequencyLabel = periodKind == PodReportEmailPeriodKind.Weekly ? "Weekly" : "Full Month";
+        var frequency = ParseFrequency(schedule.Frequency);
+        var (fromDate, toDate) = GetPeriod(frequency, schedule.IntervalDays, DateTime.UtcNow);
+        var frequencyLabel = GetFrequencyLabel(frequency, schedule.IntervalDays);
+        var fileSlug = GetFrequencySlug(frequency, schedule.IntervalDays);
+        var to = ParseRecipients(schedule.ToRecipients);
+        var cc = ParseRecipients(schedule.CcRecipients);
+
+        return await SendCoreAsync(
+            schedule,
+            frequencyLabel,
+            fileSlug,
+            fromDate,
+            toDate,
+            to,
+            cc,
+            triggeredBy,
+            cancellationToken);
+    }
+
+    private async Task<PodReportEmailSendResult> SendCoreAsync(
+        PodReportEmailSchedule schedule,
+        string frequencyLabel,
+        string fileSlug,
+        DateTime fromDate,
+        DateTime toDate,
+        IReadOnlyList<string> to,
+        IReadOnlyList<string> cc,
+        string triggeredBy,
+        CancellationToken cancellationToken)
+    {
         var fromText = FormatDateForLog(fromDate);
         var toText = FormatDateForLog(toDate);
         var elapsed = Stopwatch.StartNew();
-        var options = await GetOptionsAsync();
-        if (options.To.Count == 0)
+
+        if (to.Count == 0)
         {
             logger.LogWarning(
                 SendFailedEvent,
-                "POD report email send skipped. Reason={FailureReason}, PeriodKind={PeriodKind}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}",
+                "POD report email send skipped. Reason={FailureReason}, ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}",
                 "MissingToRecipients",
-                periodKind,
+                schedule.Id,
+                schedule.Name,
+                frequencyLabel,
                 fromText,
                 toText,
                 triggeredBy);
             await LogPodReportEmailFailureAuditAsync(
-                periodKind,
+                schedule,
+                frequencyLabel,
                 fromDate,
                 toDate,
                 triggeredBy,
@@ -140,15 +157,15 @@ public sealed class PodReportEmailService(
 
         logger.LogInformation(
             SendStartedEvent,
-            "POD report email send started. PeriodKind={PeriodKind}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ScheduledSendingEnabled={ScheduledSendingEnabled}",
-            periodKind,
+            "POD report email send started. ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}",
+            schedule.Id,
+            schedule.Name,
             frequencyLabel,
             fromText,
             toText,
             triggeredBy,
-            options.To.Count,
-            options.Cc.Count,
-            options.Enabled);
+            to.Count,
+            cc.Count);
 
         try
         {
@@ -157,17 +174,20 @@ public sealed class PodReportEmailService(
             {
                 logger.LogError(
                     SendFailedEvent,
-                    "POD report email send failed before SMTP delivery. Reason={FailureReason}, PeriodKind={PeriodKind}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}",
+                    "POD report email send failed before SMTP delivery. Reason={FailureReason}, ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}",
                     "ReportApiFailed",
-                    periodKind,
+                    schedule.Id,
+                    schedule.Name,
+                    frequencyLabel,
                     fromText,
                     toText,
                     triggeredBy,
-                    options.To.Count,
-                    options.Cc.Count,
+                    to.Count,
+                    cc.Count,
                     elapsed.ElapsedMilliseconds);
                 await LogPodReportEmailFailureAuditAsync(
-                    periodKind,
+                    schedule,
+                    frequencyLabel,
                     fromDate,
                     toDate,
                     triggeredBy,
@@ -179,13 +199,14 @@ public sealed class PodReportEmailService(
             var excel = reportExportService.ExportPodUploadStatusToExcel(report);
             var periodLabel = FormatPeriod(fromDate, toDate);
             var subject = $"{frequencyLabel} POD Report - {periodLabel}";
-            var fileName = $"pod-report-{periodKind.ToString().ToLowerInvariant()}-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";
+            var fileName = $"pod-report-{fileSlug}-{fromDate:yyyyMMdd}-{toDate:yyyyMMdd}.xlsx";
             var htmlBody = BuildEmailBody(report, frequencyLabel, fromDate, toDate, triggeredBy);
 
             logger.LogInformation(
                 ReportGeneratedEvent,
-                "POD report data generated. PeriodKind={PeriodKind}, FromDate={FromDate}, ToDate={ToDate}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, ItemCount={ItemCount}",
-                periodKind,
+                "POD report data generated. ScheduleId={ScheduleId}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, ItemCount={ItemCount}",
+                schedule.Id,
+                frequencyLabel,
                 fromText,
                 toText,
                 report.TotalInvoices,
@@ -195,18 +216,20 @@ public sealed class PodReportEmailService(
 
             logger.LogInformation(
                 DeliveryStartedEvent,
-                "POD report email delivery starting. PeriodKind={PeriodKind}, Subject={Subject}, FileName={FileName}, AttachmentBytes={AttachmentBytes}, RecipientCount={RecipientCount}, CcCount={CcCount}, TriggeredBy={TriggeredBy}",
-                periodKind,
+                "POD report email delivery starting. ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, Subject={Subject}, FileName={FileName}, AttachmentBytes={AttachmentBytes}, RecipientCount={RecipientCount}, CcCount={CcCount}, TriggeredBy={TriggeredBy}",
+                schedule.Id,
+                schedule.Name,
+                frequencyLabel,
                 subject,
                 fileName,
                 excel.LongLength,
-                options.To.Count,
-                options.Cc.Count,
+                to.Count,
+                cc.Count,
                 triggeredBy);
 
             var emailResult = await emailService.SendEmailWithDiagnosticsAsync(
-                options.To,
-                options.Cc,
+                to,
+                cc,
                 subject,
                 htmlBody,
                 attachments:
@@ -220,25 +243,28 @@ public sealed class PodReportEmailService(
                 var emailFailure = FormatEmailFailure(emailResult);
                 logger.LogError(
                     SendFailedEvent,
-                    "POD report email delivery failed. Reason={FailureReason}, EmailFailureStage={EmailFailureStage}, EmailExceptionType={EmailExceptionType}, EmailFailureMessage={EmailFailureMessage}, PeriodKind={PeriodKind}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, Subject={Subject}, RecipientCount={RecipientCount}, CcCount={CcCount}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, AttachmentBytes={AttachmentBytes}, ElapsedMs={ElapsedMs}",
+                    "POD report email delivery failed. Reason={FailureReason}, EmailFailureStage={EmailFailureStage}, EmailExceptionType={EmailExceptionType}, EmailFailureMessage={EmailFailureMessage}, ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, Subject={Subject}, RecipientCount={RecipientCount}, CcCount={CcCount}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, AttachmentBytes={AttachmentBytes}, ElapsedMs={ElapsedMs}",
                     "EmailServiceReturnedFalse",
                     emailResult.FailureStage,
                     emailResult.ExceptionType,
                     emailResult.FailureMessage,
-                    periodKind,
+                    schedule.Id,
+                    schedule.Name,
+                    frequencyLabel,
                     fromText,
                     toText,
                     triggeredBy,
                     subject,
-                    options.To.Count,
-                    options.Cc.Count,
+                    to.Count,
+                    cc.Count,
                     report.TotalInvoices,
                     report.UploadedCount,
                     report.PendingCount,
                     excel.LongLength,
                     elapsed.ElapsedMilliseconds);
                 await LogPodReportEmailFailureAuditAsync(
-                    periodKind,
+                    schedule,
+                    frequencyLabel,
                     fromDate,
                     toDate,
                     triggeredBy,
@@ -249,22 +275,25 @@ public sealed class PodReportEmailService(
 
             logger.LogInformation(
                 SendCompletedEvent,
-                "{Frequency} POD report emailed to {Recipients} for {FromDate} - {ToDate}. Triggered by {TriggeredBy}.",
+                "{Frequency} POD report emailed to {Recipients} for {FromDate} - {ToDate}. Schedule={ScheduleName} (#{ScheduleId}). Triggered by {TriggeredBy}.",
                 frequencyLabel,
-                string.Join(", ", options.To),
+                string.Join(", ", to),
                 fromText,
                 toText,
+                schedule.Name,
+                schedule.Id,
                 triggeredBy);
 
             logger.LogInformation(
                 SendCompletedEvent,
-                "POD report email send completed. PeriodKind={PeriodKind}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, AttachmentBytes={AttachmentBytes}, ElapsedMs={ElapsedMs}",
-                periodKind,
+                "POD report email send completed. ScheduleId={ScheduleId}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}, AttachmentBytes={AttachmentBytes}, ElapsedMs={ElapsedMs}",
+                schedule.Id,
+                frequencyLabel,
                 fromText,
                 toText,
                 triggeredBy,
-                options.To.Count,
-                options.Cc.Count,
+                to.Count,
+                cc.Count,
                 report.TotalInvoices,
                 report.UploadedCount,
                 report.PendingCount,
@@ -273,7 +302,7 @@ public sealed class PodReportEmailService(
 
             return new PodReportEmailSendResult(
                 true,
-                $"{frequencyLabel} POD report sent to {options.To.Count} recipient{(options.To.Count == 1 ? string.Empty : "s")}.",
+                $"{frequencyLabel} POD report sent to {to.Count} recipient{(to.Count == 1 ? string.Empty : "s")}.",
                 report.TotalInvoices,
                 report.UploadedCount,
                 report.PendingCount);
@@ -287,18 +316,21 @@ public sealed class PodReportEmailService(
             logger.LogError(
                 SendFailedEvent,
                 ex,
-                "Failed to send {PeriodKind} POD report email for {FromDate} - {ToDate}. TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}, ExceptionType={ExceptionType}, FailureMessage={FailureMessage}",
-                periodKind,
+                "Failed to send {Frequency} POD report email for {FromDate} - {ToDate}. ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}, ExceptionType={ExceptionType}, FailureMessage={FailureMessage}",
+                frequencyLabel,
                 fromText,
                 toText,
+                schedule.Id,
+                schedule.Name,
                 triggeredBy,
-                options.To.Count,
-                options.Cc.Count,
+                to.Count,
+                cc.Count,
                 elapsed.ElapsedMilliseconds,
                 ex.GetType().Name,
                 ex.Message);
             await LogPodReportEmailFailureAuditAsync(
-                periodKind,
+                schedule,
+                frequencyLabel,
                 fromDate,
                 toDate,
                 triggeredBy,
@@ -308,29 +340,55 @@ public sealed class PodReportEmailService(
         }
     }
 
-    public async Task MarkScheduledSentAsync(
-        PodReportEmailPeriodKind periodKind,
-        DateTime scheduledUtc,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Computes the report data window (date range) for a frequency, relative to <paramref name="nowUtc"/>.
+    /// Always covers the most recently completed period (ending yesterday).
+    /// </summary>
+    public static (DateTime fromDate, DateTime toDate) GetPeriod(
+        PodReportEmailFrequency frequency,
+        int? intervalDays,
+        DateTime nowUtc)
     {
-        var key = periodKind == PodReportEmailPeriodKind.Weekly
-            ? SettingKeys.PodReportEmailsLastWeeklySentUtc
-            : SettingKeys.PodReportEmailsLastMonthlySentUtc;
+        var toDate = nowUtc.Date.AddDays(-1);
 
-        await settingsService.SaveSettingAsync(
-            key,
-            scheduledUtc.ToString("O", CultureInfo.InvariantCulture),
-            "System");
+        return frequency switch
+        {
+            PodReportEmailFrequency.Daily => (toDate, toDate),
+            PodReportEmailFrequency.Weekly => (toDate.AddDays(-6), toDate),
+            PodReportEmailFrequency.Monthly => GetPreviousCalendarMonthPeriod(nowUtc),
+            PodReportEmailFrequency.EveryNDays => (toDate.AddDays(-(NormalizeIntervalDays(intervalDays) - 1)), toDate),
+            _ => (toDate.AddDays(-6), toDate)
+        };
     }
 
-    public static (DateTime fromDate, DateTime toDate) GetPreviousSevenDayPeriod(DateTime utcNow)
-    {
-        var toDate = utcNow.Date.AddDays(-1);
-        var fromDate = toDate.AddDays(-6);
-        return (fromDate, toDate);
-    }
+    public static PodReportEmailFrequency ParseFrequency(string? value) =>
+        Enum.TryParse<PodReportEmailFrequency>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : PodReportEmailFrequency.Weekly;
 
-    public static (DateTime fromDate, DateTime toDate) GetPreviousCalendarMonthPeriod(DateTime utcNow)
+    public static string GetFrequencyLabel(PodReportEmailFrequency frequency, int? intervalDays) =>
+        frequency switch
+        {
+            PodReportEmailFrequency.Daily => "Daily",
+            PodReportEmailFrequency.Weekly => "Weekly",
+            PodReportEmailFrequency.Monthly => "Full Month",
+            PodReportEmailFrequency.EveryNDays => $"Every {NormalizeIntervalDays(intervalDays)} days",
+            _ => "Weekly"
+        };
+
+    public static int NormalizeIntervalDays(int? intervalDays) => Math.Max(1, intervalDays ?? 1);
+
+    private static string GetFrequencySlug(PodReportEmailFrequency frequency, int? intervalDays) =>
+        frequency switch
+        {
+            PodReportEmailFrequency.Daily => "daily",
+            PodReportEmailFrequency.Weekly => "weekly",
+            PodReportEmailFrequency.Monthly => "monthly",
+            PodReportEmailFrequency.EveryNDays => $"every-{NormalizeIntervalDays(intervalDays)}-days",
+            _ => "weekly"
+        };
+
+    private static (DateTime fromDate, DateTime toDate) GetPreviousCalendarMonthPeriod(DateTime utcNow)
     {
         var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var fromDate = monthStart.AddMonths(-1);
@@ -346,7 +404,7 @@ public sealed class PodReportEmailService(
         var client = httpClientFactory.CreateClient("ShopInventoryApi");
         var from = fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var to = toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var requestPath = $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}";
+        var requestPath = $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}&includeCreditNoteActivity=true";
 
         logger.LogInformation(
             ReportApiStartedEvent,
@@ -458,7 +516,8 @@ public sealed class PodReportEmailService(
     }
 
     private async Task LogPodReportEmailFailureAuditAsync(
-        PodReportEmailPeriodKind periodKind,
+        PodReportEmailSchedule schedule,
+        string frequencyLabel,
         DateTime fromDate,
         DateTime toDate,
         string triggeredBy,
@@ -476,7 +535,8 @@ public sealed class PodReportEmailService(
             var details = string.Join(
                 " | ",
                 [
-                    $"Period={periodKind}",
+                    $"Schedule={schedule.Name} (#{schedule.Id})",
+                    $"Frequency={frequencyLabel}",
                     $"From={FormatDateForLog(fromDate)}",
                     $"To={FormatDateForLog(toDate)}",
                     $"TriggeredBy={username}",
@@ -488,7 +548,7 @@ public sealed class PodReportEmailService(
                 username,
                 role,
                 "POD Report Email",
-                periodKind.ToString(),
+                $"{schedule.Name} (#{schedule.Id})",
                 details,
                 "/settings",
                 isSuccess: false,
@@ -498,8 +558,8 @@ public sealed class PodReportEmailService(
         {
             logger.LogWarning(
                 ex,
-                "Failed to write POD report email failure audit entry. PeriodKind={PeriodKind}, FailureStage={FailureStage}",
-                periodKind,
+                "Failed to write POD report email failure audit entry. ScheduleId={ScheduleId}, FailureStage={FailureStage}",
+                schedule.Id,
                 failureStage);
         }
     }
@@ -526,50 +586,5 @@ public sealed class PodReportEmailService(
             .Where(address => !string.IsNullOrWhiteSpace(address))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-    }
-
-    private static bool ParseBool(string? value) =>
-        bool.TryParse(value, out var parsed) && parsed;
-
-    private static int ParseHour(string? value, int fallback)
-    {
-        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
-        {
-            parsed = fallback;
-        }
-
-        return Math.Clamp(parsed, 0, 23);
-    }
-
-    private static int ParseDayOfMonth(string? value, int fallback)
-    {
-        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
-        {
-            parsed = fallback;
-        }
-
-        return Math.Clamp(parsed, 1, 31);
-    }
-
-    private static DayOfWeek ParseDayOfWeek(string? value, DayOfWeek fallback) =>
-        Enum.TryParse<DayOfWeek>(value, ignoreCase: true, out var parsed)
-            ? parsed
-            : fallback;
-
-    private static DateTime? ParseUtc(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
-        {
-            return parsed.Kind == DateTimeKind.Utc
-                ? parsed
-                : DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
-        }
-
-        return null;
     }
 }
