@@ -328,6 +328,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     public async Task<IActionResult> GetPodUploadStatus(
         [FromQuery] DateTime fromDate,
         [FromQuery] DateTime toDate,
+        [FromQuery] bool includeCreditNoteActivity = false,
         CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
@@ -335,7 +336,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetPodUploadStatusQuery(fromDate, toDate, userId), cancellationToken);
+            new GetPodUploadStatusQuery(fromDate, toDate, userId, includeCreditNoteActivity), cancellationToken);
 
         return result.Match(Ok, Problem);
     }

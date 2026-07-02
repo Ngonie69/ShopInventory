@@ -404,7 +404,7 @@ public sealed class PodReportEmailService(
         var client = httpClientFactory.CreateClient("ShopInventoryApi");
         var from = fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var to = toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var requestPath = $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}";
+        var requestPath = $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}&includeCreditNoteActivity=true";
 
         logger.LogInformation(
             ReportApiStartedEvent,

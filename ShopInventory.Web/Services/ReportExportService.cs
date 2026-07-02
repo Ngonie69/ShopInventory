@@ -2573,7 +2573,7 @@ public class ReportExportService : IReportExportService
         int reasonColumn,
         PodUploadStatusItem item)
     {
-        if (!item.IsFullyCredited)
+        if (string.IsNullOrWhiteSpace(item.CreditNoteNumber))
         {
             ws.Cell(row, creditNoteColumn).Value = "-";
             ws.Cell(row, reasonColumn).Value = "-";
@@ -2582,11 +2582,11 @@ public class ReportExportService : IReportExportService
             return;
         }
 
-        ws.Cell(row, creditNoteColumn).Value = string.IsNullOrWhiteSpace(item.CreditNoteNumber)
-            ? "Fully credited"
-            : item.CreditNoteNumber.Trim();
+        ws.Cell(row, creditNoteColumn).Value = item.CreditNoteNumber.Trim();
         ws.Cell(row, creditNoteColumn).Style.Font.Bold = true;
-        ws.Cell(row, creditNoteColumn).Style.Font.FontColor = PodRed;
+        ws.Cell(row, creditNoteColumn).Style.Font.FontColor = item.IsFullyCredited
+            ? PodRed
+            : PodTextDark;
         ws.Cell(row, creditNoteColumn).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
 
         ws.Cell(row, reasonColumn).Value = string.IsNullOrWhiteSpace(item.CreditNoteReason)

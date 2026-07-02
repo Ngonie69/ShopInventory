@@ -1503,7 +1503,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         await EnsureAuthenticatedAsync(cancellationToken);
         var allInvoices = new List<Invoice>();
-        const string selectClause = "$select=DocEntry,DocumentLines";
+        const string selectClause = "$select=DocEntry,DocNum,DocDate,CardCode,CardName,DocTotal,DocCurrency,UserSign,DocumentStatus,Cancelled,DocumentLines";
 
         foreach (var chunk in GetDocEntryQueryChunks(distinctDocEntries, selectClause))
         {
@@ -5593,29 +5593,27 @@ ORDER BY T0.""ItemCode""";
 
     /// <summary>
     /// Execute a raw SQL query via SAP Service Layer and return results as dictionaries.
-    /// Uses the ad-hoc SQL endpoint to avoid creating and deleting temporary SQLQueries.
+    /// Creates or updates the named SQLQueries entry before executing it.
     /// </summary>
     public async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
+        await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+
         var allRows = new List<Dictionary<string, object?>>();
         var skip = 0;
         var hasMore = true;
-        var payloadJson = JsonSerializer.Serialize(new { SqlText = sqlText });
 
         while (hasMore)
         {
-            var url = skip == 0
-                ? "SQLQueries('sql01')/List"
-                : $"SQLQueries('sql01')/List?$skip={skip}";
+            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
             HttpRequestMessage CreateRequest(string? sessionId)
             {
-                var request = new HttpRequestMessage(HttpMethod.Post, url);
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", "odata.maxpagesize=500");
-                request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
                 return request;
             }
 
