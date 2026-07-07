@@ -1,148 +1,66 @@
 using System.Text.Json;
+using Quartz;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Background service that processes queued invoices — fiscalizes them and stores locally.
+/// Quartz job that processes queued invoices — fiscalizes them and stores locally.
 /// Invoices are NOT posted to SAP individually; they are accumulated and posted as a
 /// single consolidated invoice per customer at end-of-day via ConsolidateDailySales.
+/// Cadence, clustering and misfire handling are owned by Quartz (see QuartzConfiguration).
 /// </summary>
-public class InvoicePostingBackgroundService : BackgroundService
+[DisallowConcurrentExecution]
+public sealed class InvoicePostingJob : IJob
 {
-    private const string WorkerName = "invoice-posting";
     private readonly IServiceProvider _serviceProvider;
-    private readonly BackgroundWorkerLeaderElector _leaderElector;
-    private readonly BackgroundWorkerHealthRegistry _healthRegistry;
-    private readonly ILogger<InvoicePostingBackgroundService> _logger;
-    private readonly TimeSpan _processingInterval = TimeSpan.FromSeconds(10);
-    private readonly TimeSpan _leadershipRetryInterval = TimeSpan.FromSeconds(5);
+    private readonly ILogger<InvoicePostingJob> _logger;
     private readonly int _batchSize = 5;
-    private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
-    private int _consecutiveErrors = 0;
-    private const int MaxConsecutiveErrors = 10;
 
-    public InvoicePostingBackgroundService(
+    public InvoicePostingJob(
         IServiceProvider serviceProvider,
-        BackgroundWorkerLeaderElector leaderElector,
-        BackgroundWorkerHealthRegistry healthRegistry,
-        ILogger<InvoicePostingBackgroundService> logger)
+        ILogger<InvoicePostingJob> logger)
     {
         _serviceProvider = serviceProvider;
-        _leaderElector = leaderElector;
-        _healthRegistry = healthRegistry;
         _logger = logger;
-        _healthRegistry.RegisterWorker(WorkerName, critical: true, healthyWindow: TimeSpan.FromMinutes(2));
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task Execute(IJobExecutionContext context)
     {
-        _logger.LogInformation("Invoice Posting Background Service started - Processing every {Interval}s, Batch size: {BatchSize}",
-            _processingInterval.TotalSeconds, _batchSize);
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await using var leadershipHandle = await _leaderElector.TryAcquireAsync(WorkerName, stoppingToken);
-            if (leadershipHandle is null)
-            {
-                _healthRegistry.MarkStandby(WorkerName);
-                await Task.Delay(_leadershipRetryInterval, stoppingToken);
-                continue;
-            }
-
-            _healthRegistry.MarkLeader(WorkerName);
-            _logger.LogInformation("Invoice posting leadership acquired on this instance");
-
-            try
-            {
-                // Initial delay to let the application fully start after leadership is acquired.
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-
-                while (!stoppingToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await ProcessQueueAsync(stoppingToken);
-                        _consecutiveErrors = 0;
-                        _healthRegistry.MarkSuccessfulRun(WorkerName);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _consecutiveErrors++;
-                        _healthRegistry.MarkFailure(WorkerName, ex);
-                        _logger.LogError(ex, "Error in invoice posting background service (consecutive errors: {Count})",
-                            _consecutiveErrors);
-
-                        if (_consecutiveErrors >= MaxConsecutiveErrors)
-                        {
-                            _logger.LogWarning("Too many consecutive errors, backing off for 60 seconds");
-                            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
-                            _consecutiveErrors = 0;
-                        }
-                    }
-
-                    var jitter = Random.Shared.Next(-3000, 3000);
-                    await Task.Delay(_processingInterval + TimeSpan.FromMilliseconds(jitter), stoppingToken);
-                }
-            }
-            finally
-            {
-                _healthRegistry.MarkStandby(WorkerName);
-            }
-        }
-
-        _healthRegistry.MarkStopped(WorkerName);
-        _logger.LogInformation("Invoice Posting Background Service stopped");
+        await ProcessQueueAsync(context.CancellationToken);
     }
 
     private async Task ProcessQueueAsync(CancellationToken stoppingToken)
     {
-        if (!await _processingSemaphore.WaitAsync(0, stoppingToken))
+        using var scope = _serviceProvider.CreateScope();
+        var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
+        var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
+
+        // Get next batch of invoices to process
+        var pendingInvoices = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
+
+        if (!pendingInvoices.Any())
         {
-            _logger.LogDebug("Queue processing already in progress, skipping");
+            _logger.LogDebug("No pending invoices in queue");
             return;
         }
 
-        try
+        _logger.LogInformation("Processing {Count} queued invoices for fiscalization", pendingInvoices.Count);
+
+        foreach (var queueEntry in pendingInvoices)
         {
-            using var scope = _serviceProvider.CreateScope();
-            var queueService = scope.ServiceProvider.GetRequiredService<IInvoiceQueueService>();
-            var fiscalizationService = scope.ServiceProvider.GetService<IFiscalizationService>();
-
-            // Get next batch of invoices to process
-            var pendingInvoices = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
-
-            if (!pendingInvoices.Any())
+            if (stoppingToken.IsCancellationRequested)
             {
-                _logger.LogDebug("No pending invoices in queue");
-                return;
+                _logger.LogInformation("Cancellation requested, stopping queue processing");
+                break;
             }
 
-            _logger.LogInformation("Processing {Count} queued invoices for fiscalization", pendingInvoices.Count);
-
-            foreach (var queueEntry in pendingInvoices)
-            {
-                if (stoppingToken.IsCancellationRequested)
-                {
-                    _logger.LogInformation("Cancellation requested, stopping queue processing");
-                    break;
-                }
-
-                await ProcessSingleInvoiceAsync(
-                    queueEntry,
-                    queueService,
-                    fiscalizationService,
-                    stoppingToken);
-            }
-        }
-        finally
-        {
-            _processingSemaphore.Release();
+            await ProcessSingleInvoiceAsync(
+                queueEntry,
+                queueService,
+                fiscalizationService,
+                stoppingToken);
         }
     }
 

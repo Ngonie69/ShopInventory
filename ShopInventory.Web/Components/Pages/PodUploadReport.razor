@@ -1049,7 +1049,10 @@
 
         try
         {
-            report = await PodService.GetPodUploadStatusAsync(fromDate.Value, toDate.Value);
+            report = await PodService.GetPodUploadStatusAsync(
+                fromDate.Value,
+                toDate.Value,
+                includeCreditNoteActivity: false);
             NormalizeDynamicFilters();
             currentPage = EffectiveCurrentPage;
             if (report == null)

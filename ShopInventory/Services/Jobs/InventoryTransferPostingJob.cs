@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Quartz;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -8,144 +9,61 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Background service that processes queued inventory transfers and posts them to SAP in batches
+/// Quartz job that processes queued inventory transfers and posts them to SAP in batches.
+/// Cadence, clustering and misfire handling are owned by Quartz (see QuartzConfiguration).
 /// </summary>
-public class InventoryTransferPostingBackgroundService : BackgroundService
+[DisallowConcurrentExecution]
+public sealed class InventoryTransferPostingJob : IJob
 {
-    private const string WorkerName = "inventory-transfer-posting";
     private readonly IServiceProvider _serviceProvider;
-    private readonly BackgroundWorkerLeaderElector _leaderElector;
-    private readonly BackgroundWorkerHealthRegistry _healthRegistry;
-    private readonly ILogger<InventoryTransferPostingBackgroundService> _logger;
-    private readonly TimeSpan _processingInterval = TimeSpan.FromSeconds(10);
-    private readonly TimeSpan _leadershipRetryInterval = TimeSpan.FromSeconds(5);
+    private readonly ILogger<InventoryTransferPostingJob> _logger;
     private readonly int _batchSize = 5;
-    private readonly SemaphoreSlim _processingSemaphore = new(1, 1);
-    private int _consecutiveErrors = 0;
-    private const int MaxConsecutiveErrors = 10;
 
-    public InventoryTransferPostingBackgroundService(
+    public InventoryTransferPostingJob(
         IServiceProvider serviceProvider,
-        BackgroundWorkerLeaderElector leaderElector,
-        BackgroundWorkerHealthRegistry healthRegistry,
-        ILogger<InventoryTransferPostingBackgroundService> logger)
+        ILogger<InventoryTransferPostingJob> logger)
     {
         _serviceProvider = serviceProvider;
-        _leaderElector = leaderElector;
-        _healthRegistry = healthRegistry;
         _logger = logger;
-        _healthRegistry.RegisterWorker(WorkerName, critical: true, healthyWindow: TimeSpan.FromMinutes(2));
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task Execute(IJobExecutionContext context)
     {
-        _logger.LogInformation("Inventory Transfer Posting Background Service started - Processing every {Interval}s, Batch size: {BatchSize}",
-            _processingInterval.TotalSeconds, _batchSize);
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await using var leadershipHandle = await _leaderElector.TryAcquireAsync(WorkerName, stoppingToken);
-            if (leadershipHandle is null)
-            {
-                _healthRegistry.MarkStandby(WorkerName);
-                await Task.Delay(_leadershipRetryInterval, stoppingToken);
-                continue;
-            }
-
-            _healthRegistry.MarkLeader(WorkerName);
-            _logger.LogInformation("Inventory transfer posting leadership acquired on this instance");
-
-            try
-            {
-                // Initial delay to let the application fully start (staggered from invoice service).
-                await Task.Delay(TimeSpan.FromSeconds(12), stoppingToken);
-
-                while (!stoppingToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        await ProcessQueueAsync(stoppingToken);
-                        _consecutiveErrors = 0;
-                        _healthRegistry.MarkSuccessfulRun(WorkerName);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _consecutiveErrors++;
-                        _healthRegistry.MarkFailure(WorkerName, ex);
-                        _logger.LogError(ex, "Error in inventory transfer posting background service (consecutive errors: {Count})",
-                            _consecutiveErrors);
-
-                        if (_consecutiveErrors >= MaxConsecutiveErrors)
-                        {
-                            _logger.LogWarning("Too many consecutive errors, backing off for 60 seconds");
-                            await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
-                            _consecutiveErrors = 0;
-                        }
-                    }
-
-                    var jitter = Random.Shared.Next(-3000, 3000);
-                    await Task.Delay(_processingInterval + TimeSpan.FromMilliseconds(jitter), stoppingToken);
-                }
-            }
-            finally
-            {
-                _healthRegistry.MarkStandby(WorkerName);
-            }
-        }
-
-        _healthRegistry.MarkStopped(WorkerName);
-        _logger.LogInformation("Inventory Transfer Posting Background Service stopped");
+        await ProcessQueueAsync(context.CancellationToken);
     }
 
     private async Task ProcessQueueAsync(CancellationToken stoppingToken)
     {
-        if (!await _processingSemaphore.WaitAsync(0, stoppingToken))
+        using var scope = _serviceProvider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var queueService = scope.ServiceProvider.GetRequiredService<IInventoryTransferQueueService>();
+        var sapService = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
+
+        // Get next batch of transfers to process
+        var pendingTransfers = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
+
+        if (!pendingTransfers.Any())
         {
-            _logger.LogDebug("Transfer queue processing already in progress, skipping");
+            _logger.LogDebug("No pending inventory transfers in queue");
             return;
         }
 
-        try
+        _logger.LogInformation("Processing {Count} queued inventory transfers", pendingTransfers.Count);
+
+        foreach (var queueEntry in pendingTransfers)
         {
-            using var scope = _serviceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var queueService = scope.ServiceProvider.GetRequiredService<IInventoryTransferQueueService>();
-            var sapService = scope.ServiceProvider.GetRequiredService<ISAPServiceLayerClient>();
-
-            // Get next batch of transfers to process
-            var pendingTransfers = await queueService.GetNextBatchForProcessingAsync(_batchSize, stoppingToken);
-
-            if (!pendingTransfers.Any())
+            if (stoppingToken.IsCancellationRequested)
             {
-                _logger.LogDebug("No pending inventory transfers in queue");
-                return;
+                _logger.LogInformation("Cancellation requested, stopping transfer queue processing");
+                break;
             }
 
-            _logger.LogInformation("Processing {Count} queued inventory transfers", pendingTransfers.Count);
-
-            foreach (var queueEntry in pendingTransfers)
-            {
-                if (stoppingToken.IsCancellationRequested)
-                {
-                    _logger.LogInformation("Cancellation requested, stopping transfer queue processing");
-                    break;
-                }
-
-                await ProcessSingleTransferAsync(
-                    queueEntry,
-                    queueService,
-                    sapService,
-                    context,
-                    stoppingToken);
-            }
-        }
-        finally
-        {
-            _processingSemaphore.Release();
+            await ProcessSingleTransferAsync(
+                queueEntry,
+                queueService,
+                sapService,
+                context,
+                stoppingToken);
         }
     }
 

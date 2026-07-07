@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Npgsql;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -19,6 +20,7 @@ public class SalesOrderService : ISalesOrderService
 {
     private const int MaxCommentsLength = 1000;
     private const int MaxCreateOrderAttempts = 5;
+    private const string SapPostingIdempotencyScope = "salesorders.sap-post";
     private const string SapPostingUncertainSyncErrorPrefix = "The SAP posting result is uncertain";
     private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SapPostingUncertainRetryHold = TimeSpan.FromMinutes(5);
@@ -29,6 +31,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly INotificationService _notificationService;
     private readonly IBusinessPartnerService _businessPartnerService;
     private readonly ILocalPriceCatalogService _localPriceCatalogService;
+    private readonly IIdempotencyRequestStore _idempotencyRequestStore;
     private readonly decimal _defaultMobileTaxPercent;
     private readonly string _connectionString;
 
@@ -39,6 +42,7 @@ public class SalesOrderService : ISalesOrderService
         INotificationService notificationService,
         IBusinessPartnerService businessPartnerService,
         ILocalPriceCatalogService localPriceCatalogService,
+        IIdempotencyRequestStore idempotencyRequestStore,
         IOptions<RevmaxSettings> revmaxSettings)
     {
         _context = context;
@@ -47,6 +51,7 @@ public class SalesOrderService : ISalesOrderService
         _notificationService = notificationService;
         _businessPartnerService = businessPartnerService;
         _localPriceCatalogService = localPriceCatalogService;
+        _idempotencyRequestStore = idempotencyRequestStore;
         _defaultMobileTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
         _connectionString = context.Database.GetConnectionString()
             ?? throw new InvalidOperationException("DefaultConnection is not configured.");
@@ -1150,8 +1155,11 @@ public class SalesOrderService : ISalesOrderService
             order.SAPDocEntry,
             order.SAPDocNum);
 
-        // Reload with approver navigation for DTO mapping
-        await _context.Entry(order).Reference(o => o.ApprovedByUser).LoadAsync(cancellationToken);
+        // The approval and SAP post are already committed above. Use a non-cancellable
+        // token for the final navigation load so a client disconnect or request timeout
+        // at this last step can't turn an already-successful approval into a thrown
+        // exception that gets reported to the caller as a failure.
+        await _context.Entry(order).Reference(o => o.ApprovedByUser).LoadAsync(CancellationToken.None);
 
         return MapToDto(order);
     }
@@ -1448,17 +1456,63 @@ public class SalesOrderService : ISalesOrderService
             return;
         }
 
-        if (await TryAttachExistingSapSalesOrderAsync(order, "pre-create duplicate check", cancellationToken))
-        {
-            return;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-
+        var sapPostingMarkerRequest = new { orderNumber = order.OrderNumber };
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
         var sapCreateReturned = false;
 
         try
         {
+            var acquireResult = await _idempotencyRequestStore.TryAcquireAsync<SAPSalesOrder>(
+                SapPostingIdempotencyScope,
+                order.OrderNumber,
+                sapPostingMarkerRequest,
+                cancellationToken);
+
+            switch (acquireResult.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                    EnsureOrderAttached(order);
+                    ApplySapDocumentToLocalOrder(order, acquireResult.Response);
+                    await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, CancellationToken.None);
+                    await _context.SaveChangesAsync(CancellationToken.None);
+
+                    _logger.LogInformation(
+                        "Replayed SAP sales order post for {OrderNumber} as DocEntry={DocEntry}, DocNum={DocNum} from the durable idempotency marker.",
+                        order.OrderNumber,
+                        acquireResult.Response.DocEntry,
+                        acquireResult.Response.DocNum);
+                    return;
+
+                case IdempotencyAcquireOutcome.InProgress:
+                    if (await TryAttachExistingSapSalesOrderWithRetryAsync(
+                            order,
+                            "concurrent SAP posting marker reconciliation",
+                            CancellationToken.None))
+                    {
+                        return;
+                    }
+
+                    throw new InvalidOperationException(
+                        $"Sales order {order.OrderNumber} is already being posted to SAP. Please refresh the order before trying again.");
+
+                case IdempotencyAcquireOutcome.RequestMismatch:
+                    throw new InvalidOperationException(
+                        $"Sales order {order.OrderNumber} is already protected by a different SAP posting request. Please refresh the order before trying again.");
+
+                case IdempotencyAcquireOutcome.Acquired:
+                    idempotencyRequestId = acquireResult.RequestId;
+                    releaseIdempotencyRequest = true;
+                    break;
+            }
+
+            if (await TryAttachExistingSapSalesOrderAsync(order, "pre-create duplicate check", cancellationToken))
+            {
+                return;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             var sapOrder = await _sapClient.CreateSalesOrderAsync(order, CancellationToken.None);
             sapCreateReturned = true;
 
@@ -1470,6 +1524,26 @@ public class SalesOrderService : ISalesOrderService
             await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, CancellationToken.None);
 
             await _context.SaveChangesAsync(CancellationToken.None);
+
+            if (idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await _idempotencyRequestStore.CompleteAsync(
+                        idempotencyRequestId.Value,
+                        sapOrder,
+                        CancellationToken.None);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    _logger.LogWarning(
+                        completeException,
+                        "Failed to persist SAP sales order posting idempotency completion for {OrderNumber} as request {RequestId}.",
+                        order.OrderNumber,
+                        idempotencyRequestId.Value);
+                }
+            }
 
             _logger.LogInformation(
                 "Posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
@@ -1498,6 +1572,24 @@ public class SalesOrderService : ISalesOrderService
             }
 
             throw;
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await _idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None);
+                }
+                catch (Exception releaseException)
+                {
+                    _logger.LogWarning(
+                        releaseException,
+                        "Failed to release SAP sales order posting idempotency request {RequestId} for {OrderNumber}.",
+                        idempotencyRequestId.Value,
+                        order.OrderNumber);
+                }
+            }
         }
     }
 
@@ -1632,6 +1724,16 @@ public class SalesOrderService : ISalesOrderService
         order.IsSynced = true;
         order.SyncError = null;
         order.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private void EnsureOrderAttached(SalesOrderEntity order)
+    {
+        if (_context.Entry(order).State != EntityState.Detached)
+        {
+            return;
+        }
+
+        _context.SalesOrders.Attach(order);
     }
 
     private async Task RefreshLocalSalesOrderSnapshotsFromSapAsync(

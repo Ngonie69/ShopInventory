@@ -3442,18 +3442,29 @@ List<string>(AdminAvailableRoles);
             activeTab = "users";
             await LoadUsers();
 
+            // Paint the user list as soon as it's loaded. The supporting lookups
+            // below (permissions, security stats and SAP-backed master data) only
+            // feed the other tabs and the create/edit modal, and some hit SAP
+            // Service Layer endpoints that can be slow or unavailable. Awaiting
+            // them here previously kept the whole component from re-rendering, so
+            // an unhealthy SAP backend left the page stuck on "Loading users..."
+            // even though the users had already loaded successfully.
+            StateHasChanged();
+
             if (!isPodOperatorView)
             {
-                await LoadPermissions();
-                await LoadSecurityStats();
-                await LoadWarehouses();
-                await LoadCustomers();
-                await LoadCostCentres();
-                await LoadGLAccounts();
-                await LoadPaymentBPs();
+                _ = InvokeAsync(async () =>
+                {
+                    await LoadPermissions();
+                    await LoadSecurityStats();
+                    await LoadWarehouses();
+                    await LoadCustomers();
+                    await LoadCostCentres();
+                    await LoadGLAccounts();
+                    await LoadPaymentBPs();
+                    StateHasChanged();
+                });
             }
-
-            StateHasChanged();
         }
     }
 

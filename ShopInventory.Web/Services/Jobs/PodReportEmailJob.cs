@@ -1,34 +1,19 @@
+using Quartz;
 using ShopInventory.Web.Data;
 
 namespace ShopInventory.Web.Services;
 
-public sealed class PodReportEmailScheduler(
+/// <summary>
+/// Quartz job that sends any due scheduled POD report emails. Runs on a 30-minute interval
+/// trigger (see WebQuartzConfiguration); clustering ensures only one Web node sends, avoiding
+/// duplicate emails. The catch-up "is this schedule due?" logic is unchanged.
+/// </summary>
+[DisallowConcurrentExecution]
+public sealed class PodReportEmailJob(
     IServiceScopeFactory scopeFactory,
-    ILogger<PodReportEmailScheduler> logger) : BackgroundService
+    ILogger<PodReportEmailJob> logger) : IJob
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(30);
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        logger.LogInformation("POD report email scheduler started.");
-
-        using var timer = new PeriodicTimer(PollInterval);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-        {
-            try
-            {
-                await ProcessAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error running POD report email scheduler.");
-            }
-        }
-    }
+    public Task Execute(IJobExecutionContext context) => ProcessAsync(context.CancellationToken);
 
     private async Task ProcessAsync(CancellationToken cancellationToken)
     {

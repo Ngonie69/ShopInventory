@@ -16,7 +16,7 @@ public interface IPodService
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
     Task<bool> DeletePodAsync(int attachmentId);
-    Task<PodUploadStatusReport?> GetPodUploadStatusAsync(DateTime fromDate, DateTime toDate, bool includeCreditNoteActivity = true);
+    Task<PodUploadStatusReport?> GetPodUploadStatusAsync(DateTime fromDate, DateTime toDate, bool includeCreditNoteActivity = false);
     Task<PodDashboardModel?> GetPodDashboardAsync();
 }
 
@@ -302,7 +302,7 @@ public class PodService : IPodService
     public async Task<PodUploadStatusReport?> GetPodUploadStatusAsync(
         DateTime fromDate,
         DateTime toDate,
-        bool includeCreditNoteActivity = true)
+        bool includeCreditNoteActivity = false)
     {
         try
         {

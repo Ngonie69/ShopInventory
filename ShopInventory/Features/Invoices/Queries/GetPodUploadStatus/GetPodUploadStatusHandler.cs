@@ -110,6 +110,8 @@ public sealed class GetPodUploadStatusHandler(
 
             var creditNoteLookup = await GetCreditNoteLookupAsync(
                 invoices,
+                request.FromDate,
+                request.ToDate,
                 cancellationToken);
 
             if (request.IncludeCreditNoteActivity)
@@ -369,6 +371,8 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef""";
 
     private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupAsync(
         IReadOnlyList<Invoice> invoices,
+        DateTime fromDate,
+        DateTime toDate,
         CancellationToken cancellationToken)
     {
         var reportInvoices = invoices
@@ -392,21 +396,23 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef""";
             .GroupBy(invoice => invoice.DocNum)
             .ToDictionary(group => group.Key, group => group.First().DocEntry);
 
-        var creditNoteLines = new List<CreditNoteLineInfo>();
-        var chunkIndex = 0;
-
-        foreach (var chunk in reportInvoices.Chunk(200))
+        try
         {
-            chunkIndex++;
-            var docEntryFilter = string.Join(", ", chunk.Select(invoice => invoice.DocEntry));
-            var docNumFilter = string.Join(", ", chunk
-                .Where(invoice => invoice.DocNum > 0)
-                .Select(invoice => $"'{invoice.DocNum.ToString(CultureInfo.InvariantCulture)}'"));
-            var linkFilter = string.IsNullOrWhiteSpace(docNumFilter)
-                ? $@"T0.""BaseEntry"" IN ({docEntryFilter})"
-                : $@"(T0.""BaseEntry"" IN ({docEntryFilter}) OR T0.""BaseRef"" IN ({docNumFilter}))";
+            var creditNoteLines = new List<CreditNoteLineInfo>();
+            var chunkIndex = 0;
 
-            var sqlText = $@"
+            foreach (var chunk in reportInvoices.Chunk(200))
+            {
+                chunkIndex++;
+                var docEntryFilter = string.Join(", ", chunk.Select(invoice => invoice.DocEntry));
+                var docNumFilter = string.Join(", ", chunk
+                    .Where(invoice => invoice.DocNum > 0)
+                    .Select(invoice => $"'{invoice.DocNum.ToString(CultureInfo.InvariantCulture)}'"));
+                var linkFilter = string.IsNullOrWhiteSpace(docNumFilter)
+                    ? $@"T0.""BaseEntry"" IN ({docEntryFilter})"
+                    : $@"(T0.""BaseEntry"" IN ({docEntryFilter}) OR T0.""BaseRef"" IN ({docNumFilter}))";
+
+                var sqlText = $@"
 SELECT
     T0.""BaseEntry"" AS ""InvoiceDocEntry"",
     T0.""BaseRef"" AS ""InvoiceDocNum"",
@@ -423,45 +429,140 @@ WHERE T0.""BaseType"" = 13
   AND T1.""CANCELED"" = 'N'
 ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
-            var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                $"PODCN{Random.Shared.Next(100000, 999999)}{chunkIndex:D2}",
-                $"POD credit note links {chunkIndex}",
-                sqlText,
-                cancellationToken);
+                var rows = await sapClient.ExecuteRawSqlQueryAsync(
+                    $"PODCN{Random.Shared.Next(100000, 999999)}{chunkIndex:D2}",
+                    $"POD credit note links {chunkIndex}",
+                    sqlText,
+                    cancellationToken);
 
-            foreach (var row in rows)
-            {
-                var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
-                if (!invoiceDocEntry.HasValue || !invoiceTotalsByDocEntry.ContainsKey(invoiceDocEntry.Value))
+                foreach (var row in rows)
                 {
-                    var invoiceDocNum = TryGetInt32(row, "InvoiceDocNum");
-                    if (!invoiceDocNum.HasValue ||
-                        !invoiceDocEntryByDocNum.TryGetValue(invoiceDocNum.Value, out var resolvedDocEntry))
+                    var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
+                    if (!invoiceDocEntry.HasValue || !invoiceTotalsByDocEntry.ContainsKey(invoiceDocEntry.Value))
+                    {
+                        var invoiceDocNum = TryGetInt32(row, "InvoiceDocNum");
+                        if (!invoiceDocNum.HasValue ||
+                            !invoiceDocEntryByDocNum.TryGetValue(invoiceDocNum.Value, out var resolvedDocEntry))
+                        {
+                            continue;
+                        }
+
+                        invoiceDocEntry = resolvedDocEntry;
+                    }
+
+                    var creditNoteDocEntry = TryGetInt32(row, "CreditNoteDocEntry");
+                    var creditNoteDocNum = TryGetInt32(row, "CreditNoteDocNum");
+
+                    if (!creditNoteDocEntry.HasValue ||
+                        !creditNoteDocNum.HasValue)
                     {
                         continue;
                     }
 
-                    invoiceDocEntry = resolvedDocEntry;
+                    creditNoteLines.Add(new CreditNoteLineInfo(
+                        invoiceDocEntry.Value,
+                        creditNoteDocEntry.Value,
+                        creditNoteDocNum.Value,
+                        Math.Abs(GetDecimal(row, "CreditLineTotal") + GetDecimal(row, "CreditVatSum")),
+                        GetString(row, "CreditReason")));
                 }
+            }
 
-                var creditNoteDocEntry = TryGetInt32(row, "CreditNoteDocEntry");
-                var creditNoteDocNum = TryGetInt32(row, "CreditNoteDocNum");
+            return BuildCreditNoteInfoLookup(creditNoteLines, invoiceTotalsByDocEntry);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "POD report credit-note SQL lookup failed; falling back to SAP CreditNotes entity lookup for invoices from {FromDate} to {ToDate}",
+                fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
 
-                if (!creditNoteDocEntry.HasValue ||
-                    !creditNoteDocNum.HasValue)
-                {
-                    continue;
-                }
+            try
+            {
+                return await GetCreditNoteLookupFromCreditNotesApiAsync(
+                    reportInvoices,
+                    invoiceTotalsByDocEntry,
+                    fromDate,
+                    toDate,
+                    cancellationToken);
+            }
+            catch (Exception fallbackEx)
+            {
+                logger.LogError(fallbackEx, "POD report credit-note fallback lookup failed; continuing without credit-note enrichment");
+                return [];
+            }
+        }
+    }
+
+    private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupFromCreditNotesApiAsync(
+        IReadOnlyList<Invoice> reportInvoices,
+        IReadOnlyDictionary<int, decimal> invoiceTotalsByDocEntry,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        if (reportInvoices.Count == 0)
+        {
+            return [];
+        }
+
+        var invoiceDocEntries = invoiceTotalsByDocEntry.Keys.ToHashSet();
+        var fallbackToDate = DateTime.Today > toDate.Date ? DateTime.Today : toDate.Date;
+        var creditNotes = await sapClient.GetCreditNotesByDateRangeAsync(
+            fromDate.Date,
+            fallbackToDate,
+            cancellationToken);
+
+        var creditNoteLines = new List<CreditNoteLineInfo>();
+
+        foreach (var creditNote in creditNotes.Where(note => !IsCanceled(note.Cancelled)))
+        {
+            var baseInvoiceLines = creditNote.DocumentLines?
+                .Where(line =>
+                    line.BaseType == 13 &&
+                    line.BaseEntry.HasValue &&
+                    invoiceDocEntries.Contains(line.BaseEntry.Value))
+                .ToList();
+
+            if (baseInvoiceLines is null || baseInvoiceLines.Count == 0)
+            {
+                continue;
+            }
+
+            var linkedInvoiceCount = baseInvoiceLines
+                .Select(line => line.BaseEntry!.Value)
+                .Distinct()
+                .Count();
+
+            foreach (var invoiceGroup in baseInvoiceLines.GroupBy(line => line.BaseEntry!.Value))
+            {
+                var creditAmount = linkedInvoiceCount == 1
+                    ? Math.Abs(creditNote.DocTotal)
+                    : invoiceGroup.Sum(line => Math.Abs(line.LineTotal + line.VatSum));
+
+                var reasons = invoiceGroup
+                    .Select(line => line.CreditReason?.Trim())
+                    .Where(reason => !string.IsNullOrWhiteSpace(reason))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 creditNoteLines.Add(new CreditNoteLineInfo(
-                    invoiceDocEntry.Value,
-                    creditNoteDocEntry.Value,
-                    creditNoteDocNum.Value,
-                    Math.Abs(GetDecimal(row, "CreditLineTotal") + GetDecimal(row, "CreditVatSum")),
-                    GetString(row, "CreditReason")));
+                    invoiceGroup.Key,
+                    creditNote.DocEntry,
+                    creditNote.DocNum,
+                    creditAmount,
+                    string.Join("; ", reasons)));
             }
         }
 
+        return BuildCreditNoteInfoLookup(creditNoteLines, invoiceTotalsByDocEntry);
+    }
+
+    private static Dictionary<int, CreditNoteInfo> BuildCreditNoteInfoLookup(
+        IEnumerable<CreditNoteLineInfo> creditNoteLines,
+        IReadOnlyDictionary<int, decimal> invoiceTotalsByDocEntry)
+    {
         return creditNoteLines
             .GroupBy(line => line.InvoiceDocEntry)
             .Where(group =>
@@ -515,6 +616,11 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
     private static bool IsFullyCredited(decimal invoiceTotal, decimal creditedTotal) =>
         invoiceTotal > 0 && creditedTotal + FullCreditTolerance >= invoiceTotal;
+
+    private static bool IsCanceled(string? canceled) =>
+        string.Equals(canceled, "tYES", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(canceled, "Y", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(canceled, "Yes", StringComparison.OrdinalIgnoreCase);
 
     private static int? TryGetInt32(IReadOnlyDictionary<string, object?> row, string key)
     {

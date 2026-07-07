@@ -77,6 +77,15 @@ try
         ?? new ThreadPoolPerformanceOptions();
     ApplyThreadPoolTuning(threadPoolPerformanceOptions);
 
+    // Maximum accepted request body size. POD/crate-POD image uploads are the largest
+    // payloads the app accepts. Under IIS in-process hosting the per-endpoint
+    // [RequestSizeLimit] attribute is a no-op (the body-size feature is read-only), so
+    // the limit must be applied at the server level. Kestrel is configured to match for
+    // parity when running outside IIS (e.g. local development).
+    const long MaxRequestBodyBytes = 20L * 1024 * 1024; // 20 MB
+    builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = MaxRequestBodyBytes);
+    builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = MaxRequestBodyBytes);
+
     // Use Serilog — read overrides from appsettings so production can further tune levels
     builder.Host.UseSerilog((context, services, configuration) => configuration
         .ReadFrom.Configuration(context.Configuration)
@@ -208,7 +217,8 @@ try
     builder.Services.AddSingleton<StartupReadinessSignal>();
     builder.Services.AddSingleton<RuntimeInstanceIdentity>();
     builder.Services.AddSingleton<SapCircuitBreakerState>();
-    builder.Services.AddSingleton<BackgroundWorkerHealthRegistry>();
+    // Retained as a Postgres advisory-lock primitive used by the price-catalog sync command
+    // handlers to prevent concurrent syncs (a scheduled Quartz run vs a manual trigger).
     builder.Services.AddSingleton<BackgroundWorkerLeaderElector>();
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
@@ -217,7 +227,7 @@ try
         .AddCheck<DatabaseConnectionLatencyHealthCheck>("db-latency", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<ApplicationSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<OperationalSyncHealthCheck>("operations", tags: ["ready", "dependencies"])
-        .AddCheck<BackgroundWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
+        .AddCheck<QuartzWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<QueuePressureHealthCheck>("queues", tags: ["dependencies"])
         .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
@@ -555,41 +565,19 @@ try
     // Register incoming payment queue service for durable SAP posting
     builder.Services.AddScoped<IIncomingPaymentQueueService, IncomingPaymentQueueService>();
 
-    // Register background service for cleaning up expired reservations
-    builder.Services.AddHostedService<ReservationCleanupService>();
-
-    // Persist cluster-visible worker heartbeat state for readiness checks.
-    builder.Services.AddHostedService<BackgroundWorkerClusterStateSyncService>();
-
-    // Register background service for mobile sales order enrichment
-    builder.Services.AddHostedService<MobileOrderPostProcessingBackgroundService>();
-
-    // Register background service for processing queued invoices
-    builder.Services.AddHostedService<InvoicePostingBackgroundService>();
-
-    // Register background service for fiscalizing newly posted SAP invoices
+    // In-process invoice-fiscalization queue consumer. Stays a plain hosted service: it drains an
+    // in-memory Channel populated on this node, which cannot be handed to a clustered scheduler.
     builder.Services.AddHostedService<InvoiceFiscalizationBackgroundService>();
 
-    // Register background service for processing queued inventory transfers
-    builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
-
-    // Register background service for processing queued incoming payments
-    builder.Services.AddHostedService<IncomingPaymentPostingBackgroundService>();
-
-    // Register background service for scheduled SAP price catalog synchronization
-    builder.Services.AddHostedService<PriceCatalogSyncBackgroundService>();
-
-    // Register system failure email alert background service
-    builder.Services.AddHostedService<SystemFailureAlertBackgroundService>();
-
-    // Register FetchDailyStockHandler for direct resolution by background service
+    // FetchDailyStockHandler is resolved directly by DailyStockSnapshotJob.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();
 
-    // Register background services for daily stock snapshot and end-of-day consolidation
-    builder.Services.AddSingleton<DailyStockSnapshotService>();
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<DailyStockSnapshotService>());
-    builder.Services.AddSingleton<EndOfDayConsolidationService>();
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<EndOfDayConsolidationService>());
+    // End-of-day consolidation logic is a scoped service shared by EndOfDayConsolidationJob and
+    // the DesktopIntegrationController "run now" endpoint.
+    builder.Services.AddScoped<EndOfDayConsolidationService>();
+
+    // All other recurring background work runs on the clustered Quartz scheduler.
+    builder.Services.AddShopInventoryQuartz(builder.Configuration, defaultConnectionString);
 
     // Add permission-based authorization
     builder.Services.AddPermissionAuthorization();
@@ -761,6 +749,9 @@ try
             var context = services.GetRequiredService<ApplicationDbContext>();
             var logger = services.GetRequiredService<ILogger<Program>>();
             await DbInitializer.InitializeAsync(context, logger, app.Environment);
+
+            // Provision the Quartz job-store tables before the scheduler starts.
+            await ShopInventory.Configuration.QuartzSchema.EnsureAsync(defaultConnectionString, "ShopInventoryApi");
 
             var mediator = services.GetRequiredService<IMediator>();
             var backfillResult = await mediator.Send(new BackfillSalesOrderCardNamesCommand(), CancellationToken.None);
