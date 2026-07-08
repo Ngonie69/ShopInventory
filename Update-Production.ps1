@@ -16,6 +16,7 @@ param(
     [string]$DeployTarget = "Both",
     [switch]$SkipBackup,
     [switch]$IncludeRuntimeDataInBackup,
+    [switch]$SkipDatabaseMigrations,
     [switch]$RestartOnly,
     [switch]$FirstTimeSetup,
     [string]$ApiDbConnectionString,
@@ -310,6 +311,7 @@ if ($targetServers.Count -gt 1) {
 
             if ($SkipBackup) { $argumentList += '-SkipBackup' }
             if ($IncludeRuntimeDataInBackup) { $argumentList += '-IncludeRuntimeDataInBackup' }
+            if ($SkipDatabaseMigrations) { $argumentList += '-SkipDatabaseMigrations' }
             if ($RestartOnly) { $argumentList += '-RestartOnly' }
             if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) {
                 $argumentList += @('-ApiDbConnectionString', $ApiDbConnectionString)
@@ -368,6 +370,7 @@ if ($FirstTimeSetup -and -not $isAdmin) {
     if ($DeployTarget -ne "Both") { $argList += " -DeployTarget `"$DeployTarget`"" }
     if ($SkipBackup) { $argList += " -SkipBackup" }
     if ($IncludeRuntimeDataInBackup) { $argList += " -IncludeRuntimeDataInBackup" }
+    if ($SkipDatabaseMigrations) { $argList += " -SkipDatabaseMigrations" }
     if ($RestartOnly) { $argList += " -RestartOnly" }
     if ($FirstTimeSetup) { $argList += " -FirstTimeSetup" }
     if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) { $argList += " -ApiDbConnectionString `"$ApiDbConnectionString`"" }
@@ -658,6 +661,47 @@ $RootDir = $PSScriptRoot
 $ApiProjectPath = Join-Path $RootDir "ShopInventory\ShopInventory.csproj"
 $WebProjectPath = Join-Path $RootDir "ShopInventory.Web\ShopInventory.Web.csproj"
 $PublishPath = Join-Path $RootDir "publish"
+$MigrationBundlePath = Join-Path $PublishPath "migrations"
+
+# API and Web own separate Postgres databases, each with its own EF migration history.
+$migrationBundleDefinitions = @{
+    API = [pscustomobject]@{ ProjectPath = $ApiProjectPath; ContextName = 'ApplicationDbContext' }
+    Web = [pscustomobject]@{ ProjectPath = $WebProjectPath; ContextName = 'WebAppDbContext' }
+}
+
+# Self-contained migration executables ("efbundle"). They carry the migrations plus EF Core, so the
+# production server needs neither the .NET SDK nor dotnet-ef - only the ASP.NET Core runtime it
+# already has to host the apps.
+function New-MigrationBundle {
+    param(
+        [string]$AppName,
+        [string]$ProjectPath,
+        [string]$ContextName,
+        [string]$OutputDirectory
+    )
+
+    $bundlePath = Join-Path $OutputDirectory "$AppName-migrate.exe"
+
+    Write-Host "Building $AppName migration bundle..." -ForegroundColor White
+
+    # Out-Host, not bare invocation: dotnet's build chatter would otherwise land on this function's
+    # output stream and be returned to the caller alongside $bundlePath.
+    dotnet ef migrations bundle `
+        --project $ProjectPath `
+        --context $ContextName `
+        --configuration Release `
+        --output $bundlePath `
+        --force | Out-Host
+
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bundlePath)) {
+        throw "Failed to build the $AppName migration bundle. Ensure dotnet-ef is installed: dotnet tool install --global dotnet-ef"
+    }
+
+    $bundleSize = [math]::Round((Get-Item $bundlePath).Length / 1MB, 2)
+    Write-Host "  $AppName migration bundle built - $bundleSize MB" -ForegroundColor Green
+
+    return $bundlePath
+}
 
 # Step 1: Publish the applications locally
 Write-Host "Step 1: Publishing applications..." -ForegroundColor Cyan
@@ -729,6 +773,31 @@ if ($DeployTarget -eq "Both" -or $DeployTarget -eq "Web") {
     }
     Write-Host "  Web app published successfully!" -ForegroundColor Green
     $publishedApps += "Web"
+}
+
+$migrationBundles = @{}
+
+if (-not $SkipDatabaseMigrations) {
+    New-Item -Path $MigrationBundlePath -ItemType Directory -Force | Out-Null
+
+    try {
+        foreach ($app in $publishedApps) {
+            $bundleDefinition = $migrationBundleDefinitions[$app]
+            $migrationBundles[$app] = New-MigrationBundle `
+                -AppName $app `
+                -ProjectPath $bundleDefinition.ProjectPath `
+                -ContextName $bundleDefinition.ContextName `
+                -OutputDirectory $MigrationBundlePath
+        }
+    }
+    catch {
+        Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
+}
+else {
+    Write-Host "Skipping migration bundle build (SkipDatabaseMigrations flag set)." -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -1020,8 +1089,170 @@ else {
     Write-Host ""
 }
 
-# Step 4: Package, deploy to inactive slot, warm, and cut over
-Write-Host "Step 4: Deploying to the inactive slot and cutting over on readiness..." -ForegroundColor Cyan
+# Step 4: Apply pending EF Core migrations
+#
+# This must run before the new slot boots: the schema health check is tagged "deploy-ready", so a
+# slot with pending migrations never warms up and the cutover aborts. Migrations are applied against
+# the live database, so between here and cutover the *old* build is running against the *new* schema.
+# Keep migrations backward-compatible with the currently deployed build where you can; where a
+# migration is destructive (dropping or renaming a column), expect errors on the affected pages for
+# the couple of minutes the deploy takes.
+if (-not $SkipDatabaseMigrations -and $publishedApps.Count -gt 0) {
+    Write-Host "Step 4: Applying database migrations..." -ForegroundColor Cyan
+    Write-Host "----------------------------------------" -ForegroundColor Gray
+
+    $remoteMigrationDirectory = "C:\inetpub\ShopInventory-migrations"
+
+    try {
+        foreach ($app in $publishedApps) {
+            $deploymentPlan = $deploymentPlans | Where-Object Name -eq $app | Select-Object -First 1
+            if ($null -eq $deploymentPlan) {
+                throw "No deployment plan was generated for $app."
+            }
+
+            $bundlePath = $migrationBundles[$app]
+            $remoteBundlePath = Join-Path $remoteMigrationDirectory "$app-migrate.exe"
+
+            Write-Host "Migrating $app database..." -ForegroundColor White
+            Write-Host "  Uploading migration bundle..." -ForegroundColor Gray
+
+            $migrationSession = $null
+            try {
+                $migrationSession = New-PSSession -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ErrorAction Stop
+
+                Invoke-Command -Session $migrationSession -ScriptBlock {
+                    param($Directory)
+                    if (-not (Test-Path $Directory)) {
+                        New-Item -Path $Directory -ItemType Directory -Force | Out-Null
+                    }
+                } -ArgumentList $remoteMigrationDirectory -ErrorAction Stop
+
+                Copy-Item -Path $bundlePath -Destination $remoteBundlePath -ToSession $migrationSession -Force -ErrorAction Stop
+            }
+            finally {
+                if ($null -ne $migrationSession) {
+                    Remove-PSSession -Session $migrationSession -ErrorAction SilentlyContinue
+                }
+            }
+
+            $migrationResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+                param($BundlePath, $AppName, $ActiveAppPath, $ConnectionStringOverride)
+
+                # Only the connection string is read from web.config. The bundle resolves its
+                # DbContext through the project's IDesignTimeDbContextFactory, so it never boots
+                # Program.Main and needs none of the app's other startup configuration.
+                function Get-ConnectionStringFromWebConfig {
+                    param([string]$WebConfigPath)
+
+                    if (-not (Test-Path $WebConfigPath)) {
+                        return $null
+                    }
+
+                    [xml]$config = Get-Content $WebConfigPath
+                    $node = $config.SelectSingleNode("/configuration/location/system.webServer/aspNetCore/environmentVariables/environmentVariable[@name='ConnectionStrings__DefaultConnection']")
+                    if ($null -eq $node) {
+                        return $null
+                    }
+
+                    return $node.GetAttribute("value")
+                }
+
+                function Get-ConnectionStringFromAppSettings {
+                    param([string]$AppPath)
+
+                    foreach ($fileName in @('appsettings.Production.json', 'appsettings.json')) {
+                        $settingsPath = Join-Path $AppPath $fileName
+                        if (-not (Test-Path $settingsPath)) {
+                            continue
+                        }
+
+                        $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+                        $connectionString = $settings.ConnectionStrings.DefaultConnection
+                        if (-not [string]::IsNullOrWhiteSpace($connectionString) -and $connectionString -notlike '*CHANGE_ME*') {
+                            return $connectionString
+                        }
+                    }
+
+                    return $null
+                }
+
+                # Prefer the explicitly passed connection string, then whatever the currently live
+                # slot is actually using - that is by definition the database this app talks to.
+                $connectionString = $ConnectionStringOverride
+                $connectionSource = 'deployment parameter'
+
+                if ([string]::IsNullOrWhiteSpace($connectionString)) {
+                    $connectionString = Get-ConnectionStringFromWebConfig -WebConfigPath (Join-Path $ActiveAppPath 'web.config')
+                    $connectionSource = 'active slot web.config'
+                }
+
+                if ([string]::IsNullOrWhiteSpace($connectionString)) {
+                    $connectionString = Get-ConnectionStringFromAppSettings -AppPath $ActiveAppPath
+                    $connectionSource = 'active slot appsettings'
+                }
+
+                if ([string]::IsNullOrWhiteSpace($connectionString)) {
+                    return [pscustomobject]@{
+                        Success = $false
+                        Output  = "Could not resolve a database connection string for $AppName. Pass -$($AppName)DbConnectionString."
+                    }
+                }
+
+                # The bundle writes progress to stdout and failures to stderr; capture both and judge
+                # success by the exit code rather than by the error stream.
+                $previousErrorAction = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    $output = & $BundlePath --connection $connectionString --no-color 2>&1 | ForEach-Object { $_.ToString() }
+                    $exitCode = $LASTEXITCODE
+                }
+                finally {
+                    $ErrorActionPreference = $previousErrorAction
+                    Remove-Item -LiteralPath $BundlePath -Force -ErrorAction SilentlyContinue
+                }
+
+                return [pscustomobject]@{
+                    Success          = ($exitCode -eq 0)
+                    ExitCode         = $exitCode
+                    ConnectionSource = $connectionSource
+                    Output           = ($output -join [Environment]::NewLine)
+                }
+            } -ArgumentList $remoteBundlePath, $app, $deploymentPlan.CurrentPath, $databaseConnectionOverrides[$app] -ErrorAction Stop
+
+            if (-not $migrationResult.Success) {
+                Write-Host $migrationResult.Output -ForegroundColor DarkGray
+                throw "Migration failed for $app (exit code $($migrationResult.ExitCode))."
+            }
+
+            Write-Host "  Connection resolved from $($migrationResult.ConnectionSource)" -ForegroundColor Gray
+
+            $migrationOutput = ($migrationResult.Output -split "`r?`n") | Where-Object { $_ -notmatch '^\s+at ' }
+            foreach ($line in $migrationOutput) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    Write-Host "    $line" -ForegroundColor DarkGray
+                }
+            }
+
+            Write-Host "  $app database is up to date" -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "The database was not migrated, so no new code was deployed. Public traffic is untouched." -ForegroundColor Yellow
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    Write-Host ""
+}
+else {
+    Write-Host "Step 4: Skipping database migrations (SkipDatabaseMigrations flag set)..." -ForegroundColor Yellow
+    Write-Host "  Deployment will fail warm-up if the new build has pending migrations." -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# Step 5: Package, deploy to inactive slot, warm, and cut over
+Write-Host "Step 5: Deploying to the inactive slot and cutting over on readiness..." -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 $cutoverResults = @()
@@ -1629,8 +1860,8 @@ catch {
 
 Write-Host ""
 
-# Step 5: Verify the public endpoints after cutover
-Write-Host "Step 5: Verifying public readiness endpoints..." -ForegroundColor Cyan
+# Step 6: Verify the public endpoints after cutover
+Write-Host "Step 6: Verifying public readiness endpoints..." -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 try {
@@ -1711,7 +1942,7 @@ catch {
 
 Write-Host ""
 
-# Step 6: Summary
+# Step 7: Summary
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "Deployment Completed!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
@@ -1737,6 +1968,7 @@ Write-Host "  - Deploy both IIS nodes with separate creds: .\Update-Production.p
 Write-Host "  - Deploy Web SMTP config: `$env:SHOPINVENTORY_WEB_SMTP_PASSWORD='<password>'; .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
 Write-Host "  - Skip backup: .\Update-Production.ps1 -SkipBackup" -ForegroundColor White
 Write-Host "  - Include uploads/logs in backup: .\Update-Production.ps1 -IncludeRuntimeDataInBackup" -ForegroundColor White
+Write-Host "  - Skip DB migrations (already applied): .\Update-Production.ps1 -SkipDatabaseMigrations" -ForegroundColor White
 Write-Host ""
 Write-Host "Logs location:" -ForegroundColor Yellow
 foreach ($result in $cutoverResults) {
