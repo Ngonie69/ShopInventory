@@ -62,7 +62,7 @@ public sealed class PodReportEmailService(
         var frequency = periodKind == PodReportEmailPeriodKind.Monthly
             ? PodReportEmailFrequency.Monthly
             : PodReportEmailFrequency.Weekly;
-        var (fromDate, toDate) = GetPeriod(frequency, null, DateTime.UtcNow);
+        var (fromDate, toDate) = GetPeriod(frequency, null, PodScheduleTime.NowLocal());
         var frequencyLabel = GetFrequencyLabel(frequency, null);
         var fileSlug = GetFrequencySlug(frequency, null);
         var nowUtc = DateTime.UtcNow;
@@ -99,7 +99,7 @@ public sealed class PodReportEmailService(
         CancellationToken cancellationToken = default)
     {
         var frequency = ParseFrequency(schedule.Frequency);
-        var (fromDate, toDate) = GetPeriod(frequency, schedule.IntervalDays, DateTime.UtcNow);
+        var (fromDate, toDate) = GetPeriod(frequency, schedule.IntervalDays, PodScheduleTime.NowLocal());
         var frequencyLabel = GetFrequencyLabel(frequency, schedule.IntervalDays);
         var fileSlug = GetFrequencySlug(frequency, schedule.IntervalDays);
         var to = ParseRecipients(schedule.ToRecipients);
@@ -341,21 +341,22 @@ public sealed class PodReportEmailService(
     }
 
     /// <summary>
-    /// Computes the report data window (date range) for a frequency, relative to <paramref name="nowUtc"/>.
-    /// Always covers the most recently completed period (ending yesterday).
+    /// Computes the report data window (date range) for a frequency, relative to <paramref name="nowLocal"/>.
+    /// Always covers the most recently completed period (ending yesterday). Evaluated against the
+    /// business timezone's calendar so "yesterday" means yesterday locally, not in UTC.
     /// </summary>
     public static (DateTime fromDate, DateTime toDate) GetPeriod(
         PodReportEmailFrequency frequency,
         int? intervalDays,
-        DateTime nowUtc)
+        DateTime nowLocal)
     {
-        var toDate = nowUtc.Date.AddDays(-1);
+        var toDate = nowLocal.Date.AddDays(-1);
 
         return frequency switch
         {
             PodReportEmailFrequency.Daily => (toDate, toDate),
             PodReportEmailFrequency.Weekly => (toDate.AddDays(-6), toDate),
-            PodReportEmailFrequency.Monthly => GetPreviousCalendarMonthPeriod(nowUtc),
+            PodReportEmailFrequency.Monthly => GetPreviousCalendarMonthPeriod(nowLocal),
             PodReportEmailFrequency.EveryNDays => (toDate.AddDays(-(NormalizeIntervalDays(intervalDays) - 1)), toDate),
             _ => (toDate.AddDays(-6), toDate)
         };
@@ -388,9 +389,9 @@ public sealed class PodReportEmailService(
             _ => "weekly"
         };
 
-    private static (DateTime fromDate, DateTime toDate) GetPreviousCalendarMonthPeriod(DateTime utcNow)
+    private static (DateTime fromDate, DateTime toDate) GetPreviousCalendarMonthPeriod(DateTime nowLocal)
     {
-        var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var monthStart = new DateTime(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
         var fromDate = monthStart.AddMonths(-1);
         var toDate = monthStart.AddDays(-1);
         return (fromDate, toDate);

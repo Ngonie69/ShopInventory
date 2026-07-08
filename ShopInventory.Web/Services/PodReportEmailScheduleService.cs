@@ -70,7 +70,7 @@ public sealed class PodReportEmailScheduleService(
         existing.DayOfWeek = schedule.DayOfWeek;
         existing.DayOfMonth = schedule.DayOfMonth;
         existing.IntervalDays = schedule.IntervalDays;
-        existing.SendHourUtc = schedule.SendHourUtc;
+        existing.SendMinuteOfDay = schedule.SendMinuteOfDay;
         existing.ToRecipients = schedule.ToRecipients;
         existing.CcRecipients = schedule.CcRecipients;
         existing.LastModifiedAtUtc = nowUtc;

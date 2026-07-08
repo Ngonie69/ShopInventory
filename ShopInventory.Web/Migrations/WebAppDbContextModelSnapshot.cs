@@ -152,7 +152,7 @@ namespace ShopInventory.Web.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<int>("SendHourUtc")
+                    b.Property<int>("SendMinuteOfDay")
                         .HasColumnType("integer");
 
                     b.Property<string>("ToRecipients")

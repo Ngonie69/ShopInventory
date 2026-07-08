@@ -493,7 +493,8 @@ public class AppSettingsService : IAppSettingsService
             Enabled = true,
             Frequency = nameof(PodReportEmailFrequency.Weekly),
             DayOfWeek = ParseDayOfWeek(GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklyDayOfWeek)),
-            SendHourUtc = ParseInt(GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklySendHourUtc), 6),
+            SendMinuteOfDay = LegacyUtcHourToLocalMinuteOfDay(
+                GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklySendHourUtc)),
             ToRecipients = to,
             CcRecipients = cc,
             LastSentUtc = ParseUtc(GetValueOrEmpty(values, SettingKeys.PodReportEmailsLastWeeklySentUtc)),
@@ -510,7 +511,8 @@ public class AppSettingsService : IAppSettingsService
             Enabled = true,
             Frequency = nameof(PodReportEmailFrequency.Monthly),
             DayOfMonth = ParseInt(GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlyDayOfMonth), 1),
-            SendHourUtc = ParseInt(GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlySendHourUtc), 6),
+            SendMinuteOfDay = LegacyUtcHourToLocalMinuteOfDay(
+                GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlySendHourUtc)),
             ToRecipients = to,
             CcRecipients = cc,
             LastSentUtc = ParseUtc(GetValueOrEmpty(values, SettingKeys.PodReportEmailsLastMonthlySentUtc)),
@@ -528,6 +530,16 @@ public class AppSettingsService : IAppSettingsService
 
     private static string GetValueOrEmpty(Dictionary<string, string> values, string key) =>
         values.TryGetValue(key, out var value) ? value ?? string.Empty : string.Empty;
+
+    /// <summary>
+    /// The legacy settings stored a whole UTC hour; schedules now store a local (CAT) minute-of-day.
+    /// </summary>
+    private static int LegacyUtcHourToLocalMinuteOfDay(string? utcHourValue)
+    {
+        var hourUtc = Math.Clamp(ParseInt(utcHourValue, 6), 0, 23);
+        var localHour = PodScheduleTime.ToLocal(new DateTime(2000, 1, 1, hourUtc, 0, 0, DateTimeKind.Utc)).Hour;
+        return localHour * 60;
+    }
 
     private static int ParseDayOfWeek(string? value) =>
         Enum.TryParse<DayOfWeek>(value, ignoreCase: true, out var parsed) ? (int)parsed : (int)DayOfWeek.Monday;
