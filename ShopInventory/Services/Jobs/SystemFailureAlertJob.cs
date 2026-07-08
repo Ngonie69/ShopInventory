@@ -71,8 +71,8 @@ public sealed class SystemFailureAlertJob : IJob
         {
             _logger.LogInformation("System health recovered to Healthy — sending all-clear email");
             await SendEmailAsync(BuildRecoveryEmail(report), context.CancellationToken);
-            dataMap.Put(LastNotifiedStatusKey, HealthStatus.Healthy.ToString());
-            dataMap.Put(LastAlertSentUtcKey, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+            dataMap[LastNotifiedStatusKey] = HealthStatus.Healthy.ToString();
+            dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
             return;
         }
 
@@ -92,8 +92,8 @@ public sealed class SystemFailureAlertJob : IJob
         // Send alert
         _logger.LogWarning("System health is {Status} — sending failure alert email", currentStatus);
         await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken);
-        dataMap.Put(LastNotifiedStatusKey, currentStatus.ToString());
-        dataMap.Put(LastAlertSentUtcKey, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        dataMap[LastNotifiedStatusKey] = currentStatus.ToString();
+        dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
     }
 
     private async Task SendEmailAsync((string subject, string body) email, CancellationToken cancellationToken)
