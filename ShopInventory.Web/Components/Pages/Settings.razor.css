@@ -4,8 +4,8 @@
 
 /* ---- Page Container ---- */
 .settings-page {
-    padding: 1.5rem 1.75rem;
-    max-width: 1200px;
+    padding: 1.75rem 2rem;
+    max-width: 1240px;
     margin: 0 auto;
     animation: settingsFadeIn 0.35s ease;
 }
@@ -32,29 +32,30 @@
 }
 
 .settings-icon-box {
-    width: 48px;
-    height: 48px;
-    border-radius: 14px;
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
     background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.25);
     flex-shrink: 0;
 }
 
 .settings-icon-box i {
-    font-size: 1.25rem;
+    font-size: 1.35rem;
     color: #fff;
 }
 
 .settings-title {
     font-family: 'Space Grotesk', 'DM Sans', sans-serif;
-    font-size: 1.4rem;
+    font-size: 1.55rem;
     font-weight: 700;
+    letter-spacing: -0.01em;
     color: var(--text-primary, #0f172a);
     margin: 0;
-    line-height: 1.2;
+    line-height: 1.15;
 }
 
 .settings-subtitle {
@@ -182,9 +183,9 @@
     gap: 0.2rem;
     background: var(--card-bg, #fff);
     border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 16px;
-    padding: 0.75rem 0.65rem;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+    border-radius: 18px;
+    padding: 0.8rem 0.7rem;
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .sidebar-group {
@@ -272,10 +273,10 @@
 
 .settings-section {
     background: var(--card-bg, #fff);
-    border-radius: 16px;
+    border-radius: 18px;
     border: 1px solid var(--border-color, #e2e8f0);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-    padding: 1.75rem;
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.05), 0 1px 2px rgba(15, 23, 42, 0.03);
+    padding: 1.9rem;
     animation: sectionLift 0.25s ease both;
 }
 
@@ -845,14 +846,30 @@ select.field-input-sm {
     margin-bottom: 1.25rem;
 }
 
+.stat-tile,
 .pod-email-stat {
+    position: relative;
     border: 1px solid var(--border-color, #e2e8f0);
-    border-radius: 10px;
-    padding: 0.8rem 0.9rem;
+    border-radius: 12px;
+    padding: 0.85rem 0.95rem 0.85rem 1.05rem;
     background: var(--card-bg-alt, #f8fafc);
     min-width: 0;
+    overflow: hidden;
 }
 
+.stat-tile::before,
+.pod-email-stat::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.65rem;
+    bottom: 0.65rem;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: linear-gradient(180deg, #6366f1, #8b5cf6);
+}
+
+.stat-tile span,
 .pod-email-stat span {
     display: block;
     color: var(--text-muted, #64748b);
@@ -863,14 +880,17 @@ select.field-input-sm {
     margin-bottom: 0.2rem;
 }
 
+.stat-tile strong,
 .pod-email-stat strong {
     display: block;
     color: var(--text-primary, #0f172a);
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     font-weight: 700;
     line-height: 1.25;
     overflow-wrap: anywhere;
 }
+
+.stat-tile-wide { grid-column: auto; }
 
 .pod-email-control-wide {
     min-width: 360px;
@@ -1378,4 +1398,379 @@ select.field-input-sm {
     .settings-icon-box { width: 42px; height: 42px; }
     .settings-title { font-size: 1.2rem; }
     .settings-section { padding: 1.15rem; }
+}
+
+/* ========================================
+   POD Email Reports — Multi-schedule UI
+   ======================================== */
+
+/* Section header with a trailing action button */
+.pod-email-header {
+    align-items: center;
+}
+
+.section-header-text {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Primary pill button (Add schedule / Save schedule) */
+.btn-primary-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1.15rem;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    font-size: 0.83rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.btn-primary-action:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(99, 102, 241, 0.35);
+}
+
+.btn-primary-action:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+/* Paused hint banner */
+.pod-email-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.25rem;
+    border-radius: 12px;
+    background: rgba(245, 158, 11, 0.09);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    color: #92400e;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+.pod-email-hint i { font-size: 1rem; flex-shrink: 0; }
+
+/* Empty state */
+.sched-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.35rem;
+    padding: 2.75rem 1.5rem;
+    border: 1.5px dashed var(--border-hover, #cbd5e1);
+    border-radius: 16px;
+    background: var(--card-bg-alt, #f8fafc);
+    color: var(--text-muted, #64748b);
+}
+
+.sched-empty i {
+    font-size: 2rem;
+    color: #8b5cf6;
+    margin-bottom: 0.35rem;
+}
+
+.sched-empty h6 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary, #1e293b);
+}
+
+.sched-empty p {
+    margin: 0 0 0.75rem;
+    font-size: 0.82rem;
+    max-width: 340px;
+}
+
+/* Schedule card grid */
+.sched-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+.sched-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 1.15rem 1.15rem 1rem;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 14px;
+    background: var(--card-bg, #fff);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.sched-card:hover {
+    border-color: var(--border-hover, #cbd5e1);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    transform: translateY(-2px);
+}
+
+.sched-card-off {
+    opacity: 0.72;
+    background: var(--card-bg-alt, #f8fafc);
+}
+
+.sched-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.sched-card-title { min-width: 0; }
+
+.sched-card-title h6 {
+    margin: 0.4rem 0 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary, #1e293b);
+    overflow-wrap: anywhere;
+}
+
+.sched-freq-badge {
+    display: inline-block;
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    color: #fff;
+}
+
+.sched-freq-weekly     { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+.sched-freq-monthly    { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.sched-freq-daily      { background: linear-gradient(135deg, #14b8a6, #0d9488); }
+.sched-freq-everyndays { background: linear-gradient(135deg, #a855f7, #7c3aed); }
+
+.sched-card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.sched-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary, #475569);
+    min-width: 0;
+}
+
+.sched-meta-row i {
+    font-size: 0.8rem;
+    color: var(--text-muted, #94a3b8);
+    width: 15px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.sched-meta-row span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sched-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--border-color, #f1f5f9);
+}
+
+.sched-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.42rem 0.7rem;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    background: var(--card-bg, #fff);
+    color: var(--text-secondary, #475569);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sched-btn:hover:not(:disabled) {
+    background: var(--hover-bg, #f1f5f9);
+    color: var(--text-primary, #1e293b);
+    border-color: var(--border-hover, #cbd5e1);
+}
+
+.sched-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.sched-btn-primary {
+    border-color: transparent;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+}
+
+.sched-btn-primary:hover:not(:disabled) {
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.sched-btn-icon-danger {
+    margin-left: auto;
+    padding: 0.42rem 0.55rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.sched-btn-icon-danger:hover:not(:disabled) {
+    color: #dc2626;
+    background: rgba(220, 38, 38, 0.08);
+    border-color: rgba(220, 38, 38, 0.35);
+}
+
+.sched-btn-danger {
+    border-color: transparent;
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: #fff;
+}
+
+.sched-btn-danger:hover:not(:disabled) { color: #fff; }
+
+.sched-confirm-text {
+    flex: 1;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #b91c1c;
+}
+
+/* ---- Add / Edit modal ---- */
+.sched-overlay {
+    position: fixed;
+    inset: 0;
+    /* Above app chrome (<=1060) but below MudBlazor popover/dialog layers (>=1200)
+       so the MudTimePicker popup renders on top of this modal. */
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(4px);
+    animation: settingsFadeIn 0.18s ease;
+}
+
+.sched-modal {
+    width: min(620px, 100%);
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg, #fff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+    overflow: hidden;
+    animation: sectionLift 0.2s ease both;
+}
+
+.sched-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border-color, #f1f5f9);
+}
+
+.sched-modal-header h5 {
+    margin: 0;
+    font-family: 'Space Grotesk', 'DM Sans', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary, #0f172a);
+}
+
+.sched-modal-header p {
+    margin: 0.25rem 0 0;
+    font-size: 0.78rem;
+    color: var(--text-muted, #64748b);
+}
+
+.sched-modal-close {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sched-modal-close:hover {
+    background: var(--hover-bg, #f1f5f9);
+    color: var(--text-primary, #1e293b);
+}
+
+.sched-modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.sched-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.sched-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.sched-field-full { grid-column: 1 / -1; }
+
+.sched-field-hint {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted, #64748b);
+}
+
+.sched-textarea {
+    min-height: 78px;
+    resize: vertical;
+    line-height: 1.4;
+}
+
+.sched-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color, #f1f5f9);
+    background: var(--card-bg-alt, #f8fafc);
+}
+
+@media (max-width: 768px) {
+    .sched-grid { grid-template-columns: 1fr; }
+    .sched-form-grid { grid-template-columns: 1fr; }
+    .pod-email-header { flex-direction: column; align-items: stretch; }
+    .pod-email-header .btn-primary-action { width: 100%; justify-content: center; }
+    .sched-modal-footer .btn-primary-action,
+    .sched-modal-footer .btn-secondary-action { flex: 1; justify-content: center; }
 }

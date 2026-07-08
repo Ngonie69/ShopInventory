@@ -17,7 +17,8 @@
 @inject IThemeService ThemeService
 @inject ISAPSettingsService SAPSettingsService
 @inject IMobileVersionPolicySettingsService MobileVersionPolicySettingsService
-@inject IPodReportEmailService PodReportEmailService
+@inject IPodReportEmailService PodEmailService
+@inject IPodReportEmailScheduleService PodReportEmailScheduleService
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 
@@ -684,14 +685,17 @@
         else if (selectedCategory == SettingCategories.EmailReports)
                             {
                                 <div class="settings-section pod-email-section" style="animation-delay: 0.05s;">
-                                    <div class="section-header">
+                                    <div class="section-header pod-email-header">
                                         <div class="section-icon section-icon-blue">
                                             <i class="bi bi-envelope-paper"></i>
                                         </div>
-                                        <div>
+                                        <div class="section-header-text">
                                             <h5 class="section-title">POD Email Reports</h5>
-                                            <p class="section-desc">Weekly and full-month POD report emails with Excel attachments.</p>
+                                            <p class="section-desc">Create as many delivery schedules as you need — each with its own frequency and recipients. POD reports are generated and emailed as Excel attachments.</p>
                                         </div>
+                                        <button type="button" class="btn-primary-action" @onclick="OpenNewSchedule">
+                                            <i class="bi bi-plus-lg"></i> Add schedule
+                                        </button>
                                     </div>
 
                                     @if (!string.IsNullOrWhiteSpace(podEmailMessage))
@@ -705,21 +709,21 @@
                                     }
 
                                     <div class="pod-email-overview">
-                                        <div class="pod-email-stat">
-                                            <span>To</span>
-                                            <strong>@GetPodEmailRecipientCount(SettingKeys.PodReportEmailsTo)</strong>
+                                        <div class="stat-tile">
+                                            <span>Schedules</span>
+                                            <strong>@podSchedules.Count</strong>
                                         </div>
-                                        <div class="pod-email-stat">
-                                            <span>Cc</span>
-                                            <strong>@GetPodEmailRecipientCount(SettingKeys.PodReportEmailsCc)</strong>
+                                        <div class="stat-tile">
+                                            <span>Active</span>
+                                            <strong>@podSchedules.Count(s => s.Enabled)</strong>
                                         </div>
-                                        <div class="pod-email-stat pod-email-stat-wide">
-                                            <span>Weekly</span>
-                                            <strong>@GetValue(SettingKeys.PodReportEmailsWeeklyDayOfWeek) @NormalizeHour(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc)):00 UTC</strong>
+                                        <div class="stat-tile stat-tile-wide">
+                                            <span>Recipients</span>
+                                            <strong>@TotalScheduleRecipientCount() addresses</strong>
                                         </div>
-                                        <div class="pod-email-stat pod-email-stat-wide">
-                                            <span>Monthly</span>
-                                            <strong>Day @NormalizeDayOfMonth(GetValue(SettingKeys.PodReportEmailsMonthlyDayOfMonth)) @NormalizeHour(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc)):00 UTC</strong>
+                                        <div class="stat-tile stat-tile-wide">
+                                            <span>Automation</span>
+                                            <strong>@(GetBoolValue(SettingKeys.PodReportEmailsEnabled) ? "On" : "Paused")</strong>
                                         </div>
                                     </div>
 
@@ -729,127 +733,106 @@
                                                 <label class="setting-label">
                                                     <i class="bi bi-calendar-check me-1"></i>Scheduled Sending
                                                 </label>
-                                                <span class="setting-desc">Controls whether the weekly and full-month POD reports are sent automatically.</span>
+                                                <span class="setting-desc">Master switch for automatic delivery. When off, schedules are kept but nothing is sent on a schedule — “Send now” still works. Saved as soon as you toggle it.</span>
                                             </div>
                                             <div class="setting-control">
                                                 <label class="toggle-switch">
                                                     <input type="checkbox" checked="@GetBoolValue(SettingKeys.PodReportEmailsEnabled)"
-                                                           @onchange="e => OnBoolSettingChanged(SettingKeys.PodReportEmailsEnabled, e)" />
+                                                           disabled="@isSavingPodAutomation"
+                                                           @onchange="OnPodScheduledSendingChangedAsync" />
                                                     <span class="toggle-slider"></span>
                                                     <span class="toggle-text">@(GetBoolValue(SettingKeys.PodReportEmailsEnabled) ? "On" : "Off")</span>
                                                 </label>
                                             </div>
                                         </div>
+                                    </div>
 
-                                        <div class="setting-item pod-email-recipient-row">
-                                            <div class="setting-info">
-                                                <label class="setting-label">
-                                                    <i class="bi bi-person-lines-fill me-1"></i>To Recipients
-                                                </label>
-                                                <span class="setting-desc">Separate multiple addresses with commas, semicolons, or new lines.</span>
-                                            </div>
-                                            <div class="setting-control pod-email-control-wide">
-                                                <textarea class="field-input pod-email-textarea"
-                                                          value="@GetValue(SettingKeys.PodReportEmailsTo)"
-                                                          @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsTo, e.Value?.ToString())"></textarea>
-                                            </div>
+                                    @if (!GetBoolValue(SettingKeys.PodReportEmailsEnabled))
+                                    {
+                                        <div class="pod-email-hint">
+                                            <i class="bi bi-pause-circle"></i>
+                                            <span>Automatic sending is paused. Turn on <strong>Scheduled Sending</strong> above to resume deliveries.</span>
                                         </div>
+                                    }
 
-                                        <div class="setting-item pod-email-recipient-row">
-                                            <div class="setting-info">
-                                                <label class="setting-label">
-                                                    <i class="bi bi-person-plus me-1"></i>Cc Recipients
-                                                </label>
-                                                <span class="setting-desc">Optional copied recipients for scheduled and manual sends.</span>
-                                            </div>
-                                            <div class="setting-control pod-email-control-wide">
-                                                <textarea class="field-input pod-email-textarea"
-                                                          value="@GetValue(SettingKeys.PodReportEmailsCc)"
-                                                          @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsCc, e.Value?.ToString())"></textarea>
-                                            </div>
+                                    @if (podSchedules.Count == 0)
+                                    {
+                                        <div class="sched-empty">
+                                            <i class="bi bi-envelope-plus"></i>
+                                            <h6>No schedules yet</h6>
+                                            <p>Add a schedule to start delivering POD reports to a group of recipients.</p>
+                                            <button type="button" class="btn-primary-action" @onclick="OpenNewSchedule">
+                                                <i class="bi bi-plus-lg"></i> Add your first schedule
+                                            </button>
                                         </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="sched-grid">
+                                            @foreach (var schedule in podSchedules)
+                                            {
+                                                var sending = sendingScheduleIds.Contains(schedule.Id);
+                                                <div class="sched-card @(schedule.Enabled ? "" : "sched-card-off")">
+                                                    <div class="sched-card-top">
+                                                        <div class="sched-card-title">
+                                                            <span class="sched-freq-badge sched-freq-@GetFrequencyKey(schedule)">@GetScheduleFrequencyLabel(schedule)</span>
+                                                            <h6>@(string.IsNullOrWhiteSpace(schedule.Name) ? "Untitled schedule" : schedule.Name)</h6>
+                                                        </div>
+                                                        <label class="toggle-switch" title="@(schedule.Enabled ? "Enabled" : "Disabled")">
+                                                            <input type="checkbox" checked="@schedule.Enabled"
+                                                                   @onchange="() => ToggleScheduleEnabledAsync(schedule)" />
+                                                            <span class="toggle-slider"></span>
+                                                        </label>
+                                                    </div>
 
-                                        <div class="setting-item">
-                                            <div class="setting-info">
-                                                <label class="setting-label">
-                                                    <i class="bi bi-calendar-week me-1"></i>Weekly Schedule
-                                                </label>
-                                                <span class="setting-desc">Sends the previous completed seven-day period.</span>
-                                                <span class="setting-meta">
-                                                    <i class="bi bi-clock-history"></i> Last sent: @FormatPodEmailLastSent(SettingKeys.PodReportEmailsLastWeeklySentUtc)
-                                                </span>
-                                            </div>
-                                            <div class="setting-control pod-email-schedule-controls">
-                                                <div class="pod-email-field">
-                                                    <span class="pod-email-field-label">Day to send</span>
-                                                    <select class="field-input field-input-sm pod-email-day-select" value="@GetValue(SettingKeys.PodReportEmailsWeeklyDayOfWeek)"
-                                                            @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklyDayOfWeek, e.Value?.ToString())">
-                                                        @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                                    <div class="sched-card-meta">
+                                                        <div class="sched-meta-row">
+                                                            <i class="bi bi-clock"></i>
+                                                            <span>@GetScheduleCadenceLabel(schedule)</span>
+                                                        </div>
+                                                        <div class="sched-meta-row">
+                                                            <i class="bi bi-people"></i>
+                                                            <span>@ScheduleRecipientSummary(schedule)</span>
+                                                        </div>
+                                                        <div class="sched-meta-row">
+                                                            <i class="bi bi-clock-history"></i>
+                                                            <span>Last sent: @FormatScheduleLastSent(schedule)</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="sched-card-actions">
+                                                        @if (confirmingDeleteId == schedule.Id)
                                                         {
-                                                            <option value="@day">@day</option>
+                                                            <span class="sched-confirm-text">Delete this schedule?</span>
+                                                            <button type="button" class="sched-btn sched-btn-danger" @onclick="() => DeleteScheduleAsync(schedule.Id)">Delete</button>
+                                                            <button type="button" class="sched-btn" @onclick="() => confirmingDeleteId = null">Cancel</button>
                                                         }
-                                                    </select>
+                                                        else
+                                                        {
+                                                            <button type="button" class="sched-btn" @onclick="() => OpenEditSchedule(schedule)">
+                                                                <i class="bi bi-pencil"></i> Edit
+                                                            </button>
+                                                            <button type="button" class="sched-btn sched-btn-primary" @onclick="() => SendScheduleNowAsync(schedule)" disabled="@sending">
+                                                                @if (sending)
+                                                                {
+                                                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                                                    <span>Sending…</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <i class="bi bi-send"></i>
+                                                                    <span>Send now</span>
+                                                                }
+                                                            </button>
+                                                            <button type="button" class="sched-btn sched-btn-icon-danger" @onclick="() => confirmingDeleteId = schedule.Id" title="Delete schedule">
+                                                                <i class="bi bi-trash"></i>
+                                                            </button>
+                                                        }
+                                                    </div>
                                                 </div>
-                                                <div class="pod-email-field">
-                                                    <span class="pod-email-field-label">Hour (UTC)</span>
-                                                    <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
-                                                           value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc))"
-                                                           @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklySendHourUtc, e.Value?.ToString())" />
-                                                    <span class="pod-email-field-hint">@FormatScheduleHourHint(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc))</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div class="setting-item">
-                                            <div class="setting-info">
-                                                <label class="setting-label">
-                                                    <i class="bi bi-calendar-month me-1"></i>Full Month Schedule
-                                                </label>
-                                                <span class="setting-desc">Sends the previous completed calendar month.</span>
-                                                <span class="setting-meta">
-                                                    <i class="bi bi-clock-history"></i> Last sent: @FormatPodEmailLastSent(SettingKeys.PodReportEmailsLastMonthlySentUtc)
-                                                </span>
-                                            </div>
-                                            <div class="setting-control pod-email-schedule-controls">
-                                                <div class="pod-email-field">
-                                                    <span class="pod-email-field-label">Day of month</span>
-                                                    <input type="number" min="1" max="31" class="field-input field-input-sm pod-email-day-input"
-                                                           value="@NormalizeDayOfMonth(GetValue(SettingKeys.PodReportEmailsMonthlyDayOfMonth))"
-                                                           @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlyDayOfMonth, e.Value?.ToString())" />
-                                                </div>
-                                                <div class="pod-email-field">
-                                                    <span class="pod-email-field-label">Hour (UTC)</span>
-                                                    <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
-                                                           value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc))"
-                                                           @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlySendHourUtc, e.Value?.ToString())" />
-                                                    <span class="pod-email-field-hint">@FormatScheduleHourHint(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc))</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="section-actions">
-                                        <MudButton OnClick="() => SendPodReportEmail(PodReportEmailPeriodKind.Weekly)"
-                                                   Variant="Variant.Outlined" Color="Color.Primary"
-                                                   Disabled="@(isSendingWeeklyPodReport || isSendingMonthlyPodReport)"
-                                                   StartIcon="@Icons.Material.Filled.Send">
-                                            @if (isSendingWeeklyPodReport)
-                                            {
-                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
                                             }
-                                            Send Weekly Now
-                                        </MudButton>
-                                        <MudButton OnClick="() => SendPodReportEmail(PodReportEmailPeriodKind.Monthly)"
-                                                   Variant="Variant.Filled" Color="Color.Primary"
-                                                   Disabled="@(isSendingWeeklyPodReport || isSendingMonthlyPodReport)"
-                                                   StartIcon="@Icons.Material.Filled.Send">
-                                            @if (isSendingMonthlyPodReport)
-                                            {
-                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-                                            }
-                                            Send Full Month Now
-                                        </MudButton>
-                                    </div>
+                                        </div>
+                                    }
                                 </div>
                             }
         else if (selectedCategory == SettingCategories.Printing)
@@ -1486,12 +1469,143 @@
                             </MudPaper>
                         </MudOverlay>
 
+@if (showScheduleModal && editingSchedule is not null)
+{
+    <div class="sched-overlay" @onclick="CloseScheduleModal">
+        <div class="sched-modal" @onclick:stopPropagation="true">
+            <div class="sched-modal-header">
+                <div>
+                    <h5>@(editingSchedule.Id == 0 ? "New POD report schedule" : "Edit schedule")</h5>
+                    <p>Reports cover the most recently completed period for the chosen frequency.</p>
+                </div>
+                <button type="button" class="sched-modal-close" @onclick="CloseScheduleModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="sched-modal-body">
+                @if (!string.IsNullOrWhiteSpace(scheduleValidationError))
+                {
+                    <div class="settings-alert settings-alert-error">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>@scheduleValidationError</span>
+                    </div>
+                }
+
+                <div class="sched-form-grid">
+                    <div class="sched-field sched-field-full">
+                        <label class="field-label">Schedule name <span class="required">*</span></label>
+                        <input type="text" class="field-input" maxlength="200" placeholder="e.g. Operations — weekly"
+                               value="@editingSchedule.Name"
+                               @onchange="e => editingSchedule.Name = e.Value?.ToString() ?? string.Empty" />
+                    </div>
+
+                    <div class="sched-field">
+                        <label class="field-label">Frequency</label>
+                        <select class="field-input" value="@editingSchedule.Frequency"
+                                @onchange="OnScheduleFrequencyChanged">
+                            @foreach (var freq in Enum.GetValues<PodReportEmailFrequency>())
+                            {
+                                <option value="@freq.ToString()">@FrequencyOptionLabel(freq)</option>
+                            }
+                        </select>
+                    </div>
+
+                    @{
+                        var selectedFrequency = PodReportEmailService.ParseFrequency(editingSchedule.Frequency);
+                    }
+                    @if (selectedFrequency == PodReportEmailFrequency.Weekly)
+                    {
+                        <div class="sched-field">
+                            <label class="field-label">Day of week</label>
+                            <select class="field-input" value="@(editingSchedule.DayOfWeek ?? (int)DayOfWeek.Monday)"
+                                    @onchange="e => editingSchedule.DayOfWeek = ParseIntOrNull(e.Value?.ToString())">
+                                @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                {
+                                    <option value="@((int)day)">@day</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    else if (selectedFrequency == PodReportEmailFrequency.Monthly)
+                    {
+                        <div class="sched-field">
+                            <label class="field-label">Day of month</label>
+                            <input type="number" min="1" max="31" class="field-input"
+                                   value="@(editingSchedule.DayOfMonth ?? 1)"
+                                   @onchange="e => editingSchedule.DayOfMonth = ParseIntOrNull(e.Value?.ToString())" />
+                        </div>
+                    }
+                    else if (selectedFrequency == PodReportEmailFrequency.EveryNDays)
+                    {
+                        <div class="sched-field">
+                            <label class="field-label">Every N days</label>
+                            <input type="number" min="1" max="365" class="field-input"
+                                   value="@(editingSchedule.IntervalDays ?? 1)"
+                                   @onchange="e => editingSchedule.IntervalDays = ParseIntOrNull(e.Value?.ToString())" />
+                        </div>
+                    }
+
+                    <div class="sched-field">
+                        <label class="field-label">Send time (@PodScheduleTime.ZoneAbbreviation)</label>
+                        <MudTimePicker PickerVariant="PickerVariant.Dialog" AmPm="false" TimeFormat="HH:mm"
+                                       Time="scheduleSendTime" TimeChanged="OnScheduleTimeChanged"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense" Color="Color.Primary"
+                                       Editable="true" Clearable="false" />
+                        <span class="sched-field-hint">Local time — sends at @PodScheduleTime.FormatTimeWithZone(editingSchedule.SendMinuteOfDay), to the minute</span>
+                    </div>
+
+                    <div class="sched-field">
+                        <label class="field-label">Enabled</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" checked="@editingSchedule.Enabled"
+                                   @onchange="e => editingSchedule.Enabled = (bool)(e.Value ?? false)" />
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-text">@(editingSchedule.Enabled ? "On" : "Off")</span>
+                        </label>
+                    </div>
+
+                    <div class="sched-field sched-field-full">
+                        <label class="field-label">To recipients <span class="required">*</span></label>
+                        <textarea class="field-input sched-textarea" placeholder="Separate addresses with commas, semicolons, or new lines"
+                                  value="@editingSchedule.ToRecipients"
+                                  @onchange="e => editingSchedule.ToRecipients = e.Value?.ToString() ?? string.Empty"></textarea>
+                    </div>
+
+                    <div class="sched-field sched-field-full">
+                        <label class="field-label">Cc recipients</label>
+                        <textarea class="field-input sched-textarea" placeholder="Optional copied recipients"
+                                  value="@editingSchedule.CcRecipients"
+                                  @onchange="e => editingSchedule.CcRecipients = e.Value?.ToString() ?? string.Empty"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sched-modal-footer">
+                <button type="button" class="btn-secondary-action" @onclick="CloseScheduleModal" disabled="@isSavingSchedule">Cancel</button>
+                <button type="button" class="btn-primary-action" @onclick="SaveScheduleAsync" disabled="@isSavingSchedule">
+                    @if (isSavingSchedule)
+                    {
+                        <span class="spinner-border spinner-border-sm" role="status"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-check2"></i>
+                    }
+                    Save schedule
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private const string DataManagementCategory = "Data Management";
     private const string DangerZoneCategory = "Danger Zone";
     private const string PaymentsCategory = "Payments";
     private const string SAPCategory = "SAP Connection";
     private const string MobileAppCategory = "Mobile App";
+
+    /// <summary>Default send time for a brand-new POD schedule: 06:00 local.</summary>
+    private const int DefaultSendMinuteOfDay = 6 * 60;
 
     private List<AppSetting> allSettings = new();
     private List<AppSetting> categorySettings = new();
@@ -1609,13 +1723,18 @@
     private string? printingMessage;
     private bool printingMessageSuccess = true;
 
-    // POD report email fields
-    private bool isSendingWeeklyPodReport = false;
-    private bool isSendingMonthlyPodReport = false;
+    // POD report email schedule fields
     private string? podEmailMessage;
     private bool podEmailMessageSuccess = true;
-    private DateTime? podReportLastWeeklySentUtc;
-    private DateTime? podReportLastMonthlySentUtc;
+    private List<PodReportEmailSchedule> podSchedules = new();
+    private PodReportEmailSchedule? editingSchedule;
+    private TimeSpan? scheduleSendTime;
+    private bool showScheduleModal = false;
+    private bool isSavingSchedule = false;
+    private bool isSavingPodAutomation = false;
+    private readonly HashSet<int> sendingScheduleIds = new();
+    private int? confirmingDeleteId;
+    private string? scheduleValidationError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1668,7 +1787,7 @@
                 .Where(c => c != PaymentsCategory)
                 .ToList();
             editedValues = allSettings.ToDictionary(s => s.Key, s => s.Value);
-            await LoadPodReportEmailMetadata();
+            await LoadSchedulesAsync();
             SelectCategory(selectedCategory);
         }
         catch (Exception ex)
@@ -1698,15 +1817,351 @@
         return bool.TryParse(value, out var result) && result;
     }
 
-    private async Task LoadPodReportEmailMetadata()
+    private async Task LoadSchedulesAsync()
     {
-        podReportLastWeeklySentUtc = ParseUtcSetting(
-            await SettingsService.GetValueAsync(SettingKeys.PodReportEmailsLastWeeklySentUtc));
-        podReportLastMonthlySentUtc = ParseUtcSetting(
-            await SettingsService.GetValueAsync(SettingKeys.PodReportEmailsLastMonthlySentUtc));
+        try
+        {
+            podSchedules = await PodReportEmailScheduleService.GetSchedulesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load POD report email schedules.");
+            podSchedules = new();
+        }
     }
 
-    private int GetPodEmailRecipientCount(string key) => ParseEmailRecipients(GetValue(key)).Count;
+    private int TotalScheduleRecipientCount() => podSchedules
+        .SelectMany(s => ParseEmailRecipients(s.ToRecipients))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count();
+
+    private void OpenNewSchedule()
+    {
+        editingSchedule = new PodReportEmailSchedule
+        {
+            Name = string.Empty,
+            Enabled = true,
+            Frequency = nameof(PodReportEmailFrequency.Weekly),
+            DayOfWeek = (int)DayOfWeek.Monday,
+            SendMinuteOfDay = DefaultSendMinuteOfDay,
+            ToRecipients = string.Empty,
+            CcRecipients = string.Empty
+        };
+        scheduleSendTime = PodScheduleTime.ToTimeOfDay(DefaultSendMinuteOfDay);
+        scheduleValidationError = null;
+        confirmingDeleteId = null;
+        showScheduleModal = true;
+    }
+
+    private void OpenEditSchedule(PodReportEmailSchedule schedule)
+    {
+        // Clone so Cancel discards edits without mutating the list item.
+        editingSchedule = new PodReportEmailSchedule
+        {
+            Id = schedule.Id,
+            Name = schedule.Name,
+            Enabled = schedule.Enabled,
+            Frequency = schedule.Frequency,
+            DayOfWeek = schedule.DayOfWeek,
+            DayOfMonth = schedule.DayOfMonth,
+            IntervalDays = schedule.IntervalDays,
+            SendMinuteOfDay = schedule.SendMinuteOfDay,
+            ToRecipients = schedule.ToRecipients,
+            CcRecipients = schedule.CcRecipients,
+            LastSentUtc = schedule.LastSentUtc,
+            AnchorDateUtc = schedule.AnchorDateUtc,
+            CreatedAtUtc = schedule.CreatedAtUtc,
+            CreatedBy = schedule.CreatedBy
+        };
+        scheduleSendTime = PodScheduleTime.ToTimeOfDay(schedule.SendMinuteOfDay);
+        scheduleValidationError = null;
+        confirmingDeleteId = null;
+        showScheduleModal = true;
+    }
+
+    private void OnScheduleTimeChanged(TimeSpan? time)
+    {
+        scheduleSendTime = time;
+        if (editingSchedule is not null && time.HasValue)
+        {
+            editingSchedule.SendMinuteOfDay = PodScheduleTime.FromTimeOfDay(time.Value);
+        }
+    }
+
+    private void CloseScheduleModal()
+    {
+        showScheduleModal = false;
+        editingSchedule = null;
+        scheduleValidationError = null;
+    }
+
+    private void OnScheduleFrequencyChanged(ChangeEventArgs e)
+    {
+        if (editingSchedule is null)
+        {
+            return;
+        }
+
+        editingSchedule.Frequency = e.Value?.ToString() ?? nameof(PodReportEmailFrequency.Weekly);
+        var frequency = PodReportEmailService.ParseFrequency(editingSchedule.Frequency);
+        switch (frequency)
+        {
+            case PodReportEmailFrequency.Weekly:
+                editingSchedule.DayOfWeek ??= (int)DayOfWeek.Monday;
+                break;
+            case PodReportEmailFrequency.Monthly:
+                editingSchedule.DayOfMonth ??= 1;
+                break;
+            case PodReportEmailFrequency.EveryNDays:
+                editingSchedule.IntervalDays ??= 1;
+                break;
+        }
+    }
+
+    private async Task SaveScheduleAsync()
+    {
+        if (editingSchedule is null)
+        {
+            return;
+        }
+
+        scheduleValidationError = null;
+        var frequency = PodReportEmailService.ParseFrequency(editingSchedule.Frequency);
+
+        if (string.IsNullOrWhiteSpace(editingSchedule.Name))
+        {
+            scheduleValidationError = "Enter a name for this schedule.";
+            return;
+        }
+        if (ParseEmailRecipients(editingSchedule.ToRecipients).Count == 0)
+        {
+            scheduleValidationError = "Add at least one To recipient.";
+            return;
+        }
+
+        // Normalize the cadence fields for the chosen frequency.
+        editingSchedule.Name = editingSchedule.Name.Trim();
+        editingSchedule.SendMinuteOfDay = scheduleSendTime.HasValue
+            ? PodScheduleTime.FromTimeOfDay(scheduleSendTime.Value)
+            : PodScheduleTime.NormalizeMinuteOfDay(editingSchedule.SendMinuteOfDay);
+        editingSchedule.DayOfWeek = frequency == PodReportEmailFrequency.Weekly
+            ? Math.Clamp(editingSchedule.DayOfWeek ?? (int)DayOfWeek.Monday, 0, 6)
+            : null;
+        editingSchedule.DayOfMonth = frequency == PodReportEmailFrequency.Monthly
+            ? Math.Clamp(editingSchedule.DayOfMonth ?? 1, 1, 31)
+            : null;
+        editingSchedule.IntervalDays = frequency == PodReportEmailFrequency.EveryNDays
+            ? Math.Max(1, editingSchedule.IntervalDays ?? 1)
+            : null;
+
+        isSavingSchedule = true;
+        try
+        {
+            var isNew = editingSchedule.Id == 0;
+            await PodReportEmailScheduleService.SaveScheduleAsync(editingSchedule, currentUsername);
+            await LoadSchedulesAsync();
+            await LogAudit(
+                AuditActions.UpdateSettings,
+                $"{(isNew ? "Created" : "Updated")} POD report email schedule '{editingSchedule.Name}'.");
+            showScheduleModal = false;
+            editingSchedule = null;
+            podEmailMessageSuccess = true;
+            podEmailMessage = isNew ? "Schedule created." : "Schedule updated.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to save POD report email schedule.");
+            scheduleValidationError = $"Failed to save schedule: {ex.Message}";
+        }
+        finally
+        {
+            isSavingSchedule = false;
+        }
+    }
+
+    /// <summary>
+    /// The master automation switch persists immediately, like the per-schedule toggles — it isn't
+    /// part of the page's "Save Changes" batch, so a reload can't silently drop it.
+    /// </summary>
+    private async Task OnPodScheduledSendingChangedAsync(ChangeEventArgs e)
+    {
+        var enabled = e.Value is bool flag ? flag : bool.TryParse(e.Value?.ToString(), out var parsed) && parsed;
+        var previous = GetBoolValue(SettingKeys.PodReportEmailsEnabled);
+        var value = enabled.ToString().ToLowerInvariant();
+
+        isSavingPodAutomation = true;
+        ApplyPodScheduledSendingValue(value);
+
+        try
+        {
+            await SettingsService.SaveSettingAsync(SettingKeys.PodReportEmailsEnabled, value, currentUsername);
+            await AppSettingsProvider.ReloadAsync();
+            await LogAudit(
+                AuditActions.UpdateSettings,
+                $"{(enabled ? "Enabled" : "Paused")} scheduled POD report email sending.");
+            podEmailMessageSuccess = true;
+            podEmailMessage = enabled
+                ? "Scheduled sending is on."
+                : "Scheduled sending paused. Existing schedules are kept.";
+        }
+        catch (Exception ex)
+        {
+            ApplyPodScheduledSendingValue(previous.ToString().ToLowerInvariant());
+            Logger.LogError(ex, "Failed to update the POD report scheduled sending master switch.");
+            podEmailMessageSuccess = false;
+            podEmailMessage = $"Failed to update scheduled sending: {ex.Message}";
+        }
+        finally
+        {
+            isSavingPodAutomation = false;
+        }
+    }
+
+    // Keep both the edit buffer and the loaded settings in sync so a later "Save Changes"
+    // batch doesn't write back a stale value.
+    private void ApplyPodScheduledSendingValue(string value)
+    {
+        editedValues[SettingKeys.PodReportEmailsEnabled] = value;
+        var setting = allSettings.FirstOrDefault(s => s.Key == SettingKeys.PodReportEmailsEnabled);
+        if (setting is not null)
+        {
+            setting.Value = value;
+        }
+    }
+
+    private async Task ToggleScheduleEnabledAsync(PodReportEmailSchedule schedule)
+    {
+        schedule.Enabled = !schedule.Enabled;
+        try
+        {
+            await PodReportEmailScheduleService.SaveScheduleAsync(schedule, currentUsername);
+            await LogAudit(
+                AuditActions.UpdateSettings,
+                $"{(schedule.Enabled ? "Enabled" : "Disabled")} POD report email schedule '{schedule.Name}'.");
+        }
+        catch (Exception ex)
+        {
+            schedule.Enabled = !schedule.Enabled;
+            Logger.LogError(ex, "Failed to toggle POD report email schedule {ScheduleId}.", schedule.Id);
+            podEmailMessageSuccess = false;
+            podEmailMessage = $"Failed to update schedule: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteScheduleAsync(int id)
+    {
+        confirmingDeleteId = null;
+        try
+        {
+            await PodReportEmailScheduleService.DeleteScheduleAsync(id, currentUsername);
+            await LoadSchedulesAsync();
+            await LogAudit(AuditActions.UpdateSettings, $"Deleted POD report email schedule #{id}.");
+            podEmailMessageSuccess = true;
+            podEmailMessage = "Schedule deleted.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to delete POD report email schedule {ScheduleId}.", id);
+            podEmailMessageSuccess = false;
+            podEmailMessage = $"Failed to delete schedule: {ex.Message}";
+        }
+    }
+
+    private async Task SendScheduleNowAsync(PodReportEmailSchedule schedule)
+    {
+        sendingScheduleIds.Add(schedule.Id);
+        podEmailMessage = null;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await PodEmailService.SendForScheduleAsync(schedule, currentUsername);
+            podEmailMessageSuccess = result.Success;
+            podEmailMessage = result.Success
+                ? $"{result.Message} Total: {result.TotalInvoices:N0}, uploaded: {result.UploadedCount:N0}, pending: {result.PendingCount:N0}."
+                : result.Message;
+
+            if (result.Success)
+            {
+                await PodReportEmailScheduleService.MarkSentAsync(schedule.Id, DateTime.UtcNow);
+                await LoadSchedulesAsync();
+                await LogAudit(
+                    AuditActions.UpdateSettings,
+                    $"Sent POD report email schedule '{schedule.Name}' manually: total {result.TotalInvoices}, uploaded {result.UploadedCount}, pending {result.PendingCount}.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Manual POD report email send failed for schedule {ScheduleId}.", schedule.Id);
+            podEmailMessageSuccess = false;
+            podEmailMessage = $"Failed to send POD report email: {ex.Message}";
+        }
+        finally
+        {
+            sendingScheduleIds.Remove(schedule.Id);
+            StateHasChanged();
+        }
+    }
+
+    private static string GetFrequencyKey(PodReportEmailSchedule schedule) =>
+        PodReportEmailService.ParseFrequency(schedule.Frequency) switch
+        {
+            PodReportEmailFrequency.Daily => "daily",
+            PodReportEmailFrequency.Weekly => "weekly",
+            PodReportEmailFrequency.Monthly => "monthly",
+            PodReportEmailFrequency.EveryNDays => "everyndays",
+            _ => "weekly"
+        };
+
+    private static string GetScheduleFrequencyLabel(PodReportEmailSchedule schedule) =>
+        PodReportEmailService.ParseFrequency(schedule.Frequency) switch
+        {
+            PodReportEmailFrequency.Daily => "Daily",
+            PodReportEmailFrequency.Weekly => "Weekly",
+            PodReportEmailFrequency.Monthly => "Monthly",
+            PodReportEmailFrequency.EveryNDays => $"Every {PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays)} days",
+            _ => "Weekly"
+        };
+
+    private static string GetScheduleCadenceLabel(PodReportEmailSchedule schedule)
+    {
+        var time = PodScheduleTime.FormatTimeWithZone(schedule.SendMinuteOfDay);
+        return PodReportEmailService.ParseFrequency(schedule.Frequency) switch
+        {
+            PodReportEmailFrequency.Daily => $"Every day at {time}",
+            PodReportEmailFrequency.Weekly => $"{(DayOfWeek)Math.Clamp(schedule.DayOfWeek ?? (int)DayOfWeek.Monday, 0, 6)}s at {time}",
+            PodReportEmailFrequency.Monthly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each month at {time}",
+            PodReportEmailFrequency.EveryNDays => $"Every {PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays)} days at {time}",
+            _ => $"Weekly at {time}"
+        };
+    }
+
+    private string ScheduleRecipientSummary(PodReportEmailSchedule schedule)
+    {
+        var to = ParseEmailRecipients(schedule.ToRecipients).Count;
+        var cc = ParseEmailRecipients(schedule.CcRecipients).Count;
+        var toText = $"{to} recipient{(to == 1 ? string.Empty : "s")}";
+        return cc > 0 ? $"{toText} · {cc} cc" : toText;
+    }
+
+    private static string FormatScheduleLastSent(PodReportEmailSchedule schedule) =>
+        schedule.LastSentUtc.HasValue
+            ? IAuditService.ToCAT(DateTime.SpecifyKind(schedule.LastSentUtc.Value, DateTimeKind.Utc)).ToString("dd MMM yyyy HH:mm")
+            : "Never";
+
+    private static string FrequencyOptionLabel(PodReportEmailFrequency frequency) => frequency switch
+    {
+        PodReportEmailFrequency.Daily => "Daily",
+        PodReportEmailFrequency.Weekly => "Weekly",
+        PodReportEmailFrequency.Monthly => "Monthly",
+        PodReportEmailFrequency.EveryNDays => "Every N days",
+        _ => frequency.ToString()
+    };
+
+    private static int? ParseIntOrNull(string? value) =>
+        int.TryParse(value, out var parsed) ? parsed : null;
 
     private static List<string> ParseEmailRecipients(string? value)
     {
@@ -1722,58 +2177,6 @@
             .ToList();
     }
 
-    private static int NormalizeHour(string? value)
-    {
-        var hour = int.TryParse(value, out var parsed) ? parsed : 6;
-        return Math.Clamp(hour, 0, 23);
-    }
-
-    // Shows the configured UTC send-hour alongside its local CAT equivalent so admins
-    // don't have to translate the time zone in their heads (the rest of the section reports CAT).
-    private static string FormatScheduleHourHint(string? hourValue)
-    {
-        var hourUtc = NormalizeHour(hourValue);
-        var catHour = IAuditService.ToCAT(new DateTime(2000, 1, 1, hourUtc, 0, 0, DateTimeKind.Utc)).Hour;
-        return $"{hourUtc:00}:00 UTC = {catHour:00}:00 CAT";
-    }
-
-    private static int NormalizeDayOfMonth(string? value)
-    {
-        var day = int.TryParse(value, out var parsed) ? parsed : 1;
-        return Math.Clamp(day, 1, 31);
-    }
-
-    private string FormatPodEmailLastSent(string key)
-    {
-        var value = key == SettingKeys.PodReportEmailsLastWeeklySentUtc
-            ? podReportLastWeeklySentUtc
-            : podReportLastMonthlySentUtc;
-
-        return value.HasValue
-            ? IAuditService.ToCAT(DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)).ToString("dd MMM yyyy HH:mm")
-            : "Never";
-    }
-
-    private static DateTime? ParseUtcSetting(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        if (DateTime.TryParse(
-            value,
-            System.Globalization.CultureInfo.InvariantCulture,
-            System.Globalization.DateTimeStyles.RoundtripKind,
-            out var parsed))
-        {
-            return parsed.Kind == DateTimeKind.Utc
-                ? parsed
-                : DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
-        }
-
-        return null;
-    }
 
     private List<string> GetSavedPrintersList()
     {
@@ -2068,93 +2471,6 @@
         finally
         {
             isSaving = false;
-        }
-    }
-
-    private async Task SendPodReportEmail(PodReportEmailPeriodKind periodKind)
-    {
-        var isWeekly = periodKind == PodReportEmailPeriodKind.Weekly;
-        if (isWeekly)
-        {
-            isSendingWeeklyPodReport = true;
-        }
-        else
-        {
-            isSendingMonthlyPodReport = true;
-        }
-
-        podEmailMessage = null;
-        podEmailMessageSuccess = true;
-        errorMessage = null;
-        successMessage = null;
-        StateHasChanged();
-
-        try
-        {
-            Logger.LogInformation(
-                "Manual {PeriodKind} POD report email requested from Settings by {Username}. PendingSettingChanges={PendingSettingChanges}",
-                periodKind,
-                currentUsername,
-                hasChanges);
-
-            if (hasChanges)
-            {
-                await SettingsService.SaveSettingsAsync(editedValues, currentUsername);
-                await AppSettingsProvider.ReloadAsync();
-                hasChanges = false;
-            }
-
-            var result = await PodReportEmailService.SendLatestAsync(periodKind, currentUsername);
-            podEmailMessageSuccess = result.Success;
-            podEmailMessage = result.Success
-                ? $"{result.Message} Total: {result.TotalInvoices:N0}, uploaded: {result.UploadedCount:N0}, pending: {result.PendingCount:N0}."
-                : result.Message;
-
-            if (result.Success)
-            {
-                Logger.LogInformation(
-                    "Manual {PeriodKind} POD report email succeeded for {Username}. TotalInvoices={TotalInvoices}, UploadedCount={UploadedCount}, PendingCount={PendingCount}",
-                    periodKind,
-                    currentUsername,
-                    result.TotalInvoices,
-                    result.UploadedCount,
-                    result.PendingCount);
-
-                await LogAudit(
-                    AuditActions.UpdateSettings,
-                    $"Sent {periodKind} POD report email manually: total {result.TotalInvoices}, uploaded {result.UploadedCount}, pending {result.PendingCount}");
-            }
-            else
-            {
-                Logger.LogWarning(
-                    "Manual {PeriodKind} POD report email failed for {Username}. Message={Message}",
-                    periodKind,
-                    currentUsername,
-                    result.Message);
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(
-                ex,
-                "Manual {PeriodKind} POD report email threw an exception for {Username}.",
-                periodKind,
-                currentUsername);
-            podEmailMessageSuccess = false;
-            podEmailMessage = $"Failed to send POD report email: {ex.Message}";
-        }
-        finally
-        {
-            if (isWeekly)
-            {
-                isSendingWeeklyPodReport = false;
-            }
-            else
-            {
-                isSendingMonthlyPodReport = false;
-            }
-
-            StateHasChanged();
         }
     }
 
