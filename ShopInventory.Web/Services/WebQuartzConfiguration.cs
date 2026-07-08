@@ -32,7 +32,10 @@ public static class WebQuartzConfiguration
             });
 
             AddIntervalJob<StatementEmailJob>(q, "statement-emails", TimeSpan.FromMinutes(30));
-            AddIntervalJob<PodReportEmailJob>(q, "pod-report-emails", TimeSpan.FromMinutes(30));
+
+            // Polled every minute because POD schedules are configured to the minute; the job
+            // itself is a cheap no-op unless a schedule's send time has just elapsed.
+            AddIntervalJob<PodReportEmailJob>(q, "pod-report-emails", TimeSpan.FromMinutes(1));
         });
 
         services.AddQuartzHostedService(options =>

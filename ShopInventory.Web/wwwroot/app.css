@@ -24,6 +24,16 @@
     --text-primary: #000000;
     --text-secondary: #4a4a4a;
     --text-muted: #8a8a8a;
+    /* Surface tokens (used by the Settings page and its dialogs) */
+    --card-bg: #ffffff;
+    --card-bg-alt: #f8fafc;
+    --hover-bg: #f1f5f9;
+    --hover-bg-subtle: rgba(15, 23, 42, 0.02);
+    --border-hover: #cbd5e1;
+    --disabled-bg: #f8fafc;
+    --success-chip-bg: #f0fdf4;
+    --success-chip-border: #bbf7d0;
+    --success-chip: #d1fae5;
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
     --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
@@ -1610,6 +1620,16 @@ html.dark-theme,
     --text-primary: #f1f5f9;
     --text-secondary: #94a3b8;
     --text-muted: #64748b;
+    /* Surface tokens (used by the Settings page and its dialogs) */
+    --card-bg: #1e293b;
+    --card-bg-alt: #0f172a;
+    --hover-bg: #334155;
+    --hover-bg-subtle: rgba(255, 255, 255, 0.03);
+    --border-hover: #475569;
+    --disabled-bg: #0f172a;
+    --success-chip-bg: rgba(6, 78, 59, 0.35);
+    --success-chip-border: #065f46;
+    --success-chip: rgba(16, 185, 129, 0.2);
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
     --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 1px 2px -1px rgb(0 0 0 / 0.3);
     --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);

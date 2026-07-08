@@ -4,9 +4,14 @@ using ShopInventory.Web.Data;
 namespace ShopInventory.Web.Services;
 
 /// <summary>
-/// Quartz job that sends any due scheduled POD report emails. Runs on a 30-minute interval
-/// trigger (see WebQuartzConfiguration); clustering ensures only one Web node sends, avoiding
-/// duplicate emails. The catch-up "is this schedule due?" logic is unchanged.
+/// Quartz job that sends any due scheduled POD report emails. Runs on a 1-minute interval
+/// trigger (see WebQuartzConfiguration) so schedules can be honoured to the minute; clustering
+/// ensures only one Web node sends, avoiding duplicate emails.
+///
+/// Due times are computed against the wall clock in the business timezone (CAT) and only
+/// converted to UTC at the end, so a "Monday 06:00" schedule fires at 06:00 CAT no matter what
+/// timezone the server runs in. The catch-up "is this schedule due?" logic is unchanged: the most
+/// recent due instant is compared against the last send (or the anchor, for never-sent schedules).
 /// </summary>
 [DisallowConcurrentExecution]
 public sealed class PodReportEmailJob(
@@ -35,7 +40,7 @@ public sealed class PodReportEmailJob(
         }
 
         var reportEmailService = scope.ServiceProvider.GetRequiredService<IPodReportEmailService>();
-        var nowUtc = DateTime.UtcNow;
+        var nowLocal = PodScheduleTime.NowLocal();
 
         foreach (var schedule in schedules)
         {
@@ -45,7 +50,14 @@ public sealed class PodReportEmailJob(
             }
 
             var frequency = PodReportEmailService.ParseFrequency(schedule.Frequency);
-            var dueUtc = ComputeMostRecentDueUtc(schedule, frequency, nowUtc);
+            var dueLocal = ComputeMostRecentDueLocal(schedule, frequency, nowLocal);
+            if (dueLocal is null)
+            {
+                // Schedule's first occurrence hasn't arrived yet.
+                continue;
+            }
+
+            var dueUtc = PodScheduleTime.ToUtc(dueLocal.Value);
 
             // Floor at the last send, or the anchor for never-sent schedules so a brand-new
             // schedule doesn't immediately fire for an already-elapsed period.
@@ -86,24 +98,28 @@ public sealed class PodReportEmailJob(
             schedule.Id);
     }
 
-    private static DateTime ComputeMostRecentDueUtc(
+    /// <summary>
+    /// Most recent local instant at which this schedule should have fired, or null when the
+    /// schedule's first occurrence is still in the future.
+    /// </summary>
+    internal static DateTime? ComputeMostRecentDueLocal(
         PodReportEmailSchedule schedule,
         PodReportEmailFrequency frequency,
-        DateTime nowUtc)
+        DateTime nowLocal)
     {
-        var hour = Math.Clamp(schedule.SendHourUtc, 0, 23);
+        var minuteOfDay = PodScheduleTime.NormalizeMinuteOfDay(schedule.SendMinuteOfDay);
 
         return frequency switch
         {
-            PodReportEmailFrequency.Daily => GetMostRecentDailyScheduleUtc(nowUtc, hour),
-            PodReportEmailFrequency.Weekly => GetMostRecentWeeklyScheduleUtc(nowUtc, ResolveDayOfWeek(schedule.DayOfWeek), hour),
-            PodReportEmailFrequency.Monthly => GetMostRecentMonthlyScheduleUtc(nowUtc, schedule.DayOfMonth ?? 1, hour),
-            PodReportEmailFrequency.EveryNDays => GetMostRecentEveryNDaysScheduleUtc(
-                nowUtc,
-                schedule.AnchorDateUtc,
+            PodReportEmailFrequency.Daily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
+            PodReportEmailFrequency.Weekly => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
+            PodReportEmailFrequency.Monthly => GetMostRecentMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
+            PodReportEmailFrequency.EveryNDays => GetMostRecentEveryNDaysLocal(
+                nowLocal,
+                PodScheduleTime.ToLocal(DateTime.SpecifyKind(schedule.AnchorDateUtc, DateTimeKind.Utc)),
                 PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
-                hour),
-            _ => GetMostRecentWeeklyScheduleUtc(nowUtc, ResolveDayOfWeek(schedule.DayOfWeek), hour)
+                minuteOfDay),
+            _ => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay)
         };
     }
 
@@ -113,10 +129,10 @@ public sealed class PodReportEmailJob(
         return (DayOfWeek)value;
     }
 
-    private static DateTime GetMostRecentDailyScheduleUtc(DateTime utcNow, int hourUtc)
+    private static DateTime GetMostRecentDailyLocal(DateTime nowLocal, int minuteOfDay)
     {
-        var scheduled = DateTime.SpecifyKind(utcNow.Date.AddHours(hourUtc), DateTimeKind.Utc);
-        if (scheduled > utcNow)
+        var scheduled = nowLocal.Date.AddMinutes(minuteOfDay);
+        if (scheduled > nowLocal)
         {
             scheduled = scheduled.AddDays(-1);
         }
@@ -124,51 +140,58 @@ public sealed class PodReportEmailJob(
         return scheduled;
     }
 
-    private static DateTime GetMostRecentWeeklyScheduleUtc(DateTime utcNow, DayOfWeek targetDay, int hourUtc)
+    private static DateTime GetMostRecentWeeklyLocal(DateTime nowLocal, DayOfWeek targetDay, int minuteOfDay)
     {
-        var dayOffset = (int)targetDay - (int)utcNow.DayOfWeek;
-        var scheduled = utcNow.Date.AddDays(dayOffset).AddHours(hourUtc);
+        var dayOffset = (int)targetDay - (int)nowLocal.DayOfWeek;
+        var scheduled = nowLocal.Date.AddDays(dayOffset).AddMinutes(minuteOfDay);
 
-        if (scheduled > utcNow)
+        if (scheduled > nowLocal)
         {
             scheduled = scheduled.AddDays(-7);
-        }
-
-        return DateTime.SpecifyKind(scheduled, DateTimeKind.Utc);
-    }
-
-    private static DateTime GetMostRecentMonthlyScheduleUtc(DateTime utcNow, int dayOfMonth, int hourUtc)
-    {
-        var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
-        var daysInMonth = DateTime.DaysInMonth(utcNow.Year, utcNow.Month);
-        var targetDay = Math.Min(clampedDay, daysInMonth);
-        var scheduled = new DateTime(utcNow.Year, utcNow.Month, targetDay, hourUtc, 0, 0, DateTimeKind.Utc);
-
-        if (scheduled > utcNow)
-        {
-            var previousMonth = utcNow.AddMonths(-1);
-            var previousMonthDays = DateTime.DaysInMonth(previousMonth.Year, previousMonth.Month);
-            var previousTargetDay = Math.Min(clampedDay, previousMonthDays);
-            scheduled = new DateTime(previousMonth.Year, previousMonth.Month, previousTargetDay, hourUtc, 0, 0, DateTimeKind.Utc);
         }
 
         return scheduled;
     }
 
-    private static DateTime GetMostRecentEveryNDaysScheduleUtc(DateTime utcNow, DateTime anchorDateUtc, int intervalDays, int hourUtc)
+    private static DateTime GetMostRecentMonthlyLocal(DateTime nowLocal, int dayOfMonth, int minuteOfDay)
     {
-        var anchorInstant = DateTime.SpecifyKind(anchorDateUtc.Date.AddHours(hourUtc), DateTimeKind.Utc);
-        if (utcNow < anchorInstant)
+        var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
+        var scheduled = BuildMonthlyLocal(nowLocal.Year, nowLocal.Month, clampedDay, minuteOfDay);
+
+        if (scheduled > nowLocal)
         {
-            // First occurrence has not happened yet.
-            return DateTime.MinValue;
+            var previousMonth = nowLocal.AddMonths(-1);
+            scheduled = BuildMonthlyLocal(previousMonth.Year, previousMonth.Month, clampedDay, minuteOfDay);
         }
 
-        var daysSince = (utcNow.Date - anchorInstant.Date).Days;
+        return scheduled;
+    }
+
+    private static DateTime BuildMonthlyLocal(int year, int month, int dayOfMonth, int minuteOfDay)
+    {
+        // Clamp to the last day of a short month (e.g. "day 31" in February).
+        var day = Math.Min(dayOfMonth, DateTime.DaysInMonth(year, month));
+        return new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Unspecified).AddMinutes(minuteOfDay);
+    }
+
+    private static DateTime? GetMostRecentEveryNDaysLocal(
+        DateTime nowLocal,
+        DateTime anchorLocal,
+        int intervalDays,
+        int minuteOfDay)
+    {
+        var anchorInstant = anchorLocal.Date.AddMinutes(minuteOfDay);
+        if (nowLocal < anchorInstant)
+        {
+            // First occurrence has not happened yet.
+            return null;
+        }
+
+        var daysSince = (nowLocal.Date - anchorInstant.Date).Days;
         var periodsElapsed = daysSince / intervalDays;
         var scheduled = anchorInstant.AddDays(periodsElapsed * intervalDays);
 
-        if (scheduled > utcNow)
+        if (scheduled > nowLocal)
         {
             scheduled = scheduled.AddDays(-intervalDays);
         }

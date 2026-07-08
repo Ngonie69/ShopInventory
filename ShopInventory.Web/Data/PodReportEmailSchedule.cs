@@ -35,7 +35,7 @@ public class PodReportEmailSchedule
     public string Frequency { get; set; } = nameof(PodReportEmailFrequency.Weekly);
 
     /// <summary>
-    /// Day of week for <see cref="PodReportEmailFrequency.Weekly"/> schedules (0 = Sunday).
+    /// Day of week for <see cref="PodReportEmailFrequency.Weekly"/> schedules (0 = Sunday), in local (CAT) time.
     /// </summary>
     public int? DayOfWeek { get; set; }
 
@@ -50,9 +50,11 @@ public class PodReportEmailSchedule
     public int? IntervalDays { get; set; }
 
     /// <summary>
-    /// Hour of day (0-23, UTC) the report is sent.
+    /// Time of day the report is sent, as a minute-of-day offset (0-1439) in the business
+    /// timezone (CAT). 0 = 00:00, 390 = 06:30. Stored local — never UTC — so the wall-clock
+    /// send time is independent of the server's timezone.
     /// </summary>
-    public int SendHourUtc { get; set; }
+    public int SendMinuteOfDay { get; set; }
 
     /// <summary>
     /// To recipients (comma/semicolon/newline separated, same format as the email service expects).
