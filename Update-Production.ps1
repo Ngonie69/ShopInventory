@@ -20,6 +20,15 @@ param(
     [switch]$FirstTimeSetup,
     [string]$ApiDbConnectionString,
     [string]$WebDbConnectionString,
+    [string]$WebEmailSmtpHost = "mail.kefaloscheese.com",
+    [int]$WebEmailSmtpPort = 587,
+    [string]$WebEmailSmtpUsername = "alerts@kefaloscheese.com",
+    [string]$WebEmailSmtpPassword = $env:SHOPINVENTORY_WEB_SMTP_PASSWORD,
+    [string]$WebEmailFromEmail = "alerts@kefaloscheese.com",
+    [string]$WebEmailFromName = "Kefalos Cheese - POD Reports",
+    [string]$WebEmailApplicationUrl = "https://sis.kefaloscheese.com",
+    [int]$WebEmailSmtpConnectTimeoutSeconds = 30,
+    [int]$WebEmailSmtpOperationTimeoutSeconds = 300,
     [switch]$SuppressExitPrompt,
     [PSCredential]$Credential,
     [string]$SerializedCredentialPath
@@ -194,6 +203,14 @@ function Get-SelectedDeploymentDefinitions {
     }
 }
 
+if ([string]::IsNullOrWhiteSpace($WebEmailSmtpPassword) -and -not [string]::IsNullOrWhiteSpace($env:Email__SmtpPassword)) {
+    $WebEmailSmtpPassword = $env:Email__SmtpPassword
+}
+
+if (-not [string]::IsNullOrWhiteSpace($WebEmailSmtpPassword)) {
+    $env:SHOPINVENTORY_WEB_SMTP_PASSWORD = $WebEmailSmtpPassword
+}
+
 $targetServers = Get-TargetProductionServers -PrimaryServer $ProductionServer -AdditionalServers $AdditionalProductionServers
 $additionalCredentialPathByServer = Get-AdditionalCredentialPathByServer -AdditionalServers $AdditionalProductionServers -CredentialPaths $AdditionalSerializedCredentialPaths
 
@@ -300,6 +317,14 @@ if ($targetServers.Count -gt 1) {
             if (-not [string]::IsNullOrWhiteSpace($WebDbConnectionString)) {
                 $argumentList += @('-WebDbConnectionString', $WebDbConnectionString)
             }
+            if ($WebEmailSmtpHost -ne "mail.kefaloscheese.com") { $argumentList += @('-WebEmailSmtpHost', $WebEmailSmtpHost) }
+            if ($WebEmailSmtpPort -ne 587) { $argumentList += @('-WebEmailSmtpPort', $WebEmailSmtpPort) }
+            if ($WebEmailSmtpUsername -ne "alerts@kefaloscheese.com") { $argumentList += @('-WebEmailSmtpUsername', $WebEmailSmtpUsername) }
+            if ($WebEmailFromEmail -ne "alerts@kefaloscheese.com") { $argumentList += @('-WebEmailFromEmail', $WebEmailFromEmail) }
+            if ($WebEmailFromName -ne "Kefalos Cheese - POD Reports") { $argumentList += @('-WebEmailFromName', $WebEmailFromName) }
+            if ($WebEmailApplicationUrl -ne "https://sis.kefaloscheese.com") { $argumentList += @('-WebEmailApplicationUrl', $WebEmailApplicationUrl) }
+            if ($WebEmailSmtpConnectTimeoutSeconds -ne 30) { $argumentList += @('-WebEmailSmtpConnectTimeoutSeconds', $WebEmailSmtpConnectTimeoutSeconds) }
+            if ($WebEmailSmtpOperationTimeoutSeconds -ne 300) { $argumentList += @('-WebEmailSmtpOperationTimeoutSeconds', $WebEmailSmtpOperationTimeoutSeconds) }
 
             & powershell.exe @argumentList
             $childExitCode = $LASTEXITCODE
@@ -347,6 +372,14 @@ if ($FirstTimeSetup -and -not $isAdmin) {
     if ($FirstTimeSetup) { $argList += " -FirstTimeSetup" }
     if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) { $argList += " -ApiDbConnectionString `"$ApiDbConnectionString`"" }
     if (-not [string]::IsNullOrWhiteSpace($WebDbConnectionString)) { $argList += " -WebDbConnectionString `"$WebDbConnectionString`"" }
+    if ($WebEmailSmtpHost -ne "mail.kefaloscheese.com") { $argList += " -WebEmailSmtpHost `"$WebEmailSmtpHost`"" }
+    if ($WebEmailSmtpPort -ne 587) { $argList += " -WebEmailSmtpPort $WebEmailSmtpPort" }
+    if ($WebEmailSmtpUsername -ne "alerts@kefaloscheese.com") { $argList += " -WebEmailSmtpUsername `"$WebEmailSmtpUsername`"" }
+    if ($WebEmailFromEmail -ne "alerts@kefaloscheese.com") { $argList += " -WebEmailFromEmail `"$WebEmailFromEmail`"" }
+    if ($WebEmailFromName -ne "Kefalos Cheese - POD Reports") { $argList += " -WebEmailFromName `"$WebEmailFromName`"" }
+    if ($WebEmailApplicationUrl -ne "https://sis.kefaloscheese.com") { $argList += " -WebEmailApplicationUrl `"$WebEmailApplicationUrl`"" }
+    if ($WebEmailSmtpConnectTimeoutSeconds -ne 30) { $argList += " -WebEmailSmtpConnectTimeoutSeconds $WebEmailSmtpConnectTimeoutSeconds" }
+    if ($WebEmailSmtpOperationTimeoutSeconds -ne 300) { $argList += " -WebEmailSmtpOperationTimeoutSeconds $WebEmailSmtpOperationTimeoutSeconds" }
 
     $credentialPath = $null
     try {
@@ -392,6 +425,24 @@ $deploymentDefinitions = Get-SelectedDeploymentDefinitions -Definitions (Get-Blu
 $databaseConnectionOverrides = @{
     API = $ApiDbConnectionString
     Web = $WebDbConnectionString
+}
+
+$webEmailConfigOverrides = @{
+    Email__Enabled = "true"
+    Email__SmtpHost = $WebEmailSmtpHost
+    Email__SmtpPort = [string]$WebEmailSmtpPort
+    Email__SmtpUsername = $WebEmailSmtpUsername
+    Email__FromEmail = $WebEmailFromEmail
+    Email__FromName = $WebEmailFromName
+    Email__EnableSsl = "true"
+    Email__SmtpSecurityMode = "StartTls"
+    Email__SmtpConnectTimeoutSeconds = [string]$WebEmailSmtpConnectTimeoutSeconds
+    Email__SmtpOperationTimeoutSeconds = [string]$WebEmailSmtpOperationTimeoutSeconds
+    Email__ApplicationUrl = $WebEmailApplicationUrl
+}
+
+if (-not [string]::IsNullOrWhiteSpace($WebEmailSmtpPassword)) {
+    $webEmailConfigOverrides['Email__SmtpPassword'] = $WebEmailSmtpPassword
 }
 
 # Test connection to production server
@@ -1012,7 +1063,7 @@ try {
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
         $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
-            param($ZipFile, $Plan, $DatabaseConnectionOverrides)
+            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides)
 
             Import-Module WebAdministration
 
@@ -1111,6 +1162,104 @@ try {
                 }
 
                 return $environmentVariableNode.GetAttribute("value")
+            }
+
+            function Get-WebConfigAspNetCoreArguments {
+                param([string]$WebConfigPath)
+
+                if (-not (Test-Path $WebConfigPath)) {
+                    return $null
+                }
+
+                [xml]$config = Get-Content $WebConfigPath
+                $aspNetCoreNode = $config.SelectSingleNode("/configuration/location/system.webServer/aspNetCore")
+                if ($null -eq $aspNetCoreNode) {
+                    return $null
+                }
+
+                return $aspNetCoreNode.GetAttribute("arguments")
+            }
+
+            function Test-UsableConfigValue {
+                param([string]$Value)
+
+                if ([string]::IsNullOrWhiteSpace($Value)) {
+                    return $false
+                }
+
+                $trimmed = $Value.Trim()
+                if ($trimmed.StartsWith('${') -and $trimmed.EndsWith('}')) {
+                    return $false
+                }
+
+                if ($trimmed.StartsWith('YOUR_', [StringComparison]::OrdinalIgnoreCase) -or
+                    $trimmed.StartsWith('CHANGE_ME', [StringComparison]::OrdinalIgnoreCase) -or
+                    $trimmed -eq 'smtp.your-provider.com' -or
+                    $trimmed -eq 'your-email@domain.com' -or
+                    $trimmed -eq 'noreply@your-domain.com' -or
+                    $trimmed -eq 'https://your-domain.com') {
+                    return $false
+                }
+
+                return $true
+            }
+
+            function Set-ShopInventoryWebEmailConfig {
+                param(
+                    [string]$WebConfigPath,
+                    [hashtable]$EmailConfig
+                )
+
+                if (-not (Test-Path $WebConfigPath)) {
+                    throw "web.config not found at $WebConfigPath."
+                }
+
+                $aspNetCoreArguments = Get-WebConfigAspNetCoreArguments -WebConfigPath $WebConfigPath
+                if ($aspNetCoreArguments -notlike '*ShopInventory.Web.dll*') {
+                    Write-Host "  Skipping Web SMTP config for non-Web app config at $WebConfigPath" -ForegroundColor Yellow
+                    return
+                }
+
+                $nonSecretKeys = @(
+                    'Email__Enabled',
+                    'Email__SmtpHost',
+                    'Email__SmtpPort',
+                    'Email__SmtpUsername',
+                    'Email__FromEmail',
+                    'Email__FromName',
+                    'Email__EnableSsl',
+                    'Email__SmtpSecurityMode',
+                    'Email__SmtpConnectTimeoutSeconds',
+                    'Email__SmtpOperationTimeoutSeconds',
+                    'Email__ApplicationUrl'
+                )
+
+                foreach ($key in $nonSecretKeys) {
+                    if ($EmailConfig.ContainsKey($key) -and (Test-UsableConfigValue -Value $EmailConfig[$key])) {
+                        Set-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name $key -Value $EmailConfig[$key]
+                    }
+                }
+
+                if ($EmailConfig.ContainsKey('Email__SmtpPassword') -and (Test-UsableConfigValue -Value $EmailConfig['Email__SmtpPassword'])) {
+                    Set-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__SmtpPassword' -Value $EmailConfig['Email__SmtpPassword']
+                    Write-Host "  Applied Web SMTP password from deployment input" -ForegroundColor Green
+                }
+                else {
+                    $existingPassword = Get-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__SmtpPassword'
+                    if (-not (Test-UsableConfigValue -Value $existingPassword)) {
+                        $existingPassword = Get-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__Password'
+                    }
+
+                    if (Test-UsableConfigValue -Value $existingPassword) {
+                        Set-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__SmtpPassword' -Value $existingPassword
+                        Write-Host "  Preserved existing Web SMTP password in Email__SmtpPassword" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "  WARNING: Web SMTP password was not configured. Set SHOPINVENTORY_WEB_SMTP_PASSWORD or pass -WebEmailSmtpPassword before deploying." -ForegroundColor Yellow
+                    }
+                }
+
+                Write-Host "  Applied Web SMTP web.config settings" -ForegroundColor Green
             }
 
             function Wait-ForHealthyEndpoint {
@@ -1341,6 +1490,10 @@ try {
                     Write-Host "  Applied database connection override for $($Plan.Name)" -ForegroundColor Green
                 }
 
+                if ($Plan.Name -eq 'Web') {
+                    Set-ShopInventoryWebEmailConfig -WebConfigPath "$($Plan.TargetPath)\web.config" -EmailConfig $WebEmailConfigOverrides
+                }
+
                 $managedEnvironmentVariablesByApp = @{
                     API = @('SAP__AttachmentsPath', 'SAP__AttachmentsServiceLayerSourcePath')
                 }
@@ -1453,7 +1606,7 @@ try {
                 Remove-Item -Path $tempPath -Recurse -Force -ErrorAction SilentlyContinue
                 Remove-Item -Path $zipFullPath -Force -ErrorAction SilentlyContinue
             }
-        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides -ErrorAction Stop
+        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides -ErrorAction Stop
 
         $cutoverResults += $cutoverResult
 
@@ -1581,6 +1734,7 @@ Write-Host "  - Deploy API only: .\Update-Production.ps1 -DeployTarget API" -For
 Write-Host "  - Deploy Web only: .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
 Write-Host "  - Deploy both IIS nodes: .\Update-Production.ps1 -AdditionalProductionServers 10.10.10.58" -ForegroundColor White
 Write-Host "  - Deploy both IIS nodes with separate creds: .\Update-Production.ps1 -AdditionalProductionServers 10.10.10.58 -AdditionalSerializedCredentialPaths <10.10.10.58-cred.xml>" -ForegroundColor White
+Write-Host "  - Deploy Web SMTP config: `$env:SHOPINVENTORY_WEB_SMTP_PASSWORD='<password>'; .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
 Write-Host "  - Skip backup: .\Update-Production.ps1 -SkipBackup" -ForegroundColor White
 Write-Host "  - Include uploads/logs in backup: .\Update-Production.ps1 -IncludeRuntimeDataInBackup" -ForegroundColor White
 Write-Host ""

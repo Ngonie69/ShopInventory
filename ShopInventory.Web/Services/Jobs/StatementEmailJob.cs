@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Quartz;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 
@@ -16,40 +17,29 @@ public class StatementEmailSettings
     public bool IncludeClosedInvoices { get; set; } = true;
 }
 
-public class StatementEmailScheduler : BackgroundService
+/// <summary>
+/// Quartz job that sends due weekly/monthly customer statement emails. Runs on a 30-minute
+/// interval trigger (see WebQuartzConfiguration); clustering ensures only one Web node sends.
+/// The catch-up "most recent schedule vs last sent" logic is unchanged.
+/// </summary>
+[DisallowConcurrentExecution]
+public sealed class StatementEmailJob : IJob
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(30);
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<StatementEmailScheduler> _logger;
+    private readonly ILogger<StatementEmailJob> _logger;
     private readonly StatementEmailSettings _settings;
 
-    public StatementEmailScheduler(
+    public StatementEmailJob(
         IServiceScopeFactory scopeFactory,
         IOptions<StatementEmailSettings> settings,
-        ILogger<StatementEmailScheduler> logger)
+        ILogger<StatementEmailJob> logger)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _settings = settings.Value;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation("Statement email scheduler started.");
-
-        using var timer = new PeriodicTimer(PollInterval);
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-        {
-            try
-            {
-                await ProcessAsync(stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error running statement email scheduler.");
-            }
-        }
-    }
+    public Task Execute(IJobExecutionContext context) => ProcessAsync(context.CancellationToken);
 
     private async Task ProcessAsync(CancellationToken cancellationToken)
     {

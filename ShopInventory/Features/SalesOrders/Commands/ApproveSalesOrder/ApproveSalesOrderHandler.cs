@@ -97,6 +97,16 @@ public sealed class ApproveSalesOrderHandler(
             }
             return order;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller went away (client disconnect or request timeout), not a failure.
+            // Any SAP post / local approval already committed inside ApproveAsync stands;
+            // don't log it as an unexpected error or report a false approval failure.
+            logger.LogInformation(
+                "Approval request for sales order {OrderId} was canceled by the caller before completing.",
+                command.Id);
+            throw;
+        }
         catch (InvalidOperationException ex)
         {
             logger.LogWarning(ex, "Failed to approve sales order {OrderId} for user {UserId}", command.Id, command.UserId);

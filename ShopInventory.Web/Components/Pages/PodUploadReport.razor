@@ -269,6 +269,8 @@
                             <th>Customer</th>
                             <th>Date</th>
                             <th class="text-end">Amount</th>
+                            <th>Credit Note</th>
+                            <th>Credit Reason</th>
                             <th class="text-center">POD Status</th>
                             <th>Uploaded</th>
                             <th class="text-center">Files</th>
@@ -291,6 +293,32 @@
                                     <td data-label="Date">@FormatDate(item.DocDate)</td>
                                     <td data-label="Amount" class="text-end fw-semibold">
                                         @item.DocCurrency @item.DocTotal.ToString("N2")
+                                    </td>
+                                    <td data-label="Credit Note">
+                                        @if (!string.IsNullOrWhiteSpace(item.CreditNoteNumber))
+                                        {
+                                            <span class="badge rounded-pill @(item.IsFullyCredited ? "bg-danger" : "bg-secondary")">
+                                                @item.CreditNoteNumber
+                                            </span>
+                                            @if (item.IsFullyCredited)
+                                            {
+                                                <div class="small text-muted mt-1">Fully credited</div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td data-label="Credit Reason">
+                                        @if (!string.IsNullOrWhiteSpace(item.CreditNoteReason))
+                                        {
+                                            <span class="small">@item.CreditNoteReason</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
                                     </td>
                                     <td data-label="POD Status" class="text-center">
                                         @if (item.HasPod)
@@ -350,7 +378,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="8" class="text-center py-4 text-muted">
+                                <td colspan="10" class="text-center py-4 text-muted">
                                     <i class="bi bi-inbox me-2"></i>No invoices match the current filters
                                 </td>
                             </tr>
@@ -927,6 +955,8 @@
                 items = items.Where(i =>
                     (i.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     (i.CardCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CreditNoteNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CreditNoteReason?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     i.DocNum.ToString().Contains(term));
             }
 
@@ -1019,7 +1049,10 @@
 
         try
         {
-            report = await PodService.GetPodUploadStatusAsync(fromDate.Value, toDate.Value);
+            report = await PodService.GetPodUploadStatusAsync(
+                fromDate.Value,
+                toDate.Value,
+                includeCreditNoteActivity: false);
             NormalizeDynamicFilters();
             currentPage = EffectiveCurrentPage;
             if (report == null)

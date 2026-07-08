@@ -335,10 +335,13 @@ try
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IPodReportEmailScheduleService, PodReportEmailScheduleService>();
     builder.Services.AddScoped<IPodReportEmailService, PodReportEmailService>();
-    builder.Services.AddHostedService<PodReportEmailScheduler>();
     builder.Services.Configure<StatementEmailSettings>(builder.Configuration.GetSection("StatementEmails"));
-    builder.Services.AddHostedService<StatementEmailScheduler>();
+
+    // Scheduled statement + POD report emails run on the clustered Quartz scheduler
+    // (StatementEmailJob, PodReportEmailJob) instead of per-instance BackgroundService timers.
+    builder.Services.AddShopInventoryWebQuartz(defaultConnectionString);
 
     // Add Theme, Localization, and Search services
     builder.Services.AddScoped<IThemeService, ThemeService>();
@@ -378,6 +381,9 @@ try
     {
         using var scope = app.Services.CreateScope();
         await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
+
+        // Provision the Quartz job-store tables before the scheduler starts.
+        await ShopInventory.Web.Services.QuartzSchema.EnsureAsync(defaultConnectionString, "ShopInventoryWeb");
     }
     catch (Exception ex)
     {

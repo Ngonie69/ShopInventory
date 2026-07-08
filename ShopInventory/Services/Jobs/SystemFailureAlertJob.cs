@@ -1,33 +1,39 @@
+using System.Globalization;
 using System.Net.Mail;
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using Quartz;
 using ShopInventory.Configuration;
 
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Polls the ASP.NET Core health-check subsystem on a fixed interval and sends
-/// email alerts when the system transitions to Degraded or Unhealthy.
-/// A cooldown prevents alert storms; recovery is acknowledged with a single
-/// "all-clear" email when health returns to Healthy.
+/// Quartz job that polls the health-check subsystem and emails alerts when the system
+/// transitions to Degraded or Unhealthy. A cooldown prevents alert storms; recovery is
+/// acknowledged with a single "all-clear" email. Cooldown/last-status state is persisted in
+/// the job's JobDataMap so it survives the per-execution job lifetime and is shared across the
+/// cluster. The interval (SystemHealthAlert:CheckIntervalMinutes) and enablement are applied on
+/// the trigger in QuartzConfiguration.
 /// </summary>
-public sealed class SystemFailureAlertBackgroundService : BackgroundService
+[DisallowConcurrentExecution]
+[PersistJobDataAfterExecution]
+public sealed class SystemFailureAlertJob : IJob
 {
+    private const string LastNotifiedStatusKey = "lastNotifiedStatus";
+    private const string LastAlertSentUtcKey = "lastAlertSentAtUtc";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly SystemHealthAlertSettings _alertSettings;
     private readonly EmailSettings _emailSettings;
-    private readonly ILogger<SystemFailureAlertBackgroundService> _logger;
+    private readonly ILogger<SystemFailureAlertJob> _logger;
 
-    // State for cooldown / recovery tracking
-    private HealthStatus _lastNotifiedStatus = HealthStatus.Healthy;
-    private DateTime _lastAlertSentAtUtc = DateTime.MinValue;
-
-    public SystemFailureAlertBackgroundService(
+    public SystemFailureAlertJob(
         IServiceProvider serviceProvider,
         IOptions<SystemHealthAlertSettings> alertSettings,
         IOptions<EmailSettings> emailSettings,
-        ILogger<SystemFailureAlertBackgroundService> logger)
+        ILogger<SystemFailureAlertJob> logger)
     {
         _serviceProvider = serviceProvider;
         _alertSettings = alertSettings.Value;
@@ -35,77 +41,59 @@ public sealed class SystemFailureAlertBackgroundService : BackgroundService
         _logger = logger;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task Execute(IJobExecutionContext context)
     {
         if (!_alertSettings.Enabled || _alertSettings.AlertRecipients.Count == 0)
         {
-            _logger.LogInformation("System health alert emails are disabled or have no recipients configured.");
             return;
         }
 
-        _logger.LogInformation(
-            "System health alert service started. Interval: {Interval}m, Cooldown: {Cooldown}m, Recipients: {Recipients}",
-            _alertSettings.CheckIntervalMinutes,
-            _alertSettings.AlertCooldownMinutes,
-            string.Join(", ", _alertSettings.AlertRecipients));
+        var dataMap = context.JobDetail.JobDataMap;
+        var lastNotifiedStatus = Enum.TryParse<HealthStatus>(dataMap.GetString(LastNotifiedStatusKey), out var parsedStatus)
+            ? parsedStatus
+            : HealthStatus.Healthy;
+        var lastAlertSentAtUtc = DateTime.TryParse(
+            dataMap.GetString(LastAlertSentUtcKey), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedTime)
+            ? parsedTime
+            : DateTime.MinValue;
 
-        var interval = TimeSpan.FromMinutes(_alertSettings.CheckIntervalMinutes);
-
-        // Stagger start slightly so we don't pile onto other background service startup
-        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                await CheckAndAlertAsync(stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Unhandled error in system health alert check cycle");
-            }
-
-            await Task.Delay(interval, stoppingToken);
-        }
-    }
-
-    private async Task CheckAndAlertAsync(CancellationToken cancellationToken)
-    {
         await using var scope = _serviceProvider.CreateAsyncScope();
         var healthService = scope.ServiceProvider.GetRequiredService<HealthCheckService>();
 
         var report = await healthService.CheckHealthAsync(
             registration => registration.Tags.Contains("dependencies") || registration.Tags.Contains("ready"),
-            cancellationToken);
+            context.CancellationToken);
 
         var currentStatus = report.Status;
 
         // Recovery: was bad, now healthy — send all-clear once
-        if (_lastNotifiedStatus != HealthStatus.Healthy && currentStatus == HealthStatus.Healthy)
+        if (lastNotifiedStatus != HealthStatus.Healthy && currentStatus == HealthStatus.Healthy)
         {
             _logger.LogInformation("System health recovered to Healthy — sending all-clear email");
-            await SendEmailAsync(BuildRecoveryEmail(report), cancellationToken);
-            _lastNotifiedStatus = HealthStatus.Healthy;
-            _lastAlertSentAtUtc = DateTime.UtcNow;
+            await SendEmailAsync(BuildRecoveryEmail(report), context.CancellationToken);
+            dataMap.Put(LastNotifiedStatusKey, HealthStatus.Healthy.ToString());
+            dataMap.Put(LastAlertSentUtcKey, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
             return;
         }
 
         // Only alert for Degraded or Unhealthy
-        if (currentStatus == HealthStatus.Healthy) return;
+        if (currentStatus == HealthStatus.Healthy)
+        {
+            return;
+        }
 
         // Enforce cooldown: don't spam
         var cooldown = TimeSpan.FromMinutes(_alertSettings.AlertCooldownMinutes);
-        if (DateTime.UtcNow - _lastAlertSentAtUtc < cooldown) return;
+        if (DateTime.UtcNow - lastAlertSentAtUtc < cooldown)
+        {
+            return;
+        }
 
         // Send alert
         _logger.LogWarning("System health is {Status} — sending failure alert email", currentStatus);
-        await SendEmailAsync(BuildAlertEmail(report, currentStatus), cancellationToken);
-        _lastNotifiedStatus = currentStatus;
-        _lastAlertSentAtUtc = DateTime.UtcNow;
+        await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken);
+        dataMap.Put(LastNotifiedStatusKey, currentStatus.ToString());
+        dataMap.Put(LastAlertSentUtcKey, DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
     }
 
     private async Task SendEmailAsync((string subject, string body) email, CancellationToken cancellationToken)

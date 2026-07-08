@@ -1,6 +1,8 @@
 using System.Text;
 using MediatR;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Quartz;
 using ShopInventory.Configuration;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
@@ -8,101 +10,24 @@ using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 namespace ShopInventory.Services;
 
 /// <summary>
-/// Background service that runs end-of-day consolidation at a configured time (default 6 PM CAT)
-/// and sends the report via email.
+/// Runs end-of-day consolidation and emails the report. Exposed as a scoped service so it can be
+/// invoked both by <see cref="EndOfDayConsolidationJob"/> (on the Quartz cron schedule) and
+/// on demand from DesktopIntegrationController's "run now" endpoint.
 /// </summary>
-public class EndOfDayConsolidationService : BackgroundService
+public class EndOfDayConsolidationService
 {
-    private const string WorkerName = "end-of-day-consolidation";
-    private static readonly TimeSpan LeadershipRetryInterval = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(30);
-
     private readonly IServiceProvider _serviceProvider;
-    private readonly BackgroundWorkerLeaderElector _leaderElector;
-    private readonly BackgroundWorkerHealthRegistry _healthRegistry;
     private readonly ILogger<EndOfDayConsolidationService> _logger;
     private readonly DailyStockSettings _settings;
 
-    private static readonly TimeSpan CatOffset = TimeSpan.FromHours(2);
-
     public EndOfDayConsolidationService(
         IServiceProvider serviceProvider,
-        BackgroundWorkerLeaderElector leaderElector,
-        BackgroundWorkerHealthRegistry healthRegistry,
         IOptions<DailyStockSettings> settings,
         ILogger<EndOfDayConsolidationService> logger)
     {
         _serviceProvider = serviceProvider;
-        _leaderElector = leaderElector;
-        _healthRegistry = healthRegistry;
         _logger = logger;
         _settings = settings.Value;
-
-        if (_settings.EnableAutoConsolidation)
-        {
-            _healthRegistry.RegisterWorker(WorkerName, critical: true, healthyWindow: TimeSpan.FromMinutes(2));
-        }
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        if (!_settings.EnableAutoConsolidation)
-        {
-            _logger.LogInformation("Automatic end-of-day consolidation is disabled");
-            return;
-        }
-
-        _logger.LogInformation("End-of-Day Consolidation Service started — scheduled for {Time} CAT",
-            _settings.EndOfDayTimeCAT);
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            await using var leadershipHandle = await _leaderElector.TryAcquireAsync(WorkerName, stoppingToken);
-            if (leadershipHandle is null)
-            {
-                _healthRegistry.MarkStandby(WorkerName);
-                await Task.Delay(LeadershipRetryInterval, stoppingToken);
-                continue;
-            }
-
-            _healthRegistry.MarkLeader(WorkerName);
-            _logger.LogInformation("End-of-day consolidation leadership acquired on this instance");
-
-            try
-            {
-                while (!stoppingToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        var delay = CalculateDelayUntilNextRun(_settings.EndOfDayTimeCAT);
-                        _logger.LogInformation("Next end-of-day consolidation in {Delay}", delay);
-                        await DelayWithHeartbeatAsync(delay, stoppingToken);
-
-                        await RunConsolidationAndReportAsync(stoppingToken);
-                        _healthRegistry.MarkSuccessfulRun(WorkerName);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _healthRegistry.MarkFailure(WorkerName, ex);
-                        _logger.LogError(ex, "Error in end-of-day consolidation service");
-                        await DelayWithHeartbeatAsync(TimeSpan.FromMinutes(5), stoppingToken);
-                    }
-                }
-            }
-            finally
-            {
-                _healthRegistry.MarkStandby(WorkerName);
-            }
-        }
-
-        if (_settings.EnableAutoConsolidation)
-        {
-            _healthRegistry.MarkStopped(WorkerName);
-        }
     }
 
     public async Task RunConsolidationAndReportAsync(CancellationToken ct)
@@ -245,32 +170,24 @@ public class EndOfDayConsolidationService : BackgroundService
         sb.AppendLine("</body></html>");
         return sb.ToString();
     }
+}
 
-    private async Task DelayWithHeartbeatAsync(TimeSpan delay, CancellationToken cancellationToken)
+/// <summary>
+/// Quartz job that triggers <see cref="EndOfDayConsolidationService"/> on the configured CAT cron
+/// schedule (DailyStock:EndOfDayTimeCAT, gated by DailyStock:EnableAutoConsolidation).
+/// </summary>
+[DisallowConcurrentExecution]
+public sealed class EndOfDayConsolidationJob : IJob
+{
+    private readonly EndOfDayConsolidationService _consolidationService;
+
+    public EndOfDayConsolidationJob(EndOfDayConsolidationService consolidationService)
     {
-        var remaining = delay;
-        while (remaining > TimeSpan.Zero)
-        {
-            _healthRegistry.MarkLeader(WorkerName);
-
-            var nextDelay = remaining < HeartbeatInterval ? remaining : HeartbeatInterval;
-            await Task.Delay(nextDelay, cancellationToken);
-            remaining -= nextDelay;
-        }
+        _consolidationService = consolidationService;
     }
 
-    private TimeSpan CalculateDelayUntilNextRun(string timeCAT)
+    public Task Execute(IJobExecutionContext context)
     {
-        if (!TimeSpan.TryParse(timeCAT, out var targetTime))
-            targetTime = new TimeSpan(18, 0, 0); // Default 18:00
-
-        var nowCat = DateTimeOffset.UtcNow.ToOffset(CatOffset);
-        var todayTargetCat = nowCat.Date + targetTime;
-
-        var nextRun = nowCat.DateTime < todayTargetCat
-            ? todayTargetCat
-            : todayTargetCat.AddDays(1);
-
-        return nextRun - nowCat.DateTime;
+        return _consolidationService.RunConsolidationAndReportAsync(context.CancellationToken);
     }
 }

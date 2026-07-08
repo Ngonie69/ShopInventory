@@ -254,7 +254,7 @@ window.shopInventory.formatUtcForBrowserLocalDisplay = function (utcIsoString) {
     return `${day} ${month} ${year} ${hour}:${minute}${timeZoneName ? ` ${timeZoneName}` : ''}`;
 };
 
-// File Download Handler - supports both signatures (from Kefalos-Workshop)
+// File Download Handler - supports both signatures
 window.downloadFile = function (fileName, contentTypeOrBase64, base64Content) {
     let base64Data, contentType;
 

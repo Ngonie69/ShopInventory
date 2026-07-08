@@ -25,6 +25,7 @@ using ShopInventory.Features.Merchandiser.Queries.GetProductCategories;
 using ShopInventory.Features.Merchandiser.Queries.GetSapSalesItems;
 using ShopInventory.Models.Entities;
 using System.Security.Claims;
+using ShopInventory.Middleware;
 
 namespace ShopInventory.Controllers;
 
@@ -161,7 +162,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("mobile/order")]
-    [RequestSizeLimit(5 * 1024 * 1024)]
+    [MaxRequestBodySize(5 * 1024 * 1024)]
     [RequirePermission(Permission.CreateSalesOrders)]
     public async Task<IActionResult> SubmitMobileOrder([FromBody] MerchandiserOrderRequest request, CancellationToken cancellationToken)
     {

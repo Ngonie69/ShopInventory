@@ -25,6 +25,8 @@ using ShopInventory.Services;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
+using ShopInventory.Middleware;
+
 namespace ShopInventory.Controllers;
 
 [ApiController]
@@ -222,7 +224,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     public async Task<IActionResult> UploadPod(
         int docEntry,
         IFormFile file,
@@ -256,7 +258,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     public async Task<IActionResult> UploadInvoiceCratePod(
         int docEntry,
         [FromForm] int? invoiceDocNum,
@@ -328,6 +330,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     public async Task<IActionResult> GetPodUploadStatus(
         [FromQuery] DateTime fromDate,
         [FromQuery] DateTime toDate,
+        [FromQuery] bool includeCreditNoteActivity = false,
         CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
@@ -335,7 +338,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
             return Unauthorized();
 
         var result = await mediator.Send(
-            new GetPodUploadStatusQuery(fromDate, toDate, userId), cancellationToken);
+            new GetPodUploadStatusQuery(fromDate, toDate, userId, includeCreditNoteActivity), cancellationToken);
 
         return result.Match(Ok, Problem);
     }

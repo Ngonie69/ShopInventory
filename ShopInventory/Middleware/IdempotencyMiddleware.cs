@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading;
+using ShopInventory.Models;
 
 namespace ShopInventory.Middleware;
 
@@ -51,6 +52,21 @@ public class IdempotencyMiddleware
             "POST /api/creditnote/from-invoice/",
     };
 
+    // These POST endpoints only validate/read state and do not create or mutate SAP documents.
+    private static readonly HashSet<string> IdempotencySkippedEndpoints = new(StringComparer.OrdinalIgnoreCase)
+    {
+            "POST /api/invoice/validate",
+            "POST /api/invoice/pods/validate-bulk",
+    };
+
+    private static readonly string[] MobileSalesOrderCompatibilityRoles =
+    {
+            ApplicationRoles.Merchandiser,
+            ApplicationRoles.SalesRep,
+            ApplicationRoles.Adr,
+            ApplicationRoles.Sales
+    };
+
     public IdempotencyMiddleware(RequestDelegate next, ILogger<IdempotencyMiddleware> logger)
     {
         _next = next;
@@ -71,6 +87,13 @@ public class IdempotencyMiddleware
         // Check if the path requires idempotency
         var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
         var requiresIdempotency = IdempotencyRequiredPaths.Any(p => path.StartsWith(p));
+        var endpointKey = $"{context.Request.Method} {path.TrimEnd('/')}";
+
+        if (IdempotencySkippedEndpoints.Contains(endpointKey))
+        {
+            await _next(context);
+            return;
+        }
 
         // Get idempotency key from header
         var idempotencyKey = context.Request.Headers["Idempotency-Key"].FirstOrDefault();
@@ -105,10 +128,21 @@ public class IdempotencyMiddleware
         }
         else if (requiresIdempotency)
         {
-            var endpointKey = $"{context.Request.Method} {path.TrimEnd('/')}";
             if (IdempotencyEnforcedEndpoints.Contains(endpointKey)
                 || IdempotencyEnforcedPrefixes.Any(prefix => endpointKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
             {
+                if (IsMobileSalesOrderCompatibilityRequest(context, endpointKey))
+                {
+                    _logger.LogWarning(
+                        "Allowing keyless mobile sales order compatibility request for user {UserId} ({Roles}) from IP {Ip}; downstream ClientRequestId validation remains required",
+                        context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "unknown",
+                        string.Join(",", MobileSalesOrderCompatibilityRoles.Where(context.User.IsInRole)),
+                        context.Connection.RemoteIpAddress);
+
+                    await _next(context);
+                    return;
+                }
+
                 _logger.LogWarning(
                     "Rejected keyless request to enforced idempotent endpoint {Endpoint} from IP {Ip}",
                     endpointKey, context.Connection.RemoteIpAddress);
@@ -131,6 +165,17 @@ public class IdempotencyMiddleware
         {
             await _next(context);
         }
+    }
+
+    private static bool IsMobileSalesOrderCompatibilityRequest(HttpContext context, string endpointKey)
+    {
+        if (!string.Equals(endpointKey, "POST /api/salesorder", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (context.User.Identity?.IsAuthenticated != true)
+            return false;
+
+        return MobileSalesOrderCompatibilityRoles.Any(context.User.IsInRole);
     }
 
     private static void CleanupExpiredKeys()

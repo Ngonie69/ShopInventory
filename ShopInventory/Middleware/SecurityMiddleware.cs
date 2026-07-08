@@ -542,6 +542,22 @@ public class FileUploadValidationMiddleware
 /// <summary>
 /// Middleware to enforce request size limits and prevent payload-based DoS.
 /// </summary>
+/// <summary>
+/// Declares a per-endpoint request body size limit that <see cref="RequestSizeLimitMiddleware"/>
+/// enforces. Unlike the built-in [RequestSizeLimit] attribute, this is metadata only — it does
+/// not register an MVC resource filter, so it avoids the "IHttpRequestBodySizeFeature ... is
+/// read-only" warning that filter logs on every request under IIS in-process hosting (where the
+/// server body-size feature cannot be set per request). Hard enforcement of the overall ceiling
+/// is done at the server level (IIS/Kestrel MaxRequestBodySize, configured in Program.cs).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+public sealed class MaxRequestBodySizeAttribute : Attribute, IRequestSizeLimitMetadata
+{
+    public MaxRequestBodySizeAttribute(long maxRequestBodySize) => MaxRequestBodySize = maxRequestBodySize;
+
+    public long? MaxRequestBodySize { get; }
+}
+
 public class RequestSizeLimitMiddleware
 {
     private readonly RequestDelegate _next;

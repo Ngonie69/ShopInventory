@@ -780,16 +780,23 @@
                                                 </span>
                                             </div>
                                             <div class="setting-control pod-email-schedule-controls">
-                                                <select class="field-input field-input-sm" value="@GetValue(SettingKeys.PodReportEmailsWeeklyDayOfWeek)"
-                                                        @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklyDayOfWeek, e.Value?.ToString())">
-                                                    @foreach (var day in Enum.GetValues<DayOfWeek>())
-                                                    {
-                                                        <option value="@day">@day</option>
-                                                    }
-                                                </select>
-                                                <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
-                                                       value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc))"
-                                                       @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklySendHourUtc, e.Value?.ToString())" />
+                                                <div class="pod-email-field">
+                                                    <span class="pod-email-field-label">Day to send</span>
+                                                    <select class="field-input field-input-sm pod-email-day-select" value="@GetValue(SettingKeys.PodReportEmailsWeeklyDayOfWeek)"
+                                                            @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklyDayOfWeek, e.Value?.ToString())">
+                                                        @foreach (var day in Enum.GetValues<DayOfWeek>())
+                                                        {
+                                                            <option value="@day">@day</option>
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="pod-email-field">
+                                                    <span class="pod-email-field-label">Hour (UTC)</span>
+                                                    <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
+                                                           value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc))"
+                                                           @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsWeeklySendHourUtc, e.Value?.ToString())" />
+                                                    <span class="pod-email-field-hint">@FormatScheduleHourHint(GetValue(SettingKeys.PodReportEmailsWeeklySendHourUtc))</span>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -804,12 +811,19 @@
                                                 </span>
                                             </div>
                                             <div class="setting-control pod-email-schedule-controls">
-                                                <input type="number" min="1" max="31" class="field-input field-input-sm pod-email-day-input"
-                                                       value="@NormalizeDayOfMonth(GetValue(SettingKeys.PodReportEmailsMonthlyDayOfMonth))"
-                                                       @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlyDayOfMonth, e.Value?.ToString())" />
-                                                <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
-                                                       value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc))"
-                                                       @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlySendHourUtc, e.Value?.ToString())" />
+                                                <div class="pod-email-field">
+                                                    <span class="pod-email-field-label">Day of month</span>
+                                                    <input type="number" min="1" max="31" class="field-input field-input-sm pod-email-day-input"
+                                                           value="@NormalizeDayOfMonth(GetValue(SettingKeys.PodReportEmailsMonthlyDayOfMonth))"
+                                                           @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlyDayOfMonth, e.Value?.ToString())" />
+                                                </div>
+                                                <div class="pod-email-field">
+                                                    <span class="pod-email-field-label">Hour (UTC)</span>
+                                                    <input type="number" min="0" max="23" class="field-input field-input-sm pod-email-hour-input"
+                                                           value="@NormalizeHour(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc))"
+                                                           @onchange="e => OnSettingChanged(SettingKeys.PodReportEmailsMonthlySendHourUtc, e.Value?.ToString())" />
+                                                    <span class="pod-email-field-hint">@FormatScheduleHourHint(GetValue(SettingKeys.PodReportEmailsMonthlySendHourUtc))</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1712,6 +1726,15 @@
     {
         var hour = int.TryParse(value, out var parsed) ? parsed : 6;
         return Math.Clamp(hour, 0, 23);
+    }
+
+    // Shows the configured UTC send-hour alongside its local CAT equivalent so admins
+    // don't have to translate the time zone in their heads (the rest of the section reports CAT).
+    private static string FormatScheduleHourHint(string? hourValue)
+    {
+        var hourUtc = NormalizeHour(hourValue);
+        var catHour = IAuditService.ToCAT(new DateTime(2000, 1, 1, hourUtc, 0, 0, DateTimeKind.Utc)).Hour;
+        return $"{hourUtc:00}:00 UTC = {catHour:00}:00 CAT";
     }
 
     private static int NormalizeDayOfMonth(string? value)

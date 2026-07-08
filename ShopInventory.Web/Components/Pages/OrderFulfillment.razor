@@ -6,10 +6,9 @@
 @rendermode InteractiveServer
 
 @{
-    var filteredLines = GetFilteredLines().ToList();
-    var displayedLines = filteredLines.Take(MaxDisplayedLines).ToList();
     var filteredOrders = GetFilteredOrders().ToList();
-    var filteredTotals = CalculateLineTotals(filteredLines);
+    var displayedOrders = filteredOrders.Take(MaxDisplayedOrders).ToList();
+    var filteredTotals = CalculateLineTotals(GetFilteredLines().ToList());
 }
 
 <PageTitle>Sales Order vs Invoice - Shop Inventory</PageTitle>
@@ -61,7 +60,6 @@
                 <option value="Pending">Pending</option>
                 <option value="Partial">Partial</option>
                 <option value="Invoiced">Invoiced</option>
-                <option value="Cancelled">Cancelled</option>
             </select>
         </label>
         <div class="of-filter-actions">
@@ -139,8 +137,8 @@
         <section class="of-panel">
             <div class="of-panel-header">
                 <div>
-                    <h2>Item invoice lines</h2>
-                    <p>@filteredLines.Count.ToString("N0") matching lines. Showing @displayedLines.Count.ToString("N0").</p>
+                    <h2>Orders &amp; item lines</h2>
+                    <p>@filteredOrders.Count.ToString("N0") matching orders. Click an order to see its item lines, unit prices and ordered / invoiced / pending values.</p>
                 </div>
                 <div class="of-mini-totals">
                     <span>Ordered <strong>@filteredTotals.Ordered.ToString("N2")</strong></span>
@@ -151,151 +149,143 @@
                 </div>
             </div>
 
-            @if (!displayedLines.Any())
+            @if (!filteredOrders.Any())
             {
                 <div class="of-empty">
-                    <strong>No matching item lines</strong>
+                    <strong>No matching orders</strong>
                     <span>Clear the search or choose a different line status.</span>
                 </div>
             }
             else
             {
-                @if (filteredLines.Count > MaxDisplayedLines)
+                <div class="of-toolbar">
+                    <button type="button" class="of-button of-button--secondary of-button--sm" @onclick="ExpandAll">Expand all</button>
+                    <button type="button" class="of-button of-button--secondary of-button--sm" @onclick="CollapseAll">Collapse all</button>
+                </div>
+
+                @foreach (var order in displayedOrders)
                 {
-                    <div class="of-alert of-alert--info">
-                        Showing the first @MaxDisplayedLines.ToString("N0") lines. Refine the search or date range to narrow the result.
+                    var lines = GetVisibleLines(order).ToList();
+                    var isOpen = IsExpanded(order.DocEntry);
+                    <div class="of-order-group @(isOpen ? "is-open" : null)">
+                        <button type="button" class="of-order-head" @onclick="() => ToggleOrder(order.DocEntry)" aria-expanded="@(isOpen ? "true" : "false")">
+                            <span class="of-order-toggle" aria-hidden="true"></span>
+                            <span class="of-order-id">
+                                <strong>SO @order.DocNum</strong>
+                                <small>@FormatDate(order.OrderDate)</small>
+                            </span>
+                            <span class="of-order-cust">
+                                <strong>@order.CardName</strong>
+                                <small>@order.CardCode</small>
+                            </span>
+                            <span class="@GetOrderStatusClass(order.Status)">@order.Status</span>
+                            <span class="of-order-metrics">
+                                <span class="of-order-kv">
+                                    <small>Order value</small>
+                                    <strong>@FormatMoney(order.OrderTotal, order.DocCurrency)</strong>
+                                </span>
+                                <span class="of-order-kv">
+                                    <small>Ordered</small>
+                                    <strong>@order.TotalQuantityOrdered.ToString("N2")</strong>
+                                </span>
+                                <span class="of-order-kv">
+                                    <small>Invoiced</small>
+                                    <strong>@order.TotalQuantityDelivered.ToString("N2")</strong>
+                                </span>
+                                <span class="of-order-kv">
+                                    <small>Pending</small>
+                                    <strong class="@(order.TotalQuantityPending > 0 ? "of-pending-qty" : null)">@order.TotalQuantityPending.ToString("N2")</strong>
+                                </span>
+                                <span class="of-order-kv of-order-kv--pct">
+                                    <small>Invoice @order.FulfillmentPercent.ToString("N0")%</small>
+                                    <span class="of-progress"><span style="@GetProgressStyle(order.FulfillmentPercent)"></span></span>
+                                </span>
+                                @if (order.IsOverdue)
+                                {
+                                    <span class="of-order-kv">
+                                        <small>Due</small>
+                                        <strong class="of-overdue">@order.DaysOverdue.ToString("N0")d overdue</strong>
+                                    </span>
+                                }
+                            </span>
+                        </button>
+
+                        @if (isOpen)
+                        {
+                            <div class="of-order-body">
+                                <div class="of-table-wrap">
+                                    <table class="of-table of-table--nested mobile-card-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Item</th>
+                                                <th>Warehouse</th>
+                                                <th>Status</th>
+                                                <th>Invoice(s)</th>
+                                                <th class="text-end">Unit price</th>
+                                                <th class="text-end">Qty ordered</th>
+                                                <th class="text-end">Qty invoiced</th>
+                                                <th class="text-end">Qty pending</th>
+                                                <th class="text-end">Fulfil %</th>
+                                                <th class="text-end">Ordered value</th>
+                                                <th class="text-end">Invoiced value</th>
+                                                <th class="text-end">Pending value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var line in lines)
+                                            {
+                                                <tr class="@GetLineRowClass(line)">
+                                                    <td data-label="Item">
+                                                        <strong>@line.ItemDescription</strong>
+                                                        <span>@line.ItemCode</span>
+                                                    </td>
+                                                    <td data-label="Warehouse">@line.WarehouseCode</td>
+                                                    <td data-label="Status">
+                                                        <span class="@GetLineStatusClass(line.LineStatus)">@line.LineStatus</span>
+                                                    </td>
+                                                    <td data-label="Invoice(s)">
+                                                        @if (!string.IsNullOrWhiteSpace(line.InvoiceNumbers))
+                                                        {
+                                                            <span class="of-invoice-nums">@line.InvoiceNumbers</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-muted">&mdash;</span>
+                                                        }
+                                                    </td>
+                                                    <td data-label="Unit price" class="text-end">@FormatMoney(line.UnitPrice, order.DocCurrency)</td>
+                                                    <td data-label="Qty ordered" class="text-end">@line.QuantityOrdered.ToString("N2")</td>
+                                                    <td data-label="Qty invoiced" class="text-end">@line.QuantityDelivered.ToString("N2")</td>
+                                                    <td data-label="Qty pending" class="text-end of-pending-qty">@line.QuantityPending.ToString("N2")</td>
+                                                    <td data-label="Fulfil %" class="text-end">@LineFulfilmentPercent(line).ToString("N1")%</td>
+                                                    <td data-label="Ordered value" class="text-end fw-semibold">@FormatMoney(line.LineTotal, order.DocCurrency)</td>
+                                                    <td data-label="Invoiced value" class="text-end fw-semibold">@FormatMoney(line.InvoicedValue, order.DocCurrency)</td>
+                                                    <td data-label="Pending value" class="text-end fw-semibold">@FormatMoney(CalculatePendingLineValue(line), order.DocCurrency)</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
 
-                <div class="of-table-wrap">
-                    <table class="of-table mobile-card-table">
-                        <thead>
-                            <tr>
-                                <th>Order</th>
-                                <th>Customer</th>
-                                <th>Item</th>
-                                <th>Warehouse</th>
-                                <th>Status</th>
-                                <th>Invoice(s)</th>
-                                <th class="text-end">Qty ordered</th>
-                                <th class="text-end">Qty invoiced</th>
-                                <th class="text-end">Qty pending</th>
-                                <th class="text-end">Line value</th>
-                                <th class="text-end">Pending value</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var row in displayedLines)
-                            {
-                                <tr class="@GetLineRowClass(row.Line)">
-                                    <td data-label="Order">
-                                        <strong>@row.Order.DocNum</strong>
-                                        <span>@FormatDate(row.Order.OrderDate)</span>
-                                    </td>
-                                    <td data-label="Customer">
-                                        <strong>@row.Order.CardName</strong>
-                                        <span>@row.Order.CardCode</span>
-                                    </td>
-                                    <td data-label="Item">
-                                        <strong>@row.Line.ItemDescription</strong>
-                                        <span>@row.Line.ItemCode</span>
-                                    </td>
-                                    <td data-label="Warehouse">@row.Line.WarehouseCode</td>
-                                    <td data-label="Status">
-                                        <span class="@GetLineStatusClass(row.Line.LineStatus)">@row.Line.LineStatus</span>
-                                    </td>
-                                    <td data-label="Invoice(s)">
-                                        @if (!string.IsNullOrWhiteSpace(row.Line.InvoiceNumbers))
-                                        {
-                                            <span class="of-invoice-nums">@row.Line.InvoiceNumbers</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">&mdash;</span>
-                                        }
-                                    </td>
-                                    <td data-label="Qty ordered" class="text-end">@row.Line.QuantityOrdered.ToString("N2")</td>
-                                    <td data-label="Qty invoiced" class="text-end">@row.Line.QuantityDelivered.ToString("N2")</td>
-                                    <td data-label="Qty pending" class="text-end of-pending-qty">@row.Line.QuantityPending.ToString("N2")</td>
-                                    <td data-label="Line value" class="text-end fw-semibold">@FormatMoney(row.Line.LineTotal, row.Order.DocCurrency)</td>
-                                    <td data-label="Pending value" class="text-end fw-semibold">@FormatMoney(CalculatePendingLineValue(row.Line), row.Order.DocCurrency)</td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                @if (filteredOrders.Count > displayedOrders.Count)
+                {
+                    <div class="of-alert of-alert--info">
+                        Showing the first @displayedOrders.Count.ToString("N0") of @filteredOrders.Count.ToString("N0") orders. Refine the search or date range to narrow the result.
+                    </div>
+                }
             }
-        </section>
-
-        <section class="of-panel">
-            <div class="of-panel-header">
-                <div>
-                    <h2>Order summary</h2>
-                    <p>@filteredOrders.Count.ToString("N0") matching orders with quantity and value rollups.</p>
-                </div>
-            </div>
-
-            <div class="of-table-wrap">
-                <table class="of-table mobile-card-table">
-                    <thead>
-                        <tr>
-                            <th>Order</th>
-                            <th>Customer</th>
-                            <th>Status</th>
-                            <th class="text-end">Order value</th>
-                            <th class="text-end">Qty ordered</th>
-                            <th class="text-end">Qty invoiced</th>
-                            <th class="text-end">Qty pending</th>
-                            <th>Invoice %</th>
-                            <th>Due</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var order in filteredOrders.Take(150))
-                        {
-                            <tr>
-                                <td data-label="Order">
-                                    <strong>@order.DocNum</strong>
-                                    <span>@FormatDate(order.OrderDate)</span>
-                                </td>
-                                <td data-label="Customer">
-                                    <strong>@order.CardName</strong>
-                                    <span>@order.CardCode</span>
-                                </td>
-                                <td data-label="Status">
-                                    <span class="@GetOrderStatusClass(order.Status)">@order.Status</span>
-                                </td>
-                                <td data-label="Order value" class="text-end fw-semibold">@FormatMoney(order.OrderTotal, order.DocCurrency)</td>
-                                <td data-label="Qty ordered" class="text-end">@order.TotalQuantityOrdered.ToString("N2")</td>
-                                <td data-label="Qty invoiced" class="text-end">@order.TotalQuantityDelivered.ToString("N2")</td>
-                                <td data-label="Qty pending" class="text-end of-pending-qty">@order.TotalQuantityPending.ToString("N2")</td>
-                                <td data-label="Invoice %">
-                                    <div class="of-progress">
-                                        <span style="@GetProgressStyle(order.FulfillmentPercent)"></span>
-                                    </div>
-                                    <small>@order.FulfillmentPercent.ToString("N1")%</small>
-                                </td>
-                                <td data-label="Due">
-                                    @if (order.IsOverdue)
-                                    {
-                                        <span class="of-overdue">@order.DaysOverdue.ToString("N0") days overdue</span>
-                                    }
-                                    else
-                                    {
-                                        <span>@FormatDate(order.DueDate)</span>
-                                    }
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
         </section>
     }
 </div>
 
 @code {
-    private const int MaxDisplayedLines = 500;
+    private const int MaxDisplayedOrders = 200;
+
+    private readonly HashSet<int> expandedOrders = new();
 
     private DateTime? fromDate;
     private DateTime? toDate;
@@ -330,6 +320,7 @@
         errorMessage = null;
         report = null;
         hasLoaded = false;
+        expandedOrders.Clear();
 
         try
         {
@@ -387,6 +378,7 @@
         report = null;
         hasLoaded = false;
         errorMessage = null;
+        expandedOrders.Clear();
     }
 
     private async Task ExportToExcelAsync()
@@ -466,6 +458,37 @@
             .ThenBy(order => order.DocNum);
     }
 
+    private IEnumerable<OrderLineDetail> GetVisibleLines(OrderFulfillmentItem order)
+    {
+        var lines = order.Lines.AsEnumerable();
+
+        if (lineStatusFilter != "All")
+        {
+            lines = lines.Where(line => string.Equals(line.LineStatus, lineStatusFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return lines
+            .OrderByDescending(line => line.QuantityPending > 0)
+            .ThenBy(line => line.LineStatus == "Invoiced")
+            .ThenBy(line => line.ItemDescription);
+    }
+
+    private bool IsExpanded(int docEntry) => expandedOrders.Contains(docEntry);
+
+    private void ToggleOrder(int docEntry)
+    {
+        if (!expandedOrders.Remove(docEntry))
+            expandedOrders.Add(docEntry);
+    }
+
+    private void ExpandAll()
+    {
+        foreach (var order in GetFilteredOrders().Take(MaxDisplayedOrders))
+            expandedOrders.Add(order.DocEntry);
+    }
+
+    private void CollapseAll() => expandedOrders.Clear();
+
     private static bool MatchesSearch(FulfillmentLineRow row, string search) =>
         Matches(row.Order.DocNum.ToString(), search)
         || Matches(row.Order.CardCode, search)
@@ -513,6 +536,11 @@
     private static decimal CalculatePendingLineValue(OrderLineDetail line) =>
         line.QuantityOrdered > 0
             ? Math.Round(line.LineTotal * line.QuantityPending / line.QuantityOrdered, 2)
+            : 0;
+
+    private static decimal LineFulfilmentPercent(OrderLineDetail line) =>
+        line.QuantityOrdered > 0
+            ? Math.Round(line.QuantityDelivered / line.QuantityOrdered * 100, 1)
             : 0;
 
     private static string FormatDate(DateTime value) =>

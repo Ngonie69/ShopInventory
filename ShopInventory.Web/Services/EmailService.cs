@@ -16,11 +16,15 @@ public class EmailSettings
     public int SmtpPort { get; set; }
     public string SmtpUsername { get; set; } = string.Empty;
     public string SmtpPassword { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
     public string FromEmail { get; set; } = string.Empty;
     public string FromName { get; set; } = string.Empty;
     public bool EnableSsl { get; set; }
+    public bool UseSsl { get; set; }
     public string SmtpSecurityMode { get; set; } = string.Empty;
     public int SmtpConnectTimeoutSeconds { get; set; } = 30;
+    public int SmtpOperationTimeoutSeconds { get; set; } = 300;
     public string ApplicationUrl { get; set; } = string.Empty;
 }
 
@@ -97,7 +101,10 @@ public class EmailService : IEmailService
         }
 
         var smtpHost = ResolveSmtpHost();
-        if (!HasRequiredSmtpSettings(smtpHost, subject, 1, 0))
+        var smtpUsername = ResolveSmtpUsername();
+        var smtpPassword = ResolveSmtpPassword();
+        var smtpStage = "PreparingMessage";
+        if (!HasRequiredSmtpSettings(smtpHost, smtpUsername, smtpPassword, subject, 1, 0))
         {
             return false;
         }
@@ -119,25 +126,32 @@ public class EmailService : IEmailService
 
             using var client = new SmtpClient();
             var secureSocketOptions = ResolveSecureSocketOptions();
-            var timeoutMilliseconds = ResolveConnectTimeoutMilliseconds();
-            client.Timeout = timeoutMilliseconds;
+            var connectTimeoutMilliseconds = ResolveConnectTimeoutMilliseconds();
+            var operationTimeoutMilliseconds = ResolveOperationTimeoutMilliseconds();
+            client.Timeout = connectTimeoutMilliseconds;
 
             _logger.LogInformation(
-                "Email SMTP delivery starting. Subject={Subject}, RecipientCount={RecipientCount}, AttachmentCount={AttachmentCount}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpSecurityMode={SmtpSecurityMode}, SmtpTimeoutMs={SmtpTimeoutMs}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsername={SmtpUsername}",
+                "Email SMTP delivery starting. Subject={Subject}, RecipientCount={RecipientCount}, AttachmentCount={AttachmentCount}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpSecurityMode={SmtpSecurityMode}, SmtpConnectTimeoutMs={SmtpConnectTimeoutMs}, SmtpOperationTimeoutMs={SmtpOperationTimeoutMs}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsername={SmtpUsername}",
                 subject,
                 1,
                 0,
                 smtpHost,
                 _settings.SmtpPort,
                 secureSocketOptions,
-                timeoutMilliseconds,
-                _settings.EnableSsl,
+                connectTimeoutMilliseconds,
+                operationTimeoutMilliseconds,
+                ResolveEnableSsl(),
                 _settings.FromEmail,
-                _settings.SmtpUsername);
+                smtpUsername);
 
+            smtpStage = "SmtpConnect";
             await client.ConnectAsync(smtpHost, _settings.SmtpPort, secureSocketOptions);
-            await client.AuthenticateAsync(_settings.SmtpUsername, _settings.SmtpPassword);
+            client.Timeout = operationTimeoutMilliseconds;
+            smtpStage = "SmtpAuthenticate";
+            await client.AuthenticateAsync(smtpUsername, smtpPassword);
+            smtpStage = "SmtpSend";
             await client.SendAsync(message);
+            smtpStage = "SmtpDisconnect";
             await client.DisconnectAsync(true);
 
             _logger.LogInformation("Email sent successfully to {ToEmail} with subject: {Subject}", toEmail, subject);
@@ -148,16 +162,17 @@ public class EmailService : IEmailService
             var rootException = GetRootException(ex);
             _logger.LogError(
                 ex,
-                "Email SMTP delivery failed. Subject={Subject}, Recipients={Recipients}, AttachmentCount={AttachmentCount}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, ExceptionType={ExceptionType}, RootExceptionType={RootExceptionType}, FailureMessage={FailureMessage}",
+                "Email SMTP delivery failed. Subject={Subject}, Recipients={Recipients}, AttachmentCount={AttachmentCount}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpFailureStage={SmtpFailureStage}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, ExceptionType={ExceptionType}, RootExceptionType={RootExceptionType}, FailureMessage={FailureMessage}",
                 subject,
                 toEmail,
                 0,
                 smtpHost,
                 _settings.SmtpPort,
-                _settings.EnableSsl,
+                smtpStage,
+                ResolveEnableSsl(),
                 _settings.FromEmail,
-                !string.IsNullOrWhiteSpace(_settings.SmtpUsername),
-                !string.IsNullOrWhiteSpace(_settings.SmtpPassword),
+                HasConfiguredValue(smtpUsername),
+                HasConfiguredValue(smtpPassword),
                 ex.GetType().Name,
                 rootException.GetType().Name,
                 rootException.Message);
@@ -213,11 +228,14 @@ public class EmailService : IEmailService
         }
 
         var smtpHost = ResolveSmtpHost();
-        if (!HasRequiredSmtpSettings(smtpHost, subject, toList.Count, attachmentList.Count))
+        var smtpUsername = ResolveSmtpUsername();
+        var smtpPassword = ResolveSmtpPassword();
+        var smtpStage = "PreparingMessage";
+        if (!HasRequiredSmtpSettings(smtpHost, smtpUsername, smtpPassword, subject, toList.Count, attachmentList.Count))
         {
             return EmailSendResult.Failed(
                 "MissingConfiguration",
-                "SMTP configuration is incomplete. Check Email:SmtpHost, Email:SmtpPort, Email:SmtpUsername, Email:SmtpPassword, and Email:FromEmail.");
+                "SMTP configuration is incomplete. Check Email:SmtpHost or Email:SmtpServer, Email:SmtpPort, Email:SmtpUsername or Email:Username, Email:SmtpPassword or Email:Password, and Email:FromEmail.");
         }
 
         try
@@ -255,12 +273,13 @@ public class EmailService : IEmailService
 
             using var client = new SmtpClient();
             var secureSocketOptions = ResolveSecureSocketOptions();
-            var timeoutMilliseconds = ResolveConnectTimeoutMilliseconds();
-            client.Timeout = timeoutMilliseconds;
+            var connectTimeoutMilliseconds = ResolveConnectTimeoutMilliseconds();
+            var operationTimeoutMilliseconds = ResolveOperationTimeoutMilliseconds();
+            client.Timeout = connectTimeoutMilliseconds;
 
             var attachmentBytes = attachmentList.Sum(attachment => attachment.Content.LongLength);
             _logger.LogInformation(
-                "Email SMTP delivery starting. Subject={Subject}, RecipientCount={RecipientCount}, CcCount={CcCount}, AttachmentCount={AttachmentCount}, AttachmentBytes={AttachmentBytes}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpSecurityMode={SmtpSecurityMode}, SmtpTimeoutMs={SmtpTimeoutMs}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsername={SmtpUsername}",
+                "Email SMTP delivery starting. Subject={Subject}, RecipientCount={RecipientCount}, CcCount={CcCount}, AttachmentCount={AttachmentCount}, AttachmentBytes={AttachmentBytes}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpSecurityMode={SmtpSecurityMode}, SmtpConnectTimeoutMs={SmtpConnectTimeoutMs}, SmtpOperationTimeoutMs={SmtpOperationTimeoutMs}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsername={SmtpUsername}",
                 subject,
                 toList.Count,
                 ccList.Count,
@@ -269,14 +288,20 @@ public class EmailService : IEmailService
                 smtpHost,
                 _settings.SmtpPort,
                 secureSocketOptions,
-                timeoutMilliseconds,
-                _settings.EnableSsl,
+                connectTimeoutMilliseconds,
+                operationTimeoutMilliseconds,
+                ResolveEnableSsl(),
                 _settings.FromEmail,
-                _settings.SmtpUsername);
+                smtpUsername);
 
+            smtpStage = "SmtpConnect";
             await client.ConnectAsync(smtpHost, _settings.SmtpPort, secureSocketOptions, cancellationToken);
-            await client.AuthenticateAsync(_settings.SmtpUsername, _settings.SmtpPassword, cancellationToken);
+            client.Timeout = operationTimeoutMilliseconds;
+            smtpStage = "SmtpAuthenticate";
+            await client.AuthenticateAsync(smtpUsername, smtpPassword, cancellationToken);
+            smtpStage = "SmtpSend";
             await client.SendAsync(message, cancellationToken);
+            smtpStage = "SmtpDisconnect";
             await client.DisconnectAsync(true, cancellationToken);
 
             _logger.LogInformation(
@@ -292,7 +317,7 @@ public class EmailService : IEmailService
             var attachmentBytes = attachmentList.Sum(attachment => attachment.Content.LongLength);
             _logger.LogError(
                 ex,
-                "Email SMTP delivery failed. Subject={Subject}, Recipients={Recipients}, CcRecipients={CcRecipients}, AttachmentCount={AttachmentCount}, AttachmentBytes={AttachmentBytes}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, ExceptionType={ExceptionType}, RootExceptionType={RootExceptionType}, FailureMessage={FailureMessage}",
+                "Email SMTP delivery failed. Subject={Subject}, Recipients={Recipients}, CcRecipients={CcRecipients}, AttachmentCount={AttachmentCount}, AttachmentBytes={AttachmentBytes}, SmtpHost={SmtpHost}, SmtpPort={SmtpPort}, SmtpFailureStage={SmtpFailureStage}, EnableSsl={EnableSsl}, FromEmail={FromEmail}, SmtpUsernameConfigured={SmtpUsernameConfigured}, PasswordConfigured={PasswordConfigured}, ExceptionType={ExceptionType}, RootExceptionType={RootExceptionType}, FailureMessage={FailureMessage}",
                 subject,
                 string.Join(", ", toList),
                 string.Join(", ", ccList),
@@ -300,20 +325,21 @@ public class EmailService : IEmailService
                 attachmentBytes,
                 smtpHost,
                 _settings.SmtpPort,
-                _settings.EnableSsl,
+                smtpStage,
+                ResolveEnableSsl(),
                 _settings.FromEmail,
-                !string.IsNullOrWhiteSpace(_settings.SmtpUsername),
-                !string.IsNullOrWhiteSpace(_settings.SmtpPassword),
+                HasConfiguredValue(smtpUsername),
+                HasConfiguredValue(smtpPassword),
                 ex.GetType().Name,
                 rootException.GetType().Name,
                 rootException.Message);
-            return EmailSendResult.Failed(ClassifySmtpFailure(ex), rootException.Message, rootException.GetType().Name);
+            return EmailSendResult.Failed(ClassifySmtpFailure(ex, smtpStage), rootException.Message, rootException.GetType().Name);
         }
     }
 
     public async Task<bool> SendInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount)
     {
-        var subject = $"Invoice #{invoiceNumber} Created - Kefalos Workshop";
+        var subject = $"Invoice #{invoiceNumber} Created - Kefalos Cheese";
         var htmlBody = $@"
             <h2>Invoice Created</h2>
             <p>Dear {toName},</p>
@@ -341,7 +367,7 @@ public class EmailService : IEmailService
 
     public async Task<bool> SendCustomerInvoiceNotificationAsync(string toEmail, string toName, int invoiceDocEntry, string invoiceNumber, decimal totalAmount)
     {
-        var subject = $"New Invoice #{invoiceNumber} - Kefalos Workshop";
+        var subject = $"New Invoice #{invoiceNumber} - Kefalos Cheese";
         var portalUrl = $"{_settings.ApplicationUrl}/customer-portal/invoices?invoice={invoiceDocEntry}";
 
         var htmlBody = $@"
@@ -436,7 +462,7 @@ public class EmailService : IEmailService
 
     public async Task<bool> SendPasswordResetAsync(string toEmail, string toName, string resetToken)
     {
-        var subject = "Password Reset Request - Kefalos Workshop";
+        var subject = "Password Reset Request - Kefalos Cheese";
         var resetUrl = $"{_settings.ApplicationUrl}/reset-password?token={Uri.EscapeDataString(resetToken)}";
 
         var htmlBody = $@"
@@ -459,10 +485,10 @@ public class EmailService : IEmailService
 
     public async Task<bool> SendWelcomeEmailAsync(string toEmail, string toName, string username)
     {
-        var subject = "Welcome to Kefalos Workshop System";
+        var subject = "Welcome to Kefalos Cheese";
 
         var htmlBody = $@"
-            <h2>Welcome to Kefalos Workshop!</h2>
+            <h2>Welcome to Kefalos Cheese!</h2>
             <p>Dear {toName},</p>
             <p>Your account has been created successfully. Here are your login details:</p>
             <table style='border-collapse: collapse; width: 100%; max-width: 400px;'>
@@ -515,7 +541,7 @@ public class EmailService : IEmailService
                     <!-- Header -->
                     <tr>
                         <td style='background: linear-gradient(135deg, #4f46e5, #7c3aed); padding: 30px; text-align: center;'>
-                            <h1 style='margin: 0; color: #ffffff; font-size: 24px;'>Kefalos Workshop</h1>
+                            <h1 style='margin: 0; color: #ffffff; font-size: 24px;'>Kefalos Cheese</h1>
                         </td>
                     </tr>
                     <!-- Content -->
@@ -528,7 +554,7 @@ public class EmailService : IEmailService
                     <tr>
                         <td style='background-color: #f8fafc; padding: 20px 30px; text-align: center; border-top: 1px solid #e2e8f0;'>
                             <p style='margin: 0; color: #64748b; font-size: 12px;'>
-                                © {DateTime.Now.Year} Kefalos Workshop System. All rights reserved.
+                                © {DateTime.Now.Year} Kefalos Cheese. All rights reserved.
                             </p>
                             <p style='margin: 10px 0 0 0; color: #94a3b8; font-size: 11px;'>
                                 This is an automated message. Please do not reply directly to this email.
@@ -657,9 +683,21 @@ public class EmailService : IEmailService
     }
 
     private string ResolveSmtpHost() =>
-        !string.IsNullOrWhiteSpace(_settings.SmtpHost)
+        HasConfiguredValue(_settings.SmtpHost)
             ? _settings.SmtpHost
             : _settings.SmtpServer;
+
+    private string ResolveSmtpUsername() =>
+        HasConfiguredValue(_settings.SmtpUsername)
+            ? _settings.SmtpUsername
+            : _settings.Username;
+
+    private string ResolveSmtpPassword() =>
+        HasConfiguredValue(_settings.SmtpPassword)
+            ? _settings.SmtpPassword
+            : _settings.Password;
+
+    private bool ResolveEnableSsl() => _settings.EnableSsl || _settings.UseSsl;
 
     private SecureSocketOptions ResolveSecureSocketOptions()
     {
@@ -674,7 +712,7 @@ public class EmailService : IEmailService
             return SecureSocketOptions.SslOnConnect;
         }
 
-        return _settings.EnableSsl
+        return ResolveEnableSsl()
             ? SecureSocketOptions.StartTls
             : SecureSocketOptions.Auto;
     }
@@ -685,12 +723,25 @@ public class EmailService : IEmailService
         return checked(timeoutSeconds * 1000);
     }
 
-    private static string ClassifySmtpFailure(Exception ex)
+    private int ResolveOperationTimeoutMilliseconds()
+    {
+        var timeoutSeconds = Math.Clamp(_settings.SmtpOperationTimeoutSeconds, 30, 600);
+        return checked(timeoutSeconds * 1000);
+    }
+
+    private static string ClassifySmtpFailure(Exception ex, string smtpStage)
     {
         var rootException = GetRootException(ex);
-        return rootException is SocketException
-            ? "SmtpConnectionFailed"
-            : "SmtpDeliveryException";
+        var stage = string.IsNullOrWhiteSpace(smtpStage)
+            ? "SmtpDelivery"
+            : smtpStage;
+
+        return rootException switch
+        {
+            TimeoutException => $"{stage}TimedOut",
+            SocketException => $"{stage}ConnectionFailed",
+            _ => $"{stage}Failed"
+        };
     }
 
     private static Exception GetRootException(Exception ex)
@@ -704,12 +755,22 @@ public class EmailService : IEmailService
         return current;
     }
 
-    private bool HasRequiredSmtpSettings(string smtpHost, string subject, int recipientCount, int attachmentCount)
+    private bool HasRequiredSmtpSettings(
+        string smtpHost,
+        string smtpUsername,
+        string smtpPassword,
+        string subject,
+        int recipientCount,
+        int attachmentCount)
     {
         var missing = new List<string>();
         if (string.IsNullOrWhiteSpace(smtpHost))
         {
-            missing.Add("Email:SmtpHost");
+            missing.Add("Email:SmtpHost or Email:SmtpServer");
+        }
+        else if (IsPlaceholderValue(smtpHost))
+        {
+            missing.Add("Email:SmtpHost or Email:SmtpServer (placeholder)");
         }
 
         if (_settings.SmtpPort <= 0)
@@ -717,20 +778,9 @@ public class EmailService : IEmailService
             missing.Add("Email:SmtpPort");
         }
 
-        if (string.IsNullOrWhiteSpace(_settings.SmtpUsername))
-        {
-            missing.Add("Email:SmtpUsername");
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.SmtpPassword))
-        {
-            missing.Add("Email:SmtpPassword");
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.FromEmail))
-        {
-            missing.Add("Email:FromEmail");
-        }
+        AddMissingSetting(missing, "Email:SmtpUsername or Email:Username", smtpUsername);
+        AddMissingSetting(missing, "Email:SmtpPassword or Email:Password", smtpPassword);
+        AddMissingSetting(missing, "Email:FromEmail", _settings.FromEmail);
 
         if (missing.Count == 0)
         {
@@ -744,12 +794,37 @@ public class EmailService : IEmailService
             recipientCount,
             attachmentCount,
             _settings.Enabled,
-            !string.IsNullOrWhiteSpace(_settings.SmtpHost),
-            !string.IsNullOrWhiteSpace(_settings.SmtpServer),
+            HasConfiguredValue(_settings.SmtpHost),
+            HasConfiguredValue(_settings.SmtpServer),
             _settings.SmtpPort,
-            !string.IsNullOrWhiteSpace(_settings.SmtpUsername),
-            !string.IsNullOrWhiteSpace(_settings.SmtpPassword),
-            !string.IsNullOrWhiteSpace(_settings.FromEmail));
+            HasConfiguredValue(smtpUsername),
+            HasConfiguredValue(smtpPassword),
+            HasConfiguredValue(_settings.FromEmail));
         return false;
+    }
+
+    private static void AddMissingSetting(List<string> missing, string name, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            missing.Add(name);
+            return;
+        }
+
+        if (IsPlaceholderValue(value))
+        {
+            missing.Add($"{name} (placeholder)");
+        }
+    }
+
+    private static bool HasConfiguredValue(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && !IsPlaceholderValue(value);
+
+    private static bool IsPlaceholderValue(string value)
+    {
+        var trimmed = value.Trim();
+        return (trimmed.StartsWith("${", StringComparison.Ordinal) && trimmed.EndsWith("}", StringComparison.Ordinal))
+            || trimmed.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("CHANGE_ME", StringComparison.OrdinalIgnoreCase);
     }
 }
