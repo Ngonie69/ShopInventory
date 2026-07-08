@@ -48,14 +48,18 @@ public sealed class SystemFailureAlertJob : IJob
             return;
         }
 
+        // GetString throws KeyNotFoundException on a missing key, and both keys are missing until
+        // the first alert is sent — read through TryGetString so the first run falls back to the
+        // "healthy, never alerted" defaults instead of throwing.
         var dataMap = context.JobDetail.JobDataMap;
-        var lastNotifiedStatus = Enum.TryParse<HealthStatus>(dataMap.GetString(LastNotifiedStatusKey), out var parsedStatus)
-            ? parsedStatus
-            : HealthStatus.Healthy;
-        var lastAlertSentAtUtc = DateTime.TryParse(
-            dataMap.GetString(LastAlertSentUtcKey), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedTime)
-            ? parsedTime
-            : DateTime.MinValue;
+        var lastNotifiedStatus = dataMap.TryGetString(LastNotifiedStatusKey, out var lastNotifiedStatusValue)
+            && Enum.TryParse<HealthStatus>(lastNotifiedStatusValue, out var parsedStatus)
+                ? parsedStatus
+                : HealthStatus.Healthy;
+        var lastAlertSentAtUtc = dataMap.TryGetString(LastAlertSentUtcKey, out var lastAlertSentUtcValue)
+            && DateTime.TryParse(lastAlertSentUtcValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedTime)
+                ? parsedTime
+                : DateTime.MinValue;
 
         await using var scope = _serviceProvider.CreateAsyncScope();
         var healthService = scope.ServiceProvider.GetRequiredService<HealthCheckService>();
