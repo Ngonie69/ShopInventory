@@ -184,6 +184,15 @@ public sealed class DocumentAttachmentAccessService(
 
         if (isScopedPodViewer)
         {
+            // POD operators may upload a POD to any invoice (matching driver behaviour); the
+            // assigned-section scope only governs which invoices' PODs they are allowed to view.
+            // A null uploadedByUserId marks the entity-level upload path (AuthorizeEntityAccessAsync);
+            // attachment-level operations (e.g. delete) still fall through to the section check below.
+            if (isWriteOperation && uploadedByUserId is null && IsRole(role, "PodOperator"))
+            {
+                return true;
+            }
+
             if (string.IsNullOrWhiteSpace(assignedSection))
             {
                 return Errors.Document.AccessDenied("An assigned POD section is required to access invoice attachments.");

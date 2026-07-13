@@ -463,7 +463,7 @@ public class EmailService : IEmailService
     public async Task<bool> SendPasswordResetAsync(string toEmail, string toName, string resetToken)
     {
         var subject = "Password Reset Request - Kefalos Cheese";
-        var resetUrl = $"{_settings.ApplicationUrl}/reset-password?token={Uri.EscapeDataString(resetToken)}";
+        var resetUrl = $"{_settings.ApplicationUrl.TrimEnd('/')}/customer-portal/reset-password?token={Uri.EscapeDataString(resetToken)}";
 
         var htmlBody = $@"
             <h2>Password Reset Request</h2>
@@ -475,7 +475,7 @@ public class EmailService : IEmailService
                    Reset Password
                 </a>
             </p>
-            <p>This link will expire in 24 hours.</p>
+            <p>This link will expire in 1 hour.</p>
             <p style='color: #666; font-size: 14px;'>If you didn't request this password reset, please ignore this email or contact support if you have concerns.</p>
             <hr style='border: none; border-top: 1px solid #eee; margin: 20px 0;'>
             <p style='color: #999; font-size: 12px;'>If the button doesn't work, copy and paste this link into your browser:<br>{resetUrl}</p>";

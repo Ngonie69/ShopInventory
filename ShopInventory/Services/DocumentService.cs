@@ -4,6 +4,7 @@ using Npgsql;
 using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
@@ -884,30 +885,42 @@ public class DocumentService : IDocumentService
                 }))
             .ToListAsync(cancellationToken);
 
-        var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
-            await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken));
+        var (warehouseLocations, hasCompleteWarehouseLocations) =
+            await TryGetWarehouseLocationLookupAsync(cancellationToken);
 
-        var locallyScopedDocEntries = localInvoiceWarehouseRows
+        var localScopeResults = localInvoiceWarehouseRows
             .GroupBy(row => row.DocEntry)
-            .ToDictionary(
-                group => group.Key,
-                group => PodLocationScope.WarehouseCodesMatchAssignedSection(
+            .Select(group => new
+            {
+                DocEntry = group.Key,
+                MatchesAssignedSection = PodLocationScope.WarehouseCodesMatchAssignedSection(
                     group.Select(row => row.WarehouseCode),
                     normalizedSection,
-                    warehouseLocations));
+                    warehouseLocations)
+            })
+            .ToList();
 
-        foreach (var (docEntry, matchesAssignedSection) in locallyScopedDocEntries)
+        var locallyResolvedDocEntries = new HashSet<int>();
+
+        foreach (var result in localScopeResults)
         {
-            _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), matchesAssignedSection, TimeSpan.FromMinutes(15));
-
-            if (matchesAssignedSection)
+            if (result.MatchesAssignedSection || hasCompleteWarehouseLocations)
             {
-                scopedDocEntries.Add(docEntry);
+                locallyResolvedDocEntries.Add(result.DocEntry);
+                _memoryCache.Set(
+                    GetPodInvoiceSectionScopeCacheKey(normalizedSection, result.DocEntry),
+                    result.MatchesAssignedSection,
+                    TimeSpan.FromMinutes(15));
+            }
+
+            if (result.MatchesAssignedSection)
+            {
+                scopedDocEntries.Add(result.DocEntry);
             }
         }
 
         var sapFallbackDocEntries = uncachedDocEntries
-            .Where(docEntry => !locallyScopedDocEntries.ContainsKey(docEntry))
+            .Where(docEntry => !locallyResolvedDocEntries.Contains(docEntry))
             .ToList();
 
         if (sapFallbackDocEntries.Count == 0)
@@ -920,7 +933,20 @@ public class DocumentService : IDocumentService
             sapFallbackDocEntries.Count,
             normalizedSection);
 
-        var invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(sapFallbackDocEntries, cancellationToken);
+        List<Invoice> invoices;
+        try
+        {
+            invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(sapFallbackDocEntries, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not load SAP invoice headers for POD section scoping; returning {Count} locally scoped invoices.",
+                scopedDocEntries.Count);
+            return scopedDocEntries;
+        }
+
         if (invoices.Count == 0)
         {
             foreach (var docEntry in sapFallbackDocEntries)
@@ -940,7 +966,10 @@ public class DocumentService : IDocumentService
             var matchesAssignedSection = invoicesByDocEntry.TryGetValue(docEntry, out var invoice) &&
                 PodLocationScope.InvoiceMatchesAssignedSection(invoice, normalizedSection, warehouseLocations);
 
-            _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), matchesAssignedSection, TimeSpan.FromMinutes(15));
+            if (matchesAssignedSection || hasCompleteWarehouseLocations)
+            {
+                _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), matchesAssignedSection, TimeSpan.FromMinutes(15));
+            }
 
             if (matchesAssignedSection)
             {
@@ -949,6 +978,23 @@ public class DocumentService : IDocumentService
         }
 
         return scopedDocEntries;
+    }
+
+    private async Task<(IReadOnlyDictionary<string, string?> Locations, bool IsComplete)> TryGetWarehouseLocationLookupAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+            return (PodLocationScope.BuildWarehouseLocationLookup(warehouses), true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not load SAP warehouse locations for POD section scoping; using local warehouse-code matching only.");
+            return (new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase), false);
+        }
     }
 
     private static string GetPodInvoiceSectionScopeCacheKey(string assignedSection, int docEntry)
@@ -972,7 +1018,24 @@ public class DocumentService : IDocumentService
             return cachedWarehouseCodes;
         }
 
-        var warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+        List<WarehouseDto> warehouses;
+        try
+        {
+            warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not load SAP warehouse codes for POD section {AssignedSection}; using section names as fallback warehouse codes.",
+                canonicalSection);
+
+            return PodLocationScope.GetSectionFilterValues(canonicalSection)
+                .Select(code => code.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
         var warehouseCodes = PodLocationScope.GetWarehouseCodesForAssignedSection(warehouses, canonicalSection)
             .Select(code => code.ToUpperInvariant())
             .Distinct(StringComparer.OrdinalIgnoreCase)

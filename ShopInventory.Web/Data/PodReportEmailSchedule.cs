@@ -8,6 +8,7 @@ public enum PodReportEmailFrequency
     Weekly,
     Monthly,
     Daily,
+    MonthToDateDaily,
     EveryNDays
 }
 

@@ -791,6 +791,10 @@
                                                             <span>@GetScheduleCadenceLabel(schedule)</span>
                                                         </div>
                                                         <div class="sched-meta-row">
+                                                            <i class="bi bi-calendar-event"></i>
+                                                            <span>Next send: @FormatScheduleNextSend(schedule)</span>
+                                                        </div>
+                                                        <div class="sched-meta-row">
                                                             <i class="bi bi-people"></i>
                                                             <span>@ScheduleRecipientSummary(schedule)</span>
                                                         </div>
@@ -2109,6 +2113,7 @@
         PodReportEmailService.ParseFrequency(schedule.Frequency) switch
         {
             PodReportEmailFrequency.Daily => "daily",
+            PodReportEmailFrequency.MonthToDateDaily => "monthtodate",
             PodReportEmailFrequency.Weekly => "weekly",
             PodReportEmailFrequency.Monthly => "monthly",
             PodReportEmailFrequency.EveryNDays => "everyndays",
@@ -2119,6 +2124,7 @@
         PodReportEmailService.ParseFrequency(schedule.Frequency) switch
         {
             PodReportEmailFrequency.Daily => "Daily",
+            PodReportEmailFrequency.MonthToDateDaily => "Month to date",
             PodReportEmailFrequency.Weekly => "Weekly",
             PodReportEmailFrequency.Monthly => "Monthly",
             PodReportEmailFrequency.EveryNDays => $"Every {PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays)} days",
@@ -2131,11 +2137,29 @@
         return PodReportEmailService.ParseFrequency(schedule.Frequency) switch
         {
             PodReportEmailFrequency.Daily => $"Every day at {time}",
+            PodReportEmailFrequency.MonthToDateDaily => $"Every day at {time}, month to date",
             PodReportEmailFrequency.Weekly => $"{(DayOfWeek)Math.Clamp(schedule.DayOfWeek ?? (int)DayOfWeek.Monday, 0, 6)}s at {time}",
             PodReportEmailFrequency.Monthly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each month at {time}",
             PodReportEmailFrequency.EveryNDays => $"Every {PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays)} days at {time}",
             _ => $"Weekly at {time}"
         };
+    }
+
+    private string FormatScheduleNextSend(PodReportEmailSchedule schedule)
+    {
+        if (!schedule.Enabled)
+        {
+            return "Disabled";
+        }
+
+        if (!GetBoolValue(SettingKeys.PodReportEmailsEnabled))
+        {
+            return "Paused";
+        }
+
+        var frequency = PodReportEmailService.ParseFrequency(schedule.Frequency);
+        var nextLocal = PodReportEmailJob.ComputeNextDueLocal(schedule, frequency, PodScheduleTime.NowLocal());
+        return $"{nextLocal:dd MMM yyyy HH:mm} {PodScheduleTime.ZoneAbbreviation}";
     }
 
     private string ScheduleRecipientSummary(PodReportEmailSchedule schedule)
@@ -2154,6 +2178,7 @@
     private static string FrequencyOptionLabel(PodReportEmailFrequency frequency) => frequency switch
     {
         PodReportEmailFrequency.Daily => "Daily",
+        PodReportEmailFrequency.MonthToDateDaily => "Month-to-date daily",
         PodReportEmailFrequency.Weekly => "Weekly",
         PodReportEmailFrequency.Monthly => "Monthly",
         PodReportEmailFrequency.EveryNDays => "Every N days",

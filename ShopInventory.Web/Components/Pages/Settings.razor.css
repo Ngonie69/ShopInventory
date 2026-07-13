@@ -1553,6 +1553,7 @@ select.field-input-sm {
 .sched-freq-weekly     { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
 .sched-freq-monthly    { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .sched-freq-daily      { background: linear-gradient(135deg, #14b8a6, #0d9488); }
+.sched-freq-monthtodate { background: linear-gradient(135deg, #0891b2, #0e7490); }
 .sched-freq-everyndays { background: linear-gradient(135deg, #a855f7, #7c3aed); }
 
 .sched-card-meta {

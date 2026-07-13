@@ -43,6 +43,14 @@
         var overdueAmount = dashboard?.OverdueAmount ?? 0;
         var lastPaymentAmount = dashboard?.LastPaymentAmount ?? 0;
 
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-3" role="alert">
+                <span>@errorMessage</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RefreshData">Try again</button>
+            </div>
+        }
+
         <div class="dashboard-hero">
             <div class="page-header staff-dashboard-header">
                 <div class="dashboard-title">
@@ -712,6 +720,7 @@
     private CustomerInfo? customerInfo;
     private CustomerDashboardSummary? dashboard;
     private bool isLoading = true;
+    private string? errorMessage;
     private DateTime? lastUpdated;
 #pragma warning disable CS0414
     private bool _hasLoadedData;
@@ -730,6 +739,7 @@
     private async Task LoadCustomerData()
     {
         isLoading = true;
+        errorMessage = null;
 
         try
         {
@@ -748,6 +758,8 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading customer data");
+            dashboard = null;
+            errorMessage = "We couldn't load your account data right now. Please try again or contact support if the problem continues.";
         }
         finally
         {
