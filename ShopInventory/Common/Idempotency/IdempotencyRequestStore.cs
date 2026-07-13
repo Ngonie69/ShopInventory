@@ -73,7 +73,11 @@ public sealed class IdempotencyRequestStore(
         try
         {
             await context.SaveChangesAsync(cancellationToken);
-            return new IdempotencyAcquireResult<TResponse>(IdempotencyAcquireOutcome.Acquired, entity.Id);
+            return new IdempotencyAcquireResult<TResponse>(
+                IdempotencyAcquireOutcome.Acquired,
+                entity.Id,
+                CreatedAtUtc: entity.CreatedAtUtc,
+                ExpiresAtUtc: entity.ExpiresAtUtc);
         }
         catch (DbUpdateException)
         {
@@ -142,7 +146,9 @@ public sealed class IdempotencyRequestStore(
         {
             return new IdempotencyAcquireResult<TResponse>(
                 IdempotencyAcquireOutcome.RequestMismatch,
-                entity.Id);
+                entity.Id,
+                CreatedAtUtc: entity.CreatedAtUtc,
+                ExpiresAtUtc: entity.ExpiresAtUtc);
         }
 
         if (entity.Status == IdempotencyRequestStatus.Completed && !string.IsNullOrWhiteSpace(entity.ResponsePayload))
@@ -153,11 +159,17 @@ public sealed class IdempotencyRequestStore(
                 return new IdempotencyAcquireResult<TResponse>(
                     IdempotencyAcquireOutcome.ReplayAvailable,
                     entity.Id,
-                    response);
+                    response,
+                    entity.CreatedAtUtc,
+                    entity.ExpiresAtUtc);
             }
         }
 
-        return new IdempotencyAcquireResult<TResponse>(IdempotencyAcquireOutcome.InProgress, entity.Id);
+        return new IdempotencyAcquireResult<TResponse>(
+            IdempotencyAcquireOutcome.InProgress,
+            entity.Id,
+            CreatedAtUtc: entity.CreatedAtUtc,
+            ExpiresAtUtc: entity.ExpiresAtUtc);
     }
 
     private static string ComputeHash(string value)

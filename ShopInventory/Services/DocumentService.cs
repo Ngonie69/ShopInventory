@@ -1558,29 +1558,60 @@ public class DocumentService : IDocumentService
         return $"{len:0.##} {sizes[order]}";
     }
 
+    private sealed class PodAttachmentStatusCandidate
+    {
+        public int DocEntry { get; init; }
+        public string FileName { get; init; } = string.Empty;
+        public string? Description { get; init; }
+        public DateTime UploadedAt { get; init; }
+        public string? UploadedBy { get; init; }
+        public string? UploadedByRole { get; init; }
+        public string? UploadedFromLocation { get; init; }
+    }
+
     public async Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default)
     {
-        if (docEntries.Count == 0)
+        var distinctDocEntries = docEntries
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .ToArray();
+
+        if (distinctDocEntries.Length == 0)
             return new Dictionary<int, PodStatusInfo>();
 
-        var podAttachments = await _context.Set<DocumentAttachmentEntity>()
-            .AsNoTracking()
-            .Include(a => a.UploadedByUser)
-            .Where(a => a.EntityType == "Invoice" && docEntries.Contains(a.EntityId))
-            .Where(a =>
-                EF.Functions.ILike(a.FileName, "%pod%") ||
-                EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
-                (a.Description != null && (EF.Functions.ILike(a.Description, "%pod%") || EF.Functions.ILike(a.Description, "%proof of delivery%")))
-            )
-            .Select(a => new
-            {
-                DocEntry = a.EntityId,
-                a.UploadedAt,
-                UploadedBy = a.UploadedByUser != null ? a.UploadedByUser.Username : null,
-                UploadedByRole = a.UploadedByUser != null ? a.UploadedByUser.Role : null,
-                UploadedFromLocation = a.UploadedByUser != null ? a.UploadedByUser.AssignedSection : null
-            })
-            .ToListAsync(cancellationToken);
+        var attachmentCandidates = new List<PodAttachmentStatusCandidate>();
+        foreach (var chunk in distinctDocEntries.Chunk(500))
+        {
+            // Restrict the database query using the indexed EntityType/EntityId columns first.
+            // Applying multiple leading-wildcard ILIKE predicates in SQL caused PostgreSQL to
+            // spend minutes scanning attachments for larger month-to-date reports. The small
+            // candidate set is filtered for POD naming conventions in memory instead.
+            var chunkDocEntries = chunk.ToArray();
+            var candidates = await _context.Set<DocumentAttachmentEntity>()
+                .AsNoTracking()
+                .Where(attachment =>
+                    attachment.EntityType == "Invoice" &&
+                    chunkDocEntries.Contains(attachment.EntityId))
+                .Select(attachment => new PodAttachmentStatusCandidate
+                {
+                    DocEntry = attachment.EntityId,
+                    FileName = attachment.FileName,
+                    Description = attachment.Description,
+                    UploadedAt = attachment.UploadedAt,
+                    UploadedBy = attachment.UploadedByUser != null ? attachment.UploadedByUser.Username : null,
+                    UploadedByRole = attachment.UploadedByUser != null ? attachment.UploadedByUser.Role : null,
+                    UploadedFromLocation = attachment.UploadedByUser != null ? attachment.UploadedByUser.AssignedSection : null
+                })
+                .ToListAsync(cancellationToken);
+
+            attachmentCandidates.AddRange(candidates);
+        }
+
+        var podAttachments = attachmentCandidates
+            .Where(attachment =>
+                IsPodAttachmentText(attachment.FileName) ||
+                IsPodAttachmentText(attachment.Description))
+            .ToList();
 
         var podData = podAttachments
             .GroupBy(a => a.DocEntry)
@@ -1640,6 +1671,11 @@ public class DocumentService : IDocumentService
                 UploadedByUsers = p.UploadedByUsers
             });
     }
+
+    private static bool IsPodAttachmentText(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        (value.Contains("pod", StringComparison.OrdinalIgnoreCase) ||
+         value.Contains("proof of delivery", StringComparison.OrdinalIgnoreCase));
 
     #endregion
 }

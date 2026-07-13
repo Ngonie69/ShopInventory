@@ -1569,7 +1569,7 @@
 
                     <div class="sched-field sched-field-full">
                         <label class="field-label">To recipients <span class="required">*</span></label>
-                        <textarea class="field-input sched-textarea" placeholder="Separate addresses with commas, semicolons, or new lines"
+                        <textarea class="field-input sched-textarea" placeholder="Name &lt;email@example.com&gt;; or separate addresses with commas/new lines"
                                   value="@editingSchedule.ToRecipients"
                                   @onchange="e => editingSchedule.ToRecipients = e.Value?.ToString() ?? string.Empty"></textarea>
                     </div>
@@ -2158,7 +2158,19 @@
         }
 
         var frequency = PodReportEmailService.ParseFrequency(schedule.Frequency);
-        var nextLocal = PodReportEmailJob.ComputeNextDueLocal(schedule, frequency, PodScheduleTime.NowLocal());
+        var nowLocal = PodScheduleTime.NowLocal();
+        var mostRecentDueLocal = PodReportEmailJob.ComputeMostRecentDueLocal(schedule, frequency, nowLocal);
+        if (mostRecentDueLocal.HasValue)
+        {
+            var mostRecentDueUtc = PodScheduleTime.ToUtc(mostRecentDueLocal.Value);
+            var sentFloorUtc = schedule.LastSentUtc ?? schedule.AnchorDateUtc;
+            if (mostRecentDueUtc > sentFloorUtc)
+            {
+                return $"Retry pending since {mostRecentDueLocal:dd MMM yyyy HH:mm} {PodScheduleTime.ZoneAbbreviation}";
+            }
+        }
+
+        var nextLocal = PodReportEmailJob.ComputeNextDueLocal(schedule, frequency, nowLocal);
         return $"{nextLocal:dd MMM yyyy HH:mm} {PodScheduleTime.ZoneAbbreviation}";
     }
 
@@ -2189,18 +2201,7 @@
         int.TryParse(value, out var parsed) ? parsed : null;
 
     private static List<string> ParseEmailRecipients(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return new();
-        }
-
-        return value
-            .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(address => !string.IsNullOrWhiteSpace(address))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
+        => EmailRecipientParser.Parse(value);
 
 
     private List<string> GetSavedPrintersList()

@@ -206,9 +206,12 @@ public class EmailService : IEmailService
         IEnumerable<EmailAttachmentContent>? attachments = null,
         CancellationToken cancellationToken = default)
     {
-        var toList = NormalizeEmailAddresses(toEmails);
-        var ccList = NormalizeEmailAddresses(ccEmails)
-            .Where(cc => !toList.Contains(cc, StringComparer.OrdinalIgnoreCase))
+        var toList = EmailRecipientParser.ParseMailboxes(toEmails);
+        var toAddresses = toList
+            .Select(mailbox => mailbox.Address)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ccList = EmailRecipientParser.ParseMailboxes(ccEmails)
+            .Where(mailbox => !toAddresses.Contains(mailbox.Address))
             .ToList();
         var attachmentList = attachments?.ToList() ?? new List<EmailAttachmentContent>();
 
@@ -245,12 +248,12 @@ public class EmailService : IEmailService
 
             foreach (var toEmail in toList)
             {
-                message.To.Add(MailboxAddress.Parse(toEmail));
+                message.To.Add(toEmail);
             }
 
             foreach (var ccEmail in ccList)
             {
-                message.Cc.Add(MailboxAddress.Parse(ccEmail));
+                message.Cc.Add(ccEmail);
             }
 
             message.Subject = subject;
@@ -671,15 +674,6 @@ public class EmailService : IEmailService
         var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", "");
         text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
         return text.Trim();
-    }
-
-    private static List<string> NormalizeEmailAddresses(IEnumerable<string>? addresses)
-    {
-        return (addresses ?? Enumerable.Empty<string>())
-            .Select(address => address.Trim())
-            .Where(address => !string.IsNullOrWhiteSpace(address))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
     }
 
     private string ResolveSmtpHost() =>

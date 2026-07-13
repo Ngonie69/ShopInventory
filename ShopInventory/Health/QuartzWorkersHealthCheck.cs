@@ -8,7 +8,9 @@ namespace ShopInventory.Health;
 /// Health check for the Quartz-hosted background jobs. Replaces the hand-rolled
 /// BackgroundWorkersHealthCheck: instead of reading a custom cluster-state table it inspects the
 /// scheduler directly. The scheduler must be started (not in standby), and no job trigger may be
-/// in an ERROR/BLOCKED state or left unscheduled (null next-fire time). Trigger state is held in
+/// in an ERROR state or left unscheduled (null next-fire time). A BLOCKED trigger is expected when
+/// another clustered node owns a [DisallowConcurrentExecution] job during blue/green overlap.
+/// Trigger state is held in
 /// the clustered Postgres job store, so this reflects the whole cluster, not just this node.
 /// Registered under the "workers" name so the existing alert email continues to surface it.
 /// </summary>
@@ -45,7 +47,10 @@ public sealed class QuartzWorkersHealthCheck(
 
             data[jobName] = $"state={state}; prevFire={trigger?.GetPreviousFireTimeUtc()?.ToString("O") ?? "none"}; nextFire={nextFire?.ToString("O") ?? "none"}";
 
-            if (state is TriggerState.Error or TriggerState.Blocked)
+            // BLOCKED is a normal clustered state while another node owns a non-concurrent job.
+            // Treat it as unhealthy only if it also has no future fire time; the next-fire check
+            // below catches that misconfiguration while allowing blue/green cutovers to proceed.
+            if (state == TriggerState.Error)
             {
                 failures.Add($"{jobName} trigger is in {state} state.");
             }

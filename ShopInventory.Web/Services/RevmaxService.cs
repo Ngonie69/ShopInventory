@@ -261,7 +261,7 @@ public class RevmaxInvoiceData
     public int ReceiptCounter { get; set; }
     public long ReceiptGlobalNo { get; set; }
     public string? InvoiceNo { get; set; }
-    public string? BuyerData { get; set; }
+    public JsonElement? BuyerData { get; set; }
     public string? ReceiptNotes { get; set; }
     public string? ReceiptDate { get; set; }
     public object? CreditDebitNote { get; set; }

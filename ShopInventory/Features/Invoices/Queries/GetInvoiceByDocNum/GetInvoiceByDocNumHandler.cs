@@ -64,6 +64,14 @@ public sealed class GetInvoiceByDocNumHandler(
         catch (Exception ex)
         {
             logger.LogError(ex, "Error retrieving invoice by DocNum {DocNum}", request.DocNum);
+
+            // Some SAP invoices contain line-level values that cannot be deserialized into the
+            // full Invoice model. Retry with the existing header-only bulk lookup before treating
+            // a document that exists in OINV as unavailable to the POD workflow.
+            var headerInvoice = await TryGetSapInvoiceHeaderAsync(request.DocNum, cancellationToken);
+            if (headerInvoice is not null)
+                return await AuthorizeAndEnrichInvoiceAsync(headerInvoice.ToDto(), request, cancellationToken);
+
             var cachedResult = await TryGetCachedInvoiceResultAsync(request, "SAP lookup error", cancellationToken);
             if (cachedResult.HasValue)
                 return cachedResult.Value;
@@ -72,9 +80,45 @@ public sealed class GetInvoiceByDocNumHandler(
         }
 
         if (invoice is null)
-            return Errors.Invoice.NotFoundByDocNum(request.DocNum);
+        {
+            // Repeat the exact lookup with a small $select projection. Besides reducing payload
+            // size, this avoids line-level conversion problems while still proving the SAP
+            // document exists and supplying everything required by POD upload.
+            invoice = await TryGetSapInvoiceHeaderAsync(request.DocNum, cancellationToken);
+            if (invoice is null)
+                return Errors.Invoice.NotFoundByDocNum(request.DocNum);
+        }
 
         return await AuthorizeAndEnrichInvoiceAsync(invoice.ToDto(), request, cancellationToken);
+    }
+
+    private async Task<Invoice?> TryGetSapInvoiceHeaderAsync(
+        int docNum,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var invoices = await sapClient.GetInvoicesByDocNumsAsync([docNum], cancellationToken);
+            var invoice = invoices.FirstOrDefault(candidate => candidate.DocNum == docNum);
+
+            if (invoice is not null)
+            {
+                logger.LogWarning(
+                    "Resolved invoice {DocNum} through the SAP header-only fallback after the full lookup did not return a usable invoice",
+                    docNum);
+            }
+
+            return invoice;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "SAP header-only fallback failed for invoice {DocNum}", docNum);
+            return null;
+        }
     }
 
     private async Task<ErrorOr<InvoiceDto>?> TryGetCachedInvoiceResultAsync(

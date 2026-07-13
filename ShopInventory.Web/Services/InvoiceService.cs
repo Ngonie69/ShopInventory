@@ -68,14 +68,29 @@ public class InvoiceService : IInvoiceService
 
     public async Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum)
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<InvoiceDto>($"api/invoice/by-docnum/{docNum}");
-        }
-        catch
+        using var response = await _httpClient.GetAsync($"api/invoice/by-docnum/{docNum}");
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return null;
         }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning(
+                "Invoice lookup failed for DocNum {DocNum}. Status: {StatusCode}, Response: {ErrorContent}",
+                docNum,
+                (int)response.StatusCode,
+                ApiErrorResponse.SanitizeForLog(errorContent));
+
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorContent,
+                $"Could not look up invoice #{docNum}.");
+        }
+
+        return await response.Content.ReadFromJsonAsync<InvoiceDto>();
     }
 
     public async Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry)
