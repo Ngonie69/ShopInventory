@@ -230,6 +230,7 @@ try
         .AddCheck<QuartzWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<QueuePressureHealthCheck>("queues", tags: ["dependencies"])
         .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<ApiKeyExpiryHealthCheck>("api-keys", tags: ["dependencies"])
         .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
 
     // Configure Swagger with version-aware API metadata.
