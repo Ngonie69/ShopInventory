@@ -12138,3 +12138,64 @@ canvas {
         justify-content: flex-start;
     }
 }
+/* Customer portal account recovery */
+.customer-recovery-page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+}
+
+.customer-recovery-card {
+    width: min(100%, 460px);
+    padding: 2rem;
+    border: 1px solid #dbe3ec;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+}
+
+.customer-recovery-card h1 {
+    margin-bottom: .75rem;
+    color: #0f172a;
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.customer-recovery-logo {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 1rem;
+    border-radius: 14px;
+    object-fit: cover;
+}
+
+.customer-recovery-eyebrow {
+    margin-bottom: .35rem;
+    color: #475569;
+    font-size: .78rem;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.customer-recovery-back {
+    display: block;
+    margin-top: 1.25rem;
+    color: #334155;
+    text-align: center;
+    text-decoration: none;
+}
+
+.customer-recovery-back:hover {
+    color: #0f172a;
+    text-decoration: underline;
+}
+
+.customer-recovery-card .validation-message {
+    display: block;
+    margin-top: .35rem;
+    color: #b91c1c;
+    font-size: .82rem;
+}

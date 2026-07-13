@@ -112,6 +112,7 @@ public sealed class PodReportEmailJob(
         return frequency switch
         {
             PodReportEmailFrequency.Daily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
+            PodReportEmailFrequency.MonthToDateDaily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.Weekly => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
             PodReportEmailFrequency.Monthly => GetMostRecentMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
             PodReportEmailFrequency.EveryNDays => GetMostRecentEveryNDaysLocal(
@@ -120,6 +121,28 @@ public sealed class PodReportEmailJob(
                 PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
                 minuteOfDay),
             _ => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay)
+        };
+    }
+
+    internal static DateTime ComputeNextDueLocal(
+        PodReportEmailSchedule schedule,
+        PodReportEmailFrequency frequency,
+        DateTime nowLocal)
+    {
+        var minuteOfDay = PodScheduleTime.NormalizeMinuteOfDay(schedule.SendMinuteOfDay);
+
+        return frequency switch
+        {
+            PodReportEmailFrequency.Daily => GetNextDailyLocal(nowLocal, minuteOfDay),
+            PodReportEmailFrequency.MonthToDateDaily => GetNextDailyLocal(nowLocal, minuteOfDay),
+            PodReportEmailFrequency.Weekly => GetNextWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
+            PodReportEmailFrequency.Monthly => GetNextMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
+            PodReportEmailFrequency.EveryNDays => GetNextEveryNDaysLocal(
+                nowLocal,
+                PodScheduleTime.ToLocal(DateTime.SpecifyKind(schedule.AnchorDateUtc, DateTimeKind.Utc)),
+                PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays),
+                minuteOfDay),
+            _ => GetNextWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay)
         };
     }
 
@@ -140,6 +163,12 @@ public sealed class PodReportEmailJob(
         return scheduled;
     }
 
+    private static DateTime GetNextDailyLocal(DateTime nowLocal, int minuteOfDay)
+    {
+        var scheduled = nowLocal.Date.AddMinutes(minuteOfDay);
+        return scheduled > nowLocal ? scheduled : scheduled.AddDays(1);
+    }
+
     private static DateTime GetMostRecentWeeklyLocal(DateTime nowLocal, DayOfWeek targetDay, int minuteOfDay)
     {
         var dayOffset = (int)targetDay - (int)nowLocal.DayOfWeek;
@@ -153,6 +182,13 @@ public sealed class PodReportEmailJob(
         return scheduled;
     }
 
+    private static DateTime GetNextWeeklyLocal(DateTime nowLocal, DayOfWeek targetDay, int minuteOfDay)
+    {
+        var dayOffset = (int)targetDay - (int)nowLocal.DayOfWeek;
+        var scheduled = nowLocal.Date.AddDays(dayOffset).AddMinutes(minuteOfDay);
+        return scheduled > nowLocal ? scheduled : scheduled.AddDays(7);
+    }
+
     private static DateTime GetMostRecentMonthlyLocal(DateTime nowLocal, int dayOfMonth, int minuteOfDay)
     {
         var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
@@ -162,6 +198,19 @@ public sealed class PodReportEmailJob(
         {
             var previousMonth = nowLocal.AddMonths(-1);
             scheduled = BuildMonthlyLocal(previousMonth.Year, previousMonth.Month, clampedDay, minuteOfDay);
+        }
+
+        return scheduled;
+    }
+
+    private static DateTime GetNextMonthlyLocal(DateTime nowLocal, int dayOfMonth, int minuteOfDay)
+    {
+        var clampedDay = Math.Clamp(dayOfMonth, 1, 31);
+        var scheduled = BuildMonthlyLocal(nowLocal.Year, nowLocal.Month, clampedDay, minuteOfDay);
+        if (scheduled <= nowLocal)
+        {
+            var nextMonth = nowLocal.AddMonths(1);
+            scheduled = BuildMonthlyLocal(nextMonth.Year, nextMonth.Month, clampedDay, minuteOfDay);
         }
 
         return scheduled;
@@ -197,6 +246,25 @@ public sealed class PodReportEmailJob(
         }
 
         return scheduled;
+    }
+
+    private static DateTime GetNextEveryNDaysLocal(
+        DateTime nowLocal,
+        DateTime anchorLocal,
+        int intervalDays,
+        int minuteOfDay)
+    {
+        var anchorInstant = anchorLocal.Date.AddMinutes(minuteOfDay);
+        if (nowLocal < anchorInstant)
+        {
+            return anchorInstant;
+        }
+
+        var daysSince = (nowLocal.Date - anchorInstant.Date).Days;
+        var periodsElapsed = daysSince / intervalDays;
+        var scheduled = anchorInstant.AddDays(periodsElapsed * intervalDays);
+
+        return scheduled > nowLocal ? scheduled : scheduled.AddDays(intervalDays);
     }
 
     private static bool ParseBool(string? value) => bool.TryParse(value, out var parsed) && parsed;

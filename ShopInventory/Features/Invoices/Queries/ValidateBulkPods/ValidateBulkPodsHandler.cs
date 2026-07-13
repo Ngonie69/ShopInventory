@@ -179,9 +179,47 @@ public sealed class ValidateBulkPodsHandler(
 
         var linkedInvoices = new List<(int SalesOrderDocEntry, int SalesOrderDocNum, string? CustomerCode, string? CustomerName, int InvoiceDocEntry, int InvoiceDocNum, DateTime? InvoiceDocDate)>();
         var lookupFailures = new Dictionary<int, string>();
+        var locallyResolvedSalesOrderDocNums = new HashSet<int>();
         var chunkIndex = 0;
 
-        foreach (var chunk in requestedSalesOrderDocNums.Chunk(200))
+        var localLinks = await context.SalesOrders
+            .AsNoTracking()
+            .Where(order =>
+                order.SAPDocNum.HasValue &&
+                requestedSalesOrderDocNums.Contains(order.SAPDocNum.Value) &&
+                order.Invoice != null &&
+                order.Invoice.SAPDocEntry.HasValue &&
+                order.Invoice.SAPDocNum.HasValue)
+            .Select(order => new
+            {
+                SalesOrderDocEntry = order.SAPDocEntry ?? order.Id,
+                SalesOrderDocNum = order.SAPDocNum!.Value,
+                CustomerCode = order.CardCode,
+                CustomerName = order.CardName,
+                InvoiceDocEntry = order.Invoice!.SAPDocEntry!.Value,
+                InvoiceDocNum = order.Invoice.SAPDocNum!.Value,
+                InvoiceDocDate = (DateTime?)order.Invoice.DocDate
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var link in localLinks)
+        {
+            linkedInvoices.Add((
+                link.SalesOrderDocEntry,
+                link.SalesOrderDocNum,
+                link.CustomerCode,
+                link.CustomerName,
+                link.InvoiceDocEntry,
+                link.InvoiceDocNum,
+                link.InvoiceDocDate));
+            locallyResolvedSalesOrderDocNums.Add(link.SalesOrderDocNum);
+        }
+
+        var unresolvedSalesOrderDocNums = requestedSalesOrderDocNums
+            .Where(docNum => !locallyResolvedSalesOrderDocNums.Contains(docNum))
+            .ToList();
+
+        foreach (var chunk in unresolvedSalesOrderDocNums.Chunk(200))
         {
             chunkIndex++;
 

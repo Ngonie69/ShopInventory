@@ -1212,7 +1212,7 @@ public class SalesOrderService : ISalesOrderService
 
         // Update order status
         order.Status = SalesOrderStatus.Fulfilled;
-        order.InvoiceId = invoice.Id;
+        order.Invoice = invoice;
         order.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);

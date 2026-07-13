@@ -63,12 +63,13 @@ try
     var customerPortalJwtSecret = builder.Configuration["CustomerPortal:JwtSecret"];
     if (string.IsNullOrWhiteSpace(customerPortalJwtSecret) ||
         customerPortalJwtSecret.StartsWith("${", StringComparison.Ordinal) ||
+        customerPortalJwtSecret.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase) ||
         customerPortalJwtSecret.Length < 32)
     {
         throw new InvalidOperationException(
             "CustomerPortal:JwtSecret is missing, a placeholder, or shorter than 32 characters. " +
             "This secret MUST be configured independently from Jwt:SecretKey. " +
-            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CUSTOMER_PORTAL_JWT_SECRET environment variable.");
+            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CustomerPortal__JwtSecret environment variable.");
     }
 
     // Warn if customer portal secret is identical to staff JWT secret (compare hashes)
@@ -164,6 +165,7 @@ try
         .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready", "deploy-ready"])
         .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<WebQuartzWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<ApiDependencyHealthCheck>("api", tags: ["dependencies"]);
 
     // Add Cascading Authentication State (for Blazor component-level auth)

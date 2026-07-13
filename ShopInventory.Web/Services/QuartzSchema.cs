@@ -61,10 +61,14 @@ CREATE TABLE IF NOT EXISTS qrtz_triggers (
   end_time bigint NULL,
   calendar_name text NULL,
   misfire_instr smallint NULL,
+  misfire_orig_fire_time bigint NULL,
   job_data bytea NULL,
   PRIMARY KEY (sched_name, trigger_name, trigger_group),
   FOREIGN KEY (sched_name, job_name, job_group) REFERENCES qrtz_job_details (sched_name, job_name, job_group)
 );
+
+ALTER TABLE qrtz_triggers
+  ADD COLUMN IF NOT EXISTS misfire_orig_fire_time bigint NULL;
 
 CREATE TABLE IF NOT EXISTS qrtz_simple_triggers (
   sched_name text NOT NULL,

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Json;
+using System.Text.Json;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 
@@ -169,13 +170,17 @@ public sealed class PodReportEmailService(
 
         try
         {
-            var report = await GetPodReportAsync(fromDate, toDate, cancellationToken);
+            var (report, reportFailureDetail) = await GetPodReportAsync(fromDate, toDate, cancellationToken);
             if (report is null)
             {
+                var failureMessage = string.IsNullOrWhiteSpace(reportFailureDetail)
+                    ? "The POD report could not be generated from the API."
+                    : $"The POD report could not be generated from the API. {reportFailureDetail}";
                 logger.LogError(
                     SendFailedEvent,
-                    "POD report email send failed before SMTP delivery. Reason={FailureReason}, ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}",
+                    "POD report email send failed before SMTP delivery. Reason={FailureReason}, FailureDetail={FailureDetail}, ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}",
                     "ReportApiFailed",
+                    reportFailureDetail,
                     schedule.Id,
                     schedule.Name,
                     frequencyLabel,
@@ -192,8 +197,8 @@ public sealed class PodReportEmailService(
                     toDate,
                     triggeredBy,
                     "ReportApiFailed",
-                    "The POD report could not be generated from the API.");
-                return new PodReportEmailSendResult(false, "The POD report could not be generated from the API.");
+                    failureMessage);
+                return new PodReportEmailSendResult(false, failureMessage);
             }
 
             var excel = reportExportService.ExportPodUploadStatusToExcel(report);
@@ -342,8 +347,9 @@ public sealed class PodReportEmailService(
 
     /// <summary>
     /// Computes the report data window (date range) for a frequency, relative to <paramref name="nowLocal"/>.
-    /// Always covers the most recently completed period (ending yesterday). Evaluated against the
-    /// business timezone's calendar so "yesterday" means yesterday locally, not in UTC.
+    /// Standard cadences cover the most recently completed period (ending yesterday). The
+    /// month-to-date daily cadence intentionally includes the send date so a day-1 schedule
+    /// starts on the first of the current month and accumulates each day.
     /// </summary>
     public static (DateTime fromDate, DateTime toDate) GetPeriod(
         PodReportEmailFrequency frequency,
@@ -355,6 +361,7 @@ public sealed class PodReportEmailService(
         return frequency switch
         {
             PodReportEmailFrequency.Daily => (toDate, toDate),
+            PodReportEmailFrequency.MonthToDateDaily => GetCurrentMonthToDatePeriod(nowLocal),
             PodReportEmailFrequency.Weekly => (toDate.AddDays(-6), toDate),
             PodReportEmailFrequency.Monthly => GetPreviousCalendarMonthPeriod(nowLocal),
             PodReportEmailFrequency.EveryNDays => (toDate.AddDays(-(NormalizeIntervalDays(intervalDays) - 1)), toDate),
@@ -371,6 +378,7 @@ public sealed class PodReportEmailService(
         frequency switch
         {
             PodReportEmailFrequency.Daily => "Daily",
+            PodReportEmailFrequency.MonthToDateDaily => "Month to Date",
             PodReportEmailFrequency.Weekly => "Weekly",
             PodReportEmailFrequency.Monthly => "Full Month",
             PodReportEmailFrequency.EveryNDays => $"Every {NormalizeIntervalDays(intervalDays)} days",
@@ -383,6 +391,7 @@ public sealed class PodReportEmailService(
         frequency switch
         {
             PodReportEmailFrequency.Daily => "daily",
+            PodReportEmailFrequency.MonthToDateDaily => "month-to-date",
             PodReportEmailFrequency.Weekly => "weekly",
             PodReportEmailFrequency.Monthly => "monthly",
             PodReportEmailFrequency.EveryNDays => $"every-{NormalizeIntervalDays(intervalDays)}-days",
@@ -397,7 +406,14 @@ public sealed class PodReportEmailService(
         return (fromDate, toDate);
     }
 
-    private async Task<PodUploadStatusReport?> GetPodReportAsync(
+    private static (DateTime fromDate, DateTime toDate) GetCurrentMonthToDatePeriod(DateTime nowLocal)
+    {
+        var fromDate = new DateTime(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var toDate = nowLocal.Date;
+        return (fromDate, toDate);
+    }
+
+    private async Task<(PodUploadStatusReport? Report, string? FailureDetail)> GetPodReportAsync(
         DateTime fromDate,
         DateTime toDate,
         CancellationToken cancellationToken)
@@ -430,7 +446,7 @@ public sealed class PodReportEmailService(
                 (int)response.StatusCode,
                 response.ReasonPhrase,
                 TruncateForLog(body, ResponseBodyLogLimit));
-            return null;
+            return (null, BuildApiFailureDetail((int)response.StatusCode, response.ReasonPhrase, body));
         }
 
         var report = await response.Content.ReadFromJsonAsync<PodUploadStatusReport>(cancellationToken);
@@ -443,7 +459,7 @@ public sealed class PodReportEmailService(
                 from,
                 to,
                 (int)response.StatusCode);
-            return null;
+            return (null, $"The report API returned HTTP {(int)response.StatusCode} with an empty body.");
         }
 
         logger.LogInformation(
@@ -457,7 +473,67 @@ public sealed class PodReportEmailService(
             report.PendingCount,
             report.Items?.Count ?? 0);
 
-        return report;
+        return (report, null);
+    }
+
+    /// <summary>
+    /// Turns a failed report-API response into a short, human-readable reason suitable for the
+    /// failure audit entry. Prefers the ProblemDetails <c>detail</c>/<c>title</c> when the API
+    /// returns one (e.g. the SAP timeout/connection messages), falling back to a truncated body.
+    /// </summary>
+    private static string BuildApiFailureDetail(int statusCode, string? reasonPhrase, string? body)
+    {
+        var reason = string.IsNullOrWhiteSpace(reasonPhrase) ? null : reasonPhrase.Trim();
+        var apiMessage = TryExtractProblemDetail(body);
+
+        if (string.IsNullOrWhiteSpace(apiMessage))
+        {
+            apiMessage = string.IsNullOrWhiteSpace(body)
+                ? null
+                : TruncateForLog(body.Trim(), ResponseBodyLogLimit);
+        }
+
+        var prefix = reason is null
+            ? $"The report API returned HTTP {statusCode}."
+            : $"The report API returned HTTP {statusCode} ({reason}).";
+
+        return string.IsNullOrWhiteSpace(apiMessage) ? prefix : $"{prefix} {apiMessage}";
+    }
+
+    private static string? TryExtractProblemDetail(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var property in new[] { "detail", "Detail", "message", "Message", "title", "Title" })
+            {
+                if (document.RootElement.TryGetProperty(property, out var value) &&
+                    value.ValueKind == JsonValueKind.String)
+                {
+                    var text = value.GetString();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return TruncateForLog(text.Trim(), ResponseBodyLogLimit);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Not JSON (or malformed) — the caller falls back to the raw truncated body.
+        }
+
+        return null;
     }
 
     private static string BuildEmailBody(

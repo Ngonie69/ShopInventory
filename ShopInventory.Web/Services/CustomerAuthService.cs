@@ -139,6 +139,12 @@ public class CustomerAuthService : ICustomerAuthService
                 };
             }
 
+            if (ClearExpiredLockout(user))
+            {
+                await dbContext.SaveChangesAsync();
+                _logger.LogInformation("Expired lockout cleared for customer {CardCode}", user.CardCode);
+            }
+
             // Check if account is active
             if (!user.IsActive || user.Status != "Active")
             {
@@ -194,12 +200,18 @@ public class CustomerAuthService : ICustomerAuthService
             if (user.TwoFactorEnabled)
             {
                 var twoFactorToken = GenerateSecureToken();
-                // Store the 2FA session temporarily
-                await StoreTwoFactorSessionAsync(dbContext, cardCode, twoFactorToken, ipAddress);
-
-                // Send 2FA code via email
                 var twoFactorCode = GenerateTwoFactorCode();
-                await SendTwoFactorCodeAsync(user.Email!, twoFactorCode);
+                await StoreTwoFactorSessionAsync(dbContext, cardCode, twoFactorToken, twoFactorCode);
+
+                if (!await SendTwoFactorCodeAsync(user.Email!, twoFactorCode))
+                {
+                    await ClearTwoFactorSessionAsync(dbContext, twoFactorToken);
+                    return new CustomerLoginResponse
+                    {
+                        Success = false,
+                        Message = "We couldn't send the verification code. Please try again."
+                    };
+                }
 
                 return new CustomerLoginResponse
                 {
@@ -237,6 +249,11 @@ public class CustomerAuthService : ICustomerAuthService
             var session = await GetTwoFactorSessionAsync(dbContext, request.TwoFactorToken);
             if (session == null || session.Value.ExpiresAt < DateTime.UtcNow)
             {
+                if (session != null)
+                {
+                    await ClearTwoFactorSessionAsync(dbContext, request.TwoFactorToken);
+                }
+
                 return new CustomerLoginResponse
                 {
                     Success = false,
@@ -245,7 +262,7 @@ public class CustomerAuthService : ICustomerAuthService
             }
 
             // Verify the code
-            if (!await VerifyTwoFactorCodeAsync(dbContext, session.Value.CardCode, request.Code))
+            if (!VerifyTwoFactorCode(session.Value.CodeHash, request.Code))
             {
                 await LogSecurityEventAsync(dbContext, session.Value.CardCode, "Failed2FA", ipAddress, userAgent, false, "Invalid code");
                 return new CustomerLoginResponse
@@ -424,7 +441,21 @@ public class CustomerAuthService : ICustomerAuthService
             var user = await dbContext.Set<CustomerPortalUser>()
                 .FirstOrDefaultAsync(u => u.CardCode == storedToken.CardCode);
 
-            if (user == null || !user.IsActive)
+            if (user == null)
+            {
+                return new CustomerLoginResponse
+                {
+                    Success = false,
+                    Message = "User not found or inactive"
+                };
+            }
+
+            if (ClearExpiredLockout(user))
+            {
+                await dbContext.SaveChangesAsync();
+            }
+
+            if (!user.IsActive || user.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
             {
                 return new CustomerLoginResponse
                 {
@@ -609,21 +640,26 @@ public class CustomerAuthService : ICustomerAuthService
 
             await dbContext.SaveChangesAsync();
 
-            // Send reset email
-            var htmlBody = $@"
-                <h2>Password Reset Request</h2>
-                <p>Your password reset token is: <strong>{resetToken}</strong></p>
-                <p>This token will expire in 1 hour.</p>
-                <p>If you did not request this reset, please contact support immediately.</p>";
-
-            await _emailService.SendEmailAsync(
+            // Keep the response indistinguishable from an unknown account even if the
+            // mail provider is temporarily unavailable.
+            var emailSent = await _emailService.SendPasswordResetAsync(
                 user.Email!,
                 user.CardName ?? "Customer",
-                "Password Reset Request",
-                htmlBody
-            );
+                resetToken);
 
-            await LogSecurityEventAsync(dbContext, request.CardCode, "PasswordResetRequest", ipAddress, null, true, "Reset email sent");
+            await LogSecurityEventAsync(
+                dbContext,
+                request.CardCode,
+                "PasswordResetRequest",
+                ipAddress,
+                null,
+                emailSent,
+                emailSent ? "Reset email sent" : "Reset email could not be sent");
+
+            if (!emailSent)
+            {
+                _logger.LogWarning("Password reset email could not be sent for customer {CardCode}", user.CardCode);
+            }
             await IncrementRateLimitAsync(dbContext, ipAddress, "password-reset");
 
             return (true, successMessage);
@@ -720,8 +756,12 @@ public class CustomerAuthService : ICustomerAuthService
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var user = await dbContext.Set<CustomerPortalUser>()
-            .AsNoTracking()
             .FirstOrDefaultAsync(u => u.CardCode == cardCode);
+
+        if (user != null && ClearExpiredLockout(user))
+        {
+            await dbContext.SaveChangesAsync();
+        }
 
         if (user == null || !user.IsActive || user.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
         {
@@ -919,15 +959,31 @@ public class CustomerAuthService : ICustomerAuthService
         var secret = configuration["CustomerPortal:JwtSecret"];
         if (string.IsNullOrWhiteSpace(secret) ||
             secret.StartsWith("${", StringComparison.Ordinal) ||
+            secret.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase) ||
             secret.Length < 32)
         {
             throw new InvalidOperationException(
                 "CustomerPortal:JwtSecret is missing, a placeholder, or shorter than 32 characters. " +
                 "This secret MUST be configured independently from Jwt:SecretKey. " +
-                "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CUSTOMER_PORTAL_JWT_SECRET environment variable.");
+                "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CustomerPortal__JwtSecret environment variable.");
         }
 
         return secret;
+    }
+
+    private static bool ClearExpiredLockout(CustomerPortalUser user)
+    {
+        if (!string.Equals(user.Status, "Locked", StringComparison.OrdinalIgnoreCase) ||
+            user.LockedUntil > DateTime.UtcNow)
+        {
+            return false;
+        }
+
+        user.Status = "Active";
+        user.LockedUntil = null;
+        user.FailedLoginAttempts = 0;
+        user.UpdatedAt = DateTime.UtcNow;
+        return true;
     }
 
     private static string GenerateSecureToken()
@@ -1136,14 +1192,18 @@ public class CustomerAuthService : ICustomerAuthService
         return code.ToString("D6");
     }
 
-    private async Task StoreTwoFactorSessionAsync(WebAppDbContext dbContext, string cardCode, string token, string ipAddress)
+    private async Task StoreTwoFactorSessionAsync(
+        WebAppDbContext dbContext,
+        string cardCode,
+        string token,
+        string code)
     {
         // Store in a temporary table or cache - using AppSetting for simplicity
         var setting = new AppSetting
         {
             Category = "2FA",
             Key = $"2FA_{token}",
-            Value = $"{cardCode}|{DateTime.UtcNow.AddMinutes(TwoFactorCodeValidityMinutes):O}",
+            Value = $"{cardCode}|{DateTime.UtcNow.AddMinutes(TwoFactorCodeValidityMinutes):O}|{HashToken(code)}",
             DataType = "string",
             Description = "Two-factor authentication session"
         };
@@ -1152,7 +1212,9 @@ public class CustomerAuthService : ICustomerAuthService
         await dbContext.SaveChangesAsync();
     }
 
-    private async Task<(string CardCode, DateTime ExpiresAt)?> GetTwoFactorSessionAsync(WebAppDbContext dbContext, string token)
+    private async Task<(string CardCode, DateTime ExpiresAt, string CodeHash)?> GetTwoFactorSessionAsync(
+        WebAppDbContext dbContext,
+        string token)
     {
         var setting = await dbContext.Set<AppSetting>()
             .FirstOrDefaultAsync(s => s.Key == $"2FA_{token}");
@@ -1161,10 +1223,10 @@ public class CustomerAuthService : ICustomerAuthService
             return null;
 
         var parts = setting.Value.Split('|');
-        if (parts.Length != 2)
+        if (parts.Length != 3 || !DateTime.TryParse(parts[1], out var expiresAt))
             return null;
 
-        return (parts[0], DateTime.Parse(parts[1]));
+        return (parts[0], expiresAt, parts[2]);
     }
 
     private async Task ClearTwoFactorSessionAsync(WebAppDbContext dbContext, string token)
@@ -1179,7 +1241,7 @@ public class CustomerAuthService : ICustomerAuthService
         }
     }
 
-    private async Task SendTwoFactorCodeAsync(string email, string code)
+    private async Task<bool> SendTwoFactorCodeAsync(string email, string code)
     {
         var htmlBody = $@"
             <h2>Your Verification Code</h2>
@@ -1187,7 +1249,7 @@ public class CustomerAuthService : ICustomerAuthService
             <p>This code will expire in {TwoFactorCodeValidityMinutes} minutes.</p>
             <p>If you did not request this code, please contact support immediately.</p>";
 
-        await _emailService.SendEmailAsync(
+        return await _emailService.SendEmailAsync(
             email,
             "Customer",
             "Your Verification Code",
@@ -1195,11 +1257,16 @@ public class CustomerAuthService : ICustomerAuthService
         );
     }
 
-    private async Task<bool> VerifyTwoFactorCodeAsync(WebAppDbContext dbContext, string cardCode, string code)
+    private static bool VerifyTwoFactorCode(string expectedHash, string code)
     {
-        // In a production system, you would store and verify the actual code
-        // For now, we'll validate the format
-        return !string.IsNullOrEmpty(code) && code.Length == 6 && code.All(char.IsDigit);
+        if (string.IsNullOrWhiteSpace(code) || code.Length != 6 || !code.All(char.IsDigit))
+        {
+            return false;
+        }
+
+        var expectedBytes = Encoding.UTF8.GetBytes(expectedHash);
+        var actualBytes = Encoding.UTF8.GetBytes(HashToken(code));
+        return CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
     }
 
     #endregion

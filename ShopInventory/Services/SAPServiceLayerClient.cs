@@ -2082,31 +2082,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var safeValue = SanitizeSqlValue(vanSaleOrder);
-        var sqlText = $@"SELECT TOP 1
-    T0.""DocEntry"" AS ""DocEntry"",
-    T0.""DocNum"" AS ""DocNum"",
-    T0.""DocDate"" AS ""DocDate"",
-    T0.""DocDueDate"" AS ""DocDueDate"",
-    T0.""CardCode"" AS ""CardCode"",
-    T0.""CardName"" AS ""CardName"",
-    T0.""NumAtCard"" AS ""NumAtCard"",
-    T0.""Comments"" AS ""Comments"",
-    T0.""DocTotal"" AS ""DocTotal"",
-    T0.""DocCur"" AS ""DocCurrency"",
-    T0.""U_Van_saleorder"" AS ""U_Van_saleorder""
-FROM OINV T0
-WHERE T0.""CANCELED"" = 'N'
-  AND T0.""U_Van_saleorder"" = '{safeValue}'
-ORDER BY T0.""DocEntry"" DESC";
+        // Query the Invoices entity directly by the U_Van_saleorder UDF (same pattern as the bulk
+        // lookup in GetInvoicesByVanSaleOrdersAsync). Do NOT use SQLQueries('...')/List with a
+        // SqlText body: the Service Layer executes the stored query text and ignores SqlText on
+        // /List, which silently broke this duplicate check.
+        var safeValue = SanitizeODataValue(vanSaleOrder);
+        var url = $"Invoices?$filter=U_Van_saleorder eq '{safeValue}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top=1&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocCurrency,U_Van_saleorder";
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new { SqlText = sqlText }),
-            Encoding.UTF8,
-            "application/json");
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -2114,45 +2099,22 @@ ORDER BY T0.""DocEntry"" DESC";
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-            request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
+            request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new { SqlText = sqlText }),
-                Encoding.UTF8,
-                "application/json");
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
 
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to check invoice by T0.\"U_Van_saleorder\" '{VanSaleOrder}': {StatusCode} - {Error}", vanSaleOrder, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check invoice by T0.\"U_Van_saleorder\": {response.StatusCode} - {errorContent}");
+            _logger.LogError("Failed to check invoice by U_Van_saleorder '{VanSaleOrder}': {StatusCode} - {Error}", vanSaleOrder, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check invoice by U_Van_saleorder: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        using var document = JsonDocument.Parse(responseContent);
-        if (!document.RootElement.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() == 0)
-        {
-            return null;
-        }
-
-        var row = rows[0];
-        return new Invoice
-        {
-            DocEntry = GetSqlInt32(row, "DocEntry") ?? 0,
-            DocNum = GetSqlInt32(row, "DocNum") ?? 0,
-            DocDate = GetSqlString(row, "DocDate"),
-            DocDueDate = GetSqlString(row, "DocDueDate"),
-            CardCode = GetSqlString(row, "CardCode"),
-            CardName = GetSqlString(row, "CardName"),
-            NumAtCard = GetSqlString(row, "NumAtCard"),
-            Comments = GetSqlString(row, "Comments"),
-            DocTotal = GetSqlDecimal(row, "DocTotal") ?? 0m,
-            DocCurrency = GetSqlString(row, "DocCurrency"),
-            U_Van_saleorder = GetSqlString(row, "U_Van_saleorder")
-        };
+        var result = JsonSerializer.Deserialize<SAPResponse<Invoice>>(responseContent);
+        return result?.Value?.FirstOrDefault();
     }
 
     #endregion
@@ -3382,6 +3344,91 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         }
 
         return prices;
+    }
+
+    /// <summary>
+    /// Provisions a stored Service Layer SQL query (create, or PATCH its text if it already
+    /// exists) and executes it, returning every result row. Use this instead of posting a
+    /// SqlText body to SQLQueries('...')/List — the Service Layer executes the stored query
+    /// text on /List and silently ignores SqlText in the request body.
+    /// </summary>
+    private async Task<List<JsonElement>> RunStoredSqlQueryAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        CancellationToken cancellationToken)
+    {
+        await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+
+        var rows = new List<JsonElement>();
+        var skip = 0;
+        var hasMore = true;
+
+        while (hasMore)
+        {
+            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+            var currentSession = _sessionId;
+            var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+                httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
+                httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                httpRequest.Headers.Add("Prefer", "odata.maxpagesize=500");
+                response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            }
+
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                // Some Service Layer versions report an empty result set as 404 -2028 instead
+                // of an empty value array.
+                if (IsSapNoMatchingRecordsError(response.StatusCode, responseContent))
+                {
+                    break;
+                }
+
+                _logger.LogError("Failed to execute stored SQL query '{QueryCode}': {StatusCode} - {Error}", queryCode, response.StatusCode, responseContent);
+                throw new Exception($"Failed to execute stored SQL query '{queryCode}': {response.StatusCode} - {responseContent}");
+            }
+
+            using var doc = JsonDocument.Parse(responseContent);
+
+            var pageCount = 0;
+            if (doc.RootElement.TryGetProperty("value", out var valueArray) && valueArray.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var row in valueArray.EnumerateArray())
+                {
+                    rows.Add(row.Clone());
+                    pageCount++;
+                }
+            }
+
+            var nextLink = doc.RootElement.TryGetProperty("odata.nextLink", out var nextLinkProp)
+                ? nextLinkProp.GetString()
+                : null;
+
+            if (pageCount == 0 || string.IsNullOrEmpty(nextLink))
+            {
+                hasMore = false;
+            }
+            else
+            {
+                skip += pageCount;
+            }
+        }
+
+        return rows;
     }
 
     private (List<ItemPriceDto> prices, string? nextLink) ParsePricesAndNextLink(string jsonContent)
@@ -10939,31 +10986,16 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var safeValue = SanitizeSqlValue(orderNumber);
-        var sqlText = $@"SELECT TOP 1
-    T0.""DocEntry"" AS ""DocEntry"",
-    T0.""DocNum"" AS ""DocNum"",
-    T0.""DocDate"" AS ""DocDate"",
-    T0.""DocDueDate"" AS ""DocDueDate"",
-    T0.""CardCode"" AS ""CardCode"",
-    T0.""CardName"" AS ""CardName"",
-    T0.""NumAtCard"" AS ""NumAtCard"",
-    T0.""Comments"" AS ""Comments"",
-    T0.""DocTotal"" AS ""DocTotal"",
-    T0.""DocCur"" AS ""DocCurrency"",
-    T0.""U_OrderNumber"" AS ""U_OrderNumber""
-FROM ORDR T0
-WHERE T0.""CANCELED"" = 'N'
-  AND T0.""U_OrderNumber"" = '{safeValue}'
-ORDER BY T0.""DocEntry"" DESC";
+        // Query the Orders entity directly by the U_OrderNumber UDF (mirrors GetQuotationByOrderNumberAsync).
+        // Do NOT use SQLQueries('...')/List with a SqlText body here: the Service Layer executes the
+        // stored query text and ignores SqlText on /List, which silently broke this duplicate check
+        // and allowed the same local order to be posted to SAP twice.
+        var safeValue = SanitizeODataValue(orderNumber);
+        var url = $"Orders?$filter=U_OrderNumber eq '{safeValue}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top=1&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocCurrency,U_OrderNumber";
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new { SqlText = sqlText }),
-            Encoding.UTF8,
-            "application/json");
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -10971,54 +11003,31 @@ ORDER BY T0.""DocEntry"" DESC";
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-            request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
+            request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new { SqlText = sqlText }),
-                Encoding.UTF8,
-                "application/json");
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
 
         if (!response.IsSuccessStatusCode)
         {
             var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (IsSapNoMatchingRecordsError(response.StatusCode, errorContent))
-            {
-                _logger.LogDebug(
-                    "Sales order with U_OrderNumber '{OrderNumber}' was not found in SAP during duplicate check",
-                    orderNumber);
-
-                return null;
-            }
-
-            _logger.LogError("Failed to check sales order by T0.\"U_OrderNumber\" '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
-            throw new Exception($"Failed to check sales order by T0.\"U_OrderNumber\": {response.StatusCode} - {errorContent}");
+            _logger.LogError("Failed to check sales order by U_OrderNumber '{OrderNumber}': {StatusCode} - {Error}", orderNumber, response.StatusCode, errorContent);
+            throw new Exception($"Failed to check sales order by U_OrderNumber: {response.StatusCode} - {errorContent}");
         }
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        using var document = JsonDocument.Parse(responseContent);
-        if (!document.RootElement.TryGetProperty("value", out var rows) || rows.ValueKind != JsonValueKind.Array || rows.GetArrayLength() == 0)
+        var result = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(responseContent);
+        var existingOrder = result?.Value?.FirstOrDefault();
+
+        if (existingOrder is null)
         {
-            return null;
+            _logger.LogDebug(
+                "Sales order with U_OrderNumber '{OrderNumber}' was not found in SAP during duplicate check",
+                orderNumber);
         }
 
-        var row = rows[0];
-        return new SAPSalesOrder
-        {
-            DocEntry = GetSqlInt32(row, "DocEntry") ?? 0,
-            DocNum = GetSqlInt32(row, "DocNum") ?? 0,
-            DocDate = GetSqlString(row, "DocDate"),
-            DocDueDate = GetSqlString(row, "DocDueDate"),
-            CardCode = GetSqlString(row, "CardCode"),
-            CardName = GetSqlString(row, "CardName"),
-            NumAtCard = GetSqlString(row, "NumAtCard"),
-            Comments = GetSqlString(row, "Comments"),
-            DocTotal = GetSqlDecimal(row, "DocTotal"),
-            DocCurrency = GetSqlString(row, "DocCurrency"),
-            U_OrderNumber = GetSqlString(row, "U_OrderNumber")
-        };
+        return existingOrder;
     }
 
     #endregion
@@ -11562,61 +11571,29 @@ ORDER BY T0.""DocEntry"" DESC";
     public async Task<List<SAPExchangeRate>> GetExchangeRatesAsync(CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
         // Query exchange rates from SAP - ORTT table contains exchange rates
-        var sqlText = @"SELECT T0.""Currency"", T0.""RateDate"", T0.""Rate"" 
-                        FROM ORTT T0 
-                        WHERE T0.""RateDate"" = (SELECT MAX(T1.""RateDate"") FROM ORTT T1 WHERE T1.""Currency"" = T0.""Currency"") 
+        var sqlText = @"SELECT T0.""Currency"", T0.""RateDate"", T0.""Rate""
+                        FROM ORTT T0
+                        WHERE T0.""RateDate"" = (SELECT MAX(T1.""RateDate"") FROM ORTT T1 WHERE T1.""Currency"" = T0.""Currency"")
                         ORDER BY T0.""Currency""";
 
-        var request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new { SqlText = sqlText }),
-            Encoding.UTF8,
-            "application/json");
+        var rows = await RunStoredSqlQueryAsync(
+            "SHOP_EXCH_RATES",
+            "Latest exchange rates per currency",
+            sqlText,
+            cancellationToken);
 
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-            request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new { SqlText = sqlText }),
-                Encoding.UTF8,
-                "application/json");
-            response = await _httpClient.SendAsync(request, cancellationToken);
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError("Failed to fetch exchange rates from SAP: {StatusCode} - {Error}", response.StatusCode, errorContent);
-            throw new Exception($"Failed to fetch exchange rates from SAP: {response.StatusCode} - {errorContent}");
-        }
-
-        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
         var rates = new List<SAPExchangeRate>();
-
-        using var doc = JsonDocument.Parse(responseContent);
-        if (doc.RootElement.TryGetProperty("value", out var valueArray))
+        foreach (var item in rows)
         {
-            foreach (var item in valueArray.EnumerateArray())
+            var rate = new SAPExchangeRate
             {
-                var rate = new SAPExchangeRate
-                {
-                    Currency = item.TryGetProperty("Currency", out var currency) ? currency.GetString() ?? "" : "",
-                    RateDate = item.TryGetProperty("RateDate", out var rateDate) ? DateTime.Parse(rateDate.GetString() ?? DateTime.Now.ToString()) : DateTime.Now,
-                    Rate = item.TryGetProperty("Rate", out var rateVal) ? rateVal.GetDecimal() : 0
-                };
-                rates.Add(rate);
-            }
+                Currency = item.TryGetProperty("Currency", out var currency) ? currency.GetString() ?? "" : "",
+                RateDate = item.TryGetProperty("RateDate", out var rateDate) ? DateTime.Parse(rateDate.GetString() ?? DateTime.Now.ToString()) : DateTime.Now,
+                Rate = item.TryGetProperty("Rate", out var rateVal) ? rateVal.GetDecimal() : 0
+            };
+            rates.Add(rate);
         }
 
         _logger.LogInformation("Fetched {Count} exchange rates from SAP", rates.Count);
@@ -11626,64 +11603,58 @@ ORDER BY T0.""DocEntry"" DESC";
     public async Task<SAPExchangeRate?> GetExchangeRateAsync(string currency, DateTime? date = null, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
         var rateDate = date ?? DateTime.Today;
         var formattedDate = rateDate.ToString("yyyy-MM-dd");
 
-        // Query specific exchange rate from SAP
-        var sqlText = $@"SELECT TOP 1 T0.""Currency"", T0.""RateDate"", T0.""Rate"" 
-                         FROM ORTT T0 
-                         WHERE T0.""Currency"" = '{currency}' 
-                         AND T0.""RateDate"" <= '{formattedDate}' 
-                         ORDER BY T0.""RateDate"" DESC";
-
-        var request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
-        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new { SqlText = sqlText }),
-            Encoding.UTF8,
-            "application/json");
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        // Currency codes are short alphanumerics (USD, ZIG, ...); anything else is invalid and
+        // must not reach the SQL text or the stored-query code.
+        var queryCodeSuffix = new string(currency.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
+        if (queryCodeSuffix.Length == 0 || queryCodeSuffix.Length != currency.Trim().Length)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-            request = new HttpRequestMessage(HttpMethod.Post, "SQLQueries('sql01')/List");
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Content = new StringContent(
-                JsonSerializer.Serialize(new { SqlText = sqlText }),
-                Encoding.UTF8,
-                "application/json");
-            response = await _httpClient.SendAsync(request, cancellationToken);
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogWarning("Failed to fetch exchange rate for {Currency} from SAP: {StatusCode} - {Error}", currency, response.StatusCode, errorContent);
+            _logger.LogWarning("Refusing to fetch exchange rate for invalid currency code '{Currency}'", currency);
             return null;
         }
 
-        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        // Query specific exchange rate from SAP. The date literal changes per call, so
+        // RunStoredSqlQueryAsync PATCHes the stored query text before executing.
+        var sqlText = $@"SELECT TOP 1 T0.""Currency"", T0.""RateDate"", T0.""Rate""
+                         FROM ORTT T0
+                         WHERE T0.""Currency"" = '{queryCodeSuffix}'
+                         AND T0.""RateDate"" <= '{formattedDate}'
+                         ORDER BY T0.""RateDate"" DESC";
 
-        using var doc = JsonDocument.Parse(responseContent);
-        if (doc.RootElement.TryGetProperty("value", out var valueArray) && valueArray.GetArrayLength() > 0)
+        List<JsonElement> rows;
+        try
         {
-            var item = valueArray[0];
-            return new SAPExchangeRate
-            {
-                Currency = item.TryGetProperty("Currency", out var currencyProp) ? currencyProp.GetString() ?? currency : currency,
-                RateDate = item.TryGetProperty("RateDate", out var rateDateProp) ? DateTime.Parse(rateDateProp.GetString() ?? DateTime.Now.ToString()) : DateTime.Now,
-                Rate = item.TryGetProperty("Rate", out var rateVal) ? rateVal.GetDecimal() : 0
-            };
+            rows = await RunStoredSqlQueryAsync(
+                $"SHOP_EXCH_RATE_{queryCodeSuffix}",
+                $"Exchange rate for {queryCodeSuffix}",
+                sqlText,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch exchange rate for {Currency} from SAP", currency);
+            return null;
         }
 
-        return null;
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+
+        var item = rows[0];
+        return new SAPExchangeRate
+        {
+            Currency = item.TryGetProperty("Currency", out var currencyProp) ? currencyProp.GetString() ?? currency : currency,
+            RateDate = item.TryGetProperty("RateDate", out var rateDateProp) ? DateTime.Parse(rateDateProp.GetString() ?? DateTime.Now.ToString()) : DateTime.Now,
+            Rate = item.TryGetProperty("Rate", out var rateVal) ? rateVal.GetDecimal() : 0
+        };
     }
 
     public async Task<List<SAPCurrency>> GetCurrenciesAsync(CancellationToken cancellationToken = default)
