@@ -2016,9 +2016,10 @@ public class ReportExportService : IReportExportService
             yield return "POD Uploaded";
     }
 
-    private static bool IsPodExcelExcludedInvoice(PodUploadStatusItem item) =>
+    private static bool IsPodReportExcludedInvoice(PodUploadStatusItem item) =>
         IsPodExcelExcludedBusinessPartner(item)
-        || IsPodExcelExcludedCreatorUser(item);
+        || IsPodExcelExcludedCreatorUser(item)
+        || string.IsNullOrWhiteSpace(item.CreatedLocation);
 
     private static bool IsPodExcelExcludedBusinessPartner(PodUploadStatusItem item) =>
         !string.IsNullOrWhiteSpace(item.CardCode)
@@ -2027,6 +2028,23 @@ public class ReportExportService : IReportExportService
     private static bool IsPodExcelExcludedCreatorUser(PodUploadStatusItem item) =>
         item.CreatedByUserId.HasValue
         && PodExcelExcludedCreatorUserIds.Contains(item.CreatedByUserId.Value);
+
+    internal static PodUploadStatusReport ApplyPodReportingScope(PodUploadStatusReport report)
+    {
+        var items = report.Items
+            .Where(item => !IsPodReportExcludedInvoice(item))
+            .ToList();
+
+        return new PodUploadStatusReport
+        {
+            FromDate = report.FromDate,
+            ToDate = report.ToDate,
+            TotalInvoices = items.Count,
+            UploadedCount = items.Count(item => item.HasPod),
+            PendingCount = items.Count(item => !item.HasPod),
+            Items = items
+        };
+    }
 
     private static int CalculatePodDaysAging(string? docDate, DateTime now)
     {
@@ -2129,9 +2147,7 @@ public class ReportExportService : IReportExportService
         using var workbook = new XLWorkbook();
         var now = CurrentCatNow();
         var periodText = FormatPodReportPeriod(report);
-        var reportItems = report.Items
-            .Where(item => !IsPodExcelExcludedInvoice(item))
-            .ToList();
+        var reportItems = ApplyPodReportingScope(report).Items;
 
         var totalInvoices = reportItems.Count;
         var uploadedCount = reportItems.Count(item => item.HasPod);

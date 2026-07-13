@@ -24,6 +24,7 @@ public sealed class GetPodUploadStatusHandler(
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
 {
     private const decimal FullCreditTolerance = 0.01m;
+    private static readonly TimeSpan CreditNoteEnrichmentTimeout = TimeSpan.FromSeconds(45);
 
     public async Task<ErrorOr<PodUploadStatusReportDto>> Handle(
         GetPodUploadStatusQuery request,
@@ -76,15 +77,16 @@ public sealed class GetPodUploadStatusHandler(
                 PodExclusions.ExcludedCardCodes.ToList(),
                 includeDocumentLines: isPodOperator,
                 cancellationToken);
-            var dateRangeInvoiceDocEntries = invoices
-                .Select(invoice => invoice.DocEntry)
-                .Where(docEntry => docEntry > 0)
-                .ToHashSet();
-
+            CreditNoteActivityInvoiceLinks? creditNoteActivity = null;
             if (request.IncludeCreditNoteActivity)
             {
+                creditNoteActivity = await GetCreditNoteActivityInvoiceLinksAsync(
+                    request.FromDate,
+                    request.ToDate,
+                    cancellationToken);
                 invoices = await IncludeCreditNoteActivityInvoicesAsync(
                     invoices,
+                    creditNoteActivity,
                     request.FromDate,
                     request.ToDate,
                     cancellationToken);
@@ -108,20 +110,15 @@ public sealed class GetPodUploadStatusHandler(
                     cancellationToken);
             }
 
-            var creditNoteLookup = await GetCreditNoteLookupAsync(
+            var creditNoteLookup = await GetCreditNoteLookupWithTimeoutAsync(
                 invoices,
                 request.FromDate,
                 request.ToDate,
+                creditNoteActivity?.CreditNoteLines ?? [],
                 cancellationToken);
 
             if (request.IncludeCreditNoteActivity)
             {
-                invoices = invoices
-                    .Where(invoice =>
-                        dateRangeInvoiceDocEntries.Contains(invoice.DocEntry) ||
-                        creditNoteLookup.ContainsKey(invoice.DocEntry))
-                    .ToList();
-
                 if (creditNoteLookup.Count > 0)
                 {
                     var reportDocEntries = invoices
@@ -198,6 +195,10 @@ public sealed class GetPodUploadStatusHandler(
                 Items = items
             };
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
             return Errors.Invoice.SapTimeout;
@@ -258,6 +259,7 @@ public sealed class GetPodUploadStatusHandler(
 
     private async Task<List<Invoice>> IncludeCreditNoteActivityInvoicesAsync(
         IReadOnlyList<Invoice> invoices,
+        CreditNoteActivityInvoiceLinks linkedInvoices,
         DateTime fromDate,
         DateTime toDate,
         CancellationToken cancellationToken)
@@ -271,11 +273,6 @@ public sealed class GetPodUploadStatusHandler(
             .Where(invoice => invoice.DocNum > 0)
             .Select(invoice => invoice.DocNum)
             .ToHashSet();
-
-        var linkedInvoices = await GetCreditNoteActivityInvoiceLinksAsync(
-            fromDate,
-            toDate,
-            cancellationToken);
 
         var missingDocEntries = linkedInvoices.DocEntries
             .Where(docEntry => !existingDocEntries.Contains(docEntry))
@@ -326,7 +323,8 @@ public sealed class GetPodUploadStatusHandler(
 
     private sealed record CreditNoteActivityInvoiceLinks(
         HashSet<int> DocEntries,
-        HashSet<int> DocNums);
+        HashSet<int> DocNums,
+        List<CreditNoteLineInfo> CreditNoteLines);
 
     private async Task<CreditNoteActivityInvoiceLinks> GetCreditNoteActivityInvoiceLinksAsync(
         DateTime fromDate,
@@ -337,9 +335,15 @@ public sealed class GetPodUploadStatusHandler(
         var toDateText = toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
         var sqlText = $@"
-SELECT DISTINCT
+SELECT
     T0.""BaseEntry"" AS ""InvoiceDocEntry"",
-    T0.""BaseRef"" AS ""InvoiceDocNum""
+    T0.""BaseRef"" AS ""InvoiceDocNum"",
+    T1.""DocEntry"" AS ""CreditNoteDocEntry"",
+    T1.""DocNum"" AS ""CreditNoteDocNum"",
+    T0.""LineNum"" AS ""CreditLineNum"",
+    T0.""LineTotal"" AS ""CreditLineTotal"",
+    T0.""VatSum"" AS ""CreditVatSum"",
+    T0.""U_Reasons"" AS ""CreditReason""
 FROM RIN1 T0
 INNER JOIN ORIN T1
         ON T1.""DocEntry"" = T0.""DocEntry""
@@ -347,7 +351,7 @@ WHERE T0.""BaseType"" = 13
   AND T1.""CANCELED"" = 'N'
   AND T1.""DocDate"" >= '{fromDateText}'
   AND T1.""DocDate"" <= '{toDateText}'
-ORDER BY T0.""BaseEntry"", T0.""BaseRef""";
+ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
         var rows = await sapClient.ExecuteRawSqlQueryAsync(
             $"PODCNDT{Random.Shared.Next(100000, 999999)}",
@@ -365,8 +369,29 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef""";
             .Where(docNum => docNum.HasValue && docNum.Value > 0)
             .Select(docNum => docNum!.Value)
             .ToHashSet();
+        var creditNoteLines = new List<CreditNoteLineInfo>();
 
-        return new CreditNoteActivityInvoiceLinks(docEntries, docNums);
+        foreach (var row in rows)
+        {
+            var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
+            var creditNoteDocEntry = TryGetInt32(row, "CreditNoteDocEntry");
+            var creditNoteDocNum = TryGetInt32(row, "CreditNoteDocNum");
+
+            if (!invoiceDocEntry.HasValue || invoiceDocEntry.Value <= 0 ||
+                !creditNoteDocEntry.HasValue || !creditNoteDocNum.HasValue)
+            {
+                continue;
+            }
+
+            creditNoteLines.Add(new CreditNoteLineInfo(
+                invoiceDocEntry.Value,
+                creditNoteDocEntry.Value,
+                creditNoteDocNum.Value,
+                Math.Abs(GetDecimal(row, "CreditLineTotal") + GetDecimal(row, "CreditVatSum")),
+                GetString(row, "CreditReason")));
+        }
+
+        return new CreditNoteActivityInvoiceLinks(docEntries, docNums, creditNoteLines);
     }
 
     private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupAsync(
@@ -470,6 +495,10 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
             return BuildCreditNoteInfoLookup(creditNoteLines, invoiceTotalsByDocEntry);
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             logger.LogWarning(
@@ -487,11 +516,58 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
                     toDate,
                     cancellationToken);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception fallbackEx)
             {
                 logger.LogError(fallbackEx, "POD report credit-note fallback lookup failed; continuing without credit-note enrichment");
                 return [];
             }
+        }
+    }
+
+    private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupWithTimeoutAsync(
+        IReadOnlyList<Invoice> invoices,
+        DateTime fromDate,
+        DateTime toDate,
+        IReadOnlyList<CreditNoteLineInfo> dateRangeCreditNoteLines,
+        CancellationToken requestCancellationToken)
+    {
+        var invoiceTotalsByDocEntry = invoices
+            .Where(invoice => invoice.DocEntry > 0)
+            .GroupBy(invoice => invoice.DocEntry)
+            .ToDictionary(group => group.Key, group => GetInvoiceCreditableTotal(group.First()));
+        var dateRangeLookup = BuildCreditNoteInfoLookup(
+            dateRangeCreditNoteLines,
+            invoiceTotalsByDocEntry);
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(requestCancellationToken);
+        timeoutCts.CancelAfter(CreditNoteEnrichmentTimeout);
+
+        try
+        {
+            var lookup = await GetCreditNoteLookupAsync(
+                invoices,
+                fromDate,
+                toDate,
+                timeoutCts.Token);
+
+            foreach (var pair in dateRangeLookup)
+            {
+                lookup.TryAdd(pair.Key, pair.Value);
+            }
+
+            return lookup;
+        }
+        catch (OperationCanceledException) when (!requestCancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "POD report full credit-note enrichment exceeded {TimeoutSeconds} seconds; continuing with {CreditNoteCount} credit-note entries from the date-range query",
+                CreditNoteEnrichmentTimeout.TotalSeconds,
+                dateRangeLookup.Count);
+            return dateRangeLookup;
         }
     }
 
@@ -565,9 +641,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
     {
         return creditNoteLines
             .GroupBy(line => line.InvoiceDocEntry)
-            .Where(group =>
-                invoiceTotalsByDocEntry.TryGetValue(group.Key, out var invoiceTotal) &&
-                IsFullyCredited(invoiceTotal, GetCreditedTotal(group)))
+            .Where(group => invoiceTotalsByDocEntry.ContainsKey(group.Key))
             .ToDictionary(
                 group => group.Key,
                 group =>

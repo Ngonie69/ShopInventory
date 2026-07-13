@@ -1852,8 +1852,21 @@ filterUploadedFromLocation.Trim();
                 lookupInvoice = null;
             }
         }
-        catch
+        catch (HttpRequestException ex)
         {
+            Logger.LogWarning(ex, "Invoice lookup failed for DocNum {DocNum}", uploadDocNum);
+            lookupError = ex.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
+                    => "Invoice lookup authentication failed. Please contact an administrator.",
+                System.Net.HttpStatusCode.ServiceUnavailable or System.Net.HttpStatusCode.BadGateway or System.Net.HttpStatusCode.GatewayTimeout
+                    => "SAP invoice lookup is temporarily unavailable. Please try again.",
+                _ => "Could not look up invoice"
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Unexpected invoice lookup failure for DocNum {DocNum}", uploadDocNum);
             lookupError = "Could not look up invoice";
         }
         finally

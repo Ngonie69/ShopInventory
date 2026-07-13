@@ -1460,50 +1460,79 @@ public class SalesOrderService : ISalesOrderService
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
         var sapCreateReturned = false;
+        var staleMarkerTakeoverAttempted = false;
 
         try
         {
-            var acquireResult = await _idempotencyRequestStore.TryAcquireAsync<SAPSalesOrder>(
-                SapPostingIdempotencyScope,
-                order.OrderNumber,
-                sapPostingMarkerRequest,
-                cancellationToken);
-
-            switch (acquireResult.Outcome)
+            while (!idempotencyRequestId.HasValue)
             {
-                case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
-                    EnsureOrderAttached(order);
-                    ApplySapDocumentToLocalOrder(order, acquireResult.Response);
-                    await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, CancellationToken.None);
-                    await _context.SaveChangesAsync(CancellationToken.None);
+                var acquireResult = await _idempotencyRequestStore.TryAcquireAsync<SAPSalesOrder>(
+                    SapPostingIdempotencyScope,
+                    order.OrderNumber,
+                    sapPostingMarkerRequest,
+                    cancellationToken);
 
-                    _logger.LogInformation(
-                        "Replayed SAP sales order post for {OrderNumber} as DocEntry={DocEntry}, DocNum={DocNum} from the durable idempotency marker.",
-                        order.OrderNumber,
-                        acquireResult.Response.DocEntry,
-                        acquireResult.Response.DocNum);
-                    return;
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        EnsureOrderAttached(order);
+                        ApplySapDocumentToLocalOrder(order, acquireResult.Response);
+                        await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, CancellationToken.None);
+                        await _context.SaveChangesAsync(CancellationToken.None);
 
-                case IdempotencyAcquireOutcome.InProgress:
-                    if (await TryAttachExistingSapSalesOrderWithRetryAsync(
-                            order,
-                            "concurrent SAP posting marker reconciliation",
-                            CancellationToken.None))
-                    {
+                        _logger.LogInformation(
+                            "Replayed SAP sales order post for {OrderNumber} as DocEntry={DocEntry}, DocNum={DocNum} from the durable idempotency marker.",
+                            order.OrderNumber,
+                            acquireResult.Response.DocEntry,
+                            acquireResult.Response.DocNum);
                         return;
-                    }
 
-                    throw new InvalidOperationException(
-                        $"Sales order {order.OrderNumber} is already being posted to SAP. Please refresh the order before trying again.");
+                    case IdempotencyAcquireOutcome.InProgress:
+                        if (await TryAttachExistingSapSalesOrderWithRetryAsync(
+                                order,
+                                "concurrent SAP posting marker reconciliation",
+                                CancellationToken.None))
+                        {
+                            return;
+                        }
 
-                case IdempotencyAcquireOutcome.RequestMismatch:
-                    throw new InvalidOperationException(
-                        $"Sales order {order.OrderNumber} is already protected by a different SAP posting request. Please refresh the order before trying again.");
+                        var markerCreatedAt = acquireResult.CreatedAtUtc.GetValueOrDefault(DateTime.UtcNow);
+                        var markerRetryAt = markerCreatedAt.Add(SapPostingUncertainRetryHold);
+                        var markerIsStale = markerRetryAt <= DateTime.UtcNow;
 
-                case IdempotencyAcquireOutcome.Acquired:
-                    idempotencyRequestId = acquireResult.RequestId;
-                    releaseIdempotencyRequest = true;
-                    break;
+                        if (markerIsStale
+                            && !staleMarkerTakeoverAttempted
+                            && acquireResult.RequestId.HasValue)
+                        {
+                            staleMarkerTakeoverAttempted = true;
+                            await _idempotencyRequestStore.ReleaseAsync(
+                                acquireResult.RequestId.Value,
+                                CancellationToken.None);
+
+                            _logger.LogWarning(
+                                "Released abandoned SAP sales order posting marker {RequestId} for {OrderNumber}, created at {CreatedAtUtc:O}, after SAP reconciliation found no document. Retrying under a new marker.",
+                                acquireResult.RequestId.Value,
+                                order.OrderNumber,
+                                markerCreatedAt);
+                            continue;
+                        }
+
+                        var waitMinutes = Math.Max(
+                            1,
+                            (int)Math.Ceiling((markerRetryAt - DateTime.UtcNow).TotalMinutes));
+                        throw new InvalidOperationException(
+                            $"Sales order {order.OrderNumber} has an unfinished SAP posting attempt. No SAP document was found yet; retry in {waitMinutes} minute(s).");
+
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        throw new InvalidOperationException(
+                            $"Sales order {order.OrderNumber} is already protected by a different SAP posting request. Please refresh the order before trying again.");
+
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId
+                            ?? throw new InvalidOperationException("The SAP posting marker was acquired without a request ID.");
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
             }
 
             if (await TryAttachExistingSapSalesOrderAsync(order, "pre-create duplicate check", cancellationToken))

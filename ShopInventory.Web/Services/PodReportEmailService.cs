@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
@@ -201,6 +203,11 @@ public sealed class PodReportEmailService(
                 return new PodReportEmailSendResult(false, failureMessage);
             }
 
+            // Keep the headline figures, invoicing-point breakdown, audit totals and workbook
+            // on the same SAP-aligned reporting scope. This removes excluded creators/business
+            // partners and invoices that have no official invoicing-point mapping.
+            report = ReportExportService.ApplyPodReportingScope(report);
+
             var excel = reportExportService.ExportPodUploadStatusToExcel(report);
             var periodLabel = FormatPeriod(fromDate, toDate);
             var subject = $"{frequencyLabel} POD Report - {periodLabel}";
@@ -312,6 +319,33 @@ public sealed class PodReportEmailService(
                 report.UploadedCount,
                 report.PendingCount);
         }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            const string failureMessage = "The POD report API did not complete within the configured timeout.";
+            logger.LogError(
+                SendFailedEvent,
+                ex,
+                "POD report email send timed out before SMTP delivery. Reason={FailureReason}, ScheduleId={ScheduleId}, ScheduleName={ScheduleName}, Frequency={Frequency}, FromDate={FromDate}, ToDate={ToDate}, TriggeredBy={TriggeredBy}, RecipientCount={RecipientCount}, CcCount={CcCount}, ElapsedMs={ElapsedMs}",
+                "ReportApiTimeout",
+                schedule.Id,
+                schedule.Name,
+                frequencyLabel,
+                fromText,
+                toText,
+                triggeredBy,
+                to.Count,
+                cc.Count,
+                elapsed.ElapsedMilliseconds);
+            await LogPodReportEmailFailureAuditAsync(
+                schedule,
+                frequencyLabel,
+                fromDate,
+                toDate,
+                triggeredBy,
+                "ReportApiTimeout",
+                failureMessage);
+            return new PodReportEmailSendResult(false, failureMessage);
+        }
         catch (OperationCanceledException)
         {
             throw;
@@ -418,7 +452,10 @@ public sealed class PodReportEmailService(
         DateTime toDate,
         CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient("ShopInventoryApi");
+        // A month-to-date/full-month report can legitimately take longer than the standard
+        // five-minute API timeout while SAP and local POD status are combined. Use the existing
+        // long-running client so the scheduler does not cancel a valid report before SMTP starts.
+        var client = httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
         var from = fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var to = toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var requestPath = $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}&includeCreditNoteActivity=true";
@@ -547,10 +584,79 @@ public sealed class PodReportEmailService(
         var completion = report.TotalInvoices == 0
             ? 0m
             : report.UploadedCount * 100m / report.TotalInvoices;
+        var invoicingPoints = report.Items
+            .GroupBy(
+                item => item.CreatedLocation!.Trim(),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                Name = group.Key,
+                TotalInvoices = group.Count(),
+                UploadedCount = group.Count(item => item.HasPod),
+                PendingCount = group.Count(item => !item.HasPod)
+            })
+            .OrderByDescending(point => point.PendingCount)
+            .ThenByDescending(point => point.TotalInvoices)
+            .ThenBy(point => point.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var invoicingPointRows = new StringBuilder();
+        foreach (var point in invoicingPoints)
+        {
+            var pointCompletion = point.TotalInvoices == 0
+                ? 0m
+                : point.UploadedCount * 100m / point.TotalInvoices;
+            var completionColor = pointCompletion >= 85m
+                ? "#2e7d32"
+                : pointCompletion >= 60m
+                    ? "#e65100"
+                    : "#c62828";
+
+            invoicingPointRows.Append($@"
+                <tr>
+                    <td style='padding: 9px; border: 1px solid #ddd;'>{WebUtility.HtmlEncode(point.Name)}</td>
+                    <td style='padding: 9px; border: 1px solid #ddd; text-align: right;'>{point.TotalInvoices:N0}</td>
+                    <td style='padding: 9px; border: 1px solid #ddd; text-align: right; color: #2e7d32;'>{point.UploadedCount:N0}</td>
+                    <td style='padding: 9px; border: 1px solid #ddd; text-align: right; color: #c62828;'>{point.PendingCount:N0}</td>
+                    <td style='padding: 9px; border: 1px solid #ddd; text-align: right; color: {completionColor}; font-weight: 600;'>{pointCompletion:N1}%</td>
+                </tr>");
+        }
+
+        var breakdownTotal = invoicingPoints.Sum(point => point.TotalInvoices);
+        var breakdownUploaded = invoicingPoints.Sum(point => point.UploadedCount);
+        var breakdownPending = invoicingPoints.Sum(point => point.PendingCount);
+        var breakdownCompletion = breakdownTotal == 0
+            ? 0m
+            : breakdownUploaded * 100m / breakdownTotal;
+        var invoicingPointBreakdown = invoicingPoints.Count == 0
+            ? "<p style='color: #666;'>No invoicing point data is available for this period.</p>"
+            : $@"
+                <table style='border-collapse: collapse; width: 100%; max-width: 760px;'>
+                    <thead>
+                        <tr style='background: #263b56; color: #fff;'>
+                            <th style='padding: 9px; border: 1px solid #ddd; text-align: left;'>Invoicing Point</th>
+                            <th style='padding: 9px; border: 1px solid #ddd; text-align: right;'>Total</th>
+                            <th style='padding: 9px; border: 1px solid #ddd; text-align: right;'>POD Uploaded</th>
+                            <th style='padding: 9px; border: 1px solid #ddd; text-align: right;'>Pending POD</th>
+                            <th style='padding: 9px; border: 1px solid #ddd; text-align: right;'>Completion</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {invoicingPointRows}
+                        <tr style='background: #e8eef5; font-weight: 700;'>
+                            <td style='padding: 9px; border: 1px solid #ddd;'>All invoicing points</td>
+                            <td style='padding: 9px; border: 1px solid #ddd; text-align: right;'>{breakdownTotal:N0}</td>
+                            <td style='padding: 9px; border: 1px solid #ddd; text-align: right;'>{breakdownUploaded:N0}</td>
+                            <td style='padding: 9px; border: 1px solid #ddd; text-align: right;'>{breakdownPending:N0}</td>
+                            <td style='padding: 9px; border: 1px solid #ddd; text-align: right;'>{breakdownCompletion:N1}%</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p style='color: #666; font-size: 12px; margin-top: 8px;'>Rows are ordered by highest pending POD count.</p>";
 
         return $@"
-            <h2>{frequencyLabel} POD Report</h2>
-            <p>The POD upload report for <strong>{period}</strong> is attached as an Excel workbook.</p>
+            <h2>{WebUtility.HtmlEncode(frequencyLabel)} POD Report</h2>
+            <p>The POD upload report for <strong>{WebUtility.HtmlEncode(period)}</strong> is attached as an Excel workbook.</p>
             <table style='border-collapse: collapse; width: 100%; max-width: 520px;'>
                 <tr>
                     <td style='padding: 8px; border: 1px solid #ddd; background: #f5f5f5;'><strong>Total Invoices</strong></td>
@@ -569,7 +675,9 @@ public sealed class PodReportEmailService(
                     <td style='padding: 8px; border: 1px solid #ddd; text-align: right;'>{completion:N1}%</td>
                 </tr>
             </table>
-            <p style='color: #666; font-size: 13px; margin-top: 16px;'>Triggered by {triggeredBy}.</p>";
+            <h3 style='margin-top: 24px; margin-bottom: 10px;'>Breakdown by Invoicing Point</h3>
+            {invoicingPointBreakdown}
+            <p style='color: #666; font-size: 13px; margin-top: 16px;'>Triggered by {WebUtility.HtmlEncode(triggeredBy)}.</p>";
     }
 
     private static string FormatPeriod(DateTime fromDate, DateTime toDate) =>
@@ -652,16 +760,5 @@ public sealed class PodReportEmailService(
     }
 
     private static List<string> ParseRecipients(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return [];
-        }
-
-        return value
-            .Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(address => !string.IsNullOrWhiteSpace(address))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
+        => EmailRecipientParser.Parse(value);
 }

@@ -30,6 +30,7 @@ param(
     [string]$WebEmailApplicationUrl = "https://sis.kefaloscheese.com",
     [int]$WebEmailSmtpConnectTimeoutSeconds = 30,
     [int]$WebEmailSmtpOperationTimeoutSeconds = 300,
+    [string]$ApiKeyExpiresAt,
     [switch]$SuppressExitPrompt,
     [PSCredential]$Credential,
     [string]$SerializedCredentialPath
@@ -204,6 +205,48 @@ function Get-SelectedDeploymentDefinitions {
     }
 }
 
+function Resolve-ApiKeyExpiry {
+    param(
+        [string]$ConfiguredExpiry,
+        [string]$AppSettingsPath
+    )
+
+    $expiryText = $ConfiguredExpiry
+    if ([string]::IsNullOrWhiteSpace($expiryText)) {
+        if (-not (Test-Path -LiteralPath $AppSettingsPath)) {
+            throw "API key expiry was not supplied and appsettings.json was not found at $AppSettingsPath."
+        }
+
+        try {
+            $settings = Get-Content -LiteralPath $AppSettingsPath -Raw | ConvertFrom-Json
+            $mainIntegration = @($settings.Security.ApiKeys) |
+                Where-Object { $_.Name -eq 'MainIntegration' } |
+                Select-Object -First 1
+            $expiryText = if ($null -ne $mainIntegration) { [string]$mainIntegration.ExpiresAt } else { $null }
+        }
+        catch {
+            throw "Could not read MainIntegration ExpiresAt from $AppSettingsPath. $($_.Exception.Message)"
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($expiryText)) {
+        throw "MainIntegration ExpiresAt is missing. Set it in appsettings.json or pass -ApiKeyExpiresAt."
+    }
+
+    try {
+        $expiry = [DateTimeOffset]::Parse($expiryText).ToUniversalTime()
+    }
+    catch {
+        throw "ApiKeyExpiresAt '$expiryText' is not a valid date/time. Use an ISO-8601 value such as 2026-10-11T23:59:59Z."
+    }
+
+    if ($expiry -le [DateTimeOffset]::UtcNow) {
+        throw "MainIntegration ExpiresAt '$($expiry.ToString('O'))' is not in the future. Renew the key expiry before deploying."
+    }
+
+    return $expiry.ToString('yyyy-MM-ddTHH:mm:ssZ')
+}
+
 if ([string]::IsNullOrWhiteSpace($WebEmailSmtpPassword) -and -not [string]::IsNullOrWhiteSpace($env:Email__SmtpPassword)) {
     $WebEmailSmtpPassword = $env:Email__SmtpPassword
 }
@@ -327,6 +370,7 @@ if ($targetServers.Count -gt 1) {
             if ($WebEmailApplicationUrl -ne "https://sis.kefaloscheese.com") { $argumentList += @('-WebEmailApplicationUrl', $WebEmailApplicationUrl) }
             if ($WebEmailSmtpConnectTimeoutSeconds -ne 30) { $argumentList += @('-WebEmailSmtpConnectTimeoutSeconds', $WebEmailSmtpConnectTimeoutSeconds) }
             if ($WebEmailSmtpOperationTimeoutSeconds -ne 300) { $argumentList += @('-WebEmailSmtpOperationTimeoutSeconds', $WebEmailSmtpOperationTimeoutSeconds) }
+            if (-not [string]::IsNullOrWhiteSpace($ApiKeyExpiresAt)) { $argumentList += @('-ApiKeyExpiresAt', $ApiKeyExpiresAt) }
 
             & powershell.exe @argumentList
             $childExitCode = $LASTEXITCODE
@@ -383,6 +427,7 @@ if ($FirstTimeSetup -and -not $isAdmin) {
     if ($WebEmailApplicationUrl -ne "https://sis.kefaloscheese.com") { $argList += " -WebEmailApplicationUrl `"$WebEmailApplicationUrl`"" }
     if ($WebEmailSmtpConnectTimeoutSeconds -ne 30) { $argList += " -WebEmailSmtpConnectTimeoutSeconds $WebEmailSmtpConnectTimeoutSeconds" }
     if ($WebEmailSmtpOperationTimeoutSeconds -ne 300) { $argList += " -WebEmailSmtpOperationTimeoutSeconds $WebEmailSmtpOperationTimeoutSeconds" }
+    if (-not [string]::IsNullOrWhiteSpace($ApiKeyExpiresAt)) { $argList += " -ApiKeyExpiresAt `"$ApiKeyExpiresAt`"" }
 
     $credentialPath = $null
     try {
@@ -662,6 +707,10 @@ $ApiProjectPath = Join-Path $RootDir "ShopInventory\ShopInventory.csproj"
 $WebProjectPath = Join-Path $RootDir "ShopInventory.Web\ShopInventory.Web.csproj"
 $PublishPath = Join-Path $RootDir "publish"
 $MigrationBundlePath = Join-Path $PublishPath "migrations"
+$apiKeyExpiryToDeploy = Resolve-ApiKeyExpiry `
+    -ConfiguredExpiry $ApiKeyExpiresAt `
+    -AppSettingsPath (Join-Path $RootDir "ShopInventory\appsettings.json")
+Write-Host "MainIntegration expiry to apply to API slots: $apiKeyExpiryToDeploy" -ForegroundColor Gray
 
 # API and Web own separate Postgres databases, each with its own EF migration history.
 $migrationBundleDefinitions = @{
@@ -1294,7 +1343,7 @@ try {
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
         $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
-            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides)
+            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy)
 
             Import-Module WebAdministration
 
@@ -1715,6 +1764,24 @@ try {
 
                 Initialize-SlotWebConfig -DeploymentPlan $Plan -ExtractedWebConfigPath "$tempPath\web.config"
 
+                if ($Plan.Name -eq 'API') {
+                    $apiWebConfigPaths = @("$($Plan.TargetPath)\web.config")
+                    if (-not [string]::IsNullOrWhiteSpace($Plan.CurrentPath)) {
+                        $currentApiWebConfigPath = Join-Path $Plan.CurrentPath 'web.config'
+                        if (Test-Path $currentApiWebConfigPath) {
+                            $apiWebConfigPaths += $currentApiWebConfigPath
+                        }
+                    }
+
+                    foreach ($apiWebConfigPath in ($apiWebConfigPaths | Select-Object -Unique)) {
+                        Set-WebConfigEnvironmentVariableValue `
+                            -WebConfigPath $apiWebConfigPath `
+                            -Name 'Security__ApiKeys__0__ExpiresAt' `
+                            -Value $ApiKeyExpiryToDeploy
+                        Write-Host "  Applied MainIntegration API-key expiry to $apiWebConfigPath" -ForegroundColor Green
+                    }
+                }
+
                 $databaseConnectionString = $DatabaseConnectionOverrides[$Plan.Name]
                 if (-not [string]::IsNullOrWhiteSpace($databaseConnectionString)) {
                     Set-WebConfigEnvironmentVariableValue -WebConfigPath "$($Plan.TargetPath)\web.config" -Name 'ConnectionStrings__DefaultConnection' -Value $databaseConnectionString
@@ -1837,7 +1904,7 @@ try {
                 Remove-Item -Path $tempPath -Recurse -Force -ErrorAction SilentlyContinue
                 Remove-Item -Path $zipFullPath -Force -ErrorAction SilentlyContinue
             }
-        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides -ErrorAction Stop
+        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides, $apiKeyExpiryToDeploy -ErrorAction Stop
 
         $cutoverResults += $cutoverResult
 

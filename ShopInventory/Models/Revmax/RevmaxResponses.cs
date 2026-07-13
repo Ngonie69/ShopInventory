@@ -162,7 +162,7 @@ public class InvoiceData
     public string? InvoiceNo { get; set; }
 
     [JsonPropertyName("buyerData")]
-    public string? BuyerData { get; set; }
+    public JsonElement? BuyerData { get; set; }
 
     [JsonPropertyName("receiptNotes")]
     public string? ReceiptNotes { get; set; }

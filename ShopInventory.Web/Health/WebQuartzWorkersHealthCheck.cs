@@ -46,7 +46,10 @@ public sealed class WebQuartzWorkersHealthCheck(ISchedulerFactory schedulerFacto
                 failures.Add($"{dataKey} has no next fire time.");
             }
 
-            if (state is TriggerState.Error or TriggerState.Blocked)
+            // Blocked is expected while another clustered Web node is executing the same
+            // [DisallowConcurrentExecution] job (especially during blue/green cutover). It is
+            // only unhealthy when the trigger is in Error or has no future fire time.
+            if (state == TriggerState.Error)
             {
                 failures.Add($"{dataKey} is {state}.");
             }
