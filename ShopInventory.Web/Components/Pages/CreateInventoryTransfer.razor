@@ -1147,7 +1147,14 @@
                                                                                       style="font-size:0.88rem;">@context.ItemCode</span>
                                                                                 <small class="text-muted">@context.ItemName</small>
                                                                             </div>
-                                                                            @if (context.QuantityInStock > 0)
+                                                                            @if (isLoadingStock)
+                                                                            {
+                                                                                <span class="badge bg-secondary-subtle text-secondary ms-2"
+                                                                                      style="font-size:0.7rem;">
+                                                                                    Stock loading…
+                                                                                </span>
+                                                                            }
+                                                                            else if (context.QuantityInStock > 0)
                                                                             {
                                                                                 <span class="badge bg-success-subtle text-success ms-2"
                                                                                       style="font-size:0.7rem;">
@@ -1183,7 +1190,11 @@
                                                                         <div class="product-name">@currentLine.SelectedProduct.ItemName</div>
                                                                         <div class="product-stock">
                                                                             In Stock:
-                                                                            @if (currentLine.SelectedProduct.QuantityInStock > 0)
+                                                                            @if (isLoadingStock)
+                                                                            {
+                                                                                <span class="text-muted">Loading…</span>
+                                                                            }
+                                                                            else if (currentLine.SelectedProduct.QuantityInStock > 0)
                                                                             {
                                                                                 <span
                                                                                     class="@(currentLine.Quantity > currentLine.SelectedProduct.QuantityInStock ? "low-stock" : "in-stock")">
@@ -1564,8 +1575,10 @@
         .Take(20);
     }
 
-    private async Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken ct)
+    private Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
+
         var products = string.IsNullOrWhiteSpace(searchText)
             ? cachedProducts.Take(20).ToList()
             : cachedProducts
@@ -1575,55 +1588,58 @@
                 .Take(20)
                 .ToList();
 
-        await ApplyCurrentWarehouseStockAsync(products, ct);
-        return products;
+        // Product matching is entirely local. Never make the autocomplete wait for SAP stock:
+        // stock is merged when the source warehouse changes and refreshed after selection.
+        return Task.FromResult<IEnumerable<ProductDto>>(products);
     }
 
     // ── Line item management ────────────────────────────
-    private async Task OnProductSelected(TransferLineItem line, ProductDto? product)
+    private Task OnProductSelected(TransferLineItem line, ProductDto? product)
     {
         line.SelectedProduct = product;
         line.ItemCode = product?.ItemCode;
-        if (product != null)
+
+        // Complete the selection immediately. A stale-cache SAP lookup can take tens of seconds,
+        // so refresh it in the background instead of blocking the MudAutocomplete callback.
+        if (product != null && !isLoadingStock)
         {
-            await ApplyCurrentWarehouseStockAsync([product], CancellationToken.None);
+            _ = RefreshSelectedProductStockAsync(line, product);
         }
+
         StateHasChanged();
+        return Task.CompletedTask;
     }
 
-    private async Task ApplyCurrentWarehouseStockAsync(List<ProductDto> products, CancellationToken cancellationToken)
+    private async Task RefreshSelectedProductStockAsync(TransferLineItem line, ProductDto product)
     {
         var warehouseCode = selectedFromWarehouse?.WarehouseCode;
-        if (string.IsNullOrWhiteSpace(warehouseCode) || products.Count == 0)
-            return;
-
-        var itemCodes = products
-            .Select(p => p.ItemCode)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Select(code => code!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (itemCodes.Count == 0)
+        var itemCode = product.ItemCode;
+        if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
             return;
 
         try
         {
-            var stockByItem = await StockCacheService.GetStockForItemsAsync(warehouseCode, itemCodes, cancellationToken);
-            foreach (var product in products)
-            {
-                if (!string.IsNullOrEmpty(product.ItemCode) && stockByItem.TryGetValue(product.ItemCode, out var stockProduct))
-                {
-                    ApplyStock(product, stockProduct);
-                }
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
+            var stockByItem = await StockCacheService.GetStockForItemsAsync(
+                warehouseCode,
+                [itemCode],
+                CancellationToken.None);
+
+            // Ignore a late response if the user changed the source warehouse or product.
+            if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)
+                || !ReferenceEquals(line.SelectedProduct, product))
+                return;
+
+            if (stockByItem.TryGetValue(itemCode, out var stockProduct))
+                ApplyStock(product, stockProduct);
+
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to resolve live stock for selected warehouse {Warehouse}", warehouseCode);
+            Logger.LogWarning(ex,
+                "Failed to refresh stock for item {ItemCode} in warehouse {Warehouse}",
+                itemCode,
+                warehouseCode);
         }
     }
 
