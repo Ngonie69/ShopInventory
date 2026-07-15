@@ -62,6 +62,7 @@ public class PodUploadStatusItem
     public bool IsFullyCredited { get; set; }
     public string? CreditNoteNumber { get; set; }
     public string? CreditNoteReason { get; set; }
+    public bool IsCrateInvoice { get; set; }
     public bool HasPod { get; set; }
     public bool HasProductPod { get; set; }
     public bool HasCratePod { get; set; }

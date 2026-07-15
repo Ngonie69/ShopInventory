@@ -9,7 +9,9 @@ public enum PodReportEmailFrequency
     Monthly,
     Daily,
     MonthToDateDaily,
-    EveryNDays
+    EveryNDays,
+    Quarterly,
+    HalfYearly
 }
 
 /// <summary>
@@ -41,7 +43,7 @@ public class PodReportEmailSchedule
     public int? DayOfWeek { get; set; }
 
     /// <summary>
-    /// Day of month (1-31) for <see cref="PodReportEmailFrequency.Monthly"/> schedules.
+    /// Day of month (1-31) for monthly, quarterly and half-yearly schedules.
     /// </summary>
     public int? DayOfMonth { get; set; }
 

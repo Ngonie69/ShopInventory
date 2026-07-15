@@ -15,6 +15,7 @@ using ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestsByWar
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByDate;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByDateRange;
 using ShopInventory.Features.InventoryTransfers.Queries.GetTransfersByWarehouse;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Controllers;
 
@@ -23,7 +24,7 @@ namespace ShopInventory.Controllers;
 public class InventoryTransferController(IMediator mediator) : ApiControllerBase
 {
     [HttpPost]
-    [Authorize(Roles = "Admin,StockController,DepotController")]
+    [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(InventoryTransferCreatedResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
@@ -100,13 +101,16 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     #region Transfer Request Endpoints
 
     [HttpPost("request")]
-    [Authorize(Roles = "Admin,StockController,DepotController")]
     [ProducesResponseType(typeof(TransferRequestCreatedResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateTransferRequest(
         [FromBody] CreateTransferRequestDto request, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CreateTransferRequestCommand(request), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new CreateTransferRequestCommand(request, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetTransferRequestByDocEntry), new { docEntry = value.TransferRequest!.DocEntry }, value),
             errors => Problem(errors));
@@ -117,9 +121,15 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     [ProducesResponseType(typeof(TransferRequestConvertedResponseDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> ConvertTransferRequestToTransfer(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(
-            value => CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer!.DocEntry }, value),
+            value => value.Transfer is null
+                ? Ok(value)
+                : CreatedAtAction(nameof(GetInventoryTransferByDocEntry), new { docEntry = value.Transfer.DocEntry }, value),
             errors => Problem(errors));
     }
 
@@ -128,7 +138,11 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

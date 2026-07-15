@@ -1,6 +1,6 @@
 @page "/transfer-request/create"
 @using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "Admin,StockController,DepotController")]
+@attribute [Authorize]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
 @inject NavigationManager NavigationManager

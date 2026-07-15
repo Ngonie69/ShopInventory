@@ -11,6 +11,7 @@ namespace ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestsB
 
 public sealed class GetTransferRequestsByWarehouseHandler(
     ISAPServiceLayerClient sapClient,
+    IInventoryTransferApprovalService approvalService,
     IOptions<SAPSettings> settings,
     ILogger<GetTransferRequestsByWarehouseHandler> logger
 ) : IRequestHandler<GetTransferRequestsByWarehouseQuery, ErrorOr<TransferRequestListResponseDto>>
@@ -31,11 +32,14 @@ public sealed class GetTransferRequestsByWarehouseHandler(
 
             logger.LogInformation("Retrieved {Count} transfer requests to warehouse {Warehouse}", transferRequests.Count, request.WarehouseCode);
 
+            var transferRequestDtos = transferRequests.ToDto();
+            await approvalService.EnrichAsync(transferRequestDtos, cancellationToken);
+
             return new TransferRequestListResponseDto
             {
                 Warehouse = request.WarehouseCode,
                 Count = transferRequests.Count,
-                TransferRequests = transferRequests.ToDto()
+                TransferRequests = transferRequestDtos
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

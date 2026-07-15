@@ -140,6 +140,10 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<RoleEntity> Roles { get; set; }
   public DbSet<RolePermissionEntity> RolePermissions { get; set; }
   public DbSet<IdempotencyRequestEntity> IdempotencyRequests { get; set; }
+  public DbSet<ApprovalStageDefinitionEntity> ApprovalStageDefinitions { get; set; }
+  public DbSet<ApprovalTemplateDefinitionEntity> ApprovalTemplateDefinitions { get; set; }
+  public DbSet<ApprovalRequestEntity> ApprovalRequests { get; set; }
+  public DbSet<ApprovalDecisionEntity> ApprovalDecisions { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -223,6 +227,63 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(e => e.ResponsePayload)
             .HasColumnType("text");
+    });
+
+    modelBuilder.Entity<ApprovalStageDefinitionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalStageDefinitions");
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.AuthorizerUserIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.AuthorizerRolesJson).IsRequired().HasColumnType("text");
+    });
+
+    modelBuilder.Entity<ApprovalTemplateDefinitionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalTemplateDefinitions");
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.HasIndex(e => new { e.DocumentType, e.IsActive, e.Priority });
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(80);
+      entity.Property(e => e.OriginatorUserIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.OriginatorRolesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.StageIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<ApprovalRequestEntity>(entity =>
+    {
+      entity.ToTable("ApprovalRequests");
+      entity.HasIndex(e => new { e.DocumentType, e.DocumentKey }).IsUnique();
+      entity.HasIndex(e => new { e.Status, e.CreatedAtUtc });
+      entity.Property(e => e.TemplateName).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(80);
+      entity.Property(e => e.DocumentKey).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.DocumentNumber).HasMaxLength(120);
+      entity.Property(e => e.OriginatorName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.OriginatorRole).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+      entity.Property(e => e.StageSnapshotsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(40);
+      entity.HasMany(e => e.Decisions)
+        .WithOne(e => e.ApprovalRequest)
+        .HasForeignKey(e => e.ApprovalRequestId)
+        .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<ApprovalDecisionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalDecisions");
+      entity.HasIndex(e => new { e.ApprovalRequestId, e.StageId, e.AuthorizerUserId }).IsUnique();
+      entity.Property(e => e.StageName).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.AuthorizerName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.AuthorizerRole).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.Decision).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.Remarks).HasMaxLength(1000);
     });
 
     // User configuration

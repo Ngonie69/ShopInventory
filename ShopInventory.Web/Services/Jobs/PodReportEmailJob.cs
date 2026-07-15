@@ -115,6 +115,8 @@ public sealed class PodReportEmailJob(
             PodReportEmailFrequency.MonthToDateDaily => GetMostRecentDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.Weekly => GetMostRecentWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
             PodReportEmailFrequency.Monthly => GetMostRecentMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
+            PodReportEmailFrequency.Quarterly => GetMostRecentPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 3),
+            PodReportEmailFrequency.HalfYearly => GetMostRecentPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 6),
             PodReportEmailFrequency.EveryNDays => GetMostRecentEveryNDaysLocal(
                 nowLocal,
                 PodScheduleTime.ToLocal(DateTime.SpecifyKind(schedule.AnchorDateUtc, DateTimeKind.Utc)),
@@ -137,6 +139,8 @@ public sealed class PodReportEmailJob(
             PodReportEmailFrequency.MonthToDateDaily => GetNextDailyLocal(nowLocal, minuteOfDay),
             PodReportEmailFrequency.Weekly => GetNextWeeklyLocal(nowLocal, ResolveDayOfWeek(schedule.DayOfWeek), minuteOfDay),
             PodReportEmailFrequency.Monthly => GetNextMonthlyLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay),
+            PodReportEmailFrequency.Quarterly => GetNextPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 3),
+            PodReportEmailFrequency.HalfYearly => GetNextPeriodicLocal(nowLocal, schedule.DayOfMonth ?? 1, minuteOfDay, 6),
             PodReportEmailFrequency.EveryNDays => GetNextEveryNDaysLocal(
                 nowLocal,
                 PodScheduleTime.ToLocal(DateTime.SpecifyKind(schedule.AnchorDateUtc, DateTimeKind.Utc)),
@@ -221,6 +225,46 @@ public sealed class PodReportEmailJob(
         // Clamp to the last day of a short month (e.g. "day 31" in February).
         var day = Math.Min(dayOfMonth, DateTime.DaysInMonth(year, month));
         return new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Unspecified).AddMinutes(minuteOfDay);
+    }
+
+    private static DateTime GetMostRecentPeriodicLocal(
+        DateTime nowLocal,
+        int dayOfMonth,
+        int minuteOfDay,
+        int monthsPerPeriod)
+    {
+        var periodStart = GetCurrentPeriodStart(nowLocal, monthsPerPeriod);
+        var scheduled = BuildMonthlyLocal(periodStart.Year, periodStart.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
+        if (scheduled > nowLocal)
+        {
+            var previousPeriod = periodStart.AddMonths(-monthsPerPeriod);
+            scheduled = BuildMonthlyLocal(previousPeriod.Year, previousPeriod.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
+        }
+
+        return scheduled;
+    }
+
+    private static DateTime GetNextPeriodicLocal(
+        DateTime nowLocal,
+        int dayOfMonth,
+        int minuteOfDay,
+        int monthsPerPeriod)
+    {
+        var periodStart = GetCurrentPeriodStart(nowLocal, monthsPerPeriod);
+        var scheduled = BuildMonthlyLocal(periodStart.Year, periodStart.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
+        if (scheduled <= nowLocal)
+        {
+            var nextPeriod = periodStart.AddMonths(monthsPerPeriod);
+            scheduled = BuildMonthlyLocal(nextPeriod.Year, nextPeriod.Month, Math.Clamp(dayOfMonth, 1, 31), minuteOfDay);
+        }
+
+        return scheduled;
+    }
+
+    private static DateTime GetCurrentPeriodStart(DateTime value, int monthsPerPeriod)
+    {
+        var startMonth = ((value.Month - 1) / monthsPerPeriod) * monthsPerPeriod + 1;
+        return new DateTime(value.Year, startMonth, 1, 0, 0, 0, DateTimeKind.Unspecified);
     }
 
     private static DateTime? GetMostRecentEveryNDaysLocal(

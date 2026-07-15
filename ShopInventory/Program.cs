@@ -464,6 +464,7 @@ try
 
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
+    builder.Services.AddScoped<IInventoryTransferApprovalService, InventoryTransferApprovalService>();
     builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 

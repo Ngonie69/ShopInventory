@@ -25,6 +25,13 @@ public sealed class GetPodUploadStatusHandler(
 {
     private const decimal FullCreditTolerance = 0.01m;
     private static readonly TimeSpan CreditNoteEnrichmentTimeout = TimeSpan.FromSeconds(45);
+    private static readonly HashSet<string> CrateInvoiceItemCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CRA001",
+        "CRA002",
+        "CRA003",
+        "CRA006"
+    };
 
     public async Task<ErrorOr<PodUploadStatusReportDto>> Handle(
         GetPodUploadStatusQuery request,
@@ -131,22 +138,29 @@ public sealed class GetPodUploadStatusHandler(
                 }
             }
 
+            var crateInvoiceDocEntries = await GetCrateInvoiceDocEntriesFromSapAsync(invoices, cancellationToken);
             var docEntries = invoices.Select(i => i.DocEntry).ToList();
             var podLookup = await documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
-            var crateInvoicePodLookup = await GetCratePodStatusByInvoiceDocNumsAsync(
-                invoices.Select(invoice => invoice.DocNum).ToList(),
+            var cratePodStatusByDocNum = await GetCratePodStatusByInvoiceDocNumsAsync(
+                invoices
+                    .Where(invoice => crateInvoiceDocEntries.Contains(invoice.DocEntry))
+                    .Select(invoice => invoice.DocNum)
+                    .ToList(),
                 cancellationToken);
 
             var items = invoices.Select(i =>
             {
                 podLookup.TryGetValue(i.DocEntry, out var podInfo);
-                crateInvoicePodLookup.PodStatusByDocNum.TryGetValue(i.DocNum, out var cratePodInfo);
                 creditNoteLookup.TryGetValue(i.DocEntry, out var creditNoteInfo);
+                var isCrateInvoice = crateInvoiceDocEntries.Contains(i.DocEntry);
+                var cratePodInfo = isCrateInvoice && cratePodStatusByDocNum.TryGetValue(i.DocNum, out var matchedCratePodInfo)
+                    ? matchedCratePodInfo
+                    : null;
                 var combinedPodInfo = MergePodStatusInfo(podInfo, cratePodInfo);
                 var podTypeInfo = ResolvePodTypeInfo(
                     podInfo,
                     cratePodInfo,
-                    crateInvoicePodLookup.InvoiceDocNums.Contains(i.DocNum));
+                    isCrateInvoice);
                 var creatorLocation = PodInvoiceCreatorLocations.GetCreatorLocation(i.UserSign);
 
                 return new PodUploadStatusItemDto
@@ -164,6 +178,7 @@ public sealed class GetPodUploadStatusHandler(
                     IsFullyCredited = creditNoteInfo?.IsFullyCredited == true,
                     CreditNoteNumber = creditNoteInfo?.CreditNoteNumbers,
                     CreditNoteReason = creditNoteInfo?.Reasons,
+                    IsCrateInvoice = isCrateInvoice,
                     HasPod = combinedPodInfo is not null,
                     HasProductPod = podTypeInfo.HasProductPod,
                     HasCratePod = podTypeInfo.HasCratePod,
@@ -252,10 +267,6 @@ public sealed class GetPodUploadStatusHandler(
         int CreditNoteDocNum,
         decimal CreditAmount,
         string? Reason);
-
-    private sealed record CrateInvoicePodLookup(
-        HashSet<int> InvoiceDocNums,
-        Dictionary<int, PodStatusInfo> PodStatusByDocNum);
 
     private async Task<List<Invoice>> IncludeCreditNoteActivityInvoicesAsync(
         IReadOnlyList<Invoice> invoices,
@@ -750,7 +761,101 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         return null;
     }
 
-    private async Task<CrateInvoicePodLookup> GetCratePodStatusByInvoiceDocNumsAsync(
+    private async Task<HashSet<int>> GetCrateInvoiceDocEntriesFromSapAsync(
+        IReadOnlyCollection<Invoice> invoices,
+        CancellationToken cancellationToken)
+    {
+        var crateInvoiceDocEntries = invoices
+            .Where(invoice => invoice.DocEntry > 0 && HasCrateInvoiceLine(invoice.DocumentLines))
+            .Select(invoice => invoice.DocEntry)
+            .ToHashSet();
+
+        var unresolvedDocEntries = invoices
+            .Where(invoice =>
+                invoice.DocEntry > 0 &&
+                (invoice.DocumentLines is null || invoice.DocumentLines.Count == 0))
+            .Select(invoice => invoice.DocEntry)
+            .Distinct()
+            .ToList();
+
+        var chunkIndex = 0;
+        try
+        {
+            foreach (var chunk in unresolvedDocEntries.Chunk(100))
+            {
+                chunkIndex++;
+                var rows = await sapClient.ExecuteRawSqlQueryAsync(
+                    $"PODCRA{Random.Shared.Next(100000, 999999)}{chunkIndex:D2}",
+                    $"POD SAP crate invoice classification {chunkIndex}",
+                    BuildCrateInvoiceClassificationSql(chunk),
+                    cancellationToken);
+
+                foreach (var row in rows)
+                {
+                    var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
+                    if (invoiceDocEntry.HasValue)
+                    {
+                        crateInvoiceDocEntries.Add(invoiceDocEntry.Value);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "SAP SQL crate-invoice classification failed after {CompletedChunkCount} chunk(s); falling back to the Invoices API for {InvoiceCount} unresolved invoices",
+                chunkIndex,
+                unresolvedDocEntries.Count);
+
+            var invoicesWithLines = await sapClient.GetInvoiceHeadersByDocEntriesAsync(
+                unresolvedDocEntries,
+                cancellationToken);
+
+            foreach (var invoice in invoicesWithLines.Where(invoice => HasCrateInvoiceLine(invoice.DocumentLines)))
+            {
+                crateInvoiceDocEntries.Add(invoice.DocEntry);
+            }
+        }
+
+        logger.LogInformation(
+            "SAP classified {CrateInvoiceCount} of {InvoiceCount} POD report invoices as crate invoices using item codes {CrateItemCodes}",
+            crateInvoiceDocEntries.Count,
+            invoices.Count,
+            string.Join(", ", CrateInvoiceItemCodes.OrderBy(code => code, StringComparer.OrdinalIgnoreCase)));
+
+        return crateInvoiceDocEntries;
+    }
+
+    private static bool HasCrateInvoiceLine(IEnumerable<InvoiceLine>? documentLines) =>
+        documentLines?.Any(line =>
+            !string.IsNullOrWhiteSpace(line.ItemCode) &&
+            CrateInvoiceItemCodes.Contains(line.ItemCode.Trim())) == true;
+
+    private static string BuildCrateInvoiceClassificationSql(IEnumerable<int> invoiceDocEntries)
+    {
+        var docEntryFilter = string.Join(", ", invoiceDocEntries
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .OrderBy(docEntry => docEntry));
+        var itemCodeFilter = string.Join(", ", CrateInvoiceItemCodes
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .Select(code => $"'{code}'"));
+
+        return $@"
+SELECT DISTINCT
+    T0.""DocEntry"" AS ""InvoiceDocEntry""
+FROM INV1 T0
+WHERE T0.""DocEntry"" IN ({docEntryFilter})
+  AND T0.""ItemCode"" IN ({itemCodeFilter})
+ORDER BY T0.""DocEntry""";
+    }
+
+    private async Task<Dictionary<int, PodStatusInfo>> GetCratePodStatusByInvoiceDocNumsAsync(
         List<int> invoiceDocNums,
         CancellationToken cancellationToken)
     {
@@ -761,7 +866,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
         if (requestedDocNums.Count == 0)
         {
-            return new CrateInvoicePodLookup([], []);
+            return [];
         }
 
         var latestTransactions = await context.CrateTransactions
@@ -782,11 +887,10 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         var latestTransactionsByDocNum = latestTransactions
             .GroupBy(transaction => transaction.InvoiceDocNum)
             .ToDictionary(group => group.Key, group => group.First());
-        var crateInvoiceDocNums = latestTransactionsByDocNum.Keys.ToHashSet();
 
         if (latestTransactionsByDocNum.Count == 0)
         {
-            return new CrateInvoicePodLookup([], []);
+            return [];
         }
 
         var transactionIds = latestTransactionsByDocNum.Values
@@ -808,7 +912,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
         if (submissions.Count == 0)
         {
-            return new CrateInvoicePodLookup(crateInvoiceDocNums, []);
+            return [];
         }
 
         var submissionIds = submissions
@@ -829,7 +933,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
         if (attachments.Count == 0)
         {
-            return new CrateInvoicePodLookup(crateInvoiceDocNums, []);
+            return [];
         }
 
         var transactionDocNumsById = latestTransactionsByDocNum.Values
@@ -915,7 +1019,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
                     };
                 });
 
-        return new CrateInvoicePodLookup(crateInvoiceDocNums, cratePodData);
+        return cratePodData;
     }
 
     private static PodStatusInfo? MergePodStatusInfo(PodStatusInfo? invoicePodInfo, PodStatusInfo? cratePodInfo)

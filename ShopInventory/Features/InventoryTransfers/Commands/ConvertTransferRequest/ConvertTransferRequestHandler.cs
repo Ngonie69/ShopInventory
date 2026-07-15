@@ -1,121 +1,108 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
-using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
-using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
 
 public sealed class ConvertTransferRequestHandler(
     ISAPServiceLayerClient sapClient,
+    IInventoryTransferApprovalService approvalService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
-    INotificationService notificationService,
     IOptions<SAPSettings> settings,
-    ILogger<ConvertTransferRequestHandler> logger
-) : IRequestHandler<ConvertTransferRequestCommand, ErrorOr<TransferRequestConvertedResponseDto>>
+    ILogger<ConvertTransferRequestHandler> logger)
+    : IRequestHandler<ConvertTransferRequestCommand, ErrorOr<TransferRequestConvertedResponseDto>>
 {
-    public async Task<ErrorOr<TransferRequestConvertedResponseDto>> Handle(
-        ConvertTransferRequestCommand command,
-        CancellationToken cancellationToken)
+    public async Task<ErrorOr<TransferRequestConvertedResponseDto>> Handle(ConvertTransferRequestCommand command, CancellationToken cancellationToken)
     {
-        if (!settings.Value.Enabled)
-            return Errors.InventoryTransfer.SapDisabled;
-
+        if (!settings.Value.Enabled) return Errors.InventoryTransfer.SapDisabled;
+        long? idempotencyRequestId = null;
+        var release = false;
         try
         {
-            logger.LogInformation("Converting transfer request {DocEntry} to inventory transfer", command.DocEntry);
+            var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
+            if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
 
-            InventoryTransferRequest? transferRequest = null;
+            var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:approve:{command.GenerateDocument}";
+            var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestConvertedResponseDto>(
+                "inventory-transfer-approval-decision", key,
+                new { command.DocEntry, command.StageId, command.UserId, command.GenerateDocument, Decision = ApprovalDecisionValues.Approved }, cancellationToken);
+            switch (acquired.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null: return acquired.Response;
+                case IdempotencyAcquireOutcome.InProgress: return Errors.InventoryTransfer.ApprovalInProgress;
+                case IdempotencyAcquireOutcome.RequestMismatch: return Errors.Idempotency.RequestMismatch("transfer approval decision");
+                case IdempotencyAcquireOutcome.Acquired: idempotencyRequestId = acquired.RequestId; release = true; break;
+            }
+
+            var decision = await approvalService.SubmitDecisionAsync(
+                document, command.UserId, ApprovalDecisionValues.Approved, command.StageId, command.Remarks, cancellationToken);
+            if (decision.IsError) return decision.Errors;
+
             try
             {
-                transferRequest = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
+                await auditService.LogAsync(AuditActions.ApproveTransferRequestStage, "TransferRequest", command.DocEntry.ToString(),
+                    $"Approved stage '{decision.Value.StageName}'. Status: {decision.Value.RequestStatus}", true);
             }
-            catch (Exception ex)
+            catch { }
+
+            InventoryTransferDto? transferDto = null;
+            var message = decision.Value.Message;
+            if (decision.Value.ApprovalProcessComplete && command.GenerateDocument)
             {
-                logger.LogWarning(ex, "Failed to load transfer request {DocEntry} context before conversion", command.DocEntry);
-            }
-
-            var transfer = await sapClient.ConvertTransferRequestToTransferAsync(command.DocEntry, cancellationToken);
-            var transferDto = transfer.ToDto();
-
-            logger.LogInformation("Transfer request {DocEntry} converted successfully to transfer {TransferDocEntry}",
-                command.DocEntry, transfer.DocEntry);
-
-            try { await auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", command.DocEntry.ToString(), $"Transfer request {command.DocEntry} converted to transfer {transfer.DocEntry}", true); } catch { }
-
-            try
-            {
-                var requestLabel = transferRequest?.DocNum.ToString() ?? command.DocEntry.ToString();
-                var fromWarehouse = transferRequest?.FromWarehouse ?? "unspecified";
-                var toWarehouse = transferRequest?.ToWarehouse ?? "unknown";
-
-                await notificationService.CreateNotificationAsync(
-                    ModuleNotificationFactory.CreateBroadcastNotification(
-                        $"Transfer Request Converted: #{requestLabel}",
-                        $"Transfer request #{requestLabel} from {fromWarehouse} to {toWarehouse} was converted to inventory transfer #{transfer.DocNum}.",
-                        "Success",
-                        "TransferRequest",
-                        "TransferRequest",
-                        command.DocEntry.ToString(),
-                        "/inventory-transfers",
-                        new Dictionary<string, string>
-                        {
-                            ["requestDocEntry"] = command.DocEntry.ToString(),
-                            ["requestDocNum"] = transferRequest?.DocNum.ToString() ?? string.Empty,
-                            ["transferDocEntry"] = transfer.DocEntry.ToString(),
-                            ["transferDocNum"] = transfer.DocNum.ToString(),
-                            ["fromWarehouse"] = fromWarehouse,
-                            ["toWarehouse"] = toWarehouse,
-                            ["action"] = "Converted"
-                        }),
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to publish conversion notification for transfer request {DocEntry}", command.DocEntry);
+                var transfer = await sapClient.ConvertTransferRequestToTransferAsync(command.DocEntry, cancellationToken);
+                transferDto = transfer.ToDto();
+                await approvalService.MarkGeneratedAsync(command.DocEntry, transfer.DocEntry, transfer.DocNum, command.UserId, true, cancellationToken);
+                message = $"Approval complete and Inventory Transfer #{transfer.DocNum} generated by the authorizer.";
+                try
+                {
+                    await auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", command.DocEntry.ToString(),
+                        $"Generated transfer {transfer.DocEntry} from approved request", true);
+                }
+                catch { }
             }
 
-            return new TransferRequestConvertedResponseDto
+            var response = new TransferRequestConvertedResponseDto
             {
-                Message = $"Transfer request converted successfully to Inventory Transfer #{transfer.DocNum}",
+                Message = message,
                 RequestDocEntry = command.DocEntry,
                 Transfer = transferDto
             };
-        }
-        catch (ArgumentException ex)
-        {
-            logger.LogWarning(ex, "Transfer request {DocEntry} not found", command.DocEntry);
-            return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
+            if (idempotencyRequestId.HasValue)
+            {
+                await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                release = false;
+            }
+            return response;
         }
         catch (InvalidOperationException ex)
         {
-            logger.LogWarning(ex, "Cannot convert transfer request {DocEntry}", command.DocEntry);
             return Errors.InventoryTransfer.InvalidOperation(ex.Message);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
         }
-        catch (OperationCanceledException ex)
-        {
-            logger.LogError(ex, "Timeout or connection abort converting transfer request");
-            return Errors.InventoryTransfer.SapTimeout;
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return Errors.InventoryTransfer.SapConnectionError(ex.Message);
-        }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error converting transfer request {DocEntry}", command.DocEntry);
+            logger.LogError(ex, "Error processing approval for transfer request {DocEntry}", command.DocEntry);
             return Errors.InventoryTransfer.CreationFailed(ex.Message);
+        }
+        finally
+        {
+            if (release && idempotencyRequestId.HasValue)
+            {
+                try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to release transfer approval decision lock"); }
+            }
         }
     }
 }

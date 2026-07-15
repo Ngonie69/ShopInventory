@@ -8,12 +8,16 @@ using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
+using ShopInventory.Models;
 
 namespace ShopInventory.Features.DesktopIntegration.Commands.CreateTransferRequest;
 
 public sealed class CreateTransferRequestHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    IAuditService auditService,
+    IInventoryTransferApprovalService approvalService,
     IOptions<SAPSettings> sapSettings,
     ILogger<CreateTransferRequestHandler> logger
 ) : IRequestHandler<CreateTransferRequestCommand, ErrorOr<InventoryTransferRequestDto>>
@@ -28,6 +32,13 @@ public sealed class CreateTransferRequestHandler(
                 return Errors.DesktopIntegration.SapDisabled;
 
             var request = command.Request;
+            User? requestingUser = null;
+            if (Guid.TryParse(command.CreatedBy, out var requestingUserId))
+            {
+                requestingUser = await context.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(user => user.Id == requestingUserId && user.IsActive, cancellationToken);
+            }
 
             logger.LogInformation("Desktop app creating transfer request: From={From}, To={To}, CreatedBy={CreatedBy}",
                 request.FromWarehouse, request.ToWarehouse, command.CreatedBy);
@@ -39,8 +50,11 @@ public sealed class CreateTransferRequestHandler(
                 DocDate = request.DocDate,
                 DueDate = request.DueDate,
                 Comments = request.Comments,
-                RequesterEmail = request.RequesterEmail,
-                RequesterName = request.RequesterName ?? command.CreatedBy,
+                RequesterEmail = requestingUser?.Email ?? request.RequesterEmail,
+                RequesterName = requestingUser is null
+                    ? request.RequesterName ?? command.CreatedBy
+                    : string.Join(' ', new[] { requestingUser.FirstName, requestingUser.LastName }
+                        .Where(value => !string.IsNullOrWhiteSpace(value))),
                 RequesterBranch = request.RequesterBranch,
                 RequesterDepartment = request.RequesterDepartment,
                 Lines = request.Lines.Select(l => new CreateTransferRequestLineDto
@@ -52,6 +66,9 @@ public sealed class CreateTransferRequestHandler(
                     ToWarehouseCode = l.ToWarehouseCode ?? request.ToWarehouse
                 }).ToList()
             };
+
+            if (string.IsNullOrWhiteSpace(sapRequest.RequesterName) && requestingUser is not null)
+                sapRequest.RequesterName = requestingUser.Username;
 
             var quantityErrors = await UomQuantityValidation.ValidateAndNormalizeLineQuantitiesAsync(
                 context,
@@ -66,6 +83,20 @@ public sealed class CreateTransferRequestHandler(
                 return Errors.DesktopIntegration.ValidationFailed(string.Join("; ", quantityErrors));
 
             var transferRequest = await sapClient.CreateInventoryTransferRequestAsync(sapRequest, cancellationToken);
+            await approvalService.EnsureRequestAsync(transferRequest, requestingUser?.Id, cancellationToken);
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.CreateTransferRequest,
+                    "TransferRequest",
+                    transferRequest.DocEntry.ToString(),
+                    $"Transfer request #{transferRequest.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}",
+                    true);
+            }
+            catch
+            {
+            }
 
             return transferRequest.ToDto();
         }

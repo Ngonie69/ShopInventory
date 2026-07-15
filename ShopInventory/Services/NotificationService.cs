@@ -61,6 +61,7 @@ public class NotificationService : INotificationService
 
         var notification = new Notification
         {
+            UserId = request.TargetUserId,
             TargetUsername = request.TargetUsername,
             TargetRole = request.TargetRole,
             Title = request.Title,
@@ -307,6 +308,7 @@ public class NotificationService : INotificationService
         }
 
         return query.Where(n =>
+                                (hasUsername && n.TargetUsername == username && n.Category == "TransferApproval") ||
                                 (isDriver &&
                                  ((hasUsername && n.TargetUsername == username && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
                                     (((hasUsername && n.TargetUsername == username) ||
@@ -331,6 +333,7 @@ public class NotificationService : INotificationService
                                     (canSeeAppVersionNotifications && NotificationAudienceRules.AppVersionBroadcastCategories.Contains(n.Category)) ||
                                     (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category)))))
             .Where(n =>
+                                (hasUsername && n.TargetUsername == username && n.Category == "TransferApproval") ||
                                 (isDriver &&
                                  ((hasUsername && n.TargetUsername == username && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
                                     (((hasUsername && n.TargetUsername == username) ||

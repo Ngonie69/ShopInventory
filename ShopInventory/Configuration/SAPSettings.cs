@@ -22,6 +22,19 @@ public class SAPSettings
     public int LongRunningRequestTimeoutMinutes { get; set; } = 20;
 
     /// <summary>
+    /// Maximum time allowed for the temporary SQL-query path used by a single price list.
+    /// Price synchronization falls back to the Items API when this budget is exceeded,
+    /// preventing a degraded SQL endpoint from occupying an SAP request slot for minutes.
+    /// </summary>
+    public int PriceListSqlRequestTimeoutSeconds { get; set; } = 20;
+
+    /// <summary>
+    /// Maximum number of attempts for a price-list SQL request before using the Items API fallback.
+    /// Keep this low because the fallback provides the same catalog data through a different SAP endpoint.
+    /// </summary>
+    public int PriceListSqlMaxAttempts { get; set; } = 1;
+
+    /// <summary>
     /// Maximum number of concurrent outbound requests allowed to SAP Service Layer
     /// across the API process.
     /// </summary>

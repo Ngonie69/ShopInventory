@@ -74,9 +74,11 @@ public sealed class SystemFailureAlertJob : IJob
         if (lastNotifiedStatus != HealthStatus.Healthy && currentStatus == HealthStatus.Healthy)
         {
             _logger.LogInformation("System health recovered to Healthy — sending all-clear email");
-            await SendEmailAsync(BuildRecoveryEmail(report), context.CancellationToken);
-            dataMap[LastNotifiedStatusKey] = HealthStatus.Healthy.ToString();
-            dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            if (await SendEmailAsync(BuildRecoveryEmail(report), context.CancellationToken))
+            {
+                dataMap[LastNotifiedStatusKey] = HealthStatus.Healthy.ToString();
+                dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            }
             return;
         }
 
@@ -95,17 +97,19 @@ public sealed class SystemFailureAlertJob : IJob
 
         // Send alert
         _logger.LogWarning("System health is {Status} — sending failure alert email", currentStatus);
-        await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken);
-        dataMap[LastNotifiedStatusKey] = currentStatus.ToString();
-        dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        if (await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken))
+        {
+            dataMap[LastNotifiedStatusKey] = currentStatus.ToString();
+            dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+        }
     }
 
-    private async Task SendEmailAsync((string subject, string body) email, CancellationToken cancellationToken)
+    private async Task<bool> SendEmailAsync((string subject, string body) email, CancellationToken cancellationToken)
     {
         if (!_emailSettings.Enabled)
         {
             _logger.LogWarning("Email is disabled — system health alert not sent");
-            return;
+            return false;
         }
 
         try
@@ -129,10 +133,12 @@ public sealed class SystemFailureAlertJob : IJob
 
             await client.SendMailAsync(message, cancellationToken);
             _logger.LogInformation("System health alert email sent to {Recipients}", string.Join(", ", _alertSettings.AlertRecipients));
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send system health alert email");
+            _logger.LogError(ex, "Failed to send system health alert email; it will be retried on the next health-check run");
+            return false;
         }
     }
 

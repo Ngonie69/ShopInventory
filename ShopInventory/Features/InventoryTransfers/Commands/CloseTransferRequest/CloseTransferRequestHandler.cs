@@ -1,87 +1,82 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
-using ShopInventory.Features.Notifications;
+using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
-using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.InventoryTransfers.Commands.CloseTransferRequest;
 
 public sealed class CloseTransferRequestHandler(
     ISAPServiceLayerClient sapClient,
+    IInventoryTransferApprovalService approvalService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
-    INotificationService notificationService,
     IOptions<SAPSettings> settings,
-    ILogger<CloseTransferRequestHandler> logger
-) : IRequestHandler<CloseTransferRequestCommand, ErrorOr<object>>
+    ILogger<CloseTransferRequestHandler> logger)
+    : IRequestHandler<CloseTransferRequestCommand, ErrorOr<TransferRequestDecisionResponseDto>>
 {
-    public async Task<ErrorOr<object>> Handle(
-        CloseTransferRequestCommand command,
-        CancellationToken cancellationToken)
+    public async Task<ErrorOr<TransferRequestDecisionResponseDto>> Handle(CloseTransferRequestCommand command, CancellationToken cancellationToken)
     {
-        if (!settings.Value.Enabled)
-            return Errors.InventoryTransfer.SapDisabled;
-
+        if (!settings.Value.Enabled) return Errors.InventoryTransfer.SapDisabled;
+        long? idempotencyRequestId = null;
+        var release = false;
         try
         {
-            InventoryTransferRequest? transferRequest = null;
+            var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
+            if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
+
+            var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:reject";
+            var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestDecisionResponseDto>(
+                "inventory-transfer-approval-decision", key,
+                new { command.DocEntry, command.StageId, command.UserId, Decision = ApprovalDecisionValues.NotApproved }, cancellationToken);
+            switch (acquired.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null: return acquired.Response;
+                case IdempotencyAcquireOutcome.InProgress: return Errors.InventoryTransfer.ApprovalInProgress;
+                case IdempotencyAcquireOutcome.RequestMismatch: return Errors.Idempotency.RequestMismatch("transfer rejection decision");
+                case IdempotencyAcquireOutcome.Acquired: idempotencyRequestId = acquired.RequestId; release = true; break;
+            }
+
+            var decision = await approvalService.SubmitDecisionAsync(
+                document, command.UserId, ApprovalDecisionValues.NotApproved, command.StageId, command.Remarks, cancellationToken);
+            if (decision.IsError) return decision.Errors;
             try
             {
-                transferRequest = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
+                await auditService.LogAsync(AuditActions.RejectTransferRequestStage, "TransferRequest", command.DocEntry.ToString(),
+                    $"Rejected stage '{decision.Value.StageName}'. Status: {decision.Value.RequestStatus}. Remarks: {command.Remarks}", true);
             }
-            catch (Exception ex)
+            catch { }
+
+            var response = new TransferRequestDecisionResponseDto
             {
-                logger.LogWarning(ex, "Failed to load transfer request {DocEntry} context before close", command.DocEntry);
-            }
-
-            await sapClient.CloseInventoryTransferRequestAsync(command.DocEntry, cancellationToken);
-
-            try { await auditService.LogAsync(AuditActions.CloseTransferRequest, "TransferRequest", command.DocEntry.ToString(), $"Transfer request {command.DocEntry} closed", true); } catch { }
-
-            try
+                Message = decision.Value.Message,
+                RequestDocEntry = command.DocEntry,
+                Decision = ApprovalDecisionValues.NotApproved
+            };
+            if (idempotencyRequestId.HasValue)
             {
-                var requestLabel = transferRequest?.DocNum.ToString() ?? command.DocEntry.ToString();
-                var fromWarehouse = transferRequest?.FromWarehouse ?? "unspecified";
-                var toWarehouse = transferRequest?.ToWarehouse ?? "unknown";
-
-                await notificationService.CreateNotificationAsync(
-                    ModuleNotificationFactory.CreateBroadcastNotification(
-                        $"Transfer Request Closed: #{requestLabel}",
-                        $"Transfer request #{requestLabel} from {fromWarehouse} to {toWarehouse} was closed.",
-                        "Warning",
-                        "TransferRequest",
-                        "TransferRequest",
-                        command.DocEntry.ToString(),
-                        "/inventory-transfers",
-                        new Dictionary<string, string>
-                        {
-                            ["requestDocEntry"] = command.DocEntry.ToString(),
-                            ["requestDocNum"] = transferRequest?.DocNum.ToString() ?? string.Empty,
-                            ["fromWarehouse"] = fromWarehouse,
-                            ["toWarehouse"] = toWarehouse,
-                            ["action"] = "Closed",
-                            ["status"] = "Closed"
-                        }),
-                    cancellationToken);
+                await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                release = false;
             }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to publish close notification for transfer request {DocEntry}", command.DocEntry);
-            }
-
-            return new { Message = $"Transfer request {command.DocEntry} closed successfully" };
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
+            return response;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error closing transfer request {DocEntry}", command.DocEntry);
+            logger.LogError(ex, "Error rejecting transfer request {DocEntry}", command.DocEntry);
             return Errors.InventoryTransfer.CreationFailed(ex.Message);
+        }
+        finally
+        {
+            if (release && idempotencyRequestId.HasValue)
+            {
+                try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to release transfer rejection decision lock"); }
+            }
         }
     }
 }

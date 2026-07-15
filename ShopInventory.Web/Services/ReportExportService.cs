@@ -2149,133 +2149,13 @@ public class ReportExportService : IReportExportService
         var periodText = FormatPodReportPeriod(report);
         var reportItems = ApplyPodReportingScope(report).Items;
 
-        var totalInvoices = reportItems.Count;
-        var uploadedCount = reportItems.Count(item => item.HasPod);
-        var pendingCount = reportItems.Count(item => !item.HasPod);
-        var totalAmount = reportItems.Sum(item => item.DocTotal);
-        var uploadedAmount = reportItems.Where(item => item.HasPod).Sum(item => item.DocTotal);
+        var productInvoices = reportItems.Where(item => !item.IsCrateInvoice).ToList();
+        var crateInvoices = reportItems.Where(item => item.IsCrateInvoice).ToList();
+
+        BuildPodInvoiceSheet(workbook, "Product Invoices", "PRODUCT", productInvoices, periodText, now);
+        BuildPodInvoiceSheet(workbook, "Crate Invoices", "CRATE", crateInvoices, periodText, now);
+
         var pendingAmount = reportItems.Where(item => !item.HasPod).Sum(item => item.DocTotal);
-        var completionPct = totalInvoices > 0
-            ? uploadedCount / (double)totalInvoices * 100
-            : 0;
-
-        {
-            var ws = workbook.Worksheets.Add("POD Dashboard");
-            const int lastCol = 12;
-            PodApplyDefaults(ws);
-
-            var row = PodTitleBar(ws, $"PRODUCT / CRATE POD UPLOAD STATUS - {periodText}", lastCol, now);
-            row = PodKpiStrip(ws, row, lastCol,
-                ("Total Invoices", totalInvoices.ToString("N0"), null),
-                ("Uploaded", uploadedCount.ToString("N0"), PodGreen),
-                ("Pending", pendingCount.ToString("N0"), pendingCount > 0 ? PodOrange : PodGreen),
-                ("Completion", $"{completionPct:N1}%", GetPodCompletionColor(completionPct)),
-                ("Total Value", FormatPodAmount(totalAmount), null),
-                ("Pending Value", FormatPodAmount(pendingAmount), pendingAmount > 0 ? PodOrange : PodGreen));
-
-            PodSectionTitle(ws, row, lastCol, "Uploaded vs pending POD status");
-            row++;
-
-            var headerRow = row;
-            row = PodColumnHeaders(ws, row, lastCol,
-            [
-                "Invoice #",
-                "Customer",
-                "Card Code",
-                "Invoice Date",
-                "Generated Location",
-                "Amount",
-                "POD Status",
-                "POD Type",
-                "Uploaded",
-                "Credit Note #",
-                "Credit Reason",
-                "TOTAL"
-            ]);
-
-            var rowIndex = 0;
-            foreach (var item in reportItems)
-            {
-                var isStripe = rowIndex % 2 == 1;
-                PodDataRow(ws, row, lastCol, isStripe);
-
-                ws.Cell(row, 1).Value = item.DocNum;
-                ws.Cell(row, 1).Style.Font.Bold = true;
-                ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
-                ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                ws.Cell(row, 2).Value = item.CardName ?? "-";
-                ws.Cell(row, 3).Value = item.CardCode ?? "-";
-                ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
-                ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
-                ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
-                ws.Cell(row, 6).Value = item.DocTotal;
-                StylePodCurrencyCell(ws.Cell(row, 6));
-
-                ws.Cell(row, 7).Value = item.HasPod ? "Uploaded" : "Pending";
-                StylePodStatusCell(ws.Cell(row, 7), item.HasPod, isStripe);
-
-                ws.Cell(row, 8).Value = FormatPodTypeDisplay(item);
-                StylePodTypeCell(ws.Cell(row, 8), item);
-
-                if (item.HasPod && item.PodUploadedAt.HasValue)
-                {
-                    var uploadStr = FormatPodUploadDate(item.PodUploadedAt);
-                    var uploaderDisplay = FormatPodUploadedByDisplay(item);
-                    if (!string.IsNullOrEmpty(uploaderDisplay) && uploaderDisplay != "-")
-                        uploadStr += $" ({uploaderDisplay})";
-                    ws.Cell(row, 9).Value = uploadStr;
-                    ws.Cell(row, 9).Style.Font.FontColor = PodTextMuted;
-                }
-                else
-                {
-                    ws.Cell(row, 9).Value = "-";
-                    StylePodMutedCell(ws.Cell(row, 9));
-                }
-
-                WritePodCreditNoteCells(ws, row, 10, 11, item);
-
-                ws.Cell(row, 12).Value = item.DocTotal;
-                StylePodTotalCell(ws.Cell(row, 12), isStripe);
-
-                row++;
-                rowIndex++;
-            }
-
-            PodSummaryRow(ws, row, lastCol);
-            ws.Cell(row, 1).Value = "SUMMARY";
-            ws.Cell(row, 2).Value = $"{totalInvoices:N0} invoices";
-            ws.Cell(row, 4).Value = periodText;
-            ws.Cell(row, 6).Value = totalAmount;
-            ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-            ws.Cell(row, 7).Value = $"{uploadedCount:N0} uploaded / {pendingCount:N0} pending";
-            ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 8).Value = "Product / crate POD shown per row";
-            ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 10).Value = $"{reportItems.Count(item => item.IsFullyCredited):N0} fully credited";
-            ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 11).Value = "Reasons shown where supplied";
-            ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-            ws.Cell(row, 12).Value = totalAmount;
-            ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
-
-            PodDisclaimerRow(ws, row + 2, lastCol, now);
-            PodFinalize(ws, lastCol, headerRow, 2);
-            ws.Column(1).Width = 12;
-            ws.Column(2).Width = 38;
-            ws.Column(3).Width = 12;
-            ws.Column(4).Width = 14;
-            ws.Column(5).Width = 22;
-            ws.Column(6).Width = 14;
-            ws.Column(7).Width = 12;
-            ws.Column(8).Width = 20;
-            ws.Column(9).Width = 28;
-            ws.Column(10).Width = 16;
-            ws.Column(11).Width = 32;
-            ws.Column(12).Width = 14;
-        }
 
         var pending = reportItems.Where(item => !item.HasPod).OrderBy(item => item.DocDate).ToList();
         {
@@ -2475,6 +2355,7 @@ public class ReportExportService : IReportExportService
         }
 
         var uploaded = reportItems.Where(item => item.HasPod).OrderByDescending(item => item.PodUploadedAt).ToList();
+        var uploadedAmount = uploaded.Sum(item => item.DocTotal);
         {
             var ws = workbook.Worksheets.Add("Uploaded PODs");
             const int lastCol = 11;
@@ -2580,6 +2461,140 @@ public class ReportExportService : IReportExportService
         }
 
         return WorkbookToBytes(workbook);
+    }
+
+    private static void BuildPodInvoiceSheet(
+        XLWorkbook workbook,
+        string sheetName,
+        string invoiceType,
+        IReadOnlyCollection<PodUploadStatusItem> reportItems,
+        string periodText,
+        DateTime now)
+    {
+        var totalInvoices = reportItems.Count;
+        var uploadedCount = reportItems.Count(item => item.HasPod);
+        var pendingCount = totalInvoices - uploadedCount;
+        var totalAmount = reportItems.Sum(item => item.DocTotal);
+        var pendingAmount = reportItems.Where(item => !item.HasPod).Sum(item => item.DocTotal);
+        var completionPct = totalInvoices > 0
+            ? uploadedCount / (double)totalInvoices * 100
+            : 0;
+
+        var ws = workbook.Worksheets.Add(sheetName);
+        const int lastCol = 12;
+        PodApplyDefaults(ws);
+
+        var row = PodTitleBar(ws, $"{invoiceType} POD UPLOAD STATUS - {periodText}", lastCol, now);
+        row = PodKpiStrip(ws, row, lastCol,
+            ("Total Invoices", totalInvoices.ToString("N0"), null),
+            ("Uploaded", uploadedCount.ToString("N0"), PodGreen),
+            ("Pending", pendingCount.ToString("N0"), pendingCount > 0 ? PodOrange : PodGreen),
+            ("Completion", $"{completionPct:N1}%", GetPodCompletionColor(completionPct)),
+            ("Total Value", FormatPodAmount(totalAmount), null),
+            ("Pending Value", FormatPodAmount(pendingAmount), pendingAmount > 0 ? PodOrange : PodGreen));
+
+        PodSectionTitle(ws, row, lastCol, "Uploaded vs pending POD status");
+        row++;
+
+        var headerRow = row;
+        row = PodColumnHeaders(ws, row, lastCol,
+        [
+            "Invoice #",
+            "Customer",
+            "Card Code",
+            "Invoice Date",
+            "Generated Location",
+            "Amount",
+            "POD Status",
+            "POD Type",
+            "Uploaded",
+            "Credit Note #",
+            "Credit Reason",
+            "TOTAL"
+        ]);
+
+        var rowIndex = 0;
+        foreach (var item in reportItems)
+        {
+            var isStripe = rowIndex % 2 == 1;
+            PodDataRow(ws, row, lastCol, isStripe);
+
+            ws.Cell(row, 1).Value = item.DocNum;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 1).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row, 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 2).Value = item.CardName ?? "-";
+            ws.Cell(row, 3).Value = item.CardCode ?? "-";
+            ws.Cell(row, 4).Value = FormatExcelDate(item.DocDate);
+            ws.Cell(row, 4).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, 5).Value = FormatPodGeneratedLocationDisplay(item);
+            ws.Cell(row, 5).Style.Font.FontColor = PodTextMuted;
+            ws.Cell(row, 6).Value = item.DocTotal;
+            StylePodCurrencyCell(ws.Cell(row, 6));
+
+            ws.Cell(row, 7).Value = item.HasPod ? "Uploaded" : "Pending";
+            StylePodStatusCell(ws.Cell(row, 7), item.HasPod, isStripe);
+
+            ws.Cell(row, 8).Value = FormatPodTypeDisplay(item);
+            StylePodTypeCell(ws.Cell(row, 8), item);
+
+            if (item.HasPod && item.PodUploadedAt.HasValue)
+            {
+                var uploadStr = FormatPodUploadDate(item.PodUploadedAt);
+                var uploaderDisplay = FormatPodUploadedByDisplay(item);
+                if (!string.IsNullOrEmpty(uploaderDisplay) && uploaderDisplay != "-")
+                    uploadStr += $" ({uploaderDisplay})";
+                ws.Cell(row, 9).Value = uploadStr;
+                ws.Cell(row, 9).Style.Font.FontColor = PodTextMuted;
+            }
+            else
+            {
+                ws.Cell(row, 9).Value = "-";
+                StylePodMutedCell(ws.Cell(row, 9));
+            }
+
+            WritePodCreditNoteCells(ws, row, 10, 11, item);
+
+            ws.Cell(row, 12).Value = item.DocTotal;
+            StylePodTotalCell(ws.Cell(row, 12), isStripe);
+
+            row++;
+            rowIndex++;
+        }
+
+        PodSummaryRow(ws, row, lastCol);
+        ws.Cell(row, 1).Value = "SUMMARY";
+        ws.Cell(row, 2).Value = $"{totalInvoices:N0} invoices";
+        ws.Cell(row, 4).Value = periodText;
+        ws.Cell(row, 6).Value = totalAmount;
+        ws.Cell(row, 6).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+        ws.Cell(row, 7).Value = $"{uploadedCount:N0} uploaded / {pendingCount:N0} pending";
+        ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 8).Value = $"{invoiceType.ToLowerInvariant()} invoices only";
+        ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 10).Value = $"{reportItems.Count(item => item.IsFullyCredited):N0} fully credited";
+        ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 11).Value = "Reasons shown where supplied";
+        ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        ws.Cell(row, 12).Value = totalAmount;
+        ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.00";
+        ws.Cell(row, 12).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Right;
+
+        PodDisclaimerRow(ws, row + 2, lastCol, now);
+        PodFinalize(ws, lastCol, headerRow, 2);
+        ws.Column(1).Width = 12;
+        ws.Column(2).Width = 38;
+        ws.Column(3).Width = 12;
+        ws.Column(4).Width = 14;
+        ws.Column(5).Width = 22;
+        ws.Column(6).Width = 14;
+        ws.Column(7).Width = 12;
+        ws.Column(8).Width = 20;
+        ws.Column(9).Width = 28;
+        ws.Column(10).Width = 16;
+        ws.Column(11).Width = 32;
+        ws.Column(12).Width = 14;
     }
 
     private static void WritePodCreditNoteCells(

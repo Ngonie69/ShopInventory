@@ -398,6 +398,8 @@ public sealed class PodReportEmailService(
             PodReportEmailFrequency.MonthToDateDaily => GetCurrentMonthToDatePeriod(nowLocal),
             PodReportEmailFrequency.Weekly => (toDate.AddDays(-6), toDate),
             PodReportEmailFrequency.Monthly => GetPreviousCalendarMonthPeriod(nowLocal),
+            PodReportEmailFrequency.Quarterly => GetPreviousCalendarPeriod(nowLocal, 3),
+            PodReportEmailFrequency.HalfYearly => GetPreviousCalendarPeriod(nowLocal, 6),
             PodReportEmailFrequency.EveryNDays => (toDate.AddDays(-(NormalizeIntervalDays(intervalDays) - 1)), toDate),
             _ => (toDate.AddDays(-6), toDate)
         };
@@ -415,6 +417,8 @@ public sealed class PodReportEmailService(
             PodReportEmailFrequency.MonthToDateDaily => "Month to Date",
             PodReportEmailFrequency.Weekly => "Weekly",
             PodReportEmailFrequency.Monthly => "Full Month",
+            PodReportEmailFrequency.Quarterly => "Quarterly",
+            PodReportEmailFrequency.HalfYearly => "Half-yearly",
             PodReportEmailFrequency.EveryNDays => $"Every {NormalizeIntervalDays(intervalDays)} days",
             _ => "Weekly"
         };
@@ -428,6 +432,8 @@ public sealed class PodReportEmailService(
             PodReportEmailFrequency.MonthToDateDaily => "month-to-date",
             PodReportEmailFrequency.Weekly => "weekly",
             PodReportEmailFrequency.Monthly => "monthly",
+            PodReportEmailFrequency.Quarterly => "quarterly",
+            PodReportEmailFrequency.HalfYearly => "half-yearly",
             PodReportEmailFrequency.EveryNDays => $"every-{NormalizeIntervalDays(intervalDays)}-days",
             _ => "weekly"
         };
@@ -438,6 +444,23 @@ public sealed class PodReportEmailService(
         var fromDate = monthStart.AddMonths(-1);
         var toDate = monthStart.AddDays(-1);
         return (fromDate, toDate);
+    }
+
+    private static (DateTime fromDate, DateTime toDate) GetPreviousCalendarPeriod(
+        DateTime nowLocal,
+        int monthsPerPeriod)
+    {
+        var currentPeriodStartMonth = ((nowLocal.Month - 1) / monthsPerPeriod) * monthsPerPeriod + 1;
+        var currentPeriodStart = new DateTime(
+            nowLocal.Year,
+            currentPeriodStartMonth,
+            1,
+            0,
+            0,
+            0,
+            DateTimeKind.Unspecified);
+
+        return (currentPeriodStart.AddMonths(-monthsPerPeriod), currentPeriodStart.AddDays(-1));
     }
 
     private static (DateTime fromDate, DateTime toDate) GetCurrentMonthToDatePeriod(DateTime nowLocal)

@@ -5,5 +5,6 @@ using ShopInventory.DTOs;
 namespace ShopInventory.Features.DesktopIntegration.Commands.ConvertTransferRequest;
 
 public sealed record ConvertTransferRequestCommand(
-    int DocEntry
+    int DocEntry,
+    Guid UserId
 ) : IRequest<ErrorOr<InventoryTransferCreatedResponseDto>>;

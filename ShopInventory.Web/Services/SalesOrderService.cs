@@ -29,12 +29,18 @@ public class SalesOrderService : ISalesOrderService
     private readonly HttpClient _httpClient;
     private readonly ILogger<SalesOrderService> _logger;
     private readonly ILocalStorageService _localStorage;
+    private readonly WebClientAuditContext _clientAuditContext;
 
-    public SalesOrderService(HttpClient httpClient, ILogger<SalesOrderService> logger, ILocalStorageService localStorage)
+    public SalesOrderService(
+        HttpClient httpClient,
+        ILogger<SalesOrderService> logger,
+        ILocalStorageService localStorage,
+        WebClientAuditContext clientAuditContext)
     {
         _httpClient = httpClient;
         _logger = logger;
         _localStorage = localStorage;
+        _clientAuditContext = clientAuditContext;
     }
 
     private async Task EnsureAuthenticationAsync()
@@ -307,7 +313,9 @@ public class SalesOrderService : ISalesOrderService
     public async Task<SalesOrderDto?> ApproveAsync(int id)
     {
         await EnsureAuthenticationAsync();
-        var response = await _httpClient.PostAsync($"api/salesorder/{id}/approve", null);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/approve");
+        AddClientAuditHeaders(request);
+        using var response = await _httpClient.SendAsync(request);
         if (response.IsSuccessStatusCode)
         {
             return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -320,9 +328,24 @@ public class SalesOrderService : ISalesOrderService
         throw new HttpRequestException(message, null, response.StatusCode);
     }
 
+    private void AddClientAuditHeaders(HttpRequestMessage request)
+    {
+        if (_clientAuditContext.ForwardableIpAddress is { } clientIpAddress)
+        {
+            request.Headers.TryAddWithoutValidation("X-Forwarded-For", clientIpAddress);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_clientAuditContext.UserAgent))
+        {
+            request.Headers.TryAddWithoutValidation("User-Agent", _clientAuditContext.UserAgent);
+        }
+    }
+
     private static string ExtractApprovalErrorMessage(string responseBody, HttpStatusCode statusCode)
     {
         string? extractedMessage = null;
+        string? errorCode = null;
+        string? traceId = null;
 
         if (!string.IsNullOrWhiteSpace(responseBody))
         {
@@ -331,38 +354,27 @@ public class SalesOrderService : ISalesOrderService
                 using var document = JsonDocument.Parse(responseBody);
                 var root = document.RootElement;
 
-                if (root.TryGetProperty("errors", out var errorsElement) && errorsElement.ValueKind == JsonValueKind.Object)
+                if (root.TryGetProperty("code", out var codeElement))
                 {
-                    foreach (var property in errorsElement.EnumerateObject())
-                    {
-                        if (property.Value.ValueKind != JsonValueKind.Array)
-                        {
-                            continue;
-                        }
-
-                        foreach (var error in property.Value.EnumerateArray())
-                        {
-                            var message = error.GetString();
-                            if (!string.IsNullOrWhiteSpace(message))
-                            {
-                                extractedMessage = message;
-                                break;
-                            }
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(extractedMessage))
-                        {
-                            break;
-                        }
-                    }
+                    errorCode = codeElement.GetString();
                 }
 
-                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("title", out var titleElement))
+                if (root.TryGetProperty("traceId", out var traceIdElement))
                 {
-                    var title = titleElement.GetString();
-                    if (!string.IsNullOrWhiteSpace(title))
+                    traceId = traceIdElement.GetString();
+                }
+
+                if (root.TryGetProperty("errors", out var errorsElement))
+                {
+                    extractedMessage = ExtractProblemDetailsError(errorsElement);
+                }
+
+                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("detail", out var detailElement))
+                {
+                    var detail = detailElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(detail))
                     {
-                        extractedMessage = title;
+                        extractedMessage = detail;
                     }
                 }
 
@@ -374,6 +386,15 @@ public class SalesOrderService : ISalesOrderService
                         extractedMessage = message;
                     }
                 }
+
+                if (string.IsNullOrWhiteSpace(extractedMessage) && root.TryGetProperty("title", out var titleElement))
+                {
+                    var title = titleElement.GetString();
+                    if (!string.IsNullOrWhiteSpace(title))
+                    {
+                        extractedMessage = title;
+                    }
+                }
             }
             catch (JsonException)
             {
@@ -382,20 +403,105 @@ public class SalesOrderService : ISalesOrderService
 
         if (statusCode == HttpStatusCode.Unauthorized)
         {
-            return "Your session has expired. Please sign in again and try approving the order.";
+            return AppendDiagnosticReference(
+                "Your session has expired. Please sign in again and try approving the order.",
+                errorCode,
+                traceId);
         }
 
         if (statusCode == HttpStatusCode.Forbidden)
         {
-            return "You do not have permission to approve sales orders.";
+            return AppendDiagnosticReference(
+                "You do not have permission to approve sales orders.",
+                errorCode,
+                traceId);
         }
 
         if (!string.IsNullOrWhiteSpace(extractedMessage))
         {
-            return NormalizeApprovalErrorMessage(extractedMessage);
+            return AppendDiagnosticReference(
+                NormalizeApprovalErrorMessage(extractedMessage),
+                errorCode,
+                traceId);
         }
 
-        return "We couldn't approve this sales order right now. Please try again.";
+        return AppendDiagnosticReference(
+            "We couldn't approve this sales order right now. Please try again.",
+            errorCode,
+            traceId);
+    }
+
+    private static string? ExtractProblemDetailsError(JsonElement errorsElement)
+    {
+        if (errorsElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var error in errorsElement.EnumerateArray())
+            {
+                if (error.ValueKind == JsonValueKind.String)
+                {
+                    var value = error.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value;
+                    }
+                }
+
+                if (error.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var propertyName in new[] { "description", "message" })
+                    {
+                        if (error.TryGetProperty(propertyName, out var messageElement))
+                        {
+                            var value = messageElement.GetString();
+                            if (!string.IsNullOrWhiteSpace(value))
+                            {
+                                return value;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (errorsElement.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in errorsElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                var value = ExtractProblemDetailsError(property.Value);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string AppendDiagnosticReference(
+        string message,
+        string? errorCode,
+        string? traceId)
+    {
+        var diagnostics = new List<string>();
+        if (!string.IsNullOrWhiteSpace(errorCode))
+        {
+            diagnostics.Add($"error code: {errorCode}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(traceId))
+        {
+            diagnostics.Add($"reference: {traceId}");
+        }
+
+        return diagnostics.Count == 0
+            ? message
+            : $"{message} ({string.Join("; ", diagnostics)}).";
     }
 
     private static string NormalizeApprovalErrorMessage(string message)

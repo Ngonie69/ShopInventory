@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using Npgsql;
 using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
@@ -469,6 +468,29 @@ public class DocumentService : IDocumentService
     public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
         var normalizedExternalReference = NormalizeExternalReference(request.ExternalReference);
+
+        if (normalizedExternalReference is not null)
+        {
+            var existingAttachment = await FindAttachmentByExternalReferenceQuery(
+                    request.EntityType,
+                    request.EntityId,
+                    normalizedExternalReference)
+                .AsNoTracking()
+                .Include(a => a.UploadedByUser)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (existingAttachment is not null)
+            {
+                _logger.LogInformation(
+                    "Reused attachment {AttachmentId} for duplicate external reference {ExternalReference} on {EntityType} {EntityId}",
+                    existingAttachment.Id,
+                    normalizedExternalReference,
+                    request.EntityType,
+                    request.EntityId);
+                return MapToDto(existingAttachment);
+            }
+        }
+
         var isCompressibleImage = CompressibleImageTypes.Contains(mimeType);
 
         // Compressed images are always saved as JPEG
@@ -513,32 +535,13 @@ public class DocumentService : IDocumentService
             UploadedAt = DateTime.UtcNow
         };
 
+        if (normalizedExternalReference is not null)
+        {
+            return await InsertAttachmentIdempotentlyAsync(attachment, fullPath, cancellationToken);
+        }
+
         _context.Set<DocumentAttachmentEntity>().Add(attachment);
-
-        try
-        {
-            await _context.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException ex) when (!string.IsNullOrWhiteSpace(normalizedExternalReference) && IsExternalReferenceUniqueViolation(ex))
-        {
-            _context.Entry(attachment).State = EntityState.Detached;
-            TryDeleteStoredFile(fullPath);
-
-            var existingAttachment = await FindAttachmentByExternalReferenceQuery(
-                    request.EntityType,
-                    request.EntityId,
-                    normalizedExternalReference)
-                .AsNoTracking()
-                .Include(a => a.UploadedByUser)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (existingAttachment is not null)
-            {
-                return MapToDto(existingAttachment);
-            }
-
-            throw;
-        }
+        await _context.SaveChangesAsync(cancellationToken);
 
         return MapToDto(attachment);
     }
@@ -1464,17 +1467,60 @@ public class DocumentService : IDocumentService
                 && a.ExternalReference == externalReference);
     }
 
+    private async Task<DocumentAttachmentDto> InsertAttachmentIdempotentlyAsync(
+        DocumentAttachmentEntity attachment,
+        string newlyStoredFilePath,
+        CancellationToken cancellationToken)
+    {
+        var insertedCount = await _context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "DocumentAttachments"
+                ("Description", "EntityId", "EntityType", "ExternalReference", "FileName",
+                 "FileSizeBytes", "IncludeInEmail", "MimeType", "StoredFileName", "UploadedAt", "UploadedByUserId")
+            VALUES
+                ({attachment.Description}, {attachment.EntityId}, {attachment.EntityType}, {attachment.ExternalReference},
+                 {attachment.FileName}, {attachment.FileSizeBytes}, {attachment.IncludeInEmail}, {attachment.MimeType},
+                 {attachment.StoredFileName}, {attachment.UploadedAt}, {attachment.UploadedByUserId})
+            ON CONFLICT ("EntityType", "EntityId", "ExternalReference") DO NOTHING
+            """, cancellationToken);
+
+        if (insertedCount == 0)
+        {
+            TryDeleteStoredFile(newlyStoredFilePath);
+        }
+
+        var persistedAttachment = await FindAttachmentByExternalReferenceQuery(
+                attachment.EntityType,
+                attachment.EntityId,
+                attachment.ExternalReference!)
+            .AsNoTracking()
+            .Include(a => a.UploadedByUser)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (persistedAttachment is null)
+        {
+            throw new InvalidOperationException(
+                $"Attachment persistence completed but no record was found for {attachment.EntityType} " +
+                $"{attachment.EntityId} and external reference '{attachment.ExternalReference}'.");
+        }
+
+        if (insertedCount == 0)
+        {
+            _logger.LogInformation(
+                "Reused attachment {AttachmentId} after a concurrent duplicate upload for external reference {ExternalReference} on {EntityType} {EntityId}",
+                persistedAttachment.Id,
+                attachment.ExternalReference,
+                attachment.EntityType,
+                attachment.EntityId);
+        }
+
+        return MapToDto(persistedAttachment);
+    }
+
     private static string? NormalizeExternalReference(string? externalReference)
     {
         return string.IsNullOrWhiteSpace(externalReference)
             ? null
             : externalReference.Trim();
-    }
-
-    private static bool IsExternalReferenceUniqueViolation(DbUpdateException exception)
-    {
-        return exception.InnerException is PostgresException postgresException
-            && postgresException.SqlState == PostgresErrorCodes.UniqueViolation;
     }
 
     private static void TryDeleteStoredFile(string path)

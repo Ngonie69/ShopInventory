@@ -1529,13 +1529,14 @@
                             </select>
                         </div>
                     }
-                    else if (selectedFrequency == PodReportEmailFrequency.Monthly)
+                    else if (IsCalendarPeriodFrequency(selectedFrequency))
                     {
                         <div class="sched-field">
-                            <label class="field-label">Day of month</label>
+                            <label class="field-label">Send on day</label>
                             <input type="number" min="1" max="31" class="field-input"
                                    value="@(editingSchedule.DayOfMonth ?? 1)"
                                    @onchange="e => editingSchedule.DayOfMonth = ParseIntOrNull(e.Value?.ToString())" />
+                            <span class="sched-field-hint">The report covers the previous completed calendar period.</span>
                         </div>
                     }
                     else if (selectedFrequency == PodReportEmailFrequency.EveryNDays)
@@ -1914,6 +1915,8 @@
                 editingSchedule.DayOfWeek ??= (int)DayOfWeek.Monday;
                 break;
             case PodReportEmailFrequency.Monthly:
+            case PodReportEmailFrequency.Quarterly:
+            case PodReportEmailFrequency.HalfYearly:
                 editingSchedule.DayOfMonth ??= 1;
                 break;
             case PodReportEmailFrequency.EveryNDays:
@@ -1951,7 +1954,7 @@
         editingSchedule.DayOfWeek = frequency == PodReportEmailFrequency.Weekly
             ? Math.Clamp(editingSchedule.DayOfWeek ?? (int)DayOfWeek.Monday, 0, 6)
             : null;
-        editingSchedule.DayOfMonth = frequency == PodReportEmailFrequency.Monthly
+        editingSchedule.DayOfMonth = IsCalendarPeriodFrequency(frequency)
             ? Math.Clamp(editingSchedule.DayOfMonth ?? 1, 1, 31)
             : null;
         editingSchedule.IntervalDays = frequency == PodReportEmailFrequency.EveryNDays
@@ -2116,6 +2119,8 @@
             PodReportEmailFrequency.MonthToDateDaily => "monthtodate",
             PodReportEmailFrequency.Weekly => "weekly",
             PodReportEmailFrequency.Monthly => "monthly",
+            PodReportEmailFrequency.Quarterly => "quarterly",
+            PodReportEmailFrequency.HalfYearly => "halfyearly",
             PodReportEmailFrequency.EveryNDays => "everyndays",
             _ => "weekly"
         };
@@ -2127,6 +2132,8 @@
             PodReportEmailFrequency.MonthToDateDaily => "Month to date",
             PodReportEmailFrequency.Weekly => "Weekly",
             PodReportEmailFrequency.Monthly => "Monthly",
+            PodReportEmailFrequency.Quarterly => "Quarterly",
+            PodReportEmailFrequency.HalfYearly => "Half-yearly",
             PodReportEmailFrequency.EveryNDays => $"Every {PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays)} days",
             _ => "Weekly"
         };
@@ -2140,6 +2147,8 @@
             PodReportEmailFrequency.MonthToDateDaily => $"Every day at {time}, month to date",
             PodReportEmailFrequency.Weekly => $"{(DayOfWeek)Math.Clamp(schedule.DayOfWeek ?? (int)DayOfWeek.Monday, 0, 6)}s at {time}",
             PodReportEmailFrequency.Monthly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each month at {time}",
+            PodReportEmailFrequency.Quarterly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each quarter at {time}",
+            PodReportEmailFrequency.HalfYearly => $"Day {Math.Clamp(schedule.DayOfMonth ?? 1, 1, 31)} of each half-year at {time}",
             PodReportEmailFrequency.EveryNDays => $"Every {PodReportEmailService.NormalizeIntervalDays(schedule.IntervalDays)} days at {time}",
             _ => $"Weekly at {time}"
         };
@@ -2193,9 +2202,16 @@
         PodReportEmailFrequency.MonthToDateDaily => "Month-to-date daily",
         PodReportEmailFrequency.Weekly => "Weekly",
         PodReportEmailFrequency.Monthly => "Monthly",
+        PodReportEmailFrequency.Quarterly => "Quarterly",
+        PodReportEmailFrequency.HalfYearly => "Half-yearly",
         PodReportEmailFrequency.EveryNDays => "Every N days",
         _ => frequency.ToString()
     };
+
+    private static bool IsCalendarPeriodFrequency(PodReportEmailFrequency frequency) =>
+        frequency is PodReportEmailFrequency.Monthly
+            or PodReportEmailFrequency.Quarterly
+            or PodReportEmailFrequency.HalfYearly;
 
     private static int? ParseIntOrNull(string? value) =>
         int.TryParse(value, out var parsed) ? parsed : null;
