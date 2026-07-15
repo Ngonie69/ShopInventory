@@ -508,22 +508,23 @@ public class InventoryTransferService : IInventoryTransferService
 
             if (response.IsSuccessStatusCode)
             {
-                return (true, $"Transfer request {docEntry} closed successfully");
+                var result = await response.Content.ReadFromJsonAsync<TransferRequestDecisionResponse>();
+                return (true, result?.Message ?? $"Transfer request {docEntry} rejected successfully");
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogError("Failed to close transfer request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            _logger.LogError("Failed to reject transfer request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
             return (false, ApiErrorResponse.GetFriendlyMessage(
                 response.StatusCode,
                 errorContent,
-                "We couldn't close this transfer request right now. Please try again."));
+                "We couldn't reject this transfer request right now. Please try again."));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error closing transfer request {DocEntry}", docEntry);
+            _logger.LogError(ex, "Error rejecting transfer request {DocEntry}", docEntry);
             return (false, ApiErrorResponse.GetFriendlyMessage(
                 ex,
-                "We couldn't close this transfer request right now. Please try again."));
+                "We couldn't reject this transfer request right now. Please try again."));
         }
     }
 

@@ -200,6 +200,33 @@ public class InventoryTransferRequestDto
     [JsonPropertyName("requesterDepartment")]
     public int? RequesterDepartment { get; set; }
 
+    [JsonPropertyName("requestedByRole")]
+    public string? RequestedByRole { get; set; }
+
+    [JsonPropertyName("requiredApproverRole")]
+    public string? RequiredApproverRole { get; set; }
+
+    [JsonPropertyName("approvalStatus")]
+    public string? ApprovalStatus { get; set; }
+
+    [JsonPropertyName("decisionBy")]
+    public string? DecisionBy { get; set; }
+
+    [JsonPropertyName("decisionByRole")]
+    public string? DecisionByRole { get; set; }
+
+    [JsonPropertyName("decisionAtUtc")]
+    public DateTime? DecisionAtUtc { get; set; }
+
+    [JsonPropertyName("approvalRequestId")]
+    public Guid? ApprovalRequestId { get; set; }
+
+    [JsonPropertyName("approvalTemplateName")]
+    public string? ApprovalTemplateName { get; set; }
+
+    [JsonPropertyName("approvalStages")]
+    public List<ApprovalStageProgressModel> ApprovalStages { get; set; } = [];
+
     [JsonPropertyName("lines")]
     public List<InventoryTransferRequestLineDto>? Lines { get; set; }
 }
@@ -308,6 +335,18 @@ public class TransferRequestConvertedResponse
 
     [JsonPropertyName("transfer")]
     public InventoryTransferDto? Transfer { get; set; }
+}
+
+public class TransferRequestDecisionResponse
+{
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    [JsonPropertyName("requestDocEntry")]
+    public int RequestDocEntry { get; set; }
+
+    [JsonPropertyName("decision")]
+    public string? Decision { get; set; }
 }
 
 #endregion

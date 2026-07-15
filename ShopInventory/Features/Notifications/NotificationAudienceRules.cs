@@ -8,7 +8,7 @@ public static class NotificationAudienceRules
     public static readonly string[] SalesBroadcastCategories = ["SalesOrder", "Quotation", "Customer"];
     public static readonly string[] InvoiceBroadcastCategories = ["Invoice", "CreditNote"];
     public static readonly string[] PaymentBroadcastCategories = ["Payment", "IncomingPayment"];
-    public static readonly string[] InventoryBroadcastCategories = ["LowStock", "Stock", "Inventory", "InventoryTransfer", "TransferRequest"];
+    public static readonly string[] InventoryBroadcastCategories = ["LowStock", "Stock", "Inventory", "InventoryTransfer", "TransferRequest", "TransferApproval"];
     public static readonly string[] PurchasingBroadcastCategories = ["PurchaseRequest", "PurchaseQuotation", "PurchaseOrder", "PurchaseInvoice", "GoodsReceiptPurchaseOrder"];
     public static readonly string[] PodBroadcastCategories = ["POD", "ProofOfDelivery"];
     public static readonly string[] AppVersionBroadcastCategories = ["AppVersion"];

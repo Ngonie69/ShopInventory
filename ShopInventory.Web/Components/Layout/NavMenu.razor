@@ -374,7 +374,7 @@
             </AuthorizeView>
 
             @* ── Inventory ── *@
-            <AuthorizeView Roles="Admin,StockController,DepotController" Context="transferCtx">
+            <AuthorizeView Context="transferCtx">
                 <Authorized>
                     <div class="nav-section-label">Inventory</div>
                     <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
@@ -383,12 +383,16 @@
                         </span>
                         <span class="snav-text">Transfers</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Inventory" />
-                        </span>
-                        <span class="snav-text">Local Stock</span>
-                    </NavLink>
+                    <AuthorizeView Roles="Admin,StockController,DepotController" Context="localStockCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Inventory" />
+                                </span>
+                                <span class="snav-text">Local Stock</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
 
@@ -841,6 +845,12 @@
                             <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
                         </span>
                         <span class="snav-text">User Management</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/approval-process/setup" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AccountTree" />
+                        </span>
+                        <span class="snav-text">Approval Process</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/driver-business-partners" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

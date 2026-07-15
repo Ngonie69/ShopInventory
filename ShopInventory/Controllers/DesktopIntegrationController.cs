@@ -71,6 +71,7 @@ using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
 using System.Security.Claims;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Controllers;
 
@@ -469,6 +470,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Direct Stock Transfers
 
     [HttpPost("transfers")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateTransferDirect(
         [FromBody] CreateDesktopTransferRequest request,
         CancellationToken cancellationToken)
@@ -589,18 +591,28 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpPost("transfer-requests/{docEntry:int}/convert")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> ConvertTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetTransfer), new { docEntry = value.Transfer?.DocEntry }, value),
             errors => Problem(errors));
     }
 
     [HttpPost("transfer-requests/{docEntry:int}/close")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
@@ -609,6 +621,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Queued Inventory Transfers
 
     [HttpPost("transfers/queued")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateQueuedTransfer(
         [FromBody] CreateDesktopTransferRequest request,
         CancellationToken cancellationToken)

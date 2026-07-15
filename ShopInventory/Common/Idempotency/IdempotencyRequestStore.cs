@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
@@ -10,7 +11,7 @@ using ShopInventory.Models.Entities;
 namespace ShopInventory.Common.Idempotency;
 
 public sealed class IdempotencyRequestStore(
-    ApplicationDbContext context,
+    IServiceScopeFactory scopeFactory,
     IOptions<SecuritySettings> securitySettings) : IIdempotencyRequestStore
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -38,9 +39,11 @@ public sealed class IdempotencyRequestStore(
         var normalizedKey = key.Trim();
         var requestHash = ComputeHash(JsonSerializer.Serialize(request, SerializerOptions));
         var now = DateTime.UtcNow;
+        using var serviceScope = scopeFactory.CreateScope();
+        var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
         var existing = await context.IdempotencyRequests
-            .AsTracking()
+            .AsNoTracking()
             .FirstOrDefaultAsync(
                 item => item.Scope == normalizedScope && item.IdempotencyKey == normalizedKey,
                 cancellationToken);
@@ -49,8 +52,9 @@ public sealed class IdempotencyRequestStore(
         {
             if (existing.ExpiresAtUtc <= now)
             {
-                context.IdempotencyRequests.Remove(existing);
-                await context.SaveChangesAsync(cancellationToken);
+                await context.IdempotencyRequests
+                    .Where(item => item.Id == existing.Id && item.ExpiresAtUtc <= now)
+                    .ExecuteDeleteAsync(cancellationToken);
             }
             else
             {
@@ -73,6 +77,7 @@ public sealed class IdempotencyRequestStore(
         try
         {
             await context.SaveChangesAsync(cancellationToken);
+            context.Entry(entity).State = EntityState.Detached;
             return new IdempotencyAcquireResult<TResponse>(
                 IdempotencyAcquireOutcome.Acquired,
                 entity.Id,
@@ -81,7 +86,7 @@ public sealed class IdempotencyRequestStore(
         }
         catch (DbUpdateException)
         {
-            context.ChangeTracker.Clear();
+            context.Entry(entity).State = EntityState.Detached;
 
             var concurrent = await context.IdempotencyRequests
                 .AsNoTracking()
@@ -103,39 +108,32 @@ public sealed class IdempotencyRequestStore(
         TResponse response,
         CancellationToken cancellationToken)
     {
-        var entity = await context.IdempotencyRequests
-            .AsTracking()
-            .FirstOrDefaultAsync(item => item.Id == requestId, cancellationToken);
-
-        if (entity is null)
-        {
-            return;
-        }
-
         var now = DateTime.UtcNow;
-        entity.Status = IdempotencyRequestStatus.Completed;
-        entity.CompletedAtUtc = now;
-        entity.ExpiresAtUtc = now.AddMinutes(_expirationMinutes);
-        entity.ResponsePayload = JsonSerializer.Serialize(response, SerializerOptions);
+        var responsePayload = JsonSerializer.Serialize(response, SerializerOptions);
+        using var serviceScope = scopeFactory.CreateScope();
+        var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        await context.SaveChangesAsync(cancellationToken);
+        await context.IdempotencyRequests
+            .Where(item => item.Id == requestId)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(item => item.Status, IdempotencyRequestStatus.Completed)
+                    .SetProperty(item => item.CompletedAtUtc, now)
+                    .SetProperty(item => item.ExpiresAtUtc, now.AddMinutes(_expirationMinutes))
+                    .SetProperty(item => item.ResponsePayload, responsePayload),
+                cancellationToken);
     }
 
     public async Task ReleaseAsync(
         long requestId,
         CancellationToken cancellationToken)
     {
-        var entity = await context.IdempotencyRequests
-            .AsTracking()
-            .FirstOrDefaultAsync(item => item.Id == requestId, cancellationToken);
+        using var serviceScope = scopeFactory.CreateScope();
+        var context = serviceScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        if (entity is null || entity.Status == IdempotencyRequestStatus.Completed)
-        {
-            return;
-        }
-
-        context.IdempotencyRequests.Remove(entity);
-        await context.SaveChangesAsync(cancellationToken);
+        await context.IdempotencyRequests
+            .Where(item => item.Id == requestId && item.Status != IdempotencyRequestStatus.Completed)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     private static IdempotencyAcquireResult<TResponse> BuildResult<TResponse>(

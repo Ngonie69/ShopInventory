@@ -259,6 +259,7 @@ try
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
     builder.Services.AddScoped<IInventoryTransferCacheService, InventoryTransferCacheService>();
     builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
+    builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IWarehouseStockCacheService, WarehouseStockCacheService>();

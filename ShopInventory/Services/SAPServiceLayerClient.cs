@@ -44,6 +44,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private static readonly SemaphoreSlim _glAccountsCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _priceListCacheLock = new(1, 1);
     private static readonly AsyncLocal<Dictionary<int, List<ItemPriceByListDto>>?> _priceListResolutionCache = new();
+    private static readonly AsyncLocal<List<PriceListDto>?> _priceListDefinitionsResolutionCache = new();
+    private static readonly AsyncLocal<PriceListItemsApiSnapshot?> _priceListItemsApiSnapshot = new();
 
     // Regex for validating SAP identifiers (item codes, warehouse codes, card codes, etc.)
     // Allows alphanumeric, dashes, underscores, dots, spaces, forward slashes
@@ -108,12 +110,22 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     public IDisposable BeginPriceListResolutionScope()
     {
         var previousCache = _priceListResolutionCache.Value;
+        var previousDefinitions = _priceListDefinitionsResolutionCache.Value;
+        var previousItemsApiSnapshot = _priceListItemsApiSnapshot.Value;
         _priceListResolutionCache.Value = new Dictionary<int, List<ItemPriceByListDto>>();
+        _priceListDefinitionsResolutionCache.Value = [];
+        _priceListItemsApiSnapshot.Value = new PriceListItemsApiSnapshot();
 
-        return new PriceListResolutionScope(previousCache);
+        return new PriceListResolutionScope(
+            previousCache,
+            previousDefinitions,
+            previousItemsApiSnapshot);
     }
 
-    private sealed class PriceListResolutionScope(Dictionary<int, List<ItemPriceByListDto>>? previousCache) : IDisposable
+    private sealed class PriceListResolutionScope(
+        Dictionary<int, List<ItemPriceByListDto>>? previousCache,
+        List<PriceListDto>? previousDefinitions,
+        PriceListItemsApiSnapshot? previousItemsApiSnapshot) : IDisposable
     {
         private bool _disposed;
 
@@ -126,7 +138,16 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             _disposed = true;
             _priceListResolutionCache.Value = previousCache;
+            _priceListDefinitionsResolutionCache.Value = previousDefinitions;
+            _priceListItemsApiSnapshot.Value = previousItemsApiSnapshot;
         }
+    }
+
+    private sealed class PriceListItemsApiSnapshot
+    {
+        public List<string> Pages { get; } = [];
+        public bool IsComplete { get; set; }
+        public bool SqlUnavailable { get; set; }
     }
 
     private async Task<HttpResponseMessage> SendSapRequestWithTransientRetryAsync(
@@ -141,7 +162,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         {
             try
             {
-                var response = await client.SendAsync(requestFactory(), completionOption, cancellationToken);
+                using var request = requestFactory();
+                var response = await client.SendAsync(request, completionOption, cancellationToken);
                 if (!SapFailureClassifier.IsTransientStatusCode(response.StatusCode) || attempt >= maxRetries)
                 {
                     return response;
@@ -170,6 +192,36 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
+    private async Task<HttpResponseMessage> SendPriceListSqlRequestAsync(
+        HttpClient client,
+        Func<HttpRequestMessage> requestFactory,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        var timeoutSeconds = Math.Clamp(_settings.PriceListSqlRequestTimeoutSeconds, 10, 300);
+        var maxAttempts = Math.Clamp(_settings.PriceListSqlMaxAttempts, 1, 3);
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        try
+        {
+            return await SendSapRequestWithTransientRetryAsync(
+                client,
+                requestFactory,
+                HttpCompletionOption.ResponseHeadersRead,
+                operation,
+                timeoutSource.Token,
+                maxAttempts);
+        }
+        catch (OperationCanceledException ex) when (
+            !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"SAP price-list SQL request exceeded its {timeoutSeconds}-second performance budget.",
+                ex);
+        }
+    }
+
     private async Task EnsureAuthenticatedAsync(CancellationToken cancellationToken)
     {
         // Fast path: session is still valid
@@ -194,9 +246,9 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             {
                 try
                 {
-                    var logoutReq = new HttpRequestMessage(HttpMethod.Post, "Logout");
+                    using var logoutReq = new HttpRequestMessage(HttpMethod.Post, "Logout");
                     logoutReq.Headers.Add("Cookie", $"B1SESSION={oldSession}");
-                    await _httpClient.SendAsync(logoutReq, cancellationToken);
+                    using var logoutResponse = await _httpClient.SendAsync(logoutReq, cancellationToken);
                     _logger.LogDebug("Logged out stale SAP session before re-authentication");
                 }
                 catch { /* best effort - session may have already expired on SAP */ }
@@ -1511,23 +1563,35 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             var filter = string.Join(" or ", chunk.Select(docEntry => $"DocEntry eq {docEntry}"));
             var url = $"Invoices?$filter={filter}&{selectClause}&$top={chunk.Length}";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"bulk invoice lookup for {chunk.Length} DocEntries",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"bulk invoice lookup for {chunk.Length} DocEntries after SAP re-authentication",
+                    cancellationToken);
             }
+
+            using var responseOwner = response;
 
             if (!response.IsSuccessStatusCode)
             {
@@ -3176,9 +3240,9 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         try
         {
             var url = $"SQLQueries('{queryCode}')";
-            var httpRequest = new HttpRequestMessage(HttpMethod.Delete, url);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Delete, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            await _httpClient.SendAsync(httpRequest, cancellationToken);
+            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         }
         catch
         {
@@ -3217,6 +3281,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
             response = await SendSapRequestWithTransientRetryAsync(
                 _httpClient,
@@ -3226,6 +3291,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 cancellationToken);
         }
 
+        using var responseOwner = response;
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
         _logger.LogDebug("Create SQL Query response: {StatusCode}", response.StatusCode);
 
@@ -3259,25 +3325,36 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         var patchPayload = new { SqlText = sqlText };
         var patchJson = JsonSerializer.Serialize(patchPayload);
 
-        var currentSession = _sessionId;
-        var httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
-        httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-        httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        httpRequest.Content = new StringContent(patchJson, Encoding.UTF8, "application/json");
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Content = new StringContent(patchJson, Encoding.UTF8, "application/json");
+            return request;
+        }
 
-        var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        var currentSession = _sessionId;
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"patch SQL query '{queryCode}'",
+            cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-            httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"SQLQueries('{queryCode}')");
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            httpRequest.Content = new StringContent(patchJson, Encoding.UTF8, "application/json");
-            response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            response.Dispose();
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"patch SQL query '{queryCode}' after SAP re-authentication",
+                cancellationToken);
         }
 
+        using var responseOwner = response;
         // If PATCH also fails, the query exists with the same SQL - safe to proceed and execute it
         if (!response.IsSuccessStatusCode)
         {
@@ -3478,8 +3555,15 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     /// </summary>
     public async Task<List<PriceListDto>> GetPriceListsAsync(CancellationToken cancellationToken = default)
     {
+        var scopedDefinitions = _priceListDefinitionsResolutionCache.Value;
+        if (scopedDefinitions is { Count: > 0 })
+        {
+            return scopedDefinitions;
+        }
+
         if (_memoryCache.TryGetValue(PriceListsCacheKey, out List<PriceListDto>? cached) && cached != null)
         {
+            CapturePriceListDefinitionsForResolutionScope(cached);
             return cached;
         }
 
@@ -3488,17 +3572,30 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         {
             if (_memoryCache.TryGetValue(PriceListsCacheKey, out cached) && cached != null)
             {
+                CapturePriceListDefinitionsForResolutionScope(cached);
                 return cached;
             }
 
             var result = await GetPriceListsFromSAPAsync(cancellationToken);
             _memoryCache.Set(PriceListsCacheKey, result, TimeSpan.FromMinutes(60));
+            CapturePriceListDefinitionsForResolutionScope(result);
             return result;
         }
         finally
         {
             _priceListCacheLock.Release();
         }
+    }
+
+    private static void CapturePriceListDefinitionsForResolutionScope(IEnumerable<PriceListDto> priceLists)
+    {
+        var scopedDefinitions = _priceListDefinitionsResolutionCache.Value;
+        if (scopedDefinitions is null || scopedDefinitions.Count > 0)
+        {
+            return;
+        }
+
+        scopedDefinitions.AddRange(priceLists);
     }
 
     private async Task<List<PriceListDto>> GetPriceListsFromSAPAsync(CancellationToken cancellationToken)
@@ -3556,6 +3653,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
                     await HandleAuthFailureAsync(currentSession, cancellationToken);
+                    response.Dispose();
 
                     response = await SendSapRequestWithTransientRetryAsync(
                         syncHttpClient,
@@ -3565,6 +3663,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                         cancellationToken);
                 }
 
+                using var responseOwner = response;
                 if (!response.IsSuccessStatusCode)
                 {
                     var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -3751,31 +3850,53 @@ WHERE T0.""PriceList"" = {priceListNum}
 ORDER BY T0.""ItemCode""";
 
             List<ItemPriceByListDto> prices;
-            var sqlQueryFailed = false;
-            try
+            var resolutionSnapshot = _priceListItemsApiSnapshot.Value;
+            var shouldAttemptSql = resolutionSnapshot?.SqlUnavailable != true;
+            var sqlQueryFailed = !shouldAttemptSql;
+            var sqlTimeoutSeconds = Math.Clamp(_settings.PriceListSqlRequestTimeoutSeconds, 10, 300);
+            if (shouldAttemptSql)
             {
+                using var sqlTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                sqlTimeoutSource.CancelAfter(TimeSpan.FromSeconds(sqlTimeoutSeconds));
                 try
                 {
-                    await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, cancellationToken);
-                    prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, isDerivedPriceList, cancellationToken);
+                    try
+                    {
+                        await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, sqlTimeoutSource.Token);
+                        prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, isDerivedPriceList, sqlTimeoutSource.Token);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        sqlQueryFailed = true;
+                        if (resolutionSnapshot is not null)
+                        {
+                            resolutionSnapshot.SqlUnavailable = true;
+                        }
+
+                        _logger.LogWarning(
+                            ex,
+                            "SQL query path failed for price list {PriceListNum}; the remaining lists in this sync will use the shared Items API fallback",
+                            priceListNum);
+                        prices = [];
+                    }
                 }
-                catch (OperationCanceledException)
+                finally
                 {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    sqlQueryFailed = true;
-                    _logger.LogWarning(
-                        ex,
-                        "SQL query path failed for price list {PriceListNum}; falling back to OData Items API",
-                        priceListNum);
-                    prices = [];
+                    using var cleanupTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    cleanupTimeoutSource.CancelAfter(TimeSpan.FromSeconds(Math.Min(10, sqlTimeoutSeconds)));
+                    await TryDeleteQueryAsync(queryCode, cleanupTimeoutSource.Token);
                 }
             }
-            finally
+            else
             {
-                await TryDeleteQueryAsync(queryCode, cancellationToken);
+                prices = [];
+                _logger.LogDebug(
+                    "Skipping SAP SQL for price list {PriceListNum} because an earlier list failed in this resolution scope",
+                    priceListNum);
             }
 
             // If SQL query returned empty, fall back to OData Items API for direct lists.
@@ -3944,13 +4065,31 @@ ORDER BY T0.""ItemCode""";
     private async Task<List<ItemPriceByListDto>> GetPricesByPriceListViaItemsApiAsync(int priceListNum, CancellationToken cancellationToken)
     {
         var prices = new List<ItemPriceByListDto>();
+        var priceListName = _priceListDefinitionsResolutionCache.Value?
+            .FirstOrDefault(priceList => priceList.ListNum == priceListNum)?
+            .ListName ?? $"Price List {priceListNum}";
+        var snapshot = _priceListItemsApiSnapshot.Value;
+
+        if (snapshot?.IsComplete == true)
+        {
+            foreach (var page in snapshot.Pages)
+            {
+                var (pageItems, _) = ParseItemPricesFromItemsApi(page, priceListNum, priceListName);
+                prices.AddRange(pageItems);
+            }
+
+            _logger.LogInformation(
+                "Shared Items API snapshot supplied {Count} prices for price list {ListNum}",
+                prices.Count,
+                priceListNum);
+            return prices;
+        }
+
         var syncHttpClient = GetLongRunningHttpClient();
         var skip = 0;
         const int pageSize = 100;
         var hasMore = true;
-
-        // Look up the price list name
-        string priceListName = $"Price List {priceListNum}";
+        var scanCompleted = true;
 
         while (hasMore)
         {
@@ -3977,6 +4116,7 @@ ORDER BY T0.""ItemCode""";
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
                 response = await SendSapRequestWithTransientRetryAsync(
                     syncHttpClient,
@@ -3986,33 +4126,57 @@ ORDER BY T0.""ItemCode""";
                     cancellationToken);
             }
 
+            using var responseOwner = response;
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Items API fallback failed: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                scanCompleted = false;
                 break;
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            snapshot?.Pages.Add(content);
             var (pageItems, nextLink) = ParseItemPricesFromItemsApi(content, priceListNum, priceListName);
             prices.AddRange(pageItems);
+            var sourceItemCount = GetODataValueCount(content);
+            if (sourceItemCount == 0 && !string.IsNullOrEmpty(nextLink))
+            {
+                scanCompleted = false;
+                _logger.LogWarning(
+                    "Items API price snapshot returned an empty page with a continuation link at skip {Skip}; stopping to avoid repeating the same page",
+                    skip);
+                break;
+            }
 
-            if (pageItems.Count == 0 && string.IsNullOrEmpty(nextLink))
-            {
-                hasMore = false;
-            }
-            else
-            {
-                skip += pageSize;
-                hasMore = !string.IsNullOrEmpty(nextLink) || pageItems.Count > 0;
-            }
+            skip += sourceItemCount;
+            hasMore = !string.IsNullOrEmpty(nextLink) || sourceItemCount >= pageSize;
 
             // Safety limit to prevent infinite loops
-            if (skip > 50000) break;
+            if (skip > 50000)
+            {
+                scanCompleted = false;
+                _logger.LogWarning("Stopped Items API price snapshot after {ItemCount} items to avoid an unbounded pagination loop", skip);
+                break;
+            }
+        }
+
+        if (snapshot is not null && scanCompleted)
+        {
+            snapshot.IsComplete = true;
         }
 
         _logger.LogInformation("Items API fallback retrieved {Count} prices for price list {ListNum}", prices.Count, priceListNum);
         return prices;
+    }
+
+    private static int GetODataValueCount(string jsonContent)
+    {
+        using var document = JsonDocument.Parse(jsonContent);
+        return document.RootElement.TryGetProperty("value", out var value)
+            && value.ValueKind == JsonValueKind.Array
+                ? value.GetArrayLength()
+                : 0;
     }
 
     /// <summary>
@@ -4093,8 +4257,6 @@ ORDER BY T0.""ItemCode""";
         var syncHttpClient = GetLongRunningHttpClient();
         var skip = 0;
         var hasMore = true;
-        const int maxRetries = 3;
-
         while (hasMore)
         {
             var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
@@ -4109,27 +4271,25 @@ ORDER BY T0.""ItemCode""";
             }
 
             var currentSession = _sessionId;
-            var response = await SendSapRequestWithTransientRetryAsync(
+            var response = await SendPriceListSqlRequestAsync(
                 syncHttpClient,
                 CreateRequest,
-                HttpCompletionOption.ResponseHeadersRead,
                 $"price list query '{queryCode}' at skip {skip}",
-                cancellationToken,
-                maxRetries);
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
 
-                response = await SendSapRequestWithTransientRetryAsync(
+                response = await SendPriceListSqlRequestAsync(
                     syncHttpClient,
                     CreateRequest,
-                    HttpCompletionOption.ResponseHeadersRead,
                     $"price list query '{queryCode}' at skip {skip} after SAP re-authentication",
-                    cancellationToken,
-                    maxRetries);
+                    cancellationToken);
             }
 
+            using var responseOwner = response;
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.NotFound)
@@ -4145,8 +4305,21 @@ ORDER BY T0.""ItemCode""";
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("Failed to execute price list query: {StatusCode} - {Error}", response.StatusCode, responseContent);
-                throw new Exception($"Failed to execute price list query: {response.StatusCode} - {responseContent}");
+                var sanitizedError = SensitiveDataSanitizer.SanitizeForLog(responseContent);
+                if (sanitizedError.Length > 500)
+                {
+                    sanitizedError = sanitizedError[..500];
+                }
+
+                _logger.LogWarning(
+                    "SAP price list SQL query {QueryCode} returned {StatusCode}; the caller will use the Items API fallback. Response: {Error}",
+                    queryCode,
+                    response.StatusCode,
+                    sanitizedError);
+                throw new HttpRequestException(
+                    $"SAP price list query returned {response.StatusCode}.",
+                    null,
+                    response.StatusCode);
             }
 
             var (pagePrices, nextLink) = ParsePricesByListAndNextLink(responseContent, priceListNum);
@@ -4483,7 +4656,7 @@ ORDER BY T0.""ItemCode""";
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(requestSession, cancellationToken);
-
+                response.Dispose();
                 response = await SendSapRequestWithTransientRetryAsync(
                     syncHttpClient,
                     CreateRequest,
@@ -4492,6 +4665,7 @@ ORDER BY T0.""ItemCode""";
                     cancellationToken);
             }
 
+            using var responseOwner = response;
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -6553,24 +6727,35 @@ ORDER BY T0.""ItemCode""";
             // Fetch both Customers and Suppliers
             var url = $"BusinessPartners?{BusinessPartnerSelectFields}&$filter=CardType eq 'cCustomer' or CardType eq 'cSupplier'&$orderby=CardCode&$skip={skip}";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return request;
+            }
 
-            var response = await syncHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            var response = await SendSapRequestWithTransientRetryAsync(
+                syncHttpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseHeadersRead,
+                $"business partners at skip {skip}",
+                cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await syncHttpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    syncHttpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    $"business partners at skip {skip} after SAP re-authentication",
+                    cancellationToken);
             }
 
+            using var responseOwner = response;
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -10776,12 +10961,22 @@ ORDER BY T0.""ItemCode""";
         if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
             await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
 
             request = new HttpRequestMessage(HttpMethod.Get, $"SQLQueries('{queryCode}')/List");
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             request.Headers.Add("Prefer", "odata.maxpagesize=1000");
             response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        using var responseOwner = response;
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            _logger.LogDebug(
+                "SAP UoM history query {QueryCode} returned no matching rows",
+                queryCode);
+            return new Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>(StringComparer.OrdinalIgnoreCase);
         }
 
         if (!response.IsSuccessStatusCode)

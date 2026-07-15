@@ -25,6 +25,9 @@ public sealed class ApproveSalesOrderHandler(
             var order = await salesOrderService.ApproveAsync(command.Id, command.UserId, cancellationToken);
             if (order.Source == SalesOrderSource.Mobile)
             {
+                // Approval and SAP posting are committed before notifications begin. A browser
+                // disconnect must not cancel these durable post-approval side effects.
+                var postApprovalCancellationToken = CancellationToken.None;
                 var customerName = string.IsNullOrWhiteSpace(order.CardName)
                     ? order.CardCode
                     : order.CardName;
@@ -52,7 +55,7 @@ public sealed class ApproveSalesOrderHandler(
                 {
                     try
                     {
-                        await notificationService.CreateNotificationAsync(creatorNotification, cancellationToken);
+                        await notificationService.CreateNotificationAsync(creatorNotification, postApprovalCancellationToken);
                     }
                     catch (Exception ex)
                     {
@@ -73,7 +76,7 @@ public sealed class ApproveSalesOrderHandler(
                                  "Success",
                                  notificationData))
                     {
-                        await notificationService.CreateNotificationAsync(staffNotification, cancellationToken);
+                        await notificationService.CreateNotificationAsync(staffNotification, postApprovalCancellationToken);
                     }
                 }
                 catch (Exception ex)
@@ -119,7 +122,7 @@ public sealed class ApproveSalesOrderHandler(
             SalesOrderDto? order = null;
             try
             {
-                order = await salesOrderService.GetByIdFromLocalAsync(command.Id, cancellationToken);
+                order = await salesOrderService.GetByIdFromLocalAsync(command.Id, CancellationToken.None);
             }
             catch (Exception lookupEx)
             {

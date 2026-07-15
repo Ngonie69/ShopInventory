@@ -1,0 +1,522 @@
+@page "/approval-process/setup"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin")]
+@inject IApprovalProcessService ApprovalService
+@inject IUserManagementService UserService
+@inject IMasterDataCacheService CacheService
+@rendermode InteractiveServer
+
+<PageTitle>Approval Process Setup</PageTitle>
+
+<div class="container-fluid py-4 approval-setup">
+    <div class="setup-header d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h2 class="mb-1"><i class="bi bi-diagram-3 me-2 text-primary"></i>Approval Process Setup</h2>
+            <p class="text-muted mb-0">Configure SAP B1-style approval stages, authorizers, thresholds, originators and transfer conditions.</p>
+        </div>
+        <button class="btn btn-outline-primary" @onclick="LoadAsync" disabled="@isLoading"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+    }
+
+    <MudTabs Rounded="true" Elevation="0" Class="approval-tabs">
+        <MudTabPanel Text="Approval Stages" Icon="@Icons.Material.Filled.AccountTree">
+            <div class="setup-grid">
+                <section class="definition-list">
+                    <button class="btn new-definition-btn w-100 mb-3" @onclick="NewStage"><i class="bi bi-plus-lg me-1"></i>New Stage</button>
+                    @foreach (var stage in stages)
+                    {
+                        <button class="definition-card @(editingStage.Id == stage.Id ? "active" : "")" @onclick="() => EditStage(stage)">
+                            <strong>@stage.Name</strong>
+                            <span>@stage.ApprovalsRequired approval(s), @stage.RejectionsRequired rejection(s)</span>
+                            <small>@(stage.IsActive ? "Active" : "Inactive") · @StageUsageLabel(stage.Id)</small>
+                        </button>
+                    }
+                </section>
+                <section class="editor-card">
+                    <h5>@(editingStage.Id == Guid.Empty ? "Create Approval Stage" : "Edit Approval Stage")</h5>
+                    <label>Stage Name</label>
+                    <input class="form-control" @bind="editingStage.Name" />
+                    <label>Description</label>
+                    <textarea class="form-control" rows="2" @bind="editingStage.Description"></textarea>
+                    <div class="row g-3">
+                        <div class="col-md-6"><label>No. of Approvals Required</label><input type="number" min="1" class="form-control" @bind="editingStage.ApprovalsRequired" /></div>
+                        <div class="col-md-6"><label>No. of Rejections Required</label><input type="number" min="1" class="form-control" @bind="editingStage.RejectionsRequired" /></div>
+                    </div>
+                    <label class="mt-3">Authorizer Roles</label>
+                    <div class="choice-grid">
+                        @foreach (var role in availableRoles)
+                        {
+                            <label><input type="checkbox" checked="@editingStage.AuthorizerRoles.Contains(role)" @onchange="e => Toggle(editingStage.AuthorizerRoles, role, e.Value as bool? == true)" /> @FriendlyRole(role)</label>
+                        }
+                    </div>
+                    <label class="mt-3">Specific Authorizers</label>
+                    <div class="choice-grid user-choices">
+                        @foreach (var user in users.Where(user => user.IsActive))
+                        {
+                            <label><input type="checkbox" checked="@editingStage.AuthorizerUserIds.Contains(user.Id)" @onchange="e => Toggle(editingStage.AuthorizerUserIds, user.Id, e.Value as bool? == true)" /> @user.Username <small>(@FriendlyRole(user.Role))</small></label>
+                        }
+                    </div>
+                    <label class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="editingStage.IsActive" /> Active</label>
+                    @if (IsEditingStageLinked)
+                    {
+                        <div class="linked-stage-notice mt-3" role="status">
+                            <i class="bi bi-lock-fill" aria-hidden="true"></i>
+                            <div>
+                                <strong>This stage is used by @LinkedTemplateNames.Count approval template(s).</strong>
+                                <span>@string.Join(", ", LinkedTemplateNames). Remove the stage from these templates before deleting it.</span>
+                            </div>
+                        </div>
+                    }
+                    <div class="d-flex gap-2 mt-4">
+                        <button class="btn btn-primary" @onclick="SaveStageAsync" disabled="@isSaving">Save Stage</button>
+                        @if (editingStage.Id != Guid.Empty)
+                        {
+                            <button class="btn btn-outline-danger" @onclick="DeleteStageAsync"
+                                    disabled="@(isSaving || IsEditingStageLinked)"
+                                    title="@(IsEditingStageLinked ? "Remove this stage from its approval templates before deleting it." : "Delete this approval stage")">
+                                <i class="bi bi-trash3 me-1"></i>Delete
+                            </button>
+                        }
+                    </div>
+                </section>
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="Approval Templates" Icon="@Icons.Material.Filled.Rule">
+            <div class="setup-grid">
+                <section class="definition-list">
+                    <button class="btn new-definition-btn w-100 mb-3" @onclick="NewTemplate"><i class="bi bi-plus-lg me-1"></i>New Template</button>
+                    @foreach (var template in templates)
+                    {
+                        <button class="definition-card @(editingTemplate.Id == template.Id ? "active" : "")" @onclick="() => EditTemplate(template)">
+                            <strong>@template.Name</strong>
+                            <span>@template.StageIds.Count stage(s), priority @template.Priority</span>
+                            <small>@(template.IsActive ? "Active" : "Inactive")</small>
+                        </button>
+                    }
+                </section>
+                <section class="editor-card">
+                    <h5>@(editingTemplate.Id == Guid.Empty ? "Create Approval Template" : "Edit Approval Template")</h5>
+                    <label>Template Name</label><input class="form-control" @bind="editingTemplate.Name" />
+                    <label>Description</label><textarea class="form-control" rows="2" @bind="editingTemplate.Description"></textarea>
+                    <div class="row g-3">
+                        <div class="col-md-4"><label>Priority</label><input type="number" class="form-control" @bind="editingTemplate.Priority" /></div>
+                        <div class="col-md-4"><label>From Warehouse</label><select class="form-select" @bind="editingTemplate.FromWarehouse"><option value="">Any</option>@foreach (var warehouse in warehouses){<option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>}</select></div>
+                        <div class="col-md-4"><label>To Warehouse</label><select class="form-select" @bind="editingTemplate.ToWarehouse"><option value="">Any</option>@foreach (var warehouse in warehouses){<option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>}</select></div>
+                    </div>
+                    <label class="mt-3">Originator Roles <small class="text-muted">(none means all users)</small></label>
+                    <div class="choice-grid">@foreach (var role in availableRoles){<label><input type="checkbox" checked="@editingTemplate.OriginatorRoles.Contains(role)" @onchange="e => Toggle(editingTemplate.OriginatorRoles, role, e.Value as bool? == true)" /> @FriendlyRole(role)</label>}</div>
+                    <label class="mt-3">Specific Originators</label>
+                    <div class="choice-grid user-choices">@foreach (var user in users.Where(user => user.IsActive)){<label><input type="checkbox" checked="@editingTemplate.OriginatorUserIds.Contains(user.Id)" @onchange="e => Toggle(editingTemplate.OriginatorUserIds, user.Id, e.Value as bool? == true)" /> @user.Username <small>(@FriendlyRole(user.Role))</small></label>}</div>
+                    <label class="mt-3">Approval Stages</label>
+                    <div class="choice-grid">@foreach (var stage in stages.Where(stage => stage.IsActive)){<label><input type="checkbox" checked="@editingTemplate.StageIds.Contains(stage.Id)" @onchange="e => Toggle(editingTemplate.StageIds, stage.Id, e.Value as bool? == true)" /> @stage.Name</label>}</div>
+                    <label class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="editingTemplate.IsActive" /> Active</label>
+                    <div class="d-flex gap-2 mt-4">
+                        <button class="btn btn-primary" @onclick="SaveTemplateAsync" disabled="@isSaving">Save Template</button>
+                        @if (editingTemplate.Id != Guid.Empty)
+                        {
+                            <button class="btn btn-outline-danger" @onclick="DeleteTemplateAsync">Delete</button>
+                        }
+                    </div>
+                </section>
+            </div>
+        </MudTabPanel>
+    </MudTabs>
+</div>
+
+<style>
+    .approval-setup {
+        --approval-panel: #ffffff;
+        --approval-panel-alt: #f8fafc;
+        --approval-card: #ffffff;
+        --approval-card-hover: #f8fafc;
+        --approval-input: #ffffff;
+        --approval-text: #172033;
+        --approval-muted: #64748b;
+        --approval-border: #d8e0eb;
+        --approval-border-strong: #b8c4d4;
+        --approval-accent: #4f46e5;
+        --approval-accent-soft: #eef2ff;
+        --approval-active-text: #3730a3;
+        --approval-checkbox-bg: #ffffff;
+        --approval-checkbox-border: #8b99ad;
+        max-width: 1500px;
+        color: var(--approval-text);
+    }
+
+    .setup-header h2 { color: var(--approval-text); }
+    .setup-header p { color: var(--approval-muted) !important; }
+
+    .approval-tabs {
+        overflow: hidden;
+        background: var(--approval-panel) !important;
+        border: 1px solid var(--approval-border);
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgb(15 23 42 / 8%);
+    }
+
+    .approval-tabs .mud-tabs-tabbar {
+        background: var(--approval-panel-alt);
+        border-bottom: 1px solid var(--approval-border);
+    }
+
+    .approval-tabs .mud-tab {
+        color: var(--approval-muted);
+        font-weight: 650;
+    }
+
+    .approval-tabs .mud-tab.mud-tab-active {
+        color: var(--approval-accent);
+    }
+
+    .approval-tabs .mud-tabs-panels {
+        background: var(--approval-panel);
+        color: var(--approval-text);
+        padding: 1.25rem;
+    }
+
+    .setup-grid {
+        display: grid;
+        grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+        gap: 1.25rem;
+    }
+
+    .definition-list {
+        display: flex;
+        flex-direction: column;
+        gap: .65rem;
+        min-width: 0;
+    }
+
+    .new-definition-btn {
+        background: linear-gradient(135deg, #4f46e5, #6366f1);
+        border: 1px solid #6366f1;
+        color: #fff;
+        min-height: 46px;
+        font-weight: 650;
+        box-shadow: 0 5px 14px rgb(79 70 229 / 22%);
+    }
+
+    .new-definition-btn:hover,
+    .new-definition-btn:focus-visible {
+        background: linear-gradient(135deg, #4338ca, #4f46e5);
+        border-color: #818cf8;
+        color: #fff;
+    }
+
+    .definition-card {
+        width: 100%;
+        min-height: 96px;
+        text-align: left;
+        background: var(--approval-card);
+        color: var(--approval-text);
+        border: 1px solid var(--approval-border);
+        border-radius: 11px;
+        padding: .9rem 1rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+
+    .definition-card:hover {
+        background: var(--approval-card-hover);
+        border-color: var(--approval-border-strong);
+        transform: translateY(-1px);
+    }
+
+    .definition-card:focus-visible {
+        outline: 3px solid rgb(99 102 241 / 30%);
+        outline-offset: 2px;
+    }
+
+    .definition-card.active {
+        background: var(--approval-accent-soft);
+        border-color: var(--approval-accent);
+        box-shadow: 0 0 0 2px rgb(99 102 241 / 18%);
+    }
+
+    .definition-card strong {
+        color: var(--approval-text);
+        font-size: .98rem;
+    }
+
+    .definition-card.active strong { color: var(--approval-active-text); }
+    .definition-card span,
+    .definition-card small { color: var(--approval-muted); }
+
+    .editor-card {
+        min-width: 0;
+        background: var(--approval-panel-alt);
+        color: var(--approval-text);
+        border: 1px solid var(--approval-border);
+        border-radius: 12px;
+        padding: 1.35rem;
+    }
+
+    .editor-card h5,
+    .editor-card label { color: var(--approval-text); }
+
+    .editor-card > label {
+        font-weight: 650;
+        margin-top: .85rem;
+        margin-bottom: .35rem;
+    }
+
+    .editor-card .form-control,
+    .editor-card .form-select {
+        background-color: var(--approval-input);
+        border-color: var(--approval-border);
+        color: var(--approval-text);
+    }
+
+    .editor-card .form-control:focus,
+    .editor-card .form-select:focus {
+        background-color: var(--approval-input);
+        border-color: var(--approval-accent);
+        color: var(--approval-text);
+        box-shadow: 0 0 0 .2rem rgb(99 102 241 / 16%);
+    }
+
+    .editor-card .form-select option {
+        background: var(--approval-input);
+        color: var(--approval-text);
+    }
+
+    .choice-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: .35rem;
+        padding: .55rem;
+        background: var(--approval-input);
+        border: 1px solid var(--approval-border);
+        border-radius: 9px;
+    }
+
+    .choice-grid > label {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        min-width: 0;
+        margin: 0;
+        padding: .42rem .5rem;
+        border-radius: 7px;
+        color: var(--approval-text);
+        font-weight: 450;
+        overflow-wrap: anywhere;
+    }
+
+    .choice-grid > label:hover { background: var(--approval-card-hover); }
+    .approval-setup input[type="checkbox"] {
+        appearance: none !important;
+        -webkit-appearance: none !important;
+        width: 1.05rem;
+        height: 1.05rem;
+        min-width: 1.05rem;
+        margin-top: 0;
+        padding: 0;
+        background-color: var(--approval-checkbox-bg) !important;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: .78rem;
+        border: 1.5px solid var(--approval-checkbox-border) !important;
+        border-radius: .22rem;
+        box-shadow: none;
+        cursor: pointer;
+        opacity: 1;
+        transition: background-color .14s ease, border-color .14s ease, box-shadow .14s ease;
+    }
+
+    .approval-setup input[type="checkbox"]:checked {
+        background-color: var(--approval-accent) !important;
+        border-color: var(--approval-accent) !important;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M3 8l3 3 7-7'/%3E%3C/svg%3E");
+    }
+
+    .approval-setup input[type="checkbox"]:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 .2rem rgb(99 102 241 / 24%);
+    }
+
+    .approval-setup input[type="checkbox"]:disabled {
+        cursor: not-allowed;
+        opacity: .5;
+    }
+
+    .choice-grid input[type="checkbox"] { flex: 0 0 auto; }
+    .editor-card .form-check-input { accent-color: var(--approval-accent); }
+    .choice-grid small { color: var(--approval-muted); }
+
+    .user-choices {
+        max-height: 250px;
+        overflow: auto;
+        scrollbar-color: var(--approval-border-strong) var(--approval-panel-alt);
+    }
+
+    .linked-stage-notice {
+        display: flex;
+        align-items: flex-start;
+        gap: .75rem;
+        padding: .85rem 1rem;
+        background: #fffbeb;
+        border: 1px solid #f6cf72;
+        border-radius: 9px;
+        color: #713f12;
+    }
+
+    .linked-stage-notice > i {
+        flex: 0 0 auto;
+        margin-top: .1rem;
+        color: #b45309;
+    }
+
+    .linked-stage-notice div {
+        display: flex;
+        flex-direction: column;
+        gap: .15rem;
+    }
+
+    .linked-stage-notice strong { color: #713f12; }
+    .linked-stage-notice span { color: #92400e; }
+
+    .editor-card .btn:disabled {
+        cursor: not-allowed;
+        opacity: .55;
+    }
+
+    .dark-theme .approval-setup {
+        --approval-panel: #111a2b;
+        --approval-panel-alt: #172235;
+        --approval-card: #1c2940;
+        --approval-card-hover: #24334c;
+        --approval-input: #101a2c;
+        --approval-text: #edf2fa;
+        --approval-muted: #a8b5c8;
+        --approval-border: #3a4961;
+        --approval-border-strong: #60708a;
+        --approval-accent: #8b91ff;
+        --approval-accent-soft: #28325a;
+        --approval-active-text: #d9dcff;
+        --approval-checkbox-bg: #0c1525;
+        --approval-checkbox-border: #8190a8;
+    }
+
+    .dark-theme .approval-tabs {
+        box-shadow: 0 12px 30px rgb(0 0 0 / 28%);
+    }
+
+    .dark-theme .approval-tabs .mud-tabs-tabbar {
+        background: #151e30;
+    }
+
+    .dark-theme .approval-tabs .mud-tab-slider {
+        background: var(--approval-accent) !important;
+    }
+
+    .dark-theme .definition-card.active {
+        box-shadow: 0 0 0 2px rgb(139 145 255 / 24%);
+    }
+
+    .dark-theme .new-definition-btn {
+        background: linear-gradient(135deg, #5b5fe8, #7478f2);
+        border-color: #898eff;
+        box-shadow: 0 6px 18px rgb(91 95 232 / 28%);
+    }
+
+    .dark-theme .new-definition-btn:hover,
+    .dark-theme .new-definition-btn:focus-visible {
+        background: linear-gradient(135deg, #696df0, #8589ff);
+    }
+
+    .dark-theme .editor-card .form-control::placeholder { color: #75849a; }
+    .dark-theme .editor-card .form-check-input {
+        background-color: #0f192a;
+        border-color: #687791;
+    }
+    .dark-theme .editor-card .form-check-input:checked {
+        background-color: #7378f2;
+        border-color: #9397ff;
+    }
+
+    .dark-theme .linked-stage-notice {
+        background: rgb(120 53 15 / 28%);
+        border-color: #9a5b1d;
+        color: #fde7ad;
+    }
+
+    .dark-theme .linked-stage-notice > i { color: #fbbf24; }
+    .dark-theme .linked-stage-notice strong { color: #fef3c7; }
+    .dark-theme .linked-stage-notice span { color: #f6d486; }
+
+    @@media (max-width: 850px) {
+        .approval-setup { padding-inline: .75rem !important; }
+        .setup-header { gap: 1rem; }
+        .setup-grid { grid-template-columns: 1fr; }
+        .definition-card { min-height: 84px; }
+        .approval-tabs .mud-tabs-panels { padding: .85rem; }
+        .editor-card { padding: 1rem; }
+    }
+
+    @@media (max-width: 560px) {
+        .setup-header { flex-direction: column; }
+        .setup-header .btn { width: 100%; }
+        .choice-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+@code {
+    private List<string> availableRoles = [];
+    private List<ApprovalStageDefinitionModel> stages = [];
+    private List<ApprovalTemplateDefinitionModel> templates = [];
+    private List<UserModel> users = [];
+    private List<WarehouseDto> warehouses = [];
+    private ApprovalStageDefinitionModel editingStage = new();
+    private ApprovalTemplateDefinitionModel editingTemplate = new();
+    private bool isLoading = true, isSaving, isError;
+    private string? message;
+    private List<string> LinkedTemplateNames => editingStage.Id == Guid.Empty
+        ? []
+        : templates.Where(template => template.StageIds.Contains(editingStage.Id))
+            .Select(template => template.Name)
+            .OrderBy(name => name)
+            .ToList();
+    private bool IsEditingStageLinked => LinkedTemplateNames.Count > 0;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) { await LoadAsync(); StateHasChanged(); } }
+    private async Task LoadAsync()
+    {
+        isLoading = true; message = null;
+        try { stages = await ApprovalService.GetStagesAsync(); templates = await ApprovalService.GetTemplatesAsync(); users = (await UserService.GetUsersAsync(1, 1000)).Items; availableRoles = await UserService.GetRolesAsync(); warehouses = await CacheService.GetWarehousesAsync(); }
+        catch (Exception ex) { message = ex.Message; isError = true; }
+        finally { isLoading = false; }
+    }
+    private void NewStage() => editingStage = new();
+    private void NewTemplate() => editingTemplate = new();
+    private void EditStage(ApprovalStageDefinitionModel value) => editingStage = Clone(value);
+    private void EditTemplate(ApprovalTemplateDefinitionModel value) => editingTemplate = Clone(value);
+    private async Task SaveStageAsync() { if(!ValidateStage())return; isSaving=true; var result=await ApprovalService.SaveStageAsync(editingStage); if(result.Success){await LoadAsync(); if(result.Value is not null) EditStage(result.Value);} SetMessage(result.Success,result.Message); isSaving=false; }
+    private async Task SaveTemplateAsync() { if(!ValidateTemplate())return; isSaving=true; var result=await ApprovalService.SaveTemplateAsync(editingTemplate); if(result.Success){await LoadAsync(); if(result.Value is not null) EditTemplate(result.Value);} SetMessage(result.Success,result.Message); isSaving=false; }
+    private async Task DeleteStageAsync() { if(IsEditingStageLinked){SetMessage(false,LinkedStageMessage());return;} var result=await ApprovalService.DeleteStageAsync(editingStage.Id); if(result.Success){NewStage();await LoadAsync();} SetMessage(result.Success,result.Message); }
+    private async Task DeleteTemplateAsync() { var result=await ApprovalService.DeleteTemplateAsync(editingTemplate.Id); if(result.Success){NewTemplate();await LoadAsync();} SetMessage(result.Success,result.Message); }
+    private void SetMessage(bool success,string text){isError=!success;message=FriendlyMessage(text);}
+    private bool ValidateStage(){if(string.IsNullOrWhiteSpace(editingStage.Name)){SetMessage(false,"Enter a stage name.");return false;}if(editingStage.ApprovalsRequired<1||editingStage.RejectionsRequired<1){SetMessage(false,"Approval and rejection requirements must be at least one.");return false;}if(editingStage.AuthorizerRoles.Count==0&&editingStage.AuthorizerUserIds.Count==0){SetMessage(false,"Select at least one authorizer role or specific authorizer.");return false;}return true;}
+    private bool ValidateTemplate(){if(string.IsNullOrWhiteSpace(editingTemplate.Name)){SetMessage(false,"Enter a template name.");return false;}if(editingTemplate.StageIds.Count==0){SetMessage(false,"Select at least one approval stage.");return false;}return true;}
+    private string StageUsageLabel(Guid stageId){var count=templates.Count(template=>template.StageIds.Contains(stageId));return count==0?"Not used by a template":$"Used by {count} template{(count==1?"":"s")}";}
+    private string LinkedStageMessage()=>$"This approval stage is used by {string.Join(", ", LinkedTemplateNames)}. Remove it from those templates before deleting it.";
+    private static string FriendlyMessage(string text)
+    {
+        if(text.Contains("linked to a template",StringComparison.OrdinalIgnoreCase)) return "This approval stage is still used by an approval template. Remove it from the template before deleting it.";
+        if(text.Contains("template name and at least one approval stage",StringComparison.OrdinalIgnoreCase)) return "Enter a template name and select at least one approval stage.";
+        if(text.Contains("approval stage used by an approval request",StringComparison.OrdinalIgnoreCase)) return "This approval stage has approval history and cannot be deleted. Deactivate it instead.";
+        if(text.Contains("approval template used by an approval request",StringComparison.OrdinalIgnoreCase)) return "This approval template has already been used and cannot be deleted. Deactivate it instead.";
+        return ApiErrorResponse.NormalizeUserMessage(text) ?? text;
+    }
+    private static void Toggle<T>(List<T> list,T value,bool selected){if(selected){if(!list.Contains(value))list.Add(value);}else list.Remove(value);}
+    private static ApprovalStageDefinitionModel Clone(ApprovalStageDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,ApprovalsRequired=x.ApprovalsRequired,RejectionsRequired=x.RejectionsRequired,AuthorizerUserIds=[..x.AuthorizerUserIds],AuthorizerRoles=[..x.AuthorizerRoles],IsActive=x.IsActive};
+    private static ApprovalTemplateDefinitionModel Clone(ApprovalTemplateDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,DocumentType=x.DocumentType,OriginatorUserIds=[..x.OriginatorUserIds],OriginatorRoles=[..x.OriginatorRoles],StageIds=[..x.StageIds],FromWarehouse=x.FromWarehouse,ToWarehouse=x.ToWarehouse,Priority=x.Priority,IsActive=x.IsActive};
+    private static string FriendlyRole(string role)=>role switch{"StockController"=>"Stock Officer","DepotController"=>"Depot Controller",_=>role};
+}

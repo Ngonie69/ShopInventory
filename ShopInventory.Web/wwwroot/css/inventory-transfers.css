@@ -1,0 +1,645 @@
+/* ==========================================================================
+   Inventory Transfers module
+   Self-theming: every colour comes from a token defined once per theme below,
+   so this file needs no `.dark-theme … !important` counterpart in app.css.
+   ========================================================================== */
+
+.itx {
+    --itx-canvas: #f1f5f9;
+    --itx-surface: #ffffff;
+    --itx-surface-2: #f8fafc;
+    --itx-border: #e2e8f0;
+    --itx-ink: #0f172a;
+    --itx-ink-2: #64748b;
+    --itx-accent: #2563eb;
+    --itx-accent-ink: #ffffff;
+    --itx-accent-soft: #eff6ff;
+    --itx-src: #b45309;
+    --itx-src-bg: #fffbeb;
+    --itx-dst: #047857;
+    --itx-dst-bg: #ecfdf5;
+    --itx-warn: #92400e;
+    --itx-warn-bg: #fef3c7;
+    --itx-err: #b91c1c;
+    --itx-err-bg: #fef2f2;
+    --itx-ok: #166534;
+    --itx-ok-bg: #f0fdf4;
+}
+
+.dark-theme .itx {
+    --itx-canvas: #0f172a;
+    --itx-surface: #1e293b;
+    --itx-surface-2: #172033;
+    --itx-border: #334155;
+    --itx-ink: #e2e8f0;
+    --itx-ink-2: #94a3b8;
+    --itx-accent: #60a5fa;
+    --itx-accent-ink: #0b1220;
+    --itx-accent-soft: rgba(96, 165, 250, .12);
+    --itx-src: #fbbf24;
+    --itx-src-bg: rgba(251, 191, 36, .12);
+    --itx-dst: #34d399;
+    --itx-dst-bg: rgba(52, 211, 153, .12);
+    --itx-warn: #fbbf24;
+    --itx-warn-bg: rgba(251, 191, 36, .12);
+    --itx-err: #f87171;
+    --itx-err-bg: rgba(248, 113, 113, .12);
+    --itx-ok: #34d399;
+    --itx-ok-bg: rgba(52, 211, 153, .12);
+}
+
+.itx {
+    background: var(--itx-canvas);
+    min-height: 100vh;
+    padding: 1.25rem;
+    color: var(--itx-ink);
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.itx-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: .75rem;
+    margin-bottom: 1rem;
+}
+
+.itx-head h1 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--itx-ink);
+    margin: 0;
+    line-height: 1.3;
+}
+
+.itx-head p {
+    font-size: .82rem;
+    color: var(--itx-ink-2);
+    margin: 0;
+}
+
+.itx-head-actions {
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.itx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    padding: .5rem .9rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--itx-border);
+    background: var(--itx-surface);
+    color: var(--itx-ink);
+    font-size: .84rem;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+}
+
+.itx-btn:hover:not(:disabled) {
+    background: var(--itx-surface-2);
+    border-color: var(--itx-accent);
+    color: var(--itx-ink);
+}
+
+.itx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.itx-btn-primary {
+    background: var(--itx-accent);
+    border-color: var(--itx-accent);
+    color: var(--itx-accent-ink);
+}
+
+.itx-btn-primary:hover:not(:disabled) {
+    background: var(--itx-accent);
+    border-color: var(--itx-accent);
+    color: var(--itx-accent-ink);
+    filter: brightness(1.08);
+}
+
+.itx-btn-danger {
+    border-color: var(--itx-err);
+    color: var(--itx-err);
+    background: transparent;
+}
+
+.itx-btn-danger:hover:not(:disabled) {
+    background: var(--itx-err-bg);
+    border-color: var(--itx-err);
+    color: var(--itx-err);
+}
+
+.itx-btn-sm {
+    padding: .35rem .65rem;
+    font-size: .78rem;
+}
+
+/* Toggle button carrying a count of applied filters. */
+.itx-btn.is-on {
+    border-color: var(--itx-accent);
+    color: var(--itx-accent);
+    background: var(--itx-accent-soft);
+}
+
+.itx-btn .itx-btn-count {
+    background: var(--itx-accent);
+    color: var(--itx-accent-ink);
+    border-radius: 999px;
+    padding: 0 .35rem;
+    font-size: .68rem;
+    min-width: 1.05rem;
+}
+
+/* ── Panel: tabs + toolbar + table live in one card ─────────────────────── */
+.itx-panel {
+    background: var(--itx-surface);
+    border: 1px solid var(--itx-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.itx-tabs {
+    display: flex;
+    gap: .25rem;
+    padding: 0 .5rem;
+    border-bottom: 1px solid var(--itx-border);
+    background: var(--itx-surface-2);
+    overflow-x: auto;
+}
+
+.itx-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .7rem .9rem;
+    border: none;
+    background: transparent;
+    color: var(--itx-ink-2);
+    font-size: .86rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+}
+
+.itx-tab:hover {
+    color: var(--itx-ink);
+}
+
+.itx-tab.active {
+    color: var(--itx-accent);
+    border-bottom-color: var(--itx-accent);
+}
+
+.itx-tab .itx-tab-count {
+    background: var(--itx-border);
+    color: var(--itx-ink-2);
+    border-radius: 999px;
+    padding: .05rem .4rem;
+    font-size: .7rem;
+    font-weight: 700;
+}
+
+.itx-tab.active .itx-tab-count {
+    background: var(--itx-accent-soft);
+    color: var(--itx-accent);
+}
+
+/* ── Toolbar: one row, everything the tab needs to query ────────────────── */
+.itx-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .5rem;
+    padding: .75rem;
+    border-bottom: 1px solid var(--itx-border);
+}
+
+.itx-toolbar .itx-grow {
+    flex: 1 1 190px;
+    min-width: 0;
+}
+
+.itx-toolbar .itx-field {
+    flex: 0 1 170px;
+    min-width: 0;
+}
+
+.itx-toolbar .itx-spacer {
+    flex: 1 1 auto;
+}
+
+/* Extra filters, revealed on demand rather than always on screen. */
+.itx-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+    gap: .6rem;
+    padding: .75rem;
+    background: var(--itx-surface-2);
+    border-bottom: 1px solid var(--itx-border);
+}
+
+.itx-filters-foot {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.itx-meta {
+    padding: .5rem .85rem;
+    font-size: .78rem;
+    color: var(--itx-ink-2);
+    border-bottom: 1px solid var(--itx-border);
+}
+
+.itx-body {
+    padding: .25rem;
+}
+
+/* ── Badges ─────────────────────────────────────────────────────────────── */
+.itx-route {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    white-space: nowrap;
+}
+
+.itx-wh {
+    display: inline-flex;
+    align-items: center;
+    gap: .25rem;
+    padding: .15rem .45rem;
+    border-radius: var(--radius-sm);
+    font-size: .76rem;
+    font-weight: 600;
+}
+
+.itx-wh.src {
+    background: var(--itx-src-bg);
+    color: var(--itx-src);
+}
+
+.itx-wh.dst {
+    background: var(--itx-dst-bg);
+    color: var(--itx-dst);
+}
+
+.itx-wh.count {
+    background: var(--itx-accent-soft);
+    color: var(--itx-accent);
+}
+
+.itx-arrow {
+    color: var(--itx-ink-2);
+    font-size: .75rem;
+}
+
+.itx-status {
+    display: inline-flex;
+    align-items: center;
+    padding: .15rem .5rem;
+    border-radius: 999px;
+    font-size: .74rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.itx-status.open {
+    background: var(--itx-accent-soft);
+    color: var(--itx-accent);
+}
+
+.itx-status.pending {
+    background: var(--itx-warn-bg);
+    color: var(--itx-warn);
+}
+
+.itx-status.approved {
+    background: var(--itx-ok-bg);
+    color: var(--itx-ok);
+}
+
+.itx-status.rejected {
+    background: var(--itx-err-bg);
+    color: var(--itx-err);
+}
+
+.itx-status.closed {
+    background: var(--itx-border);
+    color: var(--itx-ink-2);
+}
+
+.itx-doc {
+    font-weight: 700;
+    color: var(--itx-accent);
+}
+
+/* ── Empty / loading states ─────────────────────────────────────────────── */
+.itx-empty {
+    text-align: center;
+    padding: 2.75rem 1.25rem;
+    color: var(--itx-ink-2);
+}
+
+.itx-empty i.itx-empty-icon {
+    font-size: 1.6rem;
+    color: var(--itx-ink-2);
+    display: block;
+    margin-bottom: .6rem;
+}
+
+.itx-empty h6 {
+    color: var(--itx-ink);
+    font-weight: 600;
+    margin-bottom: .25rem;
+}
+
+.itx-empty p {
+    font-size: .85rem;
+    margin-bottom: .9rem;
+}
+
+/* ── Alerts ─────────────────────────────────────────────────────────────── */
+.itx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+    padding: .65rem .85rem;
+    border-radius: var(--radius);
+    font-size: .85rem;
+    margin-bottom: .85rem;
+    border: 1px solid transparent;
+}
+
+.itx-alert .itx-alert-body {
+    flex: 1;
+}
+
+.itx-alert.ok {
+    background: var(--itx-ok-bg);
+    border-color: var(--itx-ok);
+    color: var(--itx-ok);
+}
+
+.itx-alert.err {
+    background: var(--itx-err-bg);
+    border-color: var(--itx-err);
+    color: var(--itx-err);
+}
+
+/* ── Detail drawer ──────────────────────────────────────────────────────── */
+.itx-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, .5);
+    z-index: 9998;
+}
+
+.itx-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(560px, 100vw);
+    height: 100vh;
+    background: var(--itx-surface);
+    color: var(--itx-ink);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -8px 0 30px rgba(0, 0, 0, .18);
+    animation: itxSlideIn .22s ease;
+}
+
+@keyframes itxSlideIn {
+    from {
+        transform: translateX(100%);
+    }
+
+    to {
+        transform: translateX(0);
+    }
+}
+
+.itx-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    padding: .9rem 1.1rem;
+    border-bottom: 1px solid var(--itx-border);
+    background: var(--itx-surface-2);
+    flex-shrink: 0;
+}
+
+.itx-drawer-head h5 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--itx-ink);
+}
+
+.itx-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.1rem;
+}
+
+.itx-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+    padding: .8rem 1.1rem;
+    border-top: 1px solid var(--itx-border);
+    flex-shrink: 0;
+}
+
+.itx-route-card {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .8rem;
+    border: 1px solid var(--itx-border);
+    border-radius: var(--radius);
+    background: var(--itx-surface-2);
+    margin-bottom: 1rem;
+}
+
+.itx-route-card .leg {
+    flex: 1;
+    text-align: center;
+}
+
+.itx-route-card .leg-label {
+    font-size: .68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--itx-ink-2);
+}
+
+.itx-route-card .leg-value {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.itx-route-card .leg.src .leg-value {
+    color: var(--itx-src);
+}
+
+.itx-route-card .leg.dst .leg-value {
+    color: var(--itx-dst);
+}
+
+.itx-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .85rem;
+    margin-bottom: 1.25rem;
+}
+
+.itx-grid .span-2 {
+    grid-column: span 2;
+}
+
+.itx-grid .k {
+    font-size: .68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--itx-ink-2);
+    margin-bottom: .15rem;
+}
+
+.itx-grid .v {
+    font-size: .88rem;
+    font-weight: 600;
+    color: var(--itx-ink);
+}
+
+.itx-grid .v.plain {
+    font-weight: 400;
+}
+
+.itx-section {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .88rem;
+    font-weight: 700;
+    color: var(--itx-ink);
+    margin-bottom: .6rem;
+}
+
+.itx-stage {
+    border: 1px solid var(--itx-border);
+    border-radius: var(--radius);
+    background: var(--itx-surface-2);
+    padding: .8rem;
+}
+
+.itx-stage + .itx-stage {
+    margin-top: .6rem;
+}
+
+/* ── Line-item table inside the drawer ──────────────────────────────────── */
+.itx-lines-wrap {
+    border: 1px solid var(--itx-border);
+    border-radius: var(--radius);
+    overflow-x: auto;
+}
+
+.itx-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .8rem;
+}
+
+.itx-lines th {
+    background: var(--itx-surface-2);
+    color: var(--itx-ink-2);
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    padding: .5rem .65rem;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.itx-lines td {
+    padding: .5rem .65rem;
+    border-top: 1px solid var(--itx-border);
+    color: var(--itx-ink);
+}
+
+.itx-lines tfoot td {
+    background: var(--itx-surface-2);
+    font-weight: 700;
+}
+
+.itx-lines .num {
+    text-align: right;
+}
+
+.itx-lines .muted {
+    color: var(--itx-ink-2);
+    font-size: .75rem;
+}
+
+/* ── Busy overlay ───────────────────────────────────────────────────────── */
+.itx-busy {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .75rem;
+    background: rgba(2, 6, 23, .6);
+    color: #fff;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .itx {
+        padding: .85rem;
+    }
+
+    .itx-head {
+        align-items: stretch;
+    }
+
+    .itx-head-actions {
+        width: 100%;
+    }
+
+    .itx-head-actions > * {
+        flex: 1;
+    }
+
+    .itx-toolbar > .itx-field,
+    .itx-toolbar > .itx-grow {
+        flex: 1 1 100%;
+    }
+
+    .itx-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .itx-grid .span-2 {
+        grid-column: span 1;
+    }
+}

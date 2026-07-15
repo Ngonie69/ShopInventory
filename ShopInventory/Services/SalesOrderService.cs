@@ -1552,7 +1552,7 @@ public class SalesOrderService : ISalesOrderService
 
             await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, CancellationToken.None);
 
-            await _context.SaveChangesAsync(CancellationToken.None);
+            await SaveSapPostingResultAsync(order, sapOrder);
 
             if (idempotencyRequestId.HasValue)
             {
@@ -1755,6 +1755,54 @@ public class SalesOrderService : ISalesOrderService
         order.UpdatedAt = DateTime.UtcNow;
     }
 
+    private async Task SaveSapPostingResultAsync(SalesOrderEntity order, SAPSalesOrder sapOrder)
+    {
+        const int maxAttempts = 3;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                await _context.SaveChangesAsync(CancellationToken.None);
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < maxAttempts)
+            {
+                if (ex.Entries.Count == 0 || ex.Entries.Any(entry => entry.State != EntityState.Modified))
+                {
+                    throw;
+                }
+
+                foreach (var entry in ex.Entries)
+                {
+                    var proposedValues = entry.CurrentValues.Clone();
+                    var databaseValues = await entry.GetDatabaseValuesAsync(CancellationToken.None);
+                    if (databaseValues is null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Sales order {order.OrderNumber} or one of its lines was deleted while SAP document {sapOrder.DocNum} was being saved.",
+                            ex);
+                    }
+
+                    entry.OriginalValues.SetValues(databaseValues);
+                    entry.CurrentValues.SetValues(proposedValues);
+                }
+
+                _logger.LogWarning(
+                    "Sales order {OrderId} ({OrderNumber}) had {ConflictCount} concurrent row change(s) while SAP document {SapDocNum} was being linked locally. Retrying with current database row versions ({Attempt}/{MaxAttempts}).",
+                    order.Id,
+                    order.OrderNumber,
+                    ex.Entries.Count,
+                    sapOrder.DocNum,
+                    attempt,
+                    maxAttempts);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Sales order {order.OrderNumber} could not be linked to SAP document {sapOrder.DocNum} after {maxAttempts} attempts.");
+    }
+
     private void EnsureOrderAttached(SalesOrderEntity order)
     {
         if (_context.Entry(order).State != EntityState.Detached)
@@ -1937,9 +1985,14 @@ public class SalesOrderService : ISalesOrderService
             connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
 
-            await using var command = new NpgsqlCommand("SELECT pg_advisory_lock(@key)", connection);
+            await using var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", connection);
             command.Parameters.AddWithValue("key", advisoryKey);
-            await command.ExecuteScalarAsync(cancellationToken);
+            var acquired = await command.ExecuteScalarAsync(cancellationToken) as bool? == true;
+            if (!acquired)
+            {
+                throw new InvalidOperationException(
+                    $"Sales order {orderNumber} is already being approved and posted to SAP by another request. Wait for it to finish, then refresh the order before trying again.");
+            }
 
             _logger.LogDebug(
                 "Acquired sales order SAP posting lock for {OrderNumber}",

@@ -47,5 +47,26 @@ public static partial class Errors
 
         public static Error InvalidOperation(string message) =>
             Error.Validation("InventoryTransfer.InvalidOperation", message);
+
+        public static readonly Error ApproverNotAuthenticated =
+            Error.Unauthorized("InventoryTransfer.ApproverNotAuthenticated", "The approver is not authenticated.");
+
+        public static Error ApproverRoleRequired(string roleName) =>
+            Error.Forbidden("InventoryTransfer.ApproverRoleRequired", $"This transfer request must be approved by a {roleName}.");
+
+        public static readonly Error ApprovalRequiresAdminReview =
+            Error.Forbidden("InventoryTransfer.ApprovalRequiresAdminReview", "The request creator could not be verified. An administrator must review this transfer request.");
+
+        public static Error ApproverWarehouseRequired(string warehouseCode) =>
+            Error.Forbidden("InventoryTransfer.ApproverWarehouseRequired", $"You can only approve transfer requests for your assigned warehouse. Required warehouse: {warehouseCode}.");
+
+        public static readonly Error SelfApprovalNotAllowed =
+            Error.Forbidden("InventoryTransfer.SelfApprovalNotAllowed", "You cannot approve or reject your own transfer request.");
+
+        public static Error ApprovalAlreadyDecided(string status) =>
+            Error.Conflict("InventoryTransfer.ApprovalAlreadyDecided", $"This transfer request has already been {status}.");
+
+        public static readonly Error ApprovalInProgress =
+            Error.Conflict("InventoryTransfer.ApprovalInProgress", "Another approval decision is already being processed for this transfer request.");
     }
 }
