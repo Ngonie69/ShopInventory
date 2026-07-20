@@ -1,6 +1,7 @@
 @page "/inventory-transfers"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.WebUtilities
+@using System.Text
 @using ShopInventory.Web.Services
 @attribute [Authorize]
 @inject IInventoryTransferService TransferService
@@ -11,6 +12,7 @@
 @inject IAuditService AuditService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
@@ -504,6 +506,10 @@
             }
         </div>
         <div class="itx-drawer-foot">
+            <button type="button" class="itx-btn itx-btn-primary" disabled="@isPrinting"
+                    @onclick="() => PrintTransferDocument(selectedTransfer)">
+                <i class="bi bi-printer"></i> Print Transfer Document
+            </button>
             <button type="button" class="itx-btn" @onclick="CloseModal">Close</button>
         </div>
     </div>
@@ -739,6 +745,7 @@
     private List<InventoryTransferDto>? transfers;
     private InventoryTransferDto? selectedTransfer;
     private bool isLoading = false;
+    private bool isPrinting = false;
     private string? errorMessage;
     private string? successMessage;
     private int currentPage = 1;
@@ -1062,6 +1069,138 @@ pageSize) : 1);
 
     private void ViewTransfer(InventoryTransferDto transfer) => selectedTransfer = transfer;
     private void CloseModal() => selectedTransfer = null;
+
+    private async Task PrintTransferDocument(InventoryTransferDto? transfer)
+    {
+        if (transfer == null || isPrinting) return;
+
+        isPrinting = true;
+        errorMessage = null;
+
+        try
+        {
+            await JS.InvokeVoidAsync("printReportHtml", BuildTransferDocumentHtml(transfer));
+            await AuditService.LogAsync(AuditActions.ViewTransfers, "InventoryTransfer", transfer.DocEntry.ToString());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to print transfer document {DocEntry}", transfer.DocEntry);
+            errorMessage = "Failed to print the transfer document.";
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    private string BuildTransferDocumentHtml(InventoryTransferDto transfer)
+    {
+        var lines = transfer.Lines ?? new();
+        var rows = new StringBuilder();
+
+        foreach (var line in lines)
+        {
+            rows.Append($"<tr><td>{line.LineNum}</td>")
+                .Append($"<td><strong>{Html(line.ItemCode)}</strong><br/><span class='muted'>{Html(line.ItemDescription)}</span></td>")
+                .Append($"<td>{Html(line.FromWarehouseCode)}</td>")
+                .Append($"<td>{Html(line.ToWarehouseCode)}</td>")
+                .Append($"<td class='num'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td>")
+                .Append($"<td>{Html(line.UoMCode)}</td></tr>");
+        }
+
+        var totalQty = Html(QuantityDisplay.Format(lines.Sum(l => l.Quantity)));
+        var comments = string.IsNullOrWhiteSpace(transfer.Comments)
+            ? string.Empty
+            : $"<div class='comments'><span class='k'>Comments</span>{Html(transfer.Comments)}</div>";
+        var printedAt = IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMM yyyy HH:mm");
+
+        return $$"""
+            <!doctype html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Inventory Transfer #{{transfer.DocNum}}</title>
+                <style>
+                    @page { size: A4; margin: 14mm; }
+                    body { font-family: Arial, Helvetica, sans-serif; color: #111827; font-size: 12px; margin: 0; }
+                    h1 { font-size: 20px; margin: 0 0 2px; }
+                    .head { display: flex; justify-content: space-between; align-items: flex-start;
+                            border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; }
+                    .company { font-size: 15px; font-weight: 700; }
+                    .doc-no { font-size: 18px; font-weight: 700; text-align: right; }
+                    .route { display: flex; align-items: center; gap: 16px; border: 1px solid #d1d5db;
+                             padding: 12px; margin-bottom: 16px; }
+                    .route .leg { flex: 1; text-align: center; }
+                    .route .leg .code { font-size: 16px; font-weight: 700; }
+                    .grid { display: flex; flex-wrap: wrap; gap: 10px 32px; margin-bottom: 16px; }
+                    .k { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+                    th { background: #f3f4f6; border-bottom: 1px solid #9ca3af; font-size: 11px;
+                         text-transform: uppercase; letter-spacing: .4px; }
+                    .num { text-align: right; }
+                    tfoot td { font-weight: 700; border-top: 2px solid #111827; border-bottom: none; }
+                    .muted { color: #6b7280; }
+                    .comments { border: 1px solid #d1d5db; padding: 10px; margin-bottom: 16px; }
+                    .sigs { display: flex; gap: 32px; margin-top: 40px; }
+                    .sig { flex: 1; border-top: 1px solid #111827; padding-top: 6px; font-size: 11px; }
+                    .foot { margin-top: 24px; font-size: 10px; color: #6b7280; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <div class="head">
+                    <div>
+                        <div class="company">{{Html(AppSettings.CompanyName)}}</div>
+                        <h1>Inventory Transfer</h1>
+                    </div>
+                    <div class="doc-no">
+                        #{{transfer.DocNum}}
+                        <div class="muted" style="font-weight:400;font-size:11px;">Doc Entry {{transfer.DocEntry}}</div>
+                    </div>
+                </div>
+
+                <div class="route">
+                    <div class="leg">
+                        <span class="k">Source</span>
+                        <span class="code">{{Html(transfer.FromWarehouse)}}</span>
+                    </div>
+                    <div style="font-size:18px;">&rarr;</div>
+                    <div class="leg">
+                        <span class="k">Destination</span>
+                        <span class="code">{{Html(transfer.ToWarehouse)}}</span>
+                    </div>
+                </div>
+
+                <div class="grid">
+                    <div><span class="k">Document Date</span>{{Html(FormatDate(transfer.DocDate))}}</div>
+                    <div><span class="k">Due Date</span>{{Html(FormatDate(transfer.DueDate))}}</div>
+                    <div><span class="k">Total Lines</span>{{lines.Count}}</div>
+                </div>
+
+                {{comments}}
+
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Item</th><th>From</th><th>To</th><th class="num">Qty</th><th>UoM</th></tr>
+                    </thead>
+                    <tbody>{{rows}}</tbody>
+                    <tfoot>
+                        <tr><td colspan="4" class="num">Total</td><td class="num">{{totalQty}}</td><td></td></tr>
+                    </tfoot>
+                </table>
+
+                <div class="sigs">
+                    <div class="sig">Issued by (name / signature / date)</div>
+                    <div class="sig">Received by (name / signature / date)</div>
+                </div>
+
+                <div class="foot">Printed {{printedAt}} CAT</div>
+            </body>
+            </html>
+            """;
+    }
+
+    private static string Html(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
 
     private void TransferPageChanged(int i) => _transfersTable.NavigateTo(i - 1);
     private void RequestPageChanged(int i) => _requestsTable.NavigateTo(i - 1);

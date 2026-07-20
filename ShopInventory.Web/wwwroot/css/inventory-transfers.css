@@ -4,7 +4,13 @@
    so this file needs no `.dark-theme … !important` counterpart in app.css.
    ========================================================================== */
 
-.itx {
+/* The drawer, scrim and busy overlay are rendered outside `.itx` (they are
+   fixed-position siblings), so they need the tokens declared on them too —
+   otherwise `var(--itx-surface)` resolves to nothing and they render see-through. */
+.itx,
+.itx-scrim,
+.itx-drawer,
+.itx-busy {
     --itx-canvas: #f1f5f9;
     --itx-surface: #ffffff;
     --itx-surface-2: #f8fafc;
@@ -26,7 +32,10 @@
     --itx-ok-bg: #f0fdf4;
 }
 
-.dark-theme .itx {
+.dark-theme .itx,
+.dark-theme .itx-scrim,
+.dark-theme .itx-drawer,
+.dark-theme .itx-busy {
     --itx-canvas: #0f172a;
     --itx-surface: #1e293b;
     --itx-surface-2: #172033;
