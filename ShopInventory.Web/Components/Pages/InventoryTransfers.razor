@@ -13,6 +13,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject IWebHostEnvironment Env
 @rendermode InteractiveServer
 
 <PageTitle>Inventory Transfers - Shop Inventory</PageTitle>
@@ -1113,6 +1114,10 @@ pageSize) : 1);
             ? string.Empty
             : $"<div class='comments'><span class='k'>Comments</span>{Html(transfer.Comments)}</div>";
         var printedAt = IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMM yyyy HH:mm");
+        var logoDataUri = GetBrandLogoDataUri();
+        var logo = logoDataUri == null
+            ? string.Empty
+            : $"<img class='logo' src='{logoDataUri}' alt='{Html(AppSettings.CompanyName)}' />";
 
         return $$"""
             <!doctype html>
@@ -1126,6 +1131,8 @@ pageSize) : 1);
                     h1 { font-size: 20px; margin: 0 0 2px; }
                     .head { display: flex; justify-content: space-between; align-items: flex-start;
                             border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; }
+                    .brand { display: flex; align-items: center; gap: 12px; }
+                    .logo { height: 46px; width: auto; }
                     .company { font-size: 15px; font-weight: 700; }
                     .doc-no { font-size: 18px; font-weight: 700; text-align: right; }
                     .route { display: flex; align-items: center; gap: 16px; border: 1px solid #d1d5db;
@@ -1149,9 +1156,12 @@ pageSize) : 1);
             </head>
             <body>
                 <div class="head">
-                    <div>
-                        <div class="company">{{Html(AppSettings.CompanyName)}}</div>
-                        <h1>Inventory Transfer</h1>
+                    <div class="brand">
+                        {{logo}}
+                        <div>
+                            <div class="company">{{Html(AppSettings.CompanyName)}}</div>
+                            <h1>Inventory Transfer</h1>
+                        </div>
                     </div>
                     <div class="doc-no">
                         #{{transfer.DocNum}}
@@ -1201,6 +1211,37 @@ pageSize) : 1);
     }
 
     private static string Html(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
+
+    // The print sheet is written into a blank iframe and printed ~300ms later, so a
+    // relative <img src> can race the print call and produce a blank logo. Inlining the
+    // asset as a data URI keeps the document self-contained. Encoded once per process.
+    private static string? _brandLogoDataUri;
+    private static bool _brandLogoResolved;
+
+    private string? GetBrandLogoDataUri()
+    {
+        if (_brandLogoResolved) return _brandLogoDataUri;
+        _brandLogoResolved = true;
+
+        try
+        {
+            // WebRootPath is the authoritative wwwroot location in both dev and published
+            // layouts. The asset is not copied to bin/, so probing AppContext.BaseDirectory
+            // would miss it when running from source.
+            var path = Path.Combine(Env.WebRootPath ?? string.Empty, "images", "kefalos-logo.jpg");
+            if (File.Exists(path))
+                _brandLogoDataUri = $"data:image/jpeg;base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
+            else
+                Logger.LogWarning("Brand logo not found at {Path}; printing transfer document without it", path);
+        }
+        catch (Exception ex)
+        {
+            // Branding is decorative — the document must still print without it.
+            Logger.LogWarning(ex, "Failed to load brand logo for transfer document");
+        }
+
+        return _brandLogoDataUri;
+    }
 
     private void TransferPageChanged(int i) => _transfersTable.NavigateTo(i - 1);
     private void RequestPageChanged(int i) => _requestsTable.NavigateTo(i - 1);
