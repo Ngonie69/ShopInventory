@@ -24,6 +24,7 @@ public class SalesOrderService : ISalesOrderService
     private const string SapPostingUncertainSyncErrorPrefix = "The SAP posting result is uncertain";
     private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SapPostingUncertainRetryHold = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PostingLockAcquireWait = TimeSpan.FromSeconds(5);
 
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
@@ -596,17 +597,37 @@ public class SalesOrderService : ISalesOrderService
                     }
                     catch (Exception ex)
                     {
-                        order.Status = SalesOrderStatus.Draft;
-                        order.ApprovedByUserId = null;
-                        order.ApprovedDate = null;
-                        order.SAPDocEntry = null;
-                        order.SAPDocNum = null;
-                        order.IsSynced = false;
-                        order.SyncError = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
-                        order.UpdatedAt = DateTime.UtcNow;
-                        await _context.SaveChangesAsync(CancellationToken.None);
+                        // The post may have linked a real SAP document before failing at a later
+                        // step. Discarding that link would strand the order as an unposted Draft
+                        // while SAP holds the document, so keep the linkage and report success.
+                        if (HasSapDocNum(order))
+                        {
+                            order.IsSynced = true;
+                            order.SyncError = null;
+                            order.UpdatedAt = DateTime.UtcNow;
+                            await _context.SaveChangesAsync(CancellationToken.None);
 
-                        _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order remains Draft.", order.OrderNumber);
+                            _logger.LogWarning(
+                                ex,
+                                "Auto-post to SAP for order {OrderNumber} reported a failure but the order is linked to DocEntry={DocEntry}, DocNum={DocNum}. Keeping the SAP link.",
+                                order.OrderNumber,
+                                order.SAPDocEntry,
+                                order.SAPDocNum);
+                        }
+                        else
+                        {
+                            order.Status = SalesOrderStatus.Draft;
+                            order.ApprovedByUserId = null;
+                            order.ApprovedDate = null;
+                            order.SAPDocEntry = null;
+                            order.SAPDocNum = null;
+                            order.IsSynced = false;
+                            order.SyncError = TruncateSyncError(ex.Message);
+                            order.UpdatedAt = DateTime.UtcNow;
+                            await _context.SaveChangesAsync(CancellationToken.None);
+
+                            _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order remains Draft.", order.OrderNumber);
+                        }
                     }
                 }
 
@@ -1126,6 +1147,32 @@ public class SalesOrderService : ISalesOrderService
         }
         catch (Exception ex)
         {
+            // A SAP document may already be linked even though the post reported a failure — the
+            // create can commit in SAP and then fail while reading the response or saving locally.
+            // Rolling the linkage back would leave the order Pending forever against a live SAP
+            // document, so treat a linked order as an approval that succeeded.
+            if (HasSapDocNum(order))
+            {
+                order.Status = SalesOrderStatus.Approved;
+                order.IsSynced = true;
+                order.SyncError = null;
+                order.UpdatedAt = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync(CancellationToken.None);
+
+                _logger.LogWarning(
+                    ex,
+                    "Approval of sales order {OrderId} ({OrderNumber}) reported a SAP posting failure but the order is linked to DocEntry={DocEntry}, DocNum={DocNum}. Keeping the approval and the SAP link.",
+                    order.Id,
+                    order.OrderNumber,
+                    order.SAPDocEntry,
+                    order.SAPDocNum);
+
+                await _context.Entry(order).Reference(o => o.ApprovedByUser).LoadAsync(CancellationToken.None);
+
+                return MapToDto(order);
+            }
+
             order.Status = originalStatus;
             order.Comments = originalComments;
             order.ApprovedByUserId = originalApprovedByUserId;
@@ -1389,7 +1436,27 @@ public class SalesOrderService : ISalesOrderService
         }
         catch (Exception ex)
         {
-            if (order.Status == SalesOrderStatus.Approved && !HasSapDocNum(order))
+            // As in ApproveAsync: a linked document means the post really did land in SAP, so
+            // report success rather than flagging a sync error against a live SAP document.
+            if (HasSapDocNum(order))
+            {
+                order.Status = SalesOrderStatus.Approved;
+                order.IsSynced = true;
+                order.SyncError = null;
+                order.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(CancellationToken.None);
+
+                _logger.LogWarning(
+                    ex,
+                    "Posting sales order {OrderNumber} to SAP reported a failure but the order is linked to DocEntry={DocEntry}, DocNum={DocNum}. Keeping the SAP link.",
+                    order.OrderNumber,
+                    order.SAPDocEntry,
+                    order.SAPDocNum);
+
+                return MapToDto(order);
+            }
+
+            if (order.Status == SalesOrderStatus.Approved)
             {
                 order.Status = SalesOrderStatus.Pending;
                 order.ApprovedByUserId = null;
@@ -1696,8 +1763,16 @@ public class SalesOrderService : ISalesOrderService
         string reason,
         CancellationToken cancellationToken)
     {
-        const int maxAttempts = 5;
-        var delay = TimeSpan.FromMilliseconds(500);
+        // SAP can take appreciably longer than a few seconds to make a freshly committed document
+        // visible to the OData query, especially for large multi-line orders. The old window was
+        // 5 attempts over ~7.5s, which gave up while the document was still landing and left the
+        // order stranded as Pending. Capped exponential backoff widens this to roughly 25s of
+        // delay. It is deliberately not longer: this runs inside the request while holding the
+        // posting lock, and SalesOrderReconciliationJob sweeps anything that takes longer.
+        const int maxAttempts = 6;
+        var delay = TimeSpan.FromSeconds(1);
+        var maxDelay = TimeSpan.FromSeconds(8);
+        var startedAt = DateTime.UtcNow;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
@@ -1711,15 +1786,140 @@ public class SalesOrderService : ISalesOrderService
                 break;
             }
 
-            await Task.Delay(TimeSpan.FromMilliseconds(delay.TotalMilliseconds * attempt), cancellationToken);
+            await Task.Delay(delay, cancellationToken);
+            delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, maxDelay.Ticks));
         }
 
         _logger.LogWarning(
-            "No existing SAP sales order with U_OrderNumber {OrderNumber} was found after {AttemptCount} reconciliation attempts.",
+            "No existing SAP sales order with U_OrderNumber {OrderNumber} was found after {AttemptCount} reconciliation attempts over {ElapsedSeconds:F0}s. The background reconciliation sweep will keep retrying.",
             order.OrderNumber,
-            maxAttempts);
+            maxAttempts,
+            (DateTime.UtcNow - startedAt).TotalSeconds);
 
         return false;
+    }
+
+    /// <summary>
+    /// Sweeps recent local sales orders that carry no SAP DocNum and links any that SAP actually
+    /// holds under their U_OrderNumber. A create can commit in SAP while the response, the local
+    /// save, or the short post-failure reconciliation window fails, which leaves the local row
+    /// showing Pending forever because nothing else re-checks it once the request has ended.
+    /// </summary>
+    public async Task<int> ReconcileUnlinkedSapSalesOrdersAsync(
+        TimeSpan lookback,
+        int maxOrders,
+        CancellationToken cancellationToken = default)
+    {
+        if (maxOrders <= 0)
+        {
+            return 0;
+        }
+
+        var cutoff = DateTime.UtcNow - lookback;
+
+        var candidateIds = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(o => o.SAPDocNum == null
+                && o.CreatedAt >= cutoff
+                && (o.Status == SalesOrderStatus.Pending
+                    || o.Status == SalesOrderStatus.Approved
+                    || (o.Status == SalesOrderStatus.Draft && o.SyncError != null)))
+            .OrderBy(o => o.Id)
+            .Select(o => o.Id)
+            .Take(maxOrders)
+            .ToListAsync(cancellationToken);
+
+        if (candidateIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var linkedCount = 0;
+
+        foreach (var candidateId in candidateIds)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            try
+            {
+                if (await TryReconcileUnlinkedSapSalesOrderAsync(candidateId, cancellationToken))
+                {
+                    linkedCount++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to reconcile sales order {OrderId} against SAP by U_OrderNumber. It will be retried on the next sweep.",
+                    candidateId);
+            }
+        }
+
+        if (linkedCount > 0)
+        {
+            _logger.LogInformation(
+                "Linked {LinkedCount} of {CandidateCount} unlinked local sales order(s) to SAP documents found by U_OrderNumber.",
+                linkedCount,
+                candidateIds.Count);
+        }
+
+        return linkedCount;
+    }
+
+    private async Task<bool> TryReconcileUnlinkedSapSalesOrderAsync(int orderId, CancellationToken cancellationToken)
+    {
+        _context.ChangeTracker.Clear();
+
+        var order = await _context.SalesOrders
+            .AsTracking()
+            .FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+
+        if (order is null || HasSapDocNum(order))
+        {
+            return false;
+        }
+
+        IAsyncDisposable postingLock;
+        try
+        {
+            // TimeSpan.Zero: never make a user's approve request queue behind this sweep.
+            postingLock = await AcquireSalesOrderPostingLockAsync(
+                order.OrderNumber,
+                cancellationToken,
+                maxWait: TimeSpan.Zero);
+        }
+        catch (InvalidOperationException)
+        {
+            // A live approve/post request already owns this order. Leave it to that request.
+            _logger.LogDebug(
+                "Skipped SAP reconciliation for sales order {OrderId} ({OrderNumber}) because a posting attempt holds the lock.",
+                order.Id,
+                order.OrderNumber);
+            return false;
+        }
+
+        await using (postingLock)
+        {
+            // Re-read under the lock: the holder may have linked the document while we waited.
+            _context.ChangeTracker.Clear();
+            order = await _context.SalesOrders
+                .AsTracking()
+                .FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+
+            if (order is null || HasSapDocNum(order))
+            {
+                return false;
+            }
+
+            return await TryAttachExistingSapSalesOrderAsync(
+                order,
+                "background reconciliation of an unlinked local order",
+                cancellationToken);
+        }
     }
 
     private static bool IsSapPostingUncertain(SalesOrderEntity order)
@@ -1967,9 +2167,24 @@ public class SalesOrderService : ISalesOrderService
     private static bool HasSapDocNum(SalesOrderEntity order)
         => order.SAPDocNum.GetValueOrDefault() > 0;
 
+    /// <summary>
+    /// Takes the per-order SAP posting advisory lock.
+    /// </summary>
+    /// <param name="orderNumber">Local order number the lock is scoped to.</param>
+    /// <param name="cancellationToken">Cancels the wait and the underlying database calls.</param>
+    /// <param name="maxWait">
+    /// How long to keep retrying before giving up. User-facing requests wait briefly so that a
+    /// short-lived holder — notably <see cref="SalesOrderReconciliationJob"/>, which takes this
+    /// same lock per order — does not surface as "another request is approving this order" to
+    /// somebody clicking Approve. Kept short on purpose: a genuine concurrent approve runs far
+    /// longer than this, so real contention still reports honestly instead of being serialised
+    /// silently. Pass <see cref="TimeSpan.Zero"/> for background callers that must yield
+    /// immediately to user requests rather than queue behind them.
+    /// </param>
     private async Task<IAsyncDisposable> AcquireSalesOrderPostingLockAsync(
         string orderNumber,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? maxWait = null)
     {
         if (string.IsNullOrWhiteSpace(orderNumber))
         {
@@ -1978,6 +2193,9 @@ public class SalesOrderService : ISalesOrderService
 
         var lockName = $"sales-order-post:{orderNumber.Trim().ToUpperInvariant()}";
         var advisoryKey = ComputeAdvisoryKey(lockName);
+        var waitBudget = maxWait ?? PostingLockAcquireWait;
+        var pollInterval = TimeSpan.FromMilliseconds(250);
+        var deadline = DateTime.UtcNow + waitBudget;
         NpgsqlConnection? connection = null;
 
         try
@@ -1985,18 +2203,40 @@ public class SalesOrderService : ISalesOrderService
             connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
 
-            await using var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", connection);
-            command.Parameters.AddWithValue("key", advisoryKey);
-            var acquired = await command.ExecuteScalarAsync(cancellationToken) as bool? == true;
-            if (!acquired)
+            var attempt = 0;
+            while (true)
             {
-                throw new InvalidOperationException(
-                    $"Sales order {orderNumber} is already being approved and posted to SAP by another request. Wait for it to finish, then refresh the order before trying again.");
+                attempt++;
+
+                await using (var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", connection))
+                {
+                    command.Parameters.AddWithValue("key", advisoryKey);
+                    var acquired = await command.ExecuteScalarAsync(cancellationToken) as bool? == true;
+                    if (acquired)
+                    {
+                        break;
+                    }
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    _logger.LogWarning(
+                        "Could not acquire the SAP posting lock for {OrderNumber} after {Attempts} attempt(s) over {WaitSeconds:F1}s; another holder still owns it.",
+                        orderNumber,
+                        attempt,
+                        waitBudget.TotalSeconds);
+
+                    throw new InvalidOperationException(
+                        $"Sales order {orderNumber} is already being approved and posted to SAP by another request. Wait for it to finish, then refresh the order before trying again.");
+                }
+
+                await Task.Delay(pollInterval, cancellationToken);
             }
 
             _logger.LogDebug(
-                "Acquired sales order SAP posting lock for {OrderNumber}",
-                orderNumber);
+                "Acquired sales order SAP posting lock for {OrderNumber} after {Attempts} attempt(s)",
+                orderNumber,
+                attempt);
 
             var handle = new SalesOrderPostingLockHandle(orderNumber, advisoryKey, connection, _logger);
             connection = null;
