@@ -18,6 +18,7 @@ param(
     [switch]$IncludeRuntimeDataInBackup,
     [switch]$SkipDatabaseMigrations,
     [switch]$RestartOnly,
+    [switch]$SkipGitCheck,
     [switch]$FirstTimeSetup,
     [string]$ApiDbConnectionString,
     [string]$WebDbConnectionString,
@@ -116,6 +117,100 @@ function Get-AdditionalCredentialPathByServer {
     }
 
     return $credentialPathByServer
+}
+
+function Assert-SourceUpToDate {
+    # This script publishes whatever is in the local working copy. Merging a PR on the
+    # remote does not update that copy, so a stale checkout deploys pre-fix code while
+    # looking like a clean, successful deployment. Fail loudly instead.
+    param(
+        [switch]$Skip
+    )
+
+    if ($Skip) {
+        Write-Host "Git safety check skipped (-SkipGitCheck)." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    Write-Host "Verifying source is up to date..." -ForegroundColor Cyan
+
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCommand) {
+        Write-Host "  WARNING: git not found on PATH - cannot verify the source revision." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    # Expected to fail when the script lives outside a repo; capture stderr so git's
+    # raw "fatal:" text does not surface as an alarming console message.
+    $repoRoot = & git -C $PSScriptRoot rev-parse --show-toplevel 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: not a git repository - cannot verify the source revision." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    # Uncommitted changes mean the published output will not match any known commit.
+    $dirty = & git -C $repoRoot status --porcelain
+    if ($LASTEXITCODE -eq 0 -and $dirty) {
+        Write-Host ""
+        Write-Host "ERROR: the working copy has uncommitted changes." -ForegroundColor Red
+        Write-Host "Deploying now would publish code that matches no commit in history." -ForegroundColor Red
+        Write-Host ""
+        Write-Host ($dirty | Select-Object -First 20 | Out-String).TrimEnd() -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Commit or stash the changes, or re-run with -SkipGitCheck to override." -ForegroundColor White
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    $branch = & git -C $repoRoot rev-parse --abbrev-ref HEAD
+    if ($branch -eq 'HEAD') {
+        Write-Host "  WARNING: detached HEAD - skipping the remote comparison." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    # A failed fetch (offline, VPN down) should not block a deploy outright.
+    & git -C $repoRoot fetch --quiet origin $branch 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: could not reach origin - deploying without verifying against the remote." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    $counts = & git -C $repoRoot rev-list --left-right --count "origin/$branch...HEAD"
+    if ($LASTEXITCODE -ne 0 -or -not $counts) {
+        Write-Host "  WARNING: no origin/$branch to compare against." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    $parts = $counts -split '\s+'
+    $behind = [int]$parts[0]
+    $ahead = [int]$parts[1]
+
+    if ($behind -gt 0) {
+        Write-Host ""
+        Write-Host "ERROR: this checkout is $behind commit(s) behind origin/$branch." -ForegroundColor Red
+        Write-Host "Deploying now would publish stale code and silently discard merged work." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  Run: git pull --ff-only origin $branch" -ForegroundColor White
+        Write-Host "  Or re-run with -SkipGitCheck to deploy this revision anyway." -ForegroundColor White
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    if ($ahead -gt 0) {
+        Write-Host "  WARNING: $ahead local commit(s) not pushed to origin/$branch." -ForegroundColor Yellow
+        Write-Host "  Production will run code that exists only on this machine." -ForegroundColor Yellow
+    }
+
+    $revision = & git -C $repoRoot log -1 --format='%h %s'
+    Write-Host "  Branch:   $branch (up to date with origin)" -ForegroundColor Green
+    Write-Host "  Deploying: $revision" -ForegroundColor Green
+    Write-Host ""
 }
 
 function Wait-ForExitPrompt {
@@ -276,6 +371,11 @@ else {
 Write-Host "Target: $DeployTarget" -ForegroundColor White
 Write-Host ""
 
+# -RestartOnly recycles the app pools without publishing, so the local source is irrelevant.
+if (-not $RestartOnly) {
+    Assert-SourceUpToDate -Skip:$SkipGitCheck
+}
+
 if (-not $Credential -and $SerializedCredentialPath) {
     $Credential = Import-SerializedCredential -Path $SerializedCredentialPath
 }
@@ -356,6 +456,8 @@ if ($targetServers.Count -gt 1) {
             if ($IncludeRuntimeDataInBackup) { $argumentList += '-IncludeRuntimeDataInBackup' }
             if ($SkipDatabaseMigrations) { $argumentList += '-SkipDatabaseMigrations' }
             if ($RestartOnly) { $argumentList += '-RestartOnly' }
+            # The parent already verified the revision; re-checking per server adds nothing.
+            $argumentList += '-SkipGitCheck'
             if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) {
                 $argumentList += @('-ApiDbConnectionString', $ApiDbConnectionString)
             }
@@ -416,6 +518,7 @@ if ($FirstTimeSetup -and -not $isAdmin) {
     if ($IncludeRuntimeDataInBackup) { $argList += " -IncludeRuntimeDataInBackup" }
     if ($SkipDatabaseMigrations) { $argList += " -SkipDatabaseMigrations" }
     if ($RestartOnly) { $argList += " -RestartOnly" }
+    if ($SkipGitCheck) { $argList += " -SkipGitCheck" }
     if ($FirstTimeSetup) { $argList += " -FirstTimeSetup" }
     if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) { $argList += " -ApiDbConnectionString `"$ApiDbConnectionString`"" }
     if (-not [string]::IsNullOrWhiteSpace($WebDbConnectionString)) { $argList += " -WebDbConnectionString `"$WebDbConnectionString`"" }
