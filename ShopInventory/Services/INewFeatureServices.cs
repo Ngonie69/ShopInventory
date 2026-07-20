@@ -21,6 +21,7 @@ public interface ISalesOrderService
     Task<SalesOrderDto> MarkAsFulfilledAsync(int id, int? invoiceId, CancellationToken cancellationToken = default);
     Task<string> GenerateOrderNumberAsync(CancellationToken cancellationToken = default);
     Task<SalesOrderDto> PostToSAPAsync(int id, Guid userId, CancellationToken cancellationToken = default);
+    Task<int> ReconcileUnlinkedSapSalesOrdersAsync(TimeSpan lookback, int maxOrders, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -49,6 +49,7 @@ public static class QuartzConfiguration
             AddIntervalJob<InventoryTransferPostingJob>(q, "inventory-transfer-posting", TimeSpan.FromSeconds(10));
             AddIntervalJob<IncomingPaymentPostingJob>(q, "incoming-payment-posting", TimeSpan.FromSeconds(10));
             AddIntervalJob<ReservationCleanupJob>(q, "reservation-cleanup", TimeSpan.FromMinutes(1), startDelay: TimeSpan.FromSeconds(30));
+            AddIntervalJob<SalesOrderReconciliationJob>(q, "sales-order-reconciliation", TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(1));
 
             if (sap.AutoSyncEnabled)
             {
