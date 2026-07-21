@@ -49,7 +49,12 @@ public sealed class QueuePressureHealthCheck(IServiceScopeFactory scopeFactory) 
                 issues.Add($"{snapshot.Name} retry backlog is elevated ({snapshot.ActiveCount} items, oldest {snapshot.OldestActiveAge.TotalMinutes:N0}m).");
             }
 
-            if (snapshot.ManualReviewCount >= WarningCount || snapshot.OldestManualReviewAge >= WarningAge)
+            // Depth only, deliberately not age. The manual review queue drains at the rate staff
+            // work through it, so an age threshold reports "nobody has clicked yet" — which is the
+            // normal state overnight and at weekends — as a system health failure, and pins the
+            // whole service to Degraded until someone comes in. A deep queue is a real signal; an
+            // old one is not.
+            if (snapshot.ManualReviewCount >= WarningCount)
             {
                 if (healthStatus == HealthStatus.Healthy)
                 {
@@ -72,13 +77,24 @@ public sealed class QueuePressureHealthCheck(IServiceScopeFactory scopeFactory) 
             data["issues"] = issues.ToArray();
         }
 
+        // The per-queue detail goes in the description, not just in data: the framework's health
+        // check logger and the alert email both render Description and neither reads Data, so a
+        // summary-only description left operators with "Queue backlog is elevated" and no way to
+        // tell which queue, how deep, or how old without querying the database by hand.
         return healthStatus switch
         {
-            HealthStatus.Unhealthy => HealthCheckResult.Unhealthy("Queue backlog is critically high.", data: data),
-            HealthStatus.Degraded => HealthCheckResult.Degraded("Queue backlog is elevated.", data: data),
+            HealthStatus.Unhealthy => HealthCheckResult.Unhealthy(
+                Describe("Queue backlog is critically high.", issues),
+                data: data),
+            HealthStatus.Degraded => HealthCheckResult.Degraded(
+                Describe("Queue backlog is elevated.", issues),
+                data: data),
             _ => HealthCheckResult.Healthy("Queue backlog is healthy.", data)
         };
     }
+
+    private static string Describe(string summary, List<string> issues)
+        => issues.Count > 0 ? $"{summary} {string.Join(" ", issues)}" : summary;
 
     private static async Task<QueueSnapshot> GetInvoiceQueueSnapshotAsync(ApplicationDbContext dbContext, DateTime utcNow, CancellationToken cancellationToken)
     {

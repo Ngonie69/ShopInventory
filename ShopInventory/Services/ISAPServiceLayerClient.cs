@@ -253,7 +253,14 @@ public interface ISAPServiceLayerClient
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, int skip = 0, int pageSize = 20, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default);
-    Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default);
+    /// <param name="order">Local sales order to post.</param>
+    /// <param name="cancellationToken">Cancels the SAP calls.</param>
+    /// <param name="duplicateCheckAlreadyPerformed">
+    /// Set by callers that have just run the U_OrderNumber duplicate probe themselves while holding
+    /// the per-order posting lock. Skips a repeat of that probe, which is an unindexed scan of ORDR
+    /// and the dominant cost of posting an order. Leave false when the caller has not checked.
+    /// </param>
+    Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default, bool duplicateCheckAlreadyPerformed = false);
     Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default);
 
     // Credit Note/Credit Memo Operations (from SAP)

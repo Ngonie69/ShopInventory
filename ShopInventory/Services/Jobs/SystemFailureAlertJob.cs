@@ -23,6 +23,17 @@ public sealed class SystemFailureAlertJob : IJob
 {
     private const string LastNotifiedStatusKey = "lastNotifiedStatus";
     private const string LastAlertSentUtcKey = "lastAlertSentAtUtc";
+    private const string ConditionFingerprintKey = "conditionFingerprint";
+    private const string EscalationLevelKey = "escalationLevel";
+
+    /// <summary>
+    /// Cooldown ladder, as multiples of <see cref="SystemHealthAlertSettings.AlertCooldownMinutes"/>.
+    /// A condition that persists unchanged backs off instead of repeating at a fixed interval —
+    /// at the default 15-minute base that is 15m, then 1h, then 6h. A flat cooldown meant a single
+    /// long-lived issue mailed the recipients three times an hour indefinitely, which trains people
+    /// to ignore the alerts entirely. The backoff resets as soon as the condition actually changes.
+    /// </summary>
+    private static readonly int[] CooldownMultipliers = [1, 4, 24];
 
     private readonly IServiceProvider _serviceProvider;
     private readonly SystemHealthAlertSettings _alertSettings;
@@ -60,6 +71,13 @@ public sealed class SystemFailureAlertJob : IJob
             && DateTime.TryParse(lastAlertSentUtcValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedTime)
                 ? parsedTime
                 : DateTime.MinValue;
+        var lastFingerprint = dataMap.TryGetString(ConditionFingerprintKey, out var lastFingerprintValue)
+            ? lastFingerprintValue ?? string.Empty
+            : string.Empty;
+        var escalationLevel = dataMap.TryGetString(EscalationLevelKey, out var escalationLevelValue)
+            && int.TryParse(escalationLevelValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedLevel)
+                ? parsedLevel
+                : 0;
 
         await using var scope = _serviceProvider.CreateAsyncScope();
         var healthService = scope.ServiceProvider.GetRequiredService<HealthCheckService>();
@@ -78,6 +96,8 @@ public sealed class SystemFailureAlertJob : IJob
             {
                 dataMap[LastNotifiedStatusKey] = HealthStatus.Healthy.ToString();
                 dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                dataMap[ConditionFingerprintKey] = string.Empty;
+                dataMap[EscalationLevelKey] = "0";
             }
             return;
         }
@@ -88,21 +108,60 @@ public sealed class SystemFailureAlertJob : IJob
             return;
         }
 
-        // Enforce cooldown: don't spam
-        var cooldown = TimeSpan.FromMinutes(_alertSettings.AlertCooldownMinutes);
-        if (DateTime.UtcNow - lastAlertSentAtUtc < cooldown)
+        // A changed condition — a new check failing, or one escalating Degraded to Unhealthy — is
+        // news regardless of how recently we mailed about the previous one, so it resets the ladder
+        // and goes out immediately. Fingerprinting on check names and statuses (not descriptions)
+        // is what makes the backoff work: descriptions carry live counts that drift on every poll,
+        // and treating that drift as a change would restart the ladder forever.
+        var fingerprint = BuildConditionFingerprint(report);
+        var conditionChanged = !string.Equals(fingerprint, lastFingerprint, StringComparison.Ordinal);
+
+        // escalationLevel indexes the wait to apply *before the next* alert, so a changed condition
+        // sends now and resets the ladder to its first rung rather than skipping it.
+        int nextEscalationLevel;
+        if (conditionChanged)
         {
-            return;
+            nextEscalationLevel = 0;
+        }
+        else
+        {
+            var cooldown = TimeSpan.FromMinutes(
+                _alertSettings.AlertCooldownMinutes * CooldownMultipliers[Math.Clamp(escalationLevel, 0, CooldownMultipliers.Length - 1)]);
+
+            if (DateTime.UtcNow - lastAlertSentAtUtc < cooldown)
+            {
+                return;
+            }
+
+            nextEscalationLevel = Math.Min(escalationLevel + 1, CooldownMultipliers.Length - 1);
         }
 
-        // Send alert
-        _logger.LogWarning("System health is {Status} — sending failure alert email", currentStatus);
+        _logger.LogWarning(
+            "System health is {Status} — sending failure alert email (condition {ConditionState}, next reminder in {NextCooldownMinutes} minute(s))",
+            currentStatus,
+            conditionChanged ? "changed" : "unchanged",
+            _alertSettings.AlertCooldownMinutes * CooldownMultipliers[nextEscalationLevel]);
+
         if (await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken))
         {
             dataMap[LastNotifiedStatusKey] = currentStatus.ToString();
             dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            dataMap[ConditionFingerprintKey] = fingerprint;
+            dataMap[EscalationLevelKey] = nextEscalationLevel.ToString(CultureInfo.InvariantCulture);
         }
     }
+
+    /// <summary>
+    /// Identifies the current failure condition by which checks are unhealthy and at what status,
+    /// so a persisting condition can be told apart from a genuinely new one.
+    /// </summary>
+    private static string BuildConditionFingerprint(HealthReport report)
+        => string.Join(
+            ";",
+            report.Entries
+                .Where(entry => entry.Value.Status != HealthStatus.Healthy)
+                .OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                .Select(entry => $"{entry.Key}={entry.Value.Status}"));
 
     private async Task<bool> SendEmailAsync((string subject, string body) email, CancellationToken cancellationToken)
     {
