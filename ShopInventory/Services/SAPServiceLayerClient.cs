@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
@@ -39,10 +39,25 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const string GLAccountsCacheKey = "SAP_GLAccounts";
     private const string PriceListsCacheKey = "SAP_PriceLists";
     private const string WarehouseItemCodesCacheKeyPrefix = "SAP_WarehouseItemCodes_";
+    private const string SalesOrderLineSapUomCacheKeyPrefix = "SAP_SalesOrderLineUoM_";
+
+    // How many rows the U_OrderNumber duplicate probe pulls back. U_OrderNumber is meant to be
+    // unique, so this only needs enough headroom to spot and report pre-existing duplicates.
+    private const int DuplicateOrderProbePageSize = 5;
+
+    // Item UoM mappings come from the item master and posted document history, both of which change
+    // rarely. Caching them keeps a large multi-line approval from re-scanning OINV/INV1 every time.
+    private static readonly TimeSpan SalesOrderLineSapUomCacheLifetime = TimeSpan.FromHours(6);
     private static readonly SemaphoreSlim _warehouseCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _businessPartnerCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _glAccountsCacheLock = new(1, 1);
     private static readonly SemaphoreSlim _priceListCacheLock = new(1, 1);
+    // Survives memory-cache expiry so a SAP outage degrades the catalog sync instead of failing it.
+    // Static for the same reason session state is: every injected instance is transient. All access
+    // is inside _priceListCacheLock.
+    private static List<PriceListDto>? _lastKnownGoodPriceLists;
+    private static DateTime _lastKnownGoodPriceListsAtUtc;
+
     private static readonly AsyncLocal<Dictionary<int, List<ItemPriceByListDto>>?> _priceListResolutionCache = new();
     private static readonly AsyncLocal<List<PriceListDto>?> _priceListDefinitionsResolutionCache = new();
     private static readonly AsyncLocal<PriceListItemsApiSnapshot?> _priceListItemsApiSnapshot = new();
@@ -192,7 +207,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         }
     }
 
-    private async Task<HttpResponseMessage> SendPriceListSqlRequestAsync(
+    private async Task<HttpResponseMessage> SendPriceListRequestWithBudgetAsync(
         HttpClient client,
         Func<HttpRequestMessage> requestFactory,
         string operation,
@@ -217,7 +232,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
             !cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"SAP price-list SQL request exceeded its {timeoutSeconds}-second performance budget.",
+                $"SAP price-list request exceeded its {timeoutSeconds}-second performance budget.",
                 ex);
         }
     }
@@ -3576,8 +3591,53 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 return cached;
             }
 
-            var result = await GetPriceListsFromSAPAsync(cancellationToken);
-            _memoryCache.Set(PriceListsCacheKey, result, TimeSpan.FromMinutes(60));
+            // Price list definitions gate the whole catalog sync, so they degrade in stages rather
+            // than failing outright: the SQL query first, then the native OData entity set when the
+            // SQLQueries endpoint is sick, and only then the last set we read successfully.
+            List<PriceListDto> result;
+            var isFresh = true;
+
+            try
+            {
+                result = await GetPriceListsFromSAPAsync(cancellationToken);
+            }
+            catch (Exception sqlException) when (sqlException is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    sqlException,
+                    "Failed to read price list definitions through the SQL query path; trying the OData PriceLists fallback.");
+
+                try
+                {
+                    result = await GetPriceListsFromSapODataAsync(cancellationToken);
+                    _logger.LogInformation(
+                        "Recovered {Count} price list definition(s) through the OData fallback after the SQL path failed.",
+                        result.Count);
+                }
+                catch (Exception odataException) when (
+                    odataException is not OperationCanceledException && _lastKnownGoodPriceLists is { Count: > 0 })
+                {
+                    // Both live paths are down. OPLN changes rarely, so the last good read is far
+                    // closer to correct than failing the sync. Deliberately not written back into
+                    // the 60-minute cache — the next call must retry SAP rather than pin stale data.
+                    _logger.LogError(
+                        odataException,
+                        "Both the SQL and OData price list paths failed; serving the last known good set of {Count} price list(s) read at {ReadAtUtc:O}.",
+                        _lastKnownGoodPriceLists.Count,
+                        _lastKnownGoodPriceListsAtUtc);
+
+                    result = _lastKnownGoodPriceLists;
+                    isFresh = false;
+                }
+            }
+
+            if (isFresh)
+            {
+                _memoryCache.Set(PriceListsCacheKey, result, TimeSpan.FromMinutes(60));
+                _lastKnownGoodPriceLists = result;
+                _lastKnownGoodPriceListsAtUtc = DateTime.UtcNow;
+            }
+
             CapturePriceListDefinitionsForResolutionScope(result);
             return result;
         }
@@ -3643,10 +3703,14 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                     return request;
                 }
 
-                var response = await SendSapRequestWithTransientRetryAsync(
+                // Same performance budget as the per-price-list item queries below. OPLN holds a few
+                // dozen rows, so this can only be slow when the SQLQueries endpoint itself is
+                // degraded — and when that happened, three attempts each ran the full five minutes
+                // into a proxy 502, burning a quarter hour and holding a SAP concurrency slot the
+                // whole time before failing the entire catalog sync.
+                var response = await SendPriceListRequestWithBudgetAsync(
                     syncHttpClient,
                     CreateRequest,
-                    HttpCompletionOption.ResponseHeadersRead,
                     $"price lists query '{queryCode}' at skip {skip}",
                     cancellationToken);
 
@@ -3655,10 +3719,9 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                     await HandleAuthFailureAsync(currentSession, cancellationToken);
                     response.Dispose();
 
-                    response = await SendSapRequestWithTransientRetryAsync(
+                    response = await SendPriceListRequestWithBudgetAsync(
                         syncHttpClient,
                         CreateRequest,
-                        HttpCompletionOption.ResponseHeadersRead,
                         $"price lists query '{queryCode}' at skip {skip} after SAP re-authentication",
                         cancellationToken);
                 }
@@ -3705,6 +3768,154 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         _logger.LogInformation("Total price lists retrieved: {Count}", priceLists.Count);
         return priceLists;
     }
+
+    /// <summary>
+    /// Reads price list definitions from the native OData <c>PriceLists</c> entity set (OPLN).
+    /// Used when the SQLQueries endpoint is degraded: it returns the same definitions through a
+    /// different Service Layer path, so a sick SQL endpoint no longer takes the whole price catalog
+    /// sync down with it. Field names and enum members are per the SAP B1 $metadata contract —
+    /// <c>PriceListNo</c>, <c>PriceListName</c>, <c>BasePriceList</c>, <c>Factor</c>,
+    /// <c>RoundingMethod</c> (BoRoundingMethod), <c>Active</c> (BoYesNoEnum).
+    /// </summary>
+    private async Task<List<PriceListDto>> GetPriceListsFromSapODataAsync(CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var priceLists = new List<PriceListDto>();
+        var skip = 0;
+        const int pageSize = 500;
+        var hasMore = true;
+
+        while (hasMore)
+        {
+            // $orderby on PriceListNo is the primary key of a table holding a few dozen rows, so
+            // unlike the U_OrderNumber probe this sort costs nothing. It keeps the ordering the SQL
+            // path produced via ORDER BY ListNum.
+            var url = $"PriceLists?$select=PriceListNo,PriceListName,BasePriceList,Factor,RoundingMethod,Active&$orderby=PriceListNo&$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return request;
+            }
+
+            var response = await SendPriceListRequestWithBudgetAsync(
+                _httpClient,
+                CreateRequest,
+                $"price list definitions OData fallback at skip {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendPriceListRequestWithBudgetAsync(
+                    _httpClient,
+                    CreateRequest,
+                    $"price list definitions OData fallback at skip {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Failed to get price list definitions from the OData fallback: {StatusCode} - {Error}",
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to get price list definitions from OData: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageLists = ParsePriceListsFromODataResponse(content);
+            priceLists.AddRange(pageLists);
+
+            using var doc = JsonDocument.Parse(content);
+            hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                      doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+
+            if (!hasMore && pageLists.Count == pageSize)
+            {
+                hasMore = true;
+            }
+
+            if (pageLists.Count == 0)
+            {
+                hasMore = false;
+            }
+
+            skip += pageLists.Count > 0 ? pageLists.Count : pageSize;
+        }
+
+        return priceLists;
+    }
+
+    private List<PriceListDto> ParsePriceListsFromODataResponse(string jsonContent)
+    {
+        var priceLists = new List<PriceListDto>();
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonContent);
+            if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                return priceLists;
+            }
+
+            foreach (var item in valueArray.EnumerateArray())
+            {
+                var listNum = item.TryGetProperty("PriceListNo", out var pln) ? GetIntOrString(pln) ?? 0 : 0;
+                var basePriceList = item.TryGetProperty("BasePriceList", out var bpl) ? GetIntOrString(bpl) : null;
+
+                priceLists.Add(new PriceListDto
+                {
+                    ListNum = listNum,
+                    ListName = item.TryGetProperty("PriceListName", out var pname) ? pname.GetString() : null,
+                    BasePriceList = basePriceList is > 0 && basePriceList != listNum
+                        ? basePriceList.Value.ToString(CultureInfo.InvariantCulture)
+                        : null,
+                    // Left null to match the SQL path exactly: currency is determined by the prices
+                    // themselves, and the two sources must not disagree about a populated field.
+                    Currency = null,
+                    // Exact parity with the SQL path's ValidFor handling: absent defaults to active,
+                    // an explicit null or tNO does not.
+                    IsActive = !item.TryGetProperty("Active", out var act) || ParseBooleanValue(act),
+                    Factor = item.TryGetProperty("Factor", out var f) ? GetDecimalOrNull(f) : null,
+                    RoundingMethod = FormatPriceListRoundingMethodEnum(
+                        item.TryGetProperty("RoundingMethod", out var rm) ? rm.GetString() : null)
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse price lists from the OData fallback response");
+        }
+
+        return priceLists;
+    }
+
+    /// <summary>
+    /// Maps BoRoundingMethod enum members to the same display strings
+    /// <see cref="FormatPriceListRoundingMethod"/> produces for the SQL path's numeric RoundSys,
+    /// so both sources yield identical DTOs.
+    /// </summary>
+    private static string? FormatPriceListRoundingMethodEnum(string? roundingMethod)
+        => roundingMethod switch
+        {
+            null or "" => null,
+            "borm_NoRounding" => "No Rounding",
+            "borm_RoundToFullDecAmount" => "Round to Full Decimal Amount",
+            "borm_RoundToFullAmount" => "Round to Full Amount",
+            "borm_RoundToFullTensAmount" => "Round to Full Tens Amount",
+            "borm_FixedEnding" => "Fixed Ending",
+            "borm_FixedInterval" => "Fixed Interval",
+            _ => roundingMethod
+        };
 
     private List<PriceListDto> ParsePriceListsFromSqlResponse(string jsonContent)
     {
@@ -4271,7 +4482,7 @@ ORDER BY T0.""ItemCode""";
             }
 
             var currentSession = _sessionId;
-            var response = await SendPriceListSqlRequestAsync(
+            var response = await SendPriceListRequestWithBudgetAsync(
                 syncHttpClient,
                 CreateRequest,
                 $"price list query '{queryCode}' at skip {skip}",
@@ -4282,7 +4493,7 @@ ORDER BY T0.""ItemCode""";
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
                 response.Dispose();
 
-                response = await SendPriceListSqlRequestAsync(
+                response = await SendPriceListRequestWithBudgetAsync(
                     syncHttpClient,
                     CreateRequest,
                     $"price list query '{queryCode}' at skip {skip} after SAP re-authentication",
@@ -10651,12 +10862,18 @@ ORDER BY T0.""ItemCode""";
         return 0;
     }
 
-    public async Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default)
+    public async Task<SAPSalesOrder> CreateSalesOrderAsync(
+        ShopInventory.Models.Entities.SalesOrderEntity order,
+        CancellationToken cancellationToken = default,
+        bool duplicateCheckAlreadyPerformed = false)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        if (!string.IsNullOrWhiteSpace(order.OrderNumber))
+        // The U_OrderNumber probe is the single most expensive call in an approval. Callers that
+        // already ran it under the posting lock — see SalesOrderService.PostApprovedOrderToSapCoreAsync,
+        // which checks immediately before calling in — pass true so we don't scan ORDR twice per post.
+        if (!duplicateCheckAlreadyPerformed && !string.IsNullOrWhiteSpace(order.OrderNumber))
         {
             var existingOrder = await GetSalesOrderByOrderNumberAsync(order.OrderNumber, cancellationToken);
             if (existingOrder != null)
@@ -10808,6 +11025,31 @@ ORDER BY T0.""ItemCode""";
             return resolvedUoms;
         }
 
+        // Resolution depends on both the item and the UoM the line asked for, so the cache is keyed
+        // on the pair. Anything already cached costs no SAP round-trip at all; only the remainder
+        // reaches the item master and the OINV/INV1 history scan below.
+        var uncachedItemCodes = new List<string>();
+        foreach (var itemCode in itemCodes)
+        {
+            var requestedUomCode = RequestedUomCodeFor(normalizedLines, itemCode);
+            if (_memoryCache.TryGetValue(
+                    BuildSalesOrderLineSapUomCacheKey(itemCode, requestedUomCode),
+                    out (string? UoMCode, int? UoMEntry) cachedUom))
+            {
+                resolvedUoms[itemCode] = cachedUom;
+                continue;
+            }
+
+            uncachedItemCodes.Add(itemCode);
+        }
+
+        if (uncachedItemCodes.Count == 0)
+        {
+            return resolvedUoms;
+        }
+
+        itemCodes = uncachedItemCodes;
+
         var itemUnitsByCode = await GetSalesOrderLineItemUnitsAsync(itemCodes, cancellationToken);
         var invoiceCandidatesByItemCode = await TryGetSalesOrderLineSapUomHistoryCandidatesAsync(
             itemCodes,
@@ -10820,9 +11062,7 @@ ORDER BY T0.""ItemCode""";
 
         foreach (var itemCode in itemCodes)
         {
-            var requestedUomCode = normalizedLines
-                .First(line => string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
-                .RequestedUomCode;
+            var requestedUomCode = RequestedUomCodeFor(normalizedLines, itemCode);
             itemUnitsByCode.TryGetValue(itemCode, out var itemUnits);
             invoiceCandidatesByItemCode.TryGetValue(itemCode, out var candidates);
 
@@ -10830,6 +11070,7 @@ ORDER BY T0.""ItemCode""";
             if (match.UoMEntry.HasValue)
             {
                 resolvedUoms[itemCode] = match;
+                CacheSalesOrderLineSapUom(itemCode, requestedUomCode, match);
                 continue;
             }
 
@@ -10847,20 +11088,52 @@ ORDER BY T0.""ItemCode""";
 
             foreach (var itemCode in unresolvedItemCodes)
             {
-                var requestedUomCode = normalizedLines
-                    .First(line => string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
-                    .RequestedUomCode;
+                var requestedUomCode = RequestedUomCodeFor(normalizedLines, itemCode);
                 itemUnitsByCode.TryGetValue(itemCode, out var itemUnits);
                 salesOrderCandidatesByItemCode.TryGetValue(itemCode, out var candidates);
 
                 var match = MatchSalesOrderLineSapUomCandidate(candidates ?? [], requestedUomCode, itemUnits.SalesUnit, itemUnits.InventoryUom);
-                resolvedUoms[itemCode] = match.UoMEntry.HasValue
+                var resolved = match.UoMEntry.HasValue
                     ? match
                     : ResolveSalesOrderSapUomFallback(itemUnits.SalesUnit, itemUnits.InventoryUom, requestedUomCode);
+
+                resolvedUoms[itemCode] = resolved;
+                CacheSalesOrderLineSapUom(itemCode, requestedUomCode, resolved);
             }
         }
 
         return resolvedUoms;
+    }
+
+    private static string? RequestedUomCodeFor(
+        List<(string? ItemCode, string? RequestedUomCode)> normalizedLines,
+        string itemCode)
+        => normalizedLines
+            .First(line => string.Equals(line.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+            .RequestedUomCode;
+
+    private static string BuildSalesOrderLineSapUomCacheKey(string itemCode, string? requestedUomCode)
+        => $"{SalesOrderLineSapUomCacheKeyPrefix}{itemCode.ToUpperInvariant()}|{requestedUomCode?.ToUpperInvariant() ?? string.Empty}";
+
+    /// <summary>
+    /// Caches a resolved line UoM. Only resolutions that produced a UoMEntry are stored: an
+    /// unresolved item means the item master or its document history is incomplete, and caching
+    /// that would keep posts failing for the whole cache lifetime after the data is corrected.
+    /// </summary>
+    private void CacheSalesOrderLineSapUom(
+        string itemCode,
+        string? requestedUomCode,
+        (string? UoMCode, int? UoMEntry) resolved)
+    {
+        if (!resolved.UoMEntry.HasValue)
+        {
+            return;
+        }
+
+        _memoryCache.Set(
+            BuildSalesOrderLineSapUomCacheKey(itemCode, requestedUomCode),
+            resolved,
+            SalesOrderLineSapUomCacheLifetime);
     }
 
     private async Task<Dictionary<string, (string? SalesUnit, string? InventoryUom)>> GetSalesOrderLineItemUnitsAsync(
@@ -11185,8 +11458,15 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         // Do NOT use SQLQueries('...')/List with a SqlText body here: the Service Layer executes the
         // stored query text and ignores SqlText on /List, which silently broke this duplicate check
         // and allowed the same local order to be posted to SAP twice.
+        //
+        // No $orderby: U_OrderNumber is an unindexed UDF, so HANA already scans ORDR to evaluate the
+        // filter, and a server-side sort forces it to materialise and order the whole matched set
+        // before applying $top. That sort dominated approval latency (minutes per order). We take a
+        // small page instead and pick the highest DocEntry client-side, which preserves the
+        // "latest document wins" semantics for any realistic number of matches — this is meant to be
+        // a unique key, so the expected result count is 0 or 1.
         var safeValue = SanitizeODataValue(orderNumber);
-        var url = $"Orders?$filter=U_OrderNumber eq '{safeValue}' and Cancelled eq 'tNO'&$orderby=DocEntry desc&$top=1&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocCurrency,U_OrderNumber";
+        var url = $"Orders?$filter=U_OrderNumber eq '{safeValue}' and Cancelled eq 'tNO'&$top={DuplicateOrderProbePageSize}&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocCurrency,U_OrderNumber";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -11213,9 +11493,18 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
         var result = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(responseContent);
-        var existingOrder = result?.Value?.FirstOrDefault();
+        var matches = result?.Value ?? [];
+        var existingOrder = matches.OrderByDescending(o => o.DocEntry).FirstOrDefault();
 
-        if (existingOrder is null)
+        if (matches.Count > 1)
+        {
+            _logger.LogWarning(
+                "Found {MatchCount} non-cancelled SAP sales orders sharing U_OrderNumber '{OrderNumber}'. Using the highest DocEntry={DocEntry}. This indicates existing duplicates in SAP.",
+                matches.Count,
+                orderNumber,
+                existingOrder?.DocEntry);
+        }
+        else if (existingOrder is null)
         {
             _logger.LogDebug(
                 "Sales order with U_OrderNumber '{OrderNumber}' was not found in SAP during duplicate check",

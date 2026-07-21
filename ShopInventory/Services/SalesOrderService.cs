@@ -1609,7 +1609,12 @@ public class SalesOrderService : ISalesOrderService
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            var sapOrder = await _sapClient.CreateSalesOrderAsync(order, CancellationToken.None);
+            // TryAttachExistingSapSalesOrderAsync just ran the same U_OrderNumber probe above, under
+            // this order's posting lock, so the client does not need to repeat it.
+            var sapOrder = await _sapClient.CreateSalesOrderAsync(
+                order,
+                CancellationToken.None,
+                duplicateCheckAlreadyPerformed: true);
             sapCreateReturned = true;
 
             if (sapOrder.DocNum <= 0)
