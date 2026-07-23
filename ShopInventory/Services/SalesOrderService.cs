@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using ShopInventory.Common.Idempotency;
@@ -437,8 +438,6 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, Guid userId, CancellationToken cancellationToken = default)
     {
-        await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
-
         var clientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim();
         if (!string.IsNullOrWhiteSpace(clientRequestId))
         {
@@ -452,6 +451,8 @@ public class SalesOrderService : ISalesOrderService
                 return MapToDto(existingOrder);
             }
         }
+
+        await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
 
         // If no warehouse specified, fall back to the user's assigned warehouse
         if (string.IsNullOrEmpty(request.WarehouseCode))
@@ -470,200 +471,220 @@ public class SalesOrderService : ISalesOrderService
         for (var attempt = 1; attempt <= MaxCreateOrderAttempts; attempt++)
         {
             var orderNumber = await GenerateOrderNumberAsync(cancellationToken);
-            await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+            SalesOrderEntity order;
+            int persistedLineCount;
 
-            try
+            await using (var transaction = await _context.Database.BeginTransactionAsync(cancellationToken))
             {
-                var initialStatus = request.Source == SalesOrderSource.Mobile
-                    ? SalesOrderStatus.Pending
-                    : SalesOrderStatus.Draft;
-
-                var order = new SalesOrderEntity
+                try
                 {
-                    OrderNumber = orderNumber,
-                    OrderDate = DateTime.UtcNow,
-                    DeliveryDate = request.DeliveryDate.HasValue
-                        ? DateTime.SpecifyKind(request.DeliveryDate.Value, DateTimeKind.Utc)
-                        : null,
-                    CardCode = request.CardCode,
-                    CardName = request.CardName,
-                    CustomerRefNo = request.CustomerRefNo,
-                    Comments = request.Comments,
-                    SalesPersonCode = request.SalesPersonCode,
-                    SalesPersonName = request.SalesPersonName,
-                    Currency = request.Currency!,
-                    DiscountPercent = request.DiscountPercent,
-                    ShipToAddress = request.ShipToAddress,
-                    BillToAddress = request.BillToAddress,
-                    WarehouseCode = request.WarehouseCode,
-                    CreatedByUserId = userId,
-                    Status = initialStatus,
-                    Source = request.Source,
-                    ClientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim(),
-                    MerchandiserNotes = request.MerchandiserNotes,
-                    DeviceInfo = request.DeviceInfo,
-                    Latitude = request.Latitude,
-                    Longitude = request.Longitude
-                };
+                    var initialStatus = request.Source == SalesOrderSource.Mobile
+                        ? SalesOrderStatus.Pending
+                        : SalesOrderStatus.Draft;
 
-                decimal subTotal = 0;
-                decimal taxAmount = 0;
-                int lineNum = 0;
-
-                foreach (var lineRequest in request.Lines)
-                {
-                    var taxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent, request.Source);
-                    var lineTotal = lineRequest.Quantity * lineRequest.UnitPrice * (1 - lineRequest.DiscountPercent / 100);
-                    var lineTax = lineTotal * taxPercent / 100;
-
-                    var line = new SalesOrderLineEntity
+                    order = new SalesOrderEntity
                     {
-                        LineNum = lineNum++,
-                        ItemCode = lineRequest.ItemCode,
-                        ItemDescription = lineRequest.ItemDescription,
-                        Quantity = lineRequest.Quantity,
-                        UnitPrice = lineRequest.UnitPrice,
-                        DiscountPercent = lineRequest.DiscountPercent,
-                        TaxPercent = taxPercent,
-                        LineTotal = lineTotal,
-                        WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
-                        UoMCode = lineRequest.UoMCode,
-                        BatchNumber = lineRequest.BatchNumber,
-                        CostCentreCode = lineRequest.CostCentreCode
+                        OrderNumber = orderNumber,
+                        OrderDate = DateTime.UtcNow,
+                        DeliveryDate = request.DeliveryDate.HasValue
+                            ? DateTime.SpecifyKind(request.DeliveryDate.Value, DateTimeKind.Utc)
+                            : null,
+                        CardCode = request.CardCode,
+                        CardName = request.CardName,
+                        CustomerRefNo = request.CustomerRefNo,
+                        Comments = request.Comments,
+                        SalesPersonCode = request.SalesPersonCode,
+                        SalesPersonName = request.SalesPersonName,
+                        Currency = request.Currency!,
+                        DiscountPercent = request.DiscountPercent,
+                        ShipToAddress = request.ShipToAddress,
+                        BillToAddress = request.BillToAddress,
+                        WarehouseCode = request.WarehouseCode,
+                        CreatedByUserId = userId,
+                        Status = initialStatus,
+                        Source = request.Source,
+                        ClientRequestId = string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim(),
+                        MerchandiserNotes = request.MerchandiserNotes,
+                        DeviceInfo = request.DeviceInfo,
+                        Latitude = request.Latitude,
+                        Longitude = request.Longitude
                     };
 
-                    order.Lines.Add(line);
-                    subTotal += lineTotal;
-                    taxAmount += lineTax;
-                }
+                    decimal subTotal = 0;
+                    decimal taxAmount = 0;
+                    int lineNum = 0;
 
-                order.SubTotal = subTotal;
-                order.TaxAmount = taxAmount;
-                order.DiscountAmount = subTotal * request.DiscountPercent / 100;
-                order.DocTotal = subTotal - order.DiscountAmount + taxAmount;
-
-                _context.SalesOrders.Add(order);
-                await _context.SaveChangesAsync(cancellationToken);
-
-                var persistedLineCount = await _context.SalesOrderLines
-                    .AsNoTracking()
-                    .CountAsync(l => l.SalesOrderId == order.Id, cancellationToken);
-
-                if (persistedLineCount != request.Lines.Count)
-                {
-                    throw new InvalidOperationException(
-                        $"Sales order line persistence mismatch for {orderNumber}. Expected {request.Lines.Count} lines but saved {persistedLineCount}.");
-                }
-
-                if (request.Source == SalesOrderSource.Mobile)
-                {
-                    _context.MobileOrderPostProcessingQueue.Add(new MobileOrderPostProcessingQueueEntity
+                    foreach (var lineRequest in request.Lines)
                     {
-                        SalesOrderId = order.Id,
-                        OrderNumber = order.OrderNumber,
-                        LineCount = persistedLineCount,
-                        MaxRetries = 5,
-                        CreatedAt = DateTime.UtcNow
-                    });
+                        var taxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent, request.Source);
+                        var lineTotal = lineRequest.Quantity * lineRequest.UnitPrice * (1 - lineRequest.DiscountPercent / 100);
+                        var lineTax = lineTotal * taxPercent / 100;
 
+                        var line = new SalesOrderLineEntity
+                        {
+                            LineNum = lineNum++,
+                            ItemCode = lineRequest.ItemCode,
+                            ItemDescription = lineRequest.ItemDescription,
+                            Quantity = lineRequest.Quantity,
+                            UnitPrice = lineRequest.UnitPrice,
+                            DiscountPercent = lineRequest.DiscountPercent,
+                            TaxPercent = taxPercent,
+                            LineTotal = lineTotal,
+                            WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
+                            UoMCode = lineRequest.UoMCode,
+                            BatchNumber = lineRequest.BatchNumber,
+                            CostCentreCode = lineRequest.CostCentreCode
+                        };
+
+                        order.Lines.Add(line);
+                        subTotal += lineTotal;
+                        taxAmount += lineTax;
+                    }
+
+                    order.SubTotal = subTotal;
+                    order.TaxAmount = taxAmount;
+                    order.DiscountAmount = subTotal * request.DiscountPercent / 100;
+                    order.DocTotal = subTotal - order.DiscountAmount + taxAmount;
+
+                    _context.SalesOrders.Add(order);
                     await _context.SaveChangesAsync(cancellationToken);
-                }
 
-                await transaction.CommitAsync(cancellationToken);
+                    persistedLineCount = await _context.SalesOrderLines
+                        .AsNoTracking()
+                        .CountAsync(l => l.SalesOrderId == order.Id, cancellationToken);
 
-                _logger.LogInformation(
-                    "Created sales order {OrderNumber} for customer {CardCode} with {LineCount} lines",
-                    orderNumber,
-                    request.CardCode,
-                    persistedLineCount);
-
-                if (request.Source == SalesOrderSource.Mobile)
-                {
-                    return MapToDto(order);
-                }
-
-                await SendSalesOrderNotificationAsync(order, cancellationToken);
-
-                if (request.Source == SalesOrderSource.Web)
-                {
-                    try
+                    if (persistedLineCount != request.Lines.Count)
                     {
-                        order.ApprovedByUserId = userId;
-                        order.ApprovedDate = DateTime.UtcNow;
-                        await PostApprovedOrderToSapAsync(order, cancellationToken);
-
-                        _logger.LogInformation("Auto-posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
-                            order.OrderNumber, order.SAPDocEntry, order.SAPDocNum);
+                        throw new InvalidOperationException(
+                            $"Sales order line persistence mismatch for {orderNumber}. Expected {request.Lines.Count} lines but saved {persistedLineCount}.");
                     }
-                    catch (Exception ex)
+
+                    if (request.Source == SalesOrderSource.Mobile)
                     {
-                        // The post may have linked a real SAP document before failing at a later
-                        // step. Discarding that link would strand the order as an unposted Draft
-                        // while SAP holds the document, so keep the linkage and report success.
-                        if (HasSapDocNum(order))
+                        _context.MobileOrderPostProcessingQueue.Add(new MobileOrderPostProcessingQueueEntity
                         {
-                            order.IsSynced = true;
-                            order.SyncError = null;
-                            order.UpdatedAt = DateTime.UtcNow;
-                            await _context.SaveChangesAsync(CancellationToken.None);
+                            SalesOrderId = order.Id,
+                            OrderNumber = order.OrderNumber,
+                            LineCount = persistedLineCount,
+                            MaxRetries = 5,
+                            CreatedAt = DateTime.UtcNow
+                        });
 
-                            _logger.LogWarning(
-                                ex,
-                                "Auto-post to SAP for order {OrderNumber} reported a failure but the order is linked to DocEntry={DocEntry}, DocNum={DocNum}. Keeping the SAP link.",
-                                order.OrderNumber,
-                                order.SAPDocEntry,
-                                order.SAPDocNum);
-                        }
-                        else
-                        {
-                            order.Status = SalesOrderStatus.Draft;
-                            order.ApprovedByUserId = null;
-                            order.ApprovedDate = null;
-                            order.SAPDocEntry = null;
-                            order.SAPDocNum = null;
-                            order.IsSynced = false;
-                            order.SyncError = TruncateSyncError(ex.Message);
-                            order.UpdatedAt = DateTime.UtcNow;
-                            await _context.SaveChangesAsync(CancellationToken.None);
-
-                            _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order remains Draft.", order.OrderNumber);
-                        }
+                        await _context.SaveChangesAsync(cancellationToken);
                     }
-                }
 
+                    await transaction.CommitAsync(cancellationToken);
+                }
+                catch (DbUpdateException ex) when (IsDuplicateClientRequestId(ex) && !string.IsNullOrWhiteSpace(clientRequestId))
+                {
+                    await TryRollbackCreateTransactionAsync(transaction);
+                    _context.ChangeTracker.Clear();
+
+                    var existingOrder = await _context.SalesOrders
+                        .AsNoTracking()
+                        .Include(o => o.Lines)
+                        .FirstOrDefaultAsync(o => o.ClientRequestId == clientRequestId, CancellationToken.None);
+
+                    if (existingOrder != null)
+                        return MapToDto(existingOrder);
+
+                    throw;
+                }
+                catch (DbUpdateException ex) when (IsDuplicateOrderNumber(ex) && attempt < MaxCreateOrderAttempts)
+                {
+                    await TryRollbackCreateTransactionAsync(transaction);
+                    _context.ChangeTracker.Clear();
+
+                    _logger.LogWarning(ex,
+                        "Order number collision while creating sales order for customer {CardCode}. Retrying attempt {Attempt} of {MaxAttempts}.",
+                        request.CardCode,
+                        attempt,
+                        MaxCreateOrderAttempts);
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    await TryRollbackCreateTransactionAsync(transaction, ex);
+                    throw;
+                }
+            }
+
+            _logger.LogInformation(
+                "Created sales order {OrderNumber} for customer {CardCode} with {LineCount} lines",
+                orderNumber,
+                request.CardCode,
+                persistedLineCount);
+
+            if (request.Source == SalesOrderSource.Mobile)
+            {
                 return MapToDto(order);
             }
-            catch (DbUpdateException ex) when (IsDuplicateClientRequestId(ex) && !string.IsNullOrWhiteSpace(clientRequestId))
+
+            await SendSalesOrderNotificationAsync(order, cancellationToken);
+
+            if (request.Source == SalesOrderSource.Web)
             {
-                await transaction.RollbackAsync(CancellationToken.None);
-                _context.ChangeTracker.Clear();
+                try
+                {
+                    await using var postingLock = await AcquireSalesOrderPostingLockAsync(order.OrderNumber, cancellationToken);
+                    order = await LoadSalesOrderForPostingAsync(order.Id, cancellationToken);
 
-                var existingOrder = await _context.SalesOrders
-                    .AsNoTracking()
-                    .Include(o => o.Lines)
-                    .FirstOrDefaultAsync(o => o.ClientRequestId == clientRequestId, CancellationToken.None);
+                    if (order.Status != SalesOrderStatus.Draft)
+                    {
+                        throw new InvalidOperationException(
+                            $"Sales order {order.OrderNumber} can no longer be auto-posted because its current status is {order.Status}.");
+                    }
 
-                if (existingOrder != null)
-                    return MapToDto(existingOrder);
+                    order.ApprovedByUserId = userId;
+                    order.ApprovedDate = DateTime.UtcNow;
+                    await PostApprovedOrderToSapAsync(order, cancellationToken, postingLockHeld: true);
 
-                throw;
+                    _logger.LogInformation("Auto-posted sales order {OrderNumber} to SAP as DocEntry={DocEntry}, DocNum={DocNum}",
+                        order.OrderNumber, order.SAPDocEntry, order.SAPDocNum);
+                }
+                catch (Exception ex)
+                {
+                    // The post may have linked a real SAP document before failing at a later
+                    // step. Discarding that link would strand the order as an unposted Draft
+                    // while SAP holds the document, so keep the linkage and report success.
+                    if (HasSapDocNum(order))
+                    {
+                        order.IsSynced = true;
+                        order.SyncError = null;
+                        order.UpdatedAt = DateTime.UtcNow;
+                        await _context.SaveChangesAsync(CancellationToken.None);
+
+                        _logger.LogWarning(
+                            ex,
+                            "Auto-post to SAP for order {OrderNumber} reported a failure but the order is linked to DocEntry={DocEntry}, DocNum={DocNum}. Keeping the SAP link.",
+                            order.OrderNumber,
+                            order.SAPDocEntry,
+                            order.SAPDocNum);
+                    }
+                    else if (order.Status != SalesOrderStatus.Cancelled)
+                    {
+                        order.Status = SalesOrderStatus.Draft;
+                        order.ApprovedByUserId = null;
+                        order.ApprovedDate = null;
+                        order.SAPDocEntry = null;
+                        order.SAPDocNum = null;
+                        order.IsSynced = false;
+                        order.SyncError = TruncateSyncError(ex.Message);
+                        order.UpdatedAt = DateTime.UtcNow;
+                        await _context.SaveChangesAsync(CancellationToken.None);
+
+                        _logger.LogWarning(ex, "Auto-post to SAP failed for order {OrderNumber}. Order remains Draft.", order.OrderNumber);
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Skipped auto-post recovery update for cancelled sales order {OrderNumber}",
+                            order.OrderNumber);
+                    }
+                }
             }
-            catch (DbUpdateException ex) when (IsDuplicateOrderNumber(ex) && attempt < MaxCreateOrderAttempts)
-            {
-                await transaction.RollbackAsync(CancellationToken.None);
-                _context.ChangeTracker.Clear();
 
-                _logger.LogWarning(ex,
-                    "Order number collision while creating sales order for customer {CardCode}. Retrying attempt {Attempt} of {MaxAttempts}.",
-                    request.CardCode,
-                    attempt,
-                    MaxCreateOrderAttempts);
-            }
-            catch
-            {
-                await transaction.RollbackAsync(CancellationToken.None);
-                throw;
-            }
+            return MapToDto(order);
         }
 
         throw new InvalidOperationException("Failed to create sales order after retrying order number generation.");
@@ -893,13 +914,19 @@ public class SalesOrderService : ISalesOrderService
     {
         await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
 
-        var order = await _context.SalesOrders
-            .AsTracking()
-            .Include(o => o.Lines)
-            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+        var orderIdentity = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(o => o.Id == id)
+            .Select(o => new { o.Id, o.OrderNumber })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (order == null)
+        if (orderIdentity == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
+
+        await using var postingLock = await AcquireSalesOrderPostingLockAsync(
+            orderIdentity.OrderNumber,
+            cancellationToken);
+        var order = await LoadSalesOrderForPostingAsync(orderIdentity.Id, cancellationToken);
 
         if (order.Status != SalesOrderStatus.Draft && order.Status != SalesOrderStatus.Pending)
             throw new InvalidOperationException("Only draft or pending orders can be edited");
@@ -974,15 +1001,19 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto> UpdateStatusAsync(int id, SalesOrderStatus status, Guid userId, string? comments = null, CancellationToken cancellationToken = default)
     {
-        var order = await _context.SalesOrders
-            .AsTracking()
-            .Include(o => o.Lines)
-            .Include(o => o.CreatedByUser)
-            .Include(o => o.ApprovedByUser)
-            .FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+        var orderIdentity = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(o => o.Id == id)
+            .Select(o => new { o.Id, o.OrderNumber })
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (order == null)
+        if (orderIdentity == null)
             throw new InvalidOperationException($"Sales order with ID {id} not found");
+
+        await using var postingLock = await AcquireSalesOrderPostingLockAsync(
+            orderIdentity.OrderNumber,
+            cancellationToken);
+        var order = await LoadSalesOrderForPostingAsync(orderIdentity.Id, cancellationToken);
 
         if (status == SalesOrderStatus.Approved && !HasSapDocNum(order))
             throw new InvalidOperationException("Sales orders can only be marked approved after SAP returns a document number. Use the approve action to post the order to SAP.");
@@ -1019,9 +1050,19 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<bool> DeleteAsync(int id, CancellationToken cancellationToken = default)
     {
-        var order = await _context.SalesOrders.FindAsync(new object[] { id }, cancellationToken);
-        if (order == null)
+        var orderIdentity = await _context.SalesOrders
+            .AsNoTracking()
+            .Where(o => o.Id == id)
+            .Select(o => new { o.Id, o.OrderNumber })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (orderIdentity == null)
             return false;
+
+        await using var postingLock = await AcquireSalesOrderPostingLockAsync(
+            orderIdentity.OrderNumber,
+            cancellationToken);
+        var order = await LoadSalesOrderForPostingAsync(orderIdentity.Id, cancellationToken);
 
         if (order.Status != SalesOrderStatus.Draft
             && order.Status != SalesOrderStatus.Pending
@@ -1502,6 +1543,12 @@ public class SalesOrderService : ISalesOrderService
 
     private async Task PostApprovedOrderToSapCoreAsync(SalesOrderEntity order, CancellationToken cancellationToken)
     {
+        if (!CanPostToSap(order.Status))
+        {
+            throw new InvalidOperationException(
+                $"Sales order {order.OrderNumber} cannot be posted to SAP while its current status is {order.Status}.");
+        }
+
         await EnsureOrderHasValidQuantitiesAsync(order, "posting to SAP", cancellationToken);
 
         if (HasSapDocNum(order))
@@ -2225,11 +2272,20 @@ public class SalesOrderService : ISalesOrderService
 
                 if (DateTime.UtcNow >= deadline)
                 {
-                    _logger.LogWarning(
-                        "Could not acquire the SAP posting lock for {OrderNumber} after {Attempts} attempt(s) over {WaitSeconds:F1}s; another holder still owns it.",
-                        orderNumber,
-                        attempt,
-                        waitBudget.TotalSeconds);
+                    if (waitBudget == TimeSpan.Zero)
+                    {
+                        _logger.LogDebug(
+                            "Background SAP reconciliation yielded posting lock for {OrderNumber}; another holder owns it",
+                            orderNumber);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "Could not acquire the SAP posting lock for {OrderNumber} after {Attempts} attempt(s) over {WaitSeconds:F1}s; another holder still owns it.",
+                            orderNumber,
+                            attempt,
+                            waitBudget.TotalSeconds);
+                    }
 
                     throw new InvalidOperationException(
                         $"Sales order {orderNumber} is already being approved and posted to SAP by another request. Wait for it to finish, then refresh the order before trying again.");
@@ -2293,13 +2349,35 @@ public class SalesOrderService : ISalesOrderService
     private static string TruncateMobileQueueError(string message)
         => message.Length > 2000 ? message[..2000] : message;
 
+    private async Task TryRollbackCreateTransactionAsync(
+        IDbContextTransaction transaction,
+        Exception? originalException = null)
+    {
+        try
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+        }
+        catch (Exception rollbackException)
+        {
+            _logger.LogWarning(
+                rollbackException,
+                "Failed to roll back a sales-order creation transaction after {OriginalExceptionType}; preserving the original failure",
+                originalException?.GetType().Name ?? "a database update failure");
+        }
+    }
+
+    internal static bool CanPostToSap(SalesOrderStatus status) =>
+        status is SalesOrderStatus.Draft
+            or SalesOrderStatus.Pending
+            or SalesOrderStatus.Approved;
+
     private async Task<Dictionary<string, string>> ResolveSalesOrderLineUomLookupAsync(
         IEnumerable<(string? ItemCode, string? UoMCode)> lines,
         CancellationToken cancellationToken)
     {
         var normalizedLines = lines
             .Select(line => (
-                ItemCode: string.IsNullOrWhiteSpace(line.ItemCode) ? null : line.ItemCode.Trim(),
+                ItemCode: UomQuantityValidation.NormalizeItemCode(line.ItemCode),
                 UoMCode: string.IsNullOrWhiteSpace(line.UoMCode) ? null : line.UoMCode.Trim()))
             .ToList();
 
@@ -2350,6 +2428,15 @@ public class SalesOrderService : ISalesOrderService
     {
         var validationErrors = RecursiveDataAnnotationsValidator.Validate(request);
 
+        foreach (var line in request.Lines)
+        {
+            var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode);
+            if (!string.IsNullOrWhiteSpace(normalizedItemCode))
+            {
+                line.ItemCode = normalizedItemCode;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(request.Currency))
         {
             validationErrors.Add("Currency is required");
@@ -2370,6 +2457,12 @@ public class SalesOrderService : ISalesOrderService
                 && !string.Equals(line.UoMCode, resolvedUomCode, StringComparison.Ordinal))
             {
                 line.UoMCode = resolvedUomCode;
+            }
+
+            if (request.Source == SalesOrderSource.Web && string.IsNullOrWhiteSpace(resolvedUomCode))
+            {
+                validationErrors.Add(
+                    $"Line {index + 1} ({line.ItemCode}) has no sales unit configured locally or in the SAP item master");
             }
 
             var quantityError = UomQuantityValidation.BuildFractionalQuantityValidationError(index + 1, line.ItemCode, line.Quantity, resolvedUomCode);
@@ -2419,6 +2512,21 @@ public class SalesOrderService : ISalesOrderService
         }
         else
         {
+            foreach (var line in order.Lines)
+            {
+                var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode);
+                if (!string.IsNullOrWhiteSpace(normalizedItemCode)
+                    && !string.Equals(line.ItemCode, normalizedItemCode, StringComparison.Ordinal))
+                {
+                    _logger.LogInformation(
+                        "Normalizing sales order item code from {OriginalItemCode} to canonical SAP code {NormalizedItemCode} before {Operation}",
+                        line.ItemCode,
+                        normalizedItemCode,
+                        operation);
+                    line.ItemCode = normalizedItemCode;
+                }
+            }
+
             var lineUomLookup = await ResolveSalesOrderLineUomLookupAsync(
                 order.Lines.Select(line => (ItemCode: (string?)line.ItemCode, line.UoMCode)),
                 cancellationToken);
@@ -2614,7 +2722,8 @@ public class SalesOrderService : ISalesOrderService
             var livePrices = await _sapClient.GetItemPricesForCustomerAsync(order.CardCode, itemCodes, pricingCts.Token);
             var priceMap = livePrices
                 .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode) && price.Price > 0)
-                .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(price => price.ItemCode!.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
             var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, pricingCts.Token);

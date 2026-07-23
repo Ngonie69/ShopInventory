@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common;
 using ShopInventory.Common.Caching;
 using ShopInventory.Common.Security;
+using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -2421,7 +2422,9 @@ ORDER BY T0.""ItemCode""";
         CancellationToken cancellationToken)
     {
         var codes = itemCodes
+            .Select(UomQuantityValidation.NormalizeItemCode)
             .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -2588,7 +2591,9 @@ ORDER BY T0.""ItemCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var safeItemCode = SanitizeODataValue(itemCode);
+        var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(itemCode)
+            ?? throw new ArgumentException("Item code is required.", nameof(itemCode));
+        var safeItemCode = SanitizeODataValue(normalizedItemCode);
         var url = $"Items('{safeItemCode}')";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -3285,57 +3290,70 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             return httpRequest;
         }
 
-        var currentSession = _sessionId;
-        var response = await SendSapRequestWithTransientRetryAsync(
-            _httpClient,
-            CreateRequest,
-            HttpCompletionOption.ResponseContentRead,
-            $"create SQL query '{queryCode}'",
-            cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        for (var provisionAttempt = 1; provisionAttempt <= 2; provisionAttempt++)
         {
-            await HandleAuthFailureAsync(currentSession, cancellationToken);
-            response.Dispose();
-
-            response = await SendSapRequestWithTransientRetryAsync(
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
                 _httpClient,
                 CreateRequest,
                 HttpCompletionOption.ResponseContentRead,
-                $"create SQL query '{queryCode}' after SAP re-authentication",
+                $"create SQL query '{queryCode}'",
                 cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"create SQL query '{queryCode}' after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogDebug("Create SQL Query response: {StatusCode}", response.StatusCode);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var queryMayAlreadyExist = response.StatusCode == HttpStatusCode.Conflict
+                || (response.StatusCode == HttpStatusCode.BadRequest && responseContent.Contains("-2035"));
+            if (!queryMayAlreadyExist)
+            {
+                throw new Exception($"Failed to create SQL query: {response.StatusCode} - {responseContent}");
+            }
+
+            _logger.LogDebug(
+                "SQL query '{QueryCode}' may already exist; updating it via PATCH",
+                queryCode);
+            var patchStatus = await PatchSqlQueryAsync(queryCode, sqlText, cancellationToken);
+            if ((int)patchStatus is >= 200 and < 300)
+            {
+                return;
+            }
+
+            if (patchStatus != HttpStatusCode.NotFound || provisionAttempt == 2)
+            {
+                throw new HttpRequestException(
+                    $"Failed to provision SAP SQL query '{queryCode}': PATCH returned {patchStatus}.",
+                    null,
+                    patchStatus);
+            }
+
+            _logger.LogInformation(
+                "SAP reported that SQL query '{QueryCode}' existed but PATCH could not find it; retrying query creation once",
+                queryCode);
+            await Task.Delay(TimeSpan.FromMilliseconds(150), cancellationToken);
         }
-
-        using var responseOwner = response;
-        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        _logger.LogDebug("Create SQL Query response: {StatusCode}", response.StatusCode);
-
-        if (response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        // 409 Conflict means the query already exists â€” update its SQL via PATCH
-        if (response.StatusCode == HttpStatusCode.Conflict)
-        {
-            _logger.LogDebug("SQL query '{QueryCode}' already exists (409 Conflict), updating via PATCH", queryCode);
-            await PatchSqlQueryAsync(queryCode, sqlText, cancellationToken);
-            return;
-        }
-
-        // SAP returns BadRequest with error code -2035 when the query already exists (race condition between concurrent requests).
-        // Fall back to PATCH to update the existing query instead of failing.
-        if (response.StatusCode == HttpStatusCode.BadRequest && responseContent.Contains("-2035"))
-        {
-            _logger.LogDebug("SQL query '{QueryCode}' already exists, updating via PATCH", queryCode);
-            await PatchSqlQueryAsync(queryCode, sqlText, cancellationToken);
-            return;
-        }
-
-        throw new Exception($"Failed to create SQL query: {response.StatusCode} - {responseContent}");
     }
 
-    private async Task PatchSqlQueryAsync(string queryCode, string sqlText, CancellationToken cancellationToken)
+    private async Task<HttpStatusCode> PatchSqlQueryAsync(string queryCode, string sqlText, CancellationToken cancellationToken)
     {
         var patchPayload = new { SqlText = sqlText };
         var patchJson = JsonSerializer.Serialize(patchPayload);
@@ -3370,11 +3388,15 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         }
 
         using var responseOwner = response;
-        // If PATCH also fails, the query exists with the same SQL - safe to proceed and execute it
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("PATCH for SQL query '{QueryCode}' returned {StatusCode}, proceeding with existing query", queryCode, response.StatusCode);
+            _logger.LogWarning(
+                "PATCH for SQL query '{QueryCode}' returned {StatusCode}; query provisioning is incomplete",
+                queryCode,
+                response.StatusCode);
         }
+
+        return response.StatusCode;
     }
 
     private async Task<List<ItemPriceDto>> ExecuteSqlQueryAsync(string queryCode, CancellationToken cancellationToken)
@@ -4289,11 +4311,12 @@ ORDER BY T0.""ItemCode""";
                 prices.AddRange(pageItems);
             }
 
+            var snapshotPrices = DeduplicateItemPriceRows(prices);
             _logger.LogInformation(
                 "Shared Items API snapshot supplied {Count} prices for price list {ListNum}",
-                prices.Count,
+                snapshotPrices.Count,
                 priceListNum);
-            return prices;
+            return snapshotPrices;
         }
 
         var syncHttpClient = GetLongRunningHttpClient();
@@ -4304,7 +4327,7 @@ ORDER BY T0.""ItemCode""";
 
         while (hasMore)
         {
-            var url = $"Items?$select=ItemCode,ItemName,ForeignName,ItemPrices&$filter=ItemType eq 'itItems'&$top={pageSize}&$skip={skip}";
+            var url = $"Items?$select=ItemCode,ItemName,ForeignName,ItemPrices&$filter=ItemType eq 'itItems'&$orderby=ItemCode&$top={pageSize}&$skip={skip}";
 
             var currentSession = _sessionId;
 
@@ -4377,9 +4400,32 @@ ORDER BY T0.""ItemCode""";
             snapshot.IsComplete = true;
         }
 
-        _logger.LogInformation("Items API fallback retrieved {Count} prices for price list {ListNum}", prices.Count, priceListNum);
-        return prices;
+        var deduplicatedPrices = DeduplicateItemPriceRows(prices);
+
+        if (deduplicatedPrices.Count != prices.Count)
+        {
+            _logger.LogWarning(
+                "Items API fallback returned {DuplicateCount} duplicate item-price row(s) for price list {ListNum}; deterministic de-duplication retained {Count} items",
+                prices.Count - deduplicatedPrices.Count,
+                priceListNum,
+                deduplicatedPrices.Count);
+        }
+
+        _logger.LogInformation(
+            "Items API fallback retrieved {Count} prices for price list {ListNum}",
+            deduplicatedPrices.Count,
+            priceListNum);
+        return deduplicatedPrices;
     }
+
+    private static List<ItemPriceByListDto> DeduplicateItemPriceRows(
+        IEnumerable<ItemPriceByListDto> prices)
+        => prices
+            .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
+            .GroupBy(price => price.ItemCode!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.FirstOrDefault(price => price.Price > 0) ?? group.First())
+            .OrderBy(price => price.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private static int GetODataValueCount(string jsonContent)
     {
@@ -4505,13 +4551,10 @@ ORDER BY T0.""ItemCode""";
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                // 404 on the first page means the query was deleted (race condition) â€” return empty
-                // so the caller can fall back to the Items API
-                if (skip == 0)
-                {
-                    _logger.LogWarning("SQL query '{QueryCode}' returned 404 on first execution â€” likely deleted by concurrent request", queryCode);
-                }
-                break;
+                throw new HttpRequestException(
+                    $"SAP price list query '{queryCode}' was not available during execution.",
+                    null,
+                    response.StatusCode);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -10902,7 +10945,7 @@ ORDER BY T0.""ItemCode""";
         var documentLines = new List<object>();
         foreach (var (line, index) in order.Lines.OrderBy(l => l.LineNum).Select((line, index) => (line, index)))
         {
-            var normalizedItemCode = NormalizeSapUomIdentifier(line.ItemCode);
+            var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode);
             var normalizedRequestedUomCode = NormalizeSapUomIdentifier(line.UoMCode);
             (string? resolvedUomCode, int? resolvedUomEntry) = (normalizedRequestedUomCode, null);
 
@@ -10916,6 +10959,11 @@ ORDER BY T0.""ItemCode""";
             {
                 throw new Exception(
                     $"Sales order {order.OrderNumber} line {index + 1} (item {line.ItemCode ?? "unknown"}) has no SAP UoMEntry. Requested UoM: '{line.UoMCode ?? "<blank>"}', resolved UoMCode: '{resolvedUomCode ?? "<blank>"}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedItemCode))
+            {
+                line.ItemCode = normalizedItemCode;
             }
 
             if (!string.IsNullOrWhiteSpace(resolvedUomCode)
@@ -10935,7 +10983,7 @@ ORDER BY T0.""ItemCode""";
             documentLines.Add(new
             {
                 LineNum = index,
-                ItemCode = line.ItemCode,
+                ItemCode = normalizedItemCode,
                 Quantity = line.Quantity,
                 UnitPrice = line.UnitPrice,
                 WarehouseCode = line.WarehouseCode,
@@ -11009,7 +11057,7 @@ ORDER BY T0.""ItemCode""";
     {
         var normalizedLines = lines
             .Select(line => (
-                ItemCode: NormalizeSapUomIdentifier(line.ItemCode),
+                ItemCode: UomQuantityValidation.NormalizeItemCode(line.ItemCode),
                 RequestedUomCode: NormalizeSapUomIdentifier(line.RequestedUomCode)))
             .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode))
             .ToList();
@@ -13064,7 +13112,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         var documentLines = new List<object>();
         foreach (var (line, index) in quotation.Lines.OrderBy(item => item.LineNum).Select((line, index) => (line, index)))
         {
-            var normalizedItemCode = NormalizeSapUomIdentifier(line.ItemCode);
+            var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode);
             var normalizedRequestedUomCode = NormalizeSapUomIdentifier(line.UoMCode);
             (string? resolvedUomCode, int? resolvedUomEntry) = (normalizedRequestedUomCode, null);
 
@@ -13078,6 +13126,11 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             {
                 throw new Exception(
                     $"Quotation {quotation.QuotationNumber} line {index + 1} (item {line.ItemCode ?? "unknown"}) has no SAP UoMEntry. Requested UoM: '{line.UoMCode ?? "<blank>"}', resolved UoMCode: '{resolvedUomCode ?? "<blank>"}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedItemCode))
+            {
+                line.ItemCode = normalizedItemCode;
             }
 
             if (!string.IsNullOrWhiteSpace(resolvedUomCode)
@@ -13097,7 +13150,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             documentLines.Add(new
             {
                 LineNum = index,
-                ItemCode = line.ItemCode,
+                ItemCode = normalizedItemCode,
                 Quantity = line.Quantity,
                 UnitPrice = line.UnitPrice,
                 WarehouseCode = line.WarehouseCode ?? quotation.WarehouseCode,

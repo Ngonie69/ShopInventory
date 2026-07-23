@@ -12,6 +12,7 @@ public class RegisterDeviceRequest
     /// </summary>
     [Required]
     [MaxLength(512)]
+    [RegularExpression(@"^[A-Za-z0-9_:\-]+$", ErrorMessage = "Device token contains unsupported characters")]
     public required string DeviceToken { get; set; }
 
     /// <summary>
@@ -41,6 +42,7 @@ public class UnregisterDeviceRequest
 {
     [Required]
     [MaxLength(512)]
+    [RegularExpression(@"^[A-Za-z0-9_:\-]+$", ErrorMessage = "Device token contains unsupported characters")]
     public required string DeviceToken { get; set; }
 }
 

@@ -5,6 +5,11 @@ namespace ShopInventory.Common.Validation;
 
 public static class UomQuantityValidation
 {
+    public static string? NormalizeItemCode(string? itemCode)
+        => string.IsNullOrWhiteSpace(itemCode)
+            ? null
+            : itemCode.Trim().ToUpperInvariant();
+
     public static bool AllowDecimalQuantity(string? uomCode)
         => string.Equals(uomCode?.Trim(), "KG", StringComparison.OrdinalIgnoreCase);
 
@@ -74,7 +79,7 @@ public static class UomQuantityValidation
     {
         var itemCodes = lines
             .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode) && string.IsNullOrWhiteSpace(line.UoMCode))
-            .Select(line => line.ItemCode!.Trim())
+            .Select(line => NormalizeItemCode(line.ItemCode)!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 

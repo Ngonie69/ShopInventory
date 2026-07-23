@@ -84,13 +84,12 @@ public sealed class GetPodUploadStatusHandler(
                 PodExclusions.ExcludedCardCodes.ToList(),
                 includeDocumentLines: isPodOperator,
                 cancellationToken);
-            CreditNoteActivityInvoiceLinks? creditNoteActivity = null;
+            var creditNoteActivity = await GetCreditNoteActivityInvoiceLinksAsync(
+                request.FromDate,
+                request.ToDate,
+                cancellationToken);
             if (request.IncludeCreditNoteActivity)
             {
-                creditNoteActivity = await GetCreditNoteActivityInvoiceLinksAsync(
-                    request.FromDate,
-                    request.ToDate,
-                    cancellationToken);
                 invoices = await IncludeCreditNoteActivityInvoicesAsync(
                     invoices,
                     creditNoteActivity,
@@ -117,12 +116,13 @@ public sealed class GetPodUploadStatusHandler(
                     cancellationToken);
             }
 
-            var creditNoteLookup = await GetCreditNoteLookupWithTimeoutAsync(
+            var creditNoteLookupResult = await GetCreditNoteLookupWithTimeoutAsync(
                 invoices,
                 request.FromDate,
                 request.ToDate,
-                creditNoteActivity?.CreditNoteLines ?? [],
+                creditNoteActivity.CreditNoteLines,
                 cancellationToken);
+            var creditNoteLookup = creditNoteLookupResult.Lookup;
 
             if (request.IncludeCreditNoteActivity)
             {
@@ -207,6 +207,8 @@ public sealed class GetPodUploadStatusHandler(
                 TotalInvoices = items.Count,
                 UploadedCount = items.Count(i => i.HasPod),
                 PendingCount = items.Count(i => !i.HasPod),
+                CreditNoteDataComplete = creditNoteLookupResult.IsComplete,
+                CreditNoteDataWarning = creditNoteLookupResult.Warning,
                 Items = items
             };
         }
@@ -539,7 +541,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         }
     }
 
-    private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupWithTimeoutAsync(
+    private async Task<CreditNoteLookupResult> GetCreditNoteLookupWithTimeoutAsync(
         IReadOnlyList<Invoice> invoices,
         DateTime fromDate,
         DateTime toDate,
@@ -570,7 +572,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
                 lookup.TryAdd(pair.Key, pair.Value);
             }
 
-            return lookup;
+            return new CreditNoteLookupResult(lookup, true, null);
         }
         catch (OperationCanceledException) when (!requestCancellationToken.IsCancellationRequested)
         {
@@ -578,7 +580,11 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
                 "POD report full credit-note enrichment exceeded {TimeoutSeconds} seconds; continuing with {CreditNoteCount} credit-note entries from the date-range query",
                 CreditNoteEnrichmentTimeout.TotalSeconds,
                 dateRangeLookup.Count);
-            return dateRangeLookup;
+            return new CreditNoteLookupResult(
+                dateRangeLookup,
+                false,
+                $"Credit-note enrichment exceeded {CreditNoteEnrichmentTimeout.TotalSeconds:0} seconds. " +
+                "Credit notes outside the selected date range may be missing from this report.");
         }
     }
 
@@ -1088,8 +1094,14 @@ ORDER BY T0.""DocEntry""";
             TotalInvoices = 0,
             UploadedCount = 0,
             PendingCount = 0,
+            CreditNoteDataComplete = true,
             Items = []
         };
+
+    private sealed record CreditNoteLookupResult(
+        Dictionary<int, CreditNoteInfo> Lookup,
+        bool IsComplete,
+        string? Warning);
 
     private async Task<List<Invoice>> FilterInvoicesForPodOperatorAsync(
         List<Invoice> invoices,

@@ -262,7 +262,12 @@ public class SalesOrderService : ISalesOrderService
         try
         {
             await EnsureAuthenticationAsync();
-            var response = await _httpClient.PutAsJsonAsync($"api/salesorder/{id}", request);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Put, $"api/salesorder/{id}")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
+            using var response = await _httpClient.SendAsync(httpRequest);
             if (response.IsSuccessStatusCode)
             {
                 return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -295,7 +300,12 @@ public class SalesOrderService : ISalesOrderService
         {
             await EnsureAuthenticationAsync();
             var request = new UpdateSalesOrderStatusRequest { Status = status, Comments = comments };
-            var response = await _httpClient.PatchAsJsonAsync($"api/salesorder/{id}/status", request);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"api/salesorder/{id}/status")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
+            using var response = await _httpClient.SendAsync(httpRequest);
             if (response.IsSuccessStatusCode)
             {
                 return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -314,6 +324,7 @@ public class SalesOrderService : ISalesOrderService
     {
         await EnsureAuthenticationAsync();
         using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/approve");
+        request.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
         AddClientAuditHeaders(request);
         using var response = await _httpClient.SendAsync(request);
         if (response.IsSuccessStatusCode)
@@ -340,6 +351,9 @@ public class SalesOrderService : ISalesOrderService
             request.Headers.TryAddWithoutValidation("User-Agent", _clientAuditContext.UserAgent);
         }
     }
+
+    private static string CreateOperationIdempotencyKey()
+        => Guid.NewGuid().ToString("N");
 
     private static string ExtractApprovalErrorMessage(string responseBody, HttpStatusCode statusCode)
     {
@@ -549,7 +563,10 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync(); var response = await _httpClient.PostAsync($"api/salesorder/{id}/convert-to-invoice", null);
+            await EnsureAuthenticationAsync();
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/convert-to-invoice");
+            request.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
+            using var response = await _httpClient.SendAsync(request);
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<InvoiceDto>();
@@ -584,7 +601,9 @@ public class SalesOrderService : ISalesOrderService
         try
         {
             await EnsureAuthenticationAsync();
-            var response = await _httpClient.PostAsync($"api/salesorder/{id}/post-to-sap", null);
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/post-to-sap");
+            request.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
+            using var response = await _httpClient.SendAsync(request);
             if (response.IsSuccessStatusCode)
             {
                 return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());

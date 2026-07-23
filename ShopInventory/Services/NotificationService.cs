@@ -161,7 +161,10 @@ public class NotificationService : INotificationService
 
             if (sentCount == 0)
             {
-                _logger.LogWarning(
+                // A user or role may legitimately have no registered/active devices. The
+                // notification remains available in-app, so this is operational context rather
+                // than a delivery-system failure.
+                _logger.LogInformation(
                     "Push notification {NotificationId} reached no active devices for target {Target}",
                     notification.Id,
                     request.TargetUsername ?? request.TargetRole ?? targetUserId?.ToString() ?? "all");

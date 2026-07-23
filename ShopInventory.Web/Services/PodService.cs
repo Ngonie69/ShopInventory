@@ -243,7 +243,12 @@ public class PodService : IPodService
                 content.Add(new StringContent(uploadedByUsername), "uploadedByUsername");
             }
 
-            var response = await _httpClient.PostAsync($"api/invoice/{docEntry}/pod", content);
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/invoice/{docEntry}/pod")
+            {
+                Content = content
+            };
+            request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+            using var response = await _httpClient.SendAsync(request);
 
             if (response.IsSuccessStatusCode)
             {

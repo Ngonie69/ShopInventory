@@ -185,7 +185,12 @@ public class RequestValidationMiddleware
         "/api/auth/login",     // login credentials
         "/api/auth/register",  // registration passwords
         "/api/password/",      // self-service password change/reset
-        "/api/customerportal/auth" // customer portal login/password
+        "/api/customerportal/auth", // customer portal login/password
+        // FCM tokens are opaque, high-entropy credentials that can legitimately contain
+        // substrings such as "--" or "sp_". The endpoint is authenticated and its DTO applies
+        // an explicit token-character allowlist, so generic SQL-pattern scanning is harmful here.
+        "/api/pushnotification/register",
+        "/api/pushnotification/unregister"
     };
 
     // Headers to check for injection

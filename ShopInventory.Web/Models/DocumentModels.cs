@@ -90,6 +90,8 @@ public class PodUploadStatusReport
     public int TotalInvoices { get; set; }
     public int UploadedCount { get; set; }
     public int PendingCount { get; set; }
+    public bool CreditNoteDataComplete { get; set; } = true;
+    public string? CreditNoteDataWarning { get; set; }
     public List<PodUploadStatusItem> Items { get; set; } = new();
 }
 

@@ -17,6 +17,7 @@ public class IdempotencyMiddleware
     private readonly ILogger<IdempotencyMiddleware> _logger;
     private static readonly ConcurrentDictionary<string, (DateTime Timestamp, int StatusCode)> ProcessedKeys = new();
     private static long _lastCleanupTicks = DateTime.UtcNow.Ticks;
+    private const int InProgressStatusCode = 102;
 
     // How long to remember idempotency keys (default 60 minutes)
     private const int DefaultExpirationMinutes = 60;
@@ -105,26 +106,47 @@ public class IdempotencyMiddleware
 
             var compositeKey = $"{context.Request.Method}:{path}:{idempotencyKey}";
 
-            if (ProcessedKeys.TryGetValue(compositeKey, out var existing))
+            var reservation = (DateTime.UtcNow, InProgressStatusCode);
+            if (!ProcessedKeys.TryAdd(compositeKey, reservation))
             {
-                _logger.LogWarning("Duplicate request blocked - Idempotency-Key: {Key}, Path: {Path}, IP: {Ip}",
-                    idempotencyKey, path, context.Connection.RemoteIpAddress);
+                var existing = ProcessedKeys[compositeKey];
+                _logger.LogWarning(
+                    "Duplicate idempotent request blocked for path {Path} from IP {Ip}; existing request status is {Status}",
+                    path,
+                    context.Connection.RemoteIpAddress,
+                    existing.StatusCode == InProgressStatusCode ? "InProgress" : "Completed");
 
-                context.Response.StatusCode = existing.StatusCode;
+                context.Response.StatusCode = existing.StatusCode == InProgressStatusCode
+                    ? StatusCodes.Status409Conflict
+                    : existing.StatusCode;
                 context.Response.Headers["Idempotency-Replayed"] = "true";
                 await context.Response.WriteAsJsonAsync(new
                 {
-                    message = "Duplicate request detected. This operation has already been processed.",
-                    idempotencyKey
+                    message = existing.StatusCode == InProgressStatusCode
+                        ? "An identical request is already in progress."
+                        : "Duplicate request detected. This operation has already been processed."
                 });
                 return;
             }
 
-            // Process the request and record the result
-            await _next(context);
-
-            // Store the key with the response status
-            ProcessedKeys.TryAdd(compositeKey, (DateTime.UtcNow, context.Response.StatusCode));
+            try
+            {
+                await _next(context);
+                if (context.Response.StatusCode >= StatusCodes.Status500InternalServerError)
+                {
+                    // Failed operations must remain retryable with the same stable key.
+                    ProcessedKeys.TryRemove(compositeKey, out _);
+                }
+                else
+                {
+                    ProcessedKeys[compositeKey] = (DateTime.UtcNow, context.Response.StatusCode);
+                }
+            }
+            catch
+            {
+                ProcessedKeys.TryRemove(compositeKey, out _);
+                throw;
+            }
         }
         else if (requiresIdempotency)
         {

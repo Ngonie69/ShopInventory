@@ -373,6 +373,8 @@ public class PodUploadStatusReportDto
     public int TotalInvoices { get; set; }
     public int UploadedCount { get; set; }
     public int PendingCount { get; set; }
+    public bool CreditNoteDataComplete { get; set; } = true;
+    public string? CreditNoteDataWarning { get; set; }
     public List<PodUploadStatusItemDto> Items { get; set; } = new();
 }
 

@@ -130,7 +130,11 @@ public sealed class GetPricesByBusinessPartnerHandler(
     {
         var mergedPrices = livePrices
             .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
-            .ToDictionary(price => price.ItemCode!.Trim(), price => price, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(price => price.ItemCode!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.FirstOrDefault(price => price.Price > 0) ?? group.First(),
+                StringComparer.OrdinalIgnoreCase);
 
         foreach (var specialPrice in specialPrices)
         {

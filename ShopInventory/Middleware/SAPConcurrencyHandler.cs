@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using ShopInventory.Configuration;
 
@@ -14,17 +15,44 @@ public sealed class SAPConcurrencyHandler : DelegatingHandler
     private static SemaphoreSlim? _semaphore;
     private static int _semaphoreLimit;
     private readonly int _maxConcurrentRequests;
+    private readonly ILogger<SAPConcurrencyHandler> _logger;
 
-    public SAPConcurrencyHandler(IOptions<SAPSettings> settings)
+    public SAPConcurrencyHandler(
+        IOptions<SAPSettings> settings,
+        ILogger<SAPConcurrencyHandler> logger)
     {
         _maxConcurrentRequests = Math.Max(1, settings.Value.MaxConcurrentRequests);
+        _logger = logger;
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var semaphore = GetSemaphore(_maxConcurrentRequests);
+        var availableSlots = semaphore.CurrentCount;
+        var waitStarted = Stopwatch.GetTimestamp();
         await semaphore.WaitAsync(cancellationToken);
+        var waitDuration = Stopwatch.GetElapsedTime(waitStarted);
+
+        if (waitDuration >= TimeSpan.FromSeconds(2))
+        {
+            _logger.LogWarning(
+                "SAP request waited {WaitMilliseconds}ms for a concurrency slot ({Method} {Path}); available slots at arrival {AvailableSlots}/{MaxConcurrentRequests}",
+                waitDuration.TotalMilliseconds,
+                request.Method,
+                request.RequestUri?.AbsolutePath,
+                availableSlots,
+                _maxConcurrentRequests);
+        }
+        else if (waitDuration >= TimeSpan.FromMilliseconds(100))
+        {
+            _logger.LogDebug(
+                "SAP request waited {WaitMilliseconds}ms for a concurrency slot ({Method} {Path})",
+                waitDuration.TotalMilliseconds,
+                request.Method,
+                request.RequestUri?.AbsolutePath);
+        }
+
         try
         {
             return await base.SendAsync(request, cancellationToken);

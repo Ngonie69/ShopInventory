@@ -2042,6 +2042,8 @@ public class ReportExportService : IReportExportService
             TotalInvoices = items.Count,
             UploadedCount = items.Count(item => item.HasPod),
             PendingCount = items.Count(item => !item.HasPod),
+            CreditNoteDataComplete = report.CreditNoteDataComplete,
+            CreditNoteDataWarning = report.CreditNoteDataWarning,
             Items = items
         };
     }
