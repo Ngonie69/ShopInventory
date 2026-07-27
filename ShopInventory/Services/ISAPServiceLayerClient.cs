@@ -134,6 +134,14 @@ public interface ISAPServiceLayerClient
     Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// As <see cref="GetSpecialPricesForBPAsync(string, IEnumerable{string}, CancellationToken)"/>,
+    /// but also reports whether the lookup finished. Use this anywhere the prices are written to a
+    /// document: an empty result on its own cannot be told apart from a failed lookup, and pricing
+    /// a customer as though they have no negotiated prices overcharges them.
+    /// </summary>
+    Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets all currently active business partner special prices from SAP.
     /// </summary>
     Task<List<BusinessPartnerSpecialPriceDto>> GetAllSpecialPricesAsync(CancellationToken cancellationToken = default);

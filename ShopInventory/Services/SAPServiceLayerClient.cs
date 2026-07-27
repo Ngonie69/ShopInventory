@@ -4989,6 +4989,9 @@ ORDER BY T0.""ItemCode""";
     }
 
     public async Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
+        => (await GetSpecialPricesForBPWithStatusAsync(cardCode, itemCodes, cancellationToken)).Prices;
+
+    public async Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var safeCardCode = SanitizeODataValue(cardCode);
@@ -5004,6 +5007,7 @@ ORDER BY T0.""ItemCode""";
         const int pageSize = 100;
         var todayUtc = DateTime.UtcNow.Date;
         var filteredOutCount = 0;
+        var lookupComplete = true;
         var itemCodeBatches = BuildSpecialPriceItemCodeBatches(safeCardCode, safeItemCodes);
 
         if (safeItemCodes is { Count: > 0 } && itemCodeBatches.Count > 1)
@@ -5086,6 +5090,9 @@ ORDER BY T0.""ItemCode""";
         }
         catch (Exception ex)
         {
+            // Swallowed on purpose so a special-price outage does not take pricing down with it,
+            // but the caller is told the result is partial — see SpecialPriceLookupResult.
+            lookupComplete = false;
             _logger.LogWarning(ex, "Error fetching special prices for BP {CardCode}", cardCode);
         }
 
@@ -5097,12 +5104,28 @@ ORDER BY T0.""ItemCode""";
                 cardCode);
         }
 
-        _logger.LogInformation(
-            "Retrieved {Count} active special prices for BP {CardCode}{Scope}",
-            result.Count,
-            cardCode,
-            safeItemCodes is { Count: > 0 } ? $" across {safeItemCodes.Count} requested items" : string.Empty);
-        return result;
+        var scope = safeItemCodes is { Count: > 0 } ? $" across {safeItemCodes.Count} requested items" : string.Empty;
+
+        if (!lookupComplete)
+        {
+            // Must not read as "this customer has none" — that is what made an incomplete lookup
+            // indistinguishable from a genuine empty result in the 2026-07-27 logs.
+            _logger.LogWarning(
+                "Special price lookup for BP {CardCode} did not complete{Scope}; returning {Count} price(s), which may be missing negotiated prices. Anything priced from this result can be too high.",
+                cardCode,
+                scope,
+                result.Count);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Retrieved {Count} active special prices for BP {CardCode}{Scope}",
+                result.Count,
+                cardCode,
+                scope);
+        }
+
+        return new SpecialPriceLookupResult(result, lookupComplete);
     }
 
     private static BusinessPartnerSpecialPriceDto? ParseCurrentBusinessPartnerSpecialPrice(JsonElement item, DateTime todayUtc)

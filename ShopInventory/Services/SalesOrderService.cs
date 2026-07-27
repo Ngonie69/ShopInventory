@@ -2731,8 +2731,38 @@ public class SalesOrderService : ISalesOrderService
                 .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, pricingCts.Token);
-            foreach (var specialPrice in specialPrices)
+            var specialPriceLookup = await _sapClient.GetSpecialPricesForBPWithStatusAsync(order.CardCode, itemCodes, pricingCts.Token);
+
+            if (!specialPriceLookup.IsComplete)
+            {
+                // Falling through to list price would overcharge a customer who has negotiated
+                // rates. Special prices are agreed for long validity windows and change rarely, so
+                // the synced local copy is a sound stand-in — and it is applied before the live
+                // result below, so anything SAP did manage to return still wins.
+                var storedSpecialPrices = await _localPriceCatalogService.GetActiveSpecialPricesAsync(
+                    order.CardCode,
+                    itemCodes,
+                    pricingCts.Token);
+
+                foreach (var storedSpecialPrice in storedSpecialPrices)
+                {
+                    if (storedSpecialPrice.Value > 0)
+                    {
+                        priceMap[storedSpecialPrice.Key] = storedSpecialPrice.Value;
+                    }
+                }
+
+                // Approval deliberately continues either way — a special-price outage should not
+                // stop reps posting orders — but which prices the document was built from has to
+                // be on the record against the order number.
+                _logger.LogWarning(
+                    "Special prices for order {OrderId} (BP: {CardCode}) could not be fully retrieved from SAP; applied {StoredCount} special price(s) from the local catalog instead. Any item missing from both is priced at list and may be too high.",
+                    order.Id,
+                    order.CardCode,
+                    storedSpecialPrices.Count);
+            }
+
+            foreach (var specialPrice in specialPriceLookup.Prices)
             {
                 if (!string.IsNullOrWhiteSpace(specialPrice.Key) && specialPrice.Value > 0)
                 {
