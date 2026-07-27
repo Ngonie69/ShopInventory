@@ -736,16 +736,18 @@ public sealed class GetAccountSalesPaymentReportHandler(
         string.Equals(value, "Canceled", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "Void", StringComparison.OrdinalIgnoreCase);
 
-    private static decimal GetPaymentTotal(IncomingPayment payment)
-    {
-        var methodTotal = payment.CashSum + payment.CheckSum + payment.TransferSum + payment.CreditSum;
-        if (methodTotal != 0m)
-        {
-            return methodTotal;
-        }
-
-        return payment.DocTotal != 0m ? payment.DocTotal : payment.DocTotalFc;
-    }
+    /// <summary>
+    /// A SAP payment is worth the sum of its means of payment; <see cref="IncomingPayment.DocTotal"/>
+    /// composes that from the rows SAP returns.
+    /// </summary>
+    /// <remarks>
+    /// This used to add <c>CheckSum</c> and <c>CreditSum</c> and then fall back to <c>DocTotal</c>
+    /// and <c>DocTotalFc</c>. All four were bound to fields that do not exist on <c>SAPB1.Payment</c>
+    /// and were therefore always zero, so a payment settled entirely by cheque or card counted as
+    /// nothing here and a mixed payment counted only its cash and transfer parts. That understated
+    /// collections and both collection-rate percentages.
+    /// </remarks>
+    private static decimal GetPaymentTotal(IncomingPayment payment) => payment.DocTotal;
 
     private static decimal GetPaymentTotal(IncomingPaymentEntity payment)
     {

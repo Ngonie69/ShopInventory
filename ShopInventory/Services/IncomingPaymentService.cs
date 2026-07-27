@@ -32,8 +32,10 @@ namespace ShopInventory.Services
                     DocDate = p.DocDate?.ToString(),
                     CardCode = p.CardCode,
                     CardName = p.CardName,
-                    // Calculate total from payment method sums if DocTotal is 0
-                    DocTotal = p.DocTotal > 0 ? p.DocTotal : p.CashSum + p.TransferSum + p.CheckSum + p.CreditSum,
+                    // DocTotal is already composed from the four means of payment; SAP has no
+                    // header total on a payment. The fallback that used to sit here added CheckSum
+                    // and CreditSum, which were bound to non-existent SAP fields and always zero.
+                    DocTotal = p.DocTotal,
                     DocCurrency = p.DocCurrency,
                     Remarks = p.Remarks,
                     CashSum = p.CashSum,
@@ -64,8 +66,10 @@ namespace ShopInventory.Services
                     DocDate = payment.DocDate?.ToString(),
                     CardCode = payment.CardCode,
                     CardName = payment.CardName,
-                    // Calculate total from payment method sums if DocTotal is 0
-                    DocTotal = payment.DocTotal > 0 ? payment.DocTotal : payment.CashSum + payment.TransferSum + payment.CheckSum + payment.CreditSum,
+                    // DocTotal is already composed from the four means of payment; SAP has no
+                    // header total on a payment. The fallback that used to sit here added CheckSum
+                    // and CreditSum, which were bound to non-existent SAP fields and always zero.
+                    DocTotal = payment.DocTotal,
                     DocCurrency = payment.DocCurrency,
                     Remarks = payment.Remarks,
                     CashSum = payment.CashSum,
@@ -94,8 +98,10 @@ namespace ShopInventory.Services
                     DocDate = p.DocDate?.ToString(),
                     CardCode = p.CardCode,
                     CardName = p.CardName,
-                    // Calculate total from payment method sums if DocTotal is 0
-                    DocTotal = p.DocTotal > 0 ? p.DocTotal : p.CashSum + p.TransferSum + p.CheckSum + p.CreditSum,
+                    // DocTotal is already composed from the four means of payment; SAP has no
+                    // header total on a payment. The fallback that used to sit here added CheckSum
+                    // and CreditSum, which were bound to non-existent SAP fields and always zero.
+                    DocTotal = p.DocTotal,
                     DocCurrency = p.DocCurrency,
                     Remarks = p.Remarks,
                     CashSum = p.CashSum,
