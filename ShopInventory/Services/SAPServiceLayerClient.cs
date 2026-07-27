@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -2333,7 +2334,6 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var queryCode = $"WHS_ITEM_CODES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
         var sqlText = $@"SELECT DISTINCT T0.""ItemCode""
 FROM OBTN T0
@@ -2341,80 +2341,77 @@ INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
 WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0
 ORDER BY T0.""ItemCode""";
 
-        try
+        var queryCode = BuildContentAddressedQueryCode(
+            $"WHS_ITEM_CODES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
+            sqlText);
+
+        await EnsureSqlQueryAsync(queryCode, $"Warehouse item codes for {warehouseCode}", sqlText, cancellationToken);
+
+        var itemCodes = new List<string>();
+        const int pageSize = 500;
+        var skip = 0;
+
+        while (true)
         {
-            await CreateSqlQueryAsync(queryCode, $"Warehouse item codes for {warehouseCode}", sqlText, cancellationToken);
+            var url = skip == 0
+                ? $"SQLQueries('{queryCode}')/List"
+                : $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var itemCodes = new List<string>();
-            const int pageSize = 500;
-            var skip = 0;
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
 
-            while (true)
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                var url = skip == 0
-                    ? $"SQLQueries('{queryCode}')/List"
-                    : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-
-                var response = await _httpClient.SendAsync(request, cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                    request = new HttpRequestMessage(HttpMethod.Get, url);
-                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                    response = await _httpClient.SendAsync(request, cancellationToken);
-                }
-
-                if (response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    return [];
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError(
-                        "Failed to get warehouse item codes for {Warehouse}: {StatusCode} - {Error}",
-                        warehouseCode,
-                        response.StatusCode,
-                        errorContent);
-                    throw new Exception($"Failed to get warehouse item codes: {response.StatusCode} - {errorContent}");
-                }
-
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                var pageItemCodes = ParseItemCodesFromSqlResult(content);
-                if (pageItemCodes.Count == 0)
-                {
-                    break;
-                }
-
-                itemCodes.AddRange(pageItemCodes);
-
-                if (pageItemCodes.Count < pageSize)
-                {
-                    break;
-                }
-
-                skip += pageItemCodes.Count;
+                response = await _httpClient.SendAsync(request, cancellationToken);
             }
 
-            return itemCodes
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return [];
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Failed to get warehouse item codes for {Warehouse}: {StatusCode} - {Error}",
+                    warehouseCode,
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to get warehouse item codes: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageItemCodes = ParseItemCodesFromSqlResult(content);
+            if (pageItemCodes.Count == 0)
+            {
+                break;
+            }
+
+            itemCodes.AddRange(pageItemCodes);
+
+            if (pageItemCodes.Count < pageSize)
+            {
+                break;
+            }
+
+            skip += pageItemCodes.Count;
         }
-        finally
-        {
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
-        }
+
+        return itemCodes
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private static string BuildWarehouseItemCodesCacheKey(string warehouseCode)
@@ -2497,7 +2494,6 @@ ORDER BY T0.""ItemCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var queryCode = $"WHS_ITEM_CODES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
         var sqlText = $@"SELECT DISTINCT T0.""ItemCode""
 FROM OBTN T0
@@ -2505,52 +2501,49 @@ INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
 WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0
 ORDER BY T0.""ItemCode""";
 
-        try
+        var queryCode = BuildContentAddressedQueryCode(
+            $"WHS_ITEM_CODES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
+            sqlText);
+
+        await EnsureSqlQueryAsync(queryCode, $"Paged item codes for {warehouseCode}", sqlText, cancellationToken);
+
+        var url = skip == 0
+            ? $"SQLQueries('{queryCode}')/List"
+            : $"SQLQueries('{queryCode}')/List?$skip={skip}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            await CreateSqlQueryAsync(queryCode, $"Paged item codes for {warehouseCode}", sqlText, cancellationToken);
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
 
-            var url = skip == 0
-                ? $"SQLQueries('{queryCode}')/List"
-                : $"SQLQueries('{queryCode}')/List?$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                return [];
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to get paged item codes in warehouse {Warehouse}: {StatusCode} - {Error}",
-                    warehouseCode, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get paged item codes: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            return ParseItemCodesFromSqlResult(content);
+            response = await _httpClient.SendAsync(request, cancellationToken);
         }
-        finally
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
         {
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
+            return [];
         }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to get paged item codes in warehouse {Warehouse}: {StatusCode} - {Error}",
+                warehouseCode, response.StatusCode, errorContent);
+            throw new Exception($"Failed to get paged item codes: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return ParseItemCodesFromSqlResult(content);
     }
 
     private List<string> ParseItemCodesFromSqlResult(string jsonContent)
@@ -2641,8 +2634,6 @@ ORDER BY T0.""ItemCode""";
 
         var queryCode = $"ITEM_BATCHES_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get batch numbers for a specific item in a warehouse
         var safeItem = SanitizeSqlValue(itemCode);
@@ -2656,7 +2647,7 @@ ORDER BY T0.""ItemCode""";
         try
         {
             // Create the SQL query
-            await CreateSqlQueryAsync(queryCode, $"Batches for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, $"Batches for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
 
             // Execute the query
             var url = $"SQLQueries('{queryCode}')/List";
@@ -2719,7 +2710,6 @@ ORDER BY T0.""ItemCode""";
 
         await EnsureAuthenticatedAsync(cancellationToken);
 
-        var queryCode = $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
         var safeItemCodes = string.Join(", ", codes.Select(code => $"'{SanitizeSqlValue(code)}'"));
         var sqlText = $@"SELECT T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"" as ""InStock"", T1.""WhsCode"",
@@ -2729,15 +2719,12 @@ INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
 WHERE T1.""WhsCode"" = '{safeWarehouse}' AND T1.""Quantity"" > 0 AND T0.""ItemCode"" IN ({safeItemCodes})
 ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
-        try
-        {
-            await CreateSqlQueryAsync(queryCode, $"Batches for {warehouseCode} page items", sqlText, cancellationToken);
-            return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
-        }
-        finally
-        {
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
-        }
+        var queryCode = BuildContentAddressedQueryCode(
+            $"WHS_BATCHES_{warehouseCode.Replace("-", "_").Replace("/", "_").ToUpperInvariant()}",
+            sqlText);
+
+        await EnsureSqlQueryAsync(queryCode, $"Batches for {warehouseCode} page items", sqlText, cancellationToken);
+        return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
     }
 
     private async Task<List<BatchNumber>> GetBatchNumbersForItemFallbackAsync(
@@ -2819,7 +2806,6 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             return [];
         }
 
-        var queryCode = $"BATCH_SEARCH_{Random.Shared.Next(100000, 999999)}";
         var safeSearchTerm = SanitizeSqlValue(trimmedSearchTerm.ToUpperInvariant());
         var sqlText = $@"SELECT T0.""AbsEntry"" as ""BatchEntryId"", T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"", T1.""WhsCode"" as ""WarehouseCode"", T0.""Status"", T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
 FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
@@ -2827,15 +2813,10 @@ INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
 WHERE T1.""Quantity"" > 0 AND UPPER(T0.""DistNumber"") LIKE '%{safeSearchTerm}%'
 ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
-        try
-        {
-            await CreateSqlQueryAsync(queryCode, $"Batch search for {trimmedSearchTerm}", sqlText, cancellationToken);
-            return await ExecuteBatchSearchQueryAsync(queryCode, cancellationToken);
-        }
-        finally
-        {
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
-        }
+        var queryCode = BuildContentAddressedQueryCode("BATCH_SEARCH", sqlText);
+
+        await EnsureSqlQueryAsync(queryCode, $"Batch search for {trimmedSearchTerm}", sqlText, cancellationToken);
+        return await ExecuteBatchSearchQueryAsync(queryCode, cancellationToken);
     }
 
     public async Task UpdateBatchStatusAsync(int batchEntryId, string status, CancellationToken cancellationToken = default)
@@ -3007,8 +2988,6 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
         var queryCode = $"WHS_BATCHES_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
-        // Try to delete existing query first (in case SQL changed or warehouse changed)
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get all batch numbers in a warehouse
         var safeWarehouse = SanitizeSqlValue(warehouseCode);
@@ -3020,7 +2999,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                       $"ORDER BY T0.\"ItemCode\", T0.\"DistNumber\"";
 
         // Create the SQL query
-        await CreateSqlQueryAsync(queryCode, $"Batches in {warehouseCode}", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, $"Batches in {warehouseCode}", sqlText, cancellationToken);
 
         // Execute the query and retrieve results
         return await ExecuteBatchQueryAsync(queryCode, warehouseCode, cancellationToken);
@@ -3109,8 +3088,6 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
         var queryCode = $"ITEM_SERIALS_{itemCode.Replace("-", "_").ToUpperInvariant()}_{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get serial numbers for a specific item in a warehouse
         var safeItem = SanitizeSqlValue(itemCode);
@@ -3125,7 +3102,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         try
         {
             // Create the SQL query
-            await CreateSqlQueryAsync(queryCode, $"Serials for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, $"Serials for {itemCode} in {warehouseCode}", sqlText, cancellationToken);
 
             // Execute the query
             var url = $"SQLQueries('{queryCode}')/List";
@@ -3219,13 +3196,11 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        // Try to delete existing query first (in case SQL changed)
-        await TryDeleteQueryAsync(PriceQueryCode, cancellationToken);
 
         // Create and execute the SQL query
         var sqlText = @"SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0";
 
-        await CreateSqlQueryAsync(PriceQueryCode, "Shop Item Prices", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(PriceQueryCode, "Shop Item Prices", sqlText, cancellationToken);
 
         var prices = await ExecuteSqlQueryAsync(PriceQueryCode, cancellationToken);
 
@@ -3241,35 +3216,143 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
         var queryCode = $"SHOP_PRICE_{itemCode.Replace("-", "_").ToUpperInvariant()}";
 
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // Create item-specific query
         var safeItem = SanitizeSqlValue(itemCode);
         var sqlText = $@"SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'USD' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 13 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}' UNION ALL SELECT T1.""ItemCode"", T1.""ItemName"", T0.""Price"", 'ZIG' AS ""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = 12 AND T0.""Price"" > 0 AND T1.""ItemCode"" = '{safeItem}'";
 
-        await CreateSqlQueryAsync(queryCode, $"Price for {itemCode}", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, $"Price for {itemCode}", sqlText, cancellationToken);
 
         var prices = await ExecuteSqlQueryAsync(queryCode, cancellationToken);
-
-        // Clean up item-specific query
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         return prices;
     }
 
-    private async Task TryDeleteQueryAsync(string queryCode, CancellationToken cancellationToken)
+    /// <summary>
+    /// Makes sure <paramref name="queryCode"/> exists on SAP with exactly <paramref name="sqlText"/>,
+    /// doing no write at all when it is already correct.
+    /// </summary>
+    /// <remarks>
+    /// Reads against SQLQueries stay in the tens of milliseconds even on a bloated OUQR, while POST
+    /// and PATCH degrade into tens of seconds. Checking first therefore turns the steady state —
+    /// the query is already there from a previous call — into a cheap GET.
+    /// </remarks>
+    private async Task EnsureSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken)
     {
+        var existingSqlText = await TryGetSqlQueryTextAsync(queryCode, cancellationToken);
+
+        if (existingSqlText is not null &&
+            string.Equals(NormalizeSqlText(existingSqlText), NormalizeSqlText(sqlText), StringComparison.Ordinal))
+        {
+            _logger.LogDebug("Reusing existing SAP SQL query '{QueryCode}'", queryCode);
+            return;
+        }
+
+        if (existingSqlText is not null)
+        {
+            // Same code, different text: either a fingerprint collision or the statement was edited.
+            // Repair it so the caller never executes someone else's SQL.
+            _logger.LogInformation(
+                "SAP SQL query '{QueryCode}' exists with different text; updating it before execution",
+                queryCode);
+            var patchStatus = await PatchSqlQueryAsync(queryCode, sqlText, cancellationToken);
+            if ((int)patchStatus is >= 200 and < 300)
+            {
+                return;
+            }
+
+            if (patchStatus != HttpStatusCode.NotFound)
+            {
+                throw new HttpRequestException(
+                    $"Failed to update SAP SQL query '{queryCode}': PATCH returned {patchStatus}.",
+                    null,
+                    patchStatus);
+            }
+        }
+
+        await CreateSqlQueryAsync(queryCode, BuildQueryName(queryName, sqlText), sqlText, cancellationToken);
+    }
+
+    /// <summary>
+    /// Stamps the SQL fingerprint onto the human-readable name so the name is unique whenever the
+    /// code is.
+    /// </summary>
+    /// <remarks>
+    /// SAP has been observed rejecting a create with -2035 ("entry already exists") for a SqlCode
+    /// that a GET reports as 404, which points at SqlName being constrained too. Deriving both from
+    /// the same fingerprint means a caller can never collide on the name without also colliding on
+    /// the code — where sharing the object is the intended behaviour. SAP caps the name near 50
+    /// characters, hence the truncation.
+    /// </remarks>
+    private static string BuildQueryName(string queryName, string sqlText)
+    {
+        var fingerprint = ComputeSqlFingerprint(sqlText);
+        return queryName.EndsWith(fingerprint, StringComparison.Ordinal)
+            ? queryName
+            : $"{Truncate(queryName, 36)} {fingerprint}";
+    }
+
+    /// <summary>
+    /// Returns the stored SqlText for <paramref name="queryCode"/>, or null when it does not exist.
+    /// </summary>
+    private async Task<string?> TryGetSqlQueryTextAsync(string queryCode, CancellationToken cancellationToken)
+    {
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"SQLQueries('{queryCode}')?$select=SqlText");
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+
+        var currentSession = _sessionId;
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"look up SQL query '{queryCode}'",
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"look up SQL query '{queryCode}' after SAP re-authentication",
+                cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // Treat an unreadable probe as "not present" and let the create path report the real
+            // failure, rather than failing the caller on a lookup that is only an optimisation.
+            return null;
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
         try
         {
-            var url = $"SQLQueries('{queryCode}')";
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Delete, url);
-            httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            using var document = JsonDocument.Parse(content);
+            return document.RootElement.TryGetProperty("SqlText", out var sqlTextElement)
+                && sqlTextElement.ValueKind == JsonValueKind.String
+                    ? sqlTextElement.GetString()
+                    : null;
         }
-        catch
+        catch (JsonException)
         {
-            // Ignore delete errors
+            return null;
         }
     }
 
@@ -3491,7 +3574,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         string sqlText,
         CancellationToken cancellationToken)
     {
-        await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
 
         var rows = new List<JsonElement>();
         var skip = 0;
@@ -3708,8 +3791,6 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         var priceLists = new List<PriceListDto>();
         var queryCode = "SHOP_PRICE_LISTS";
 
-        // Delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // Create SQL query to fetch price lists from OPLN table
         // BASE_NUM and Factor are needed for price lists derived from another list.
@@ -3723,87 +3804,79 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         FROM OPLN T0
         ORDER BY T0.""ListNum""";
 
-        try
+        await EnsureSqlQueryAsync(queryCode, "Get Price Lists", sqlText, cancellationToken);
+
+        var skip = 0;
+        const int pageSize = 500;
+        bool hasMore = true;
+
+        while (hasMore)
         {
-            await CreateSqlQueryAsync(queryCode, "Get Price Lists", sqlText, cancellationToken);
+            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
 
-            var skip = 0;
-            const int pageSize = 500;
-            bool hasMore = true;
-
-            while (hasMore)
+            HttpRequestMessage CreateRequest()
             {
-                var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return request;
+            }
 
-                HttpRequestMessage CreateRequest()
-                {
-                    var request = new HttpRequestMessage(HttpMethod.Get, url);
-                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                    request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
-                    return request;
-                }
+            // Same performance budget as the per-price-list item queries below. OPLN holds a few
+            // dozen rows, so this can only be slow when the SQLQueries endpoint itself is
+            // degraded — and when that happened, three attempts each ran the full five minutes
+            // into a proxy 502, burning a quarter hour and holding a SAP concurrency slot the
+            // whole time before failing the entire catalog sync.
+            var response = await SendPriceListRequestWithBudgetAsync(
+                syncHttpClient,
+                CreateRequest,
+                $"price lists query '{queryCode}' at skip {skip}",
+                cancellationToken);
 
-                // Same performance budget as the per-price-list item queries below. OPLN holds a few
-                // dozen rows, so this can only be slow when the SQLQueries endpoint itself is
-                // degraded — and when that happened, three attempts each ran the full five minutes
-                // into a proxy 502, burning a quarter hour and holding a SAP concurrency slot the
-                // whole time before failing the entire catalog sync.
-                var response = await SendPriceListRequestWithBudgetAsync(
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+
+                response = await SendPriceListRequestWithBudgetAsync(
                     syncHttpClient,
                     CreateRequest,
-                    $"price lists query '{queryCode}' at skip {skip}",
+                    $"price lists query '{queryCode}' at skip {skip} after SAP re-authentication",
                     cancellationToken);
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    await HandleAuthFailureAsync(currentSession, cancellationToken);
-                    response.Dispose();
-
-                    response = await SendPriceListRequestWithBudgetAsync(
-                        syncHttpClient,
-                        CreateRequest,
-                        $"price lists query '{queryCode}' at skip {skip} after SAP re-authentication",
-                        cancellationToken);
-                }
-
-                using var responseOwner = response;
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogError("Failed to get price lists: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    throw new Exception($"Failed to get price lists: {response.StatusCode} - {errorContent}");
-                }
-
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
-                var pageLists = ParsePriceListsFromSqlResponse(content);
-                priceLists.AddRange(pageLists);
-
-                _logger.LogDebug("Retrieved {PageCount} price lists at skip={Skip}, total: {Total}",
-                    pageLists.Count, skip, priceLists.Count);
-
-                // Check for more pages
-                using var doc = JsonDocument.Parse(content);
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _);
-
-                if (!hasMore && pageLists.Count >= pageSize)
-                {
-                    hasMore = true;
-                }
-
-                if (pageLists.Count == 0)
-                {
-                    hasMore = false;
-                }
-
-                skip += pageLists.Count > 0 ? pageLists.Count : pageSize;
             }
-        }
-        finally
-        {
-            // Clean up the temporary query
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
+
+            using var responseOwner = response;
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Failed to get price lists: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                throw new Exception($"Failed to get price lists: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageLists = ParsePriceListsFromSqlResponse(content);
+            priceLists.AddRange(pageLists);
+
+            _logger.LogDebug("Retrieved {PageCount} price lists at skip={Skip}, total: {Total}",
+                pageLists.Count, skip, priceLists.Count);
+
+            // Check for more pages
+            using var doc = JsonDocument.Parse(content);
+            hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                      doc.RootElement.TryGetProperty("@odata.nextLink", out _);
+
+            if (!hasMore && pageLists.Count >= pageSize)
+            {
+                hasMore = true;
+            }
+
+            if (pageLists.Count == 0)
+            {
+                hasMore = false;
+            }
+
+            skip += pageLists.Count > 0 ? pageLists.Count : pageSize;
         }
 
         _logger.LogInformation("Total price lists retrieved: {Count}", priceLists.Count);
@@ -4080,10 +4153,6 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
                 out var basePriceList,
                 out var factor);
 
-            // Use unique query code per invocation to prevent race conditions between concurrent requests
-            var suffix = Random.Shared.Next(100000, 999999);
-            var queryCode = $"SH_PL{priceListNum}_{suffix}";
-
             var sqlText = $@"
 SELECT T0.""ItemCode"",
        T1.""ItemName"",
@@ -4101,6 +4170,10 @@ WHERE T0.""PriceList"" = {priceListNum}
   AND T0.""Price"" > 0
 ORDER BY T0.""ItemCode""";
 
+            // Keyed by the statement, so every sync of this list reuses one SAP-side object. The
+            // code carries the list number purely to stay legible in SAP's query manager.
+            var queryCode = BuildContentAddressedQueryCode($"SH_PL{priceListNum}", sqlText);
+
             List<ItemPriceByListDto> prices;
             var resolutionSnapshot = _priceListItemsApiSnapshot.Value;
             var shouldAttemptSql = resolutionSnapshot?.SqlUnavailable != true;
@@ -4110,37 +4183,31 @@ ORDER BY T0.""ItemCode""";
             {
                 using var sqlTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 sqlTimeoutSource.CancelAfter(TimeSpan.FromSeconds(sqlTimeoutSeconds));
+
+                // The query object is deliberately left in place. It is keyed by this statement, so
+                // the next sync of this list reuses it instead of paying for another create.
                 try
                 {
-                    try
-                    {
-                        await CreateSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, sqlTimeoutSource.Token);
-                        prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, isDerivedPriceList, sqlTimeoutSource.Token);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        sqlQueryFailed = true;
-                        if (resolutionSnapshot is not null)
-                        {
-                            resolutionSnapshot.SqlUnavailable = true;
-                        }
-
-                        _logger.LogWarning(
-                            ex,
-                            "SQL query path failed for price list {PriceListNum}; the remaining lists in this sync will use the shared Items API fallback",
-                            priceListNum);
-                        prices = [];
-                    }
+                    await EnsureSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, sqlTimeoutSource.Token);
+                    prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, isDerivedPriceList, sqlTimeoutSource.Token);
                 }
-                finally
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
-                    using var cleanupTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    cleanupTimeoutSource.CancelAfter(TimeSpan.FromSeconds(Math.Min(10, sqlTimeoutSeconds)));
-                    await TryDeleteQueryAsync(queryCode, cleanupTimeoutSource.Token);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    sqlQueryFailed = true;
+                    if (resolutionSnapshot is not null)
+                    {
+                        resolutionSnapshot.SqlUnavailable = true;
+                    }
+
+                    _logger.LogWarning(
+                        ex,
+                        "SQL query path failed for price list {PriceListNum}; the remaining lists in this sync will use the shared Items API fallback",
+                        priceListNum);
+                    prices = [];
                 }
             }
             else
@@ -4818,14 +4885,12 @@ ORDER BY T0.""ItemCode""";
         var safeItemCode = itemCode.Replace("-", "_").Replace("'", "").ToUpperInvariant();
         var queryCode = $"SHOP_ITEM_PRICE_{safeItemCode}_{priceListNum}";
 
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query for specific item and price list - includes FrgnName for fiscalisation
         var safeItem = SanitizeSqlValue(itemCode);
         var sqlText = $@"SELECT T0.""ItemCode"", T1.""ItemName"", T1.""FrgnName"", T0.""PriceList"", T0.""Price"", T0.""Currency"" FROM ITM1 T0 INNER JOIN OITM T1 ON T0.""ItemCode"" = T1.""ItemCode"" WHERE T0.""PriceList"" = {priceListNum} AND T0.""ItemCode"" = '{safeItem}'";
 
-        await CreateSqlQueryAsync(queryCode, $"Price for {itemCode} in List {priceListNum}", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, $"Price for {itemCode} in List {priceListNum}", sqlText, cancellationToken);
 
         var url = $"SQLQueries('{queryCode}')/List";
 
@@ -4844,9 +4909,6 @@ ORDER BY T0.""ItemCode""";
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         }
-
-        // Clean up query
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -5878,8 +5940,6 @@ ORDER BY T0.""ItemCode""";
 
         var queryCode = $"{StockQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get stock quantities - conditionally include custom packaging code fields
         var customFieldsSql = _settings.UseCustomFields
@@ -5904,7 +5964,7 @@ ORDER BY T0.""ItemCode""";
         ORDER BY T0.""ItemCode""";
 
         // Create the SQL query
-        await CreateSqlQueryAsync(queryCode, $"Stock Quantities in {warehouseCode}", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, $"Stock Quantities in {warehouseCode}", sqlText, cancellationToken);
 
         // Execute the query and retrieve results
         return await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken);
@@ -5930,7 +5990,6 @@ ORDER BY T0.""ItemCode""";
         var stocks = new List<StockQuantityDto>();
         foreach (var batch in codes.Chunk(100))
         {
-            var queryCode = $"STK_ITEMS_{Guid.NewGuid().ToString("N")[..12]}";
             var safeWarehouse = SanitizeSqlValue(warehouseCode);
             var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
 
@@ -5956,15 +6015,10 @@ ORDER BY T0.""ItemCode""";
           AND T0.""ItemCode"" IN ({safeItemCodes})
         ORDER BY T0.""ItemCode""";
 
-            try
-            {
-                await CreateSqlQueryAsync(queryCode, $"Stock validation items in {warehouseCode}", sqlText, cancellationToken);
-                stocks.AddRange(await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken));
-            }
-            finally
-            {
-                await TryDeleteQueryAsync(queryCode, cancellationToken);
-            }
+            var queryCode = BuildContentAddressedQueryCode("STK_ITEMS", sqlText);
+
+            await EnsureSqlQueryAsync(queryCode, $"Stock validation items in {warehouseCode}", sqlText, cancellationToken);
+            stocks.AddRange(await ExecuteStockQueryAsync(queryCode, warehouseCode, cancellationToken));
         }
 
         _logger.LogInformation("Retrieved stock quantities for {ItemCount} requested items in warehouse {Warehouse}, matched {MatchedCount}",
@@ -5998,8 +6052,6 @@ ORDER BY T0.""ItemCode""";
         // Then apply OData pagination on the /List endpoint
         var queryCode = $"{StockQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}";
 
-        // Try to delete and recreate query
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // Simple SQL without pagination - SAP doesn't support standard SQL pagination
         // Filter only items with stock to improve performance
@@ -6017,7 +6069,7 @@ ORDER BY T0.""ItemCode""";
         WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
         ORDER BY T0.""ItemCode""";
 
-        await CreateSqlQueryAsync(queryCode, $"Stock Quantities in {warehouseCode}", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, $"Stock Quantities in {warehouseCode}", sqlText, cancellationToken);
 
         // Execute and apply OData pagination on results (this is the key!)
         var url = $"SQLQueries('{queryCode}')/List?$skip={skip}&$top={pageSize}";
@@ -6087,35 +6139,22 @@ ORDER BY T0.""ItemCode""";
     {
         try
         {
-            // Check if query exists first
-            var checkUrl = $"SQLQueries('{queryCode}')";
-            var checkRequest = new HttpRequestMessage(HttpMethod.Get, checkUrl);
-            checkRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-
-            var checkResponse = await _httpClient.SendAsync(checkRequest, cancellationToken);
-            if (checkResponse.IsSuccessStatusCode)
-            {
-                // Query already exists, no need to create
-                return;
-            }
-
-            // Create the query
-            await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to create SQL query {QueryCode}, it may already exist", queryCode);
+            _logger.LogWarning(ex, "Failed to provision SQL query {QueryCode}", queryCode);
         }
     }
 
     /// <summary>
     /// Execute a raw SQL query via SAP Service Layer and return results as dictionaries.
-    /// Creates or updates the named SQLQueries entry before executing it.
+    /// Reuses the named SQLQueries entry when it already holds this exact statement.
     /// </summary>
     public async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        await CreateSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
 
         var allRows = new List<Dictionary<string, object?>>();
         var skip = 0;
@@ -6199,33 +6238,61 @@ ORDER BY T0.""ItemCode""";
     }
 
     /// <summary>
-    /// Execute one-off SQL under a code and name unique to this call, then delete the query object.
-    /// SAP enforces uniqueness on both SqlCode and SqlName, and a SQLQueries entry is a mutable
-    /// server-side object: a fixed code means two concurrent callers PATCH the same object and each
-    /// can read the other's rows, while a fixed name makes the second concurrent create fail -2035.
+    /// Execute one-off SQL under a code derived from the SQL text itself, reusing the SAP-side
+    /// query object across calls instead of creating and deleting one per request.
     /// </summary>
+    /// <remarks>
+    /// This used to mint a random code per call and delete it in a <c>finally</c>. That leaked:
+    /// DELETE against a large OUQR takes minutes and silently exceeded every cleanup budget, so
+    /// each call left a row behind, which made OUQR bigger, which made the next write slower.
+    /// Content-addressing the code fixes the leak and the concurrency hazard at once — two callers
+    /// only collide on a code when their SQL text is byte-identical, so sharing the object cannot
+    /// leak one caller's rows into the other's result. Nothing is deleted, so there is no
+    /// "one caller removes the object while another is reading it" race either.
+    /// </remarks>
     public async Task<List<Dictionary<string, object?>>> ExecuteScopedRawSqlQueryAsync(
         string queryCodePrefix,
         string queryNamePrefix,
         string sqlText,
         CancellationToken cancellationToken = default)
     {
-        var suffix = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
-        var queryCode = $"{Truncate(queryCodePrefix, 24)}_{suffix}";
-        // SAP caps the name around 50 characters, so leave room for the suffix.
-        var queryName = $"{Truncate(queryNamePrefix, 36)} {suffix}";
+        var queryCode = BuildContentAddressedQueryCode(queryCodePrefix, sqlText);
 
-        try
-        {
-            return await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
-        }
-        finally
-        {
-            // Not the caller's token: a cancelled or timed-out request must still clean up after
-            // itself, otherwise these per-request codes accumulate in SAP forever.
-            await TryDeleteQueryAsync(queryCode, CancellationToken.None);
-        }
+        return await ExecuteRawSqlQueryAsync(queryCode, queryNamePrefix, sqlText, cancellationToken);
     }
+
+    /// <summary>
+    /// Builds a stable SQLQueries code for <paramref name="sqlText"/>: the same SQL always maps to
+    /// the same code, so repeated calls reuse one SAP-side object rather than accumulating rows.
+    /// </summary>
+    internal static string BuildContentAddressedQueryCode(string queryCodePrefix, string sqlText) =>
+        $"{Truncate(queryCodePrefix, 24)}_{ComputeSqlFingerprint(sqlText)}";
+
+    /// <summary>
+    /// 12 hex characters of SHA-256 over the SQL text. Collisions are not a correctness concern in
+    /// the way a hash collision usually is: a collision would only mean two different statements
+    /// share an object, and <see cref="EnsureSqlQueryAsync"/> repairs any object whose stored text
+    /// does not match what the caller is about to run.
+    /// </summary>
+    private static string ComputeSqlFingerprint(string sqlText)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(NormalizeSqlText(sqlText)));
+        return Convert.ToHexString(hash)[..12];
+    }
+
+    /// <summary>
+    /// Canonicalises line endings so a statement keeps one identity end to end.
+    /// </summary>
+    /// <remarks>
+    /// SAP rewrites the newlines it is given — text posted with CRLF comes back with bare CR. Without
+    /// this, the stored text would never compare equal to the text about to be sent, so every call
+    /// would PATCH: exactly the slow write this whole change exists to avoid. Normalising also keeps
+    /// the fingerprint stable across source files with different line endings.
+    /// </remarks>
+    private static string NormalizeSqlText(string sqlText) =>
+        sqlText.Replace("\r\n", "\n", StringComparison.Ordinal)
+               .Replace("\r", "\n", StringComparison.Ordinal)
+               .Trim();
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
@@ -6442,11 +6509,6 @@ ORDER BY T0.""ItemCode""";
 
         var currentSession = _sessionId;
 
-        var queryCode = $"PKG_STK_{DateTime.UtcNow.Ticks % 100000000}";
-
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
-
         // Build IN clause for item codes - sanitize each code
         var inClause = string.Join(",", codes.Select(c => $"'{SanitizeSqlValue(c)}'"));
 
@@ -6463,12 +6525,13 @@ ORDER BY T0.""ItemCode""";
         WHERE T0.""ItemCode"" IN ({inClause})
         GROUP BY T0.""ItemCode"", T0.""ItemName"", T0.""InvntryUom""";
 
+        var queryCode = BuildContentAddressedQueryCode("PKG_STK", sqlText);
+
         _logger.LogInformation("Fetching packaging material stock for {Count} items: {Items}", codes.Count, string.Join(", ", codes.Take(10)));
 
         try
         {
-            // Create the SQL query
-            await CreateSqlQueryAsync(queryCode, "Packaging Material Stock", sqlText, cancellationToken);
+            await EnsureSqlQueryAsync(queryCode, "Packaging Material Stock", sqlText, cancellationToken);
 
             // Execute the query with pagination to get all results
             var skip = 0;
@@ -6552,11 +6615,6 @@ ORDER BY T0.""ItemCode""";
         {
             _logger.LogWarning(ex, "Failed to get packaging material stock for items");
         }
-        finally
-        {
-            // Clean up the query
-            await TryDeleteQueryAsync(queryCode, cancellationToken);
-        }
 
         return result;
     }
@@ -6613,8 +6671,6 @@ ORDER BY T0.""ItemCode""";
         var toDateStr = toDate.ToString("yyyyMMdd");
         var queryCode = $"{SalesQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}_{fromDateStr}_{toDateStr}";
 
-        // Try to delete existing query first
-        await TryDeleteQueryAsync(queryCode, cancellationToken);
 
         // SQL query to get sales quantities by warehouse and date range with packaging code fields
         var sqlText = $@"SELECT 
@@ -6640,7 +6696,7 @@ ORDER BY T0.""ItemCode""";
         ORDER BY SUM(T1.""Quantity"") DESC";
 
         // Create the SQL query
-        await CreateSqlQueryAsync(queryCode, $"Sales Quantities in {warehouseCode}", sqlText, cancellationToken);
+        await EnsureSqlQueryAsync(queryCode, $"Sales Quantities in {warehouseCode}", sqlText, cancellationToken);
 
         // Execute the query and retrieve results
         return await ExecuteSalesQueryAsync(queryCode, warehouseCode, cancellationToken);
@@ -11357,23 +11413,19 @@ ORDER BY T0.""ItemCode""";
 
         foreach (var batch in itemCodes.Chunk(40))
         {
-            var queryCode = $"SO_UOM_{sourceName.Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant()}_{Random.Shared.Next(100000, 999999)}";
             var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
             var sqlText = BuildSalesOrderLineUomHistorySql(headerTable, lineTable, safeItemCodes);
 
+            // Two approvals resolving UoMs at the same moment now share one object rather than
+            // racing over it: identical batches produce an identical statement and therefore an
+            // identical code, so neither can see the other's rows or delete it mid-read.
+            var queryCode = BuildContentAddressedQueryCode(
+                $"SO_UOM_{sourceName.Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant()}",
+                sqlText);
+
             try
             {
-                await TryDeleteQueryAsync(queryCode, cancellationToken);
-
-                // SAP enforces uniqueness on the query name as well as the code. A constant name
-                // meant two approvals resolving UoMs at the same moment collided: the second
-                // create came back -2035 "already exists", the code assumed its own randomised
-                // code was the one that existed, PATCHed it, got NotFound, and gave up — falling
-                // back to a guessed unit. Naming the query after its code keeps them independent.
-                // Kept short deliberately: the previous name was already 44 characters and these
-                // queries are transient, so the code carries the meaning and the name only has to
-                // be unique.
-                await CreateSqlQueryAsync(
+                await EnsureSqlQueryAsync(
                     queryCode,
                     $"Sales order UoM {queryCode}",
                     sqlText,
@@ -11404,10 +11456,6 @@ ORDER BY T0.""ItemCode""";
                     "Failed to batch resolve canonical SAP UoMs from {SourceName} history for {ItemCount} sales order item(s)",
                     sourceName,
                     batch.Length);
-            }
-            finally
-            {
-                await TryDeleteQueryAsync(queryCode, cancellationToken);
             }
         }
 

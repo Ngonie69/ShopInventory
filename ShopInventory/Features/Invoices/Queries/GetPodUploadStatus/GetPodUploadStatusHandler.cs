@@ -366,8 +366,8 @@ WHERE T0.""BaseType"" = 13
   AND T1.""DocDate"" <= '{toDateText}'
 ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
-        var rows = await sapClient.ExecuteRawSqlQueryAsync(
-            $"PODCNDT{Random.Shared.Next(100000, 999999)}",
+        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+            "PODCNDT",
             "POD credit note activity invoice links",
             sqlText,
             cancellationToken);
@@ -467,8 +467,8 @@ WHERE T0.""BaseType"" = 13
   AND T1.""CANCELED"" = 'N'
 ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
-                var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                    $"PODCN{Random.Shared.Next(100000, 999999)}{chunkIndex:D2}",
+                var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+                    "PODCN",
                     $"POD credit note links {chunkIndex}",
                     sqlText,
                     cancellationToken);
@@ -790,8 +790,8 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             foreach (var chunk in unresolvedDocEntries.Chunk(100))
             {
                 chunkIndex++;
-                var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                    $"PODCRA{Random.Shared.Next(100000, 999999)}{chunkIndex:D2}",
+                var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+                    "PODCRA",
                     $"POD SAP crate invoice classification {chunkIndex}",
                     BuildCrateInvoiceClassificationSql(chunk),
                     cancellationToken);

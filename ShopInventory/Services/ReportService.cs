@@ -86,9 +86,6 @@ public class ReportService : IReportService
         return $"{prefix}:{string.Join("|", normalizedParts)}";
     }
 
-    private static string BuildReportQueryCode(string prefix) =>
-        $"{prefix}_{Random.Shared.Next(100000, 999999)}";
-
     // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form. A bare 'yyyyMMdd'
     // string is accepted as a valid literal but never matches stored dates, so the
     // query silently returns zero rows (SAP -2028) instead of erroring.
@@ -142,8 +139,8 @@ public class ReportService : IReportService
         string queryName,
         string sqlText,
         CancellationToken cancellationToken) =>
-        _sapClient.ExecuteRawSqlQueryAsync(
-            BuildReportQueryCode(queryCodePrefix),
+        _sapClient.ExecuteScopedRawSqlQueryAsync(
+            queryCodePrefix,
             queryName,
             sqlText,
             cancellationToken);
