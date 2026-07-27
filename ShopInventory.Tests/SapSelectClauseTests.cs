@@ -14,6 +14,17 @@ namespace ShopInventory.Tests;
 /// working. Hand-checking 49 URLs once is not a control; this is, and it also catches the reverse
 /// mistake of adding a property to a model without widening the select, which would leave the
 /// property silently null.
+///
+/// It is a necessary check, not a sufficient one, and the difference matters. <c>Document</c> is a
+/// single EDM type shared by every marketing document, so its property list is the union across all
+/// of them, while SAP validates <c>$select</c> against the entity set at runtime. A name can
+/// therefore be present here and still be rejected: <c>DocTotal</c> on <c>PurchaseRequests</c> and
+/// <c>BaseEntry</c> on <c>CreditNotes</c> both passed this test and were refused by SAP. UDFs cut
+/// the other way — they are absent from the metadata of a company that does not define them, so
+/// this cannot speak to them at all.
+///
+/// <c>ShopInventory.IntegrationTests</c> is what actually settles both. Keep this because it is
+/// free, offline and catches typos in the edit that introduces them.
 /// </remarks>
 public class SapSelectClauseTests
 {

@@ -491,6 +491,46 @@ filter.
 
 ---
 
+## 7a. What the first real SAP run found
+
+The `$select` work in §5.1 was validated against the committed `$metadata` and by a test that
+re-checks it. That was necessary and insufficient, and the first run of
+`ShopInventory.IntegrationTests` against a live Service Layer found four defects.
+
+**`$metadata` does not tell you what a given entity set accepts.** `Document` is one EDM type shared
+by every marketing document, so its property list is the union across all of them, while SAP
+validates `$select` against the entity set at runtime. Three fields passed the metadata check and
+were refused:
+
+| Entity set | Field | Why |
+|---|---|---|
+| `PurchaseRequests` | `DocTotal` | a purchase request carries no document total |
+| `CreditNotes` | `BaseEntry`, `BaseType` | line-level on an A/R credit memo, not header |
+
+All three were already inert — `DocTotal` was read as `?? 0`, and `ResolveOriginalInvoiceDocEntry`
+already fell back to the line-level `BaseEntry` — so dropping them from the selects restores
+behaviour rather than changing it.
+
+**A pre-existing model bug with no coverage.** `SAPPurchaseRequest.Requester` was `int?`; SAP returns
+a user code such as `"Wkshop2"`. Deserialization threw on every purchase request that had a
+requester, which is every real one. It predates this audit entirely; nothing had ever exercised the
+path. Now `string?`, on the model and on the read DTO.
+
+**A UDF is not a schema fact.** `U_OrderNumber` was rejected on `Orders` and `Quotations` on the
+first run, which looked like a fourth bad field. It is not: `UserFieldsMD` shows the UDF defined on
+32 tables including ORDR and OQUT in `KEFALOS_USD_NEW2`, and on neither in `KEFALOS_TEST_3`.
+Removing it would have broken sales order duplicate prevention in production. UDFs are per company
+and per table, and no static check can settle them.
+
+Two consequences worth carrying:
+
+- **The test company cannot run the integration tests.** `KEFALOS_TEST_3` lacks the UDFs, so the
+  suite currently only passes against `KEFALOS_USD_NEW2`. Adding the UDFs to the test company is the
+  fix worth making; pointing a read-only suite at production is a workaround, not an answer.
+- **Beware the default page.** The `UserFieldsMD` query used to settle the UDF question returned
+  exactly 20 rows, ORDR absent, and very nearly produced the wrong conclusion — silently truncated
+  by the same missing `$top` this audit fixes in §7.
+
 ## 8. What is already good
 
 Worth stating so it is not undone:

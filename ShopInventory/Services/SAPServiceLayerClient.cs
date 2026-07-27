@@ -216,11 +216,18 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // checked against reference/sap-service-layer-metadata.xml; an unknown name here is not a
     // silently ignored hint, it makes SAP return 400 and breaks the endpoint.
     private const string PurchaseOrderSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
-    private const string PurchaseRequestSelect = "$select=DocEntry,DocNum,DocDate,RequriedDate,Comments,Requester,RequesterName,DocumentStatus,Cancelled,DocTotal,DocumentLines";
+    // No DocTotal: SAP rejects it on PurchaseRequests ("Property 'DocTotal' of 'Document' is
+    // invalid") even though the shared Document type declares it. A purchase request carries no
+    // document total, and SAPPurchaseRequest.DocTotal is nullable and read as `?? 0` because it was
+    // never populated.
+    private const string PurchaseRequestSelect = "$select=DocEntry,DocNum,DocDate,RequriedDate,Comments,Requester,RequesterName,DocumentStatus,Cancelled,DocumentLines";
     private const string PurchaseQuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
     private const string GoodsReceiptPurchaseOrderSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
     private const string PurchaseInvoiceSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,VatSum,DiscountPercent,TotalDiscount,DocCurrency,DocumentStatus,Cancelled,Address,Address2,DocumentLines";
-    private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,BaseEntry,BaseType,DocumentLines";
+    // No BaseEntry or BaseType: on an A/R credit memo those live on the line, not the header, and
+    // SAP rejects them here. ResolveOriginalInvoiceDocEntry already reads the header field with a
+    // fallback to the lines, and the fallback was always what actually answered.
+    private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
     private const string QuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,ContactPersonCode,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,U_OrderNumber,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,ShipToCode,PayToCode,DocumentLines";
     private const string StockTransferSelect = "$select=DocEntry,DocNum,DocDate,DueDate,FromWarehouse,ToWarehouse,Comments,JournalMemo,StockTransferLines";
     private const string InventoryTransferRequestSelect = "$select=DocEntry,DocNum,DocDate,DueDate,FromWarehouse,ToWarehouse,Comments,JournalMemo,DocumentStatus,StockTransferLines";
