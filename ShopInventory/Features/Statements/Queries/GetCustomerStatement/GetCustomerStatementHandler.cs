@@ -160,7 +160,7 @@ INNER JOIN JDT1 T1
 WHERE T1.""ShortName"" IN ({inClause})
   AND T0.""RefDate"" >= '{fromDate:yyyy-MM-dd}'
   AND T0.""RefDate"" <= '{toDate:yyyy-MM-dd}'
-    ORDER BY T0.""RefDate"", T0.""Number"", T1.""Line_ID"";";
+    ORDER BY T0.""RefDate"", T0.""Number"", T1.""Line_ID""";
 
         var rows = await sapClient.ExecuteRawSqlQueryAsync(
             CreateQueryCode("StmtRows"),

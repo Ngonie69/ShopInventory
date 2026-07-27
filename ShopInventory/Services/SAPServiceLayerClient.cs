@@ -3273,13 +3273,27 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
         }
     }
 
+    /// <summary>
+    /// Strips the statement terminator SAP will not accept.
+    /// </summary>
+    /// <remarks>
+    /// The SQLQueries endpoint rejects a trailing semicolon outright — "Invalid SQL syntax …
+    /// Incorrect syntax near ';'" — and every caller here builds a single statement, so a
+    /// terminator is never meaningful. It is also an easy thing to leave on the end of SQL pasted
+    /// in from a query tool, and the failure surfaces only at runtime as a broken feature: one
+    /// stray semicolon made customer statements fail 3 out of 3 times in production on
+    /// 2026-07-27. Normalising here fixes the whole class of it rather than one call site.
+    /// </remarks>
+    internal static string NormalizeSapSqlText(string sqlText)
+        => sqlText?.TrimEnd(';', ' ', '\t', '\r', '\n') ?? string.Empty;
+
     private async Task CreateSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken)
     {
         var payload = new
         {
             SqlCode = queryCode,
             SqlName = queryName,
-            SqlText = sqlText
+            SqlText = NormalizeSapSqlText(sqlText)
         };
 
         var json = JsonSerializer.Serialize(payload);
@@ -3358,7 +3372,9 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
     private async Task<HttpStatusCode> PatchSqlQueryAsync(string queryCode, string sqlText, CancellationToken cancellationToken)
     {
-        var patchPayload = new { SqlText = sqlText };
+        // Same normalisation as the create path: PATCH updates the stored query text, so a
+        // terminator SAP rejects on create would be just as invalid here.
+        var patchPayload = new { SqlText = NormalizeSapSqlText(sqlText) };
         var patchJson = JsonSerializer.Serialize(patchPayload);
 
         HttpRequestMessage CreateRequest()
