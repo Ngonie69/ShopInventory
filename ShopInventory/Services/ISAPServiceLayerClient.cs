@@ -263,11 +263,10 @@ public interface ISAPServiceLayerClient
     Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default, bool duplicateCheckAlreadyPerformed = false);
     Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default);
     /// <summary>
-    /// Runs one-off SQL under a code and name that are unique to this call, then deletes the query
-    /// object from SAP. Use this instead of <see cref="ExecuteRawSqlQueryAsync"/> whenever the SQL
-    /// text varies per request: a shared code lets concurrent callers overwrite each other's SQL and
-    /// read each other's rows. A unique suffix is appended to both the code prefix and the
-    /// human-readable name prefix.
+    /// Runs SQL under a code derived from the SQL text itself. Use this instead of
+    /// <see cref="ExecuteRawSqlQueryAsync"/> whenever the SQL text varies per request: callers only
+    /// share a code when their statements are identical, so no caller can overwrite another's SQL or
+    /// read another's rows. The query object is left on SAP and reused by the next matching call.
     /// </summary>
     Task<List<Dictionary<string, object?>>> ExecuteScopedRawSqlQueryAsync(string queryCodePrefix, string queryNamePrefix, string sqlText, CancellationToken cancellationToken = default);
 

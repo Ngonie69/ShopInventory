@@ -116,8 +116,8 @@ INNER JOIN JDT1 T1
 WHERE T1.""ShortName"" IN ({inClause})
   AND T0.""RefDate"" < '{fromDate:yyyy-MM-dd}'";
 
-        var rows = await sapClient.ExecuteRawSqlQueryAsync(
-            CreateQueryCode("StmtOpen"),
+        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+            "StmtOpen",
             "Statement Opening Balance",
             sqlText,
             cancellationToken);
@@ -162,8 +162,8 @@ WHERE T1.""ShortName"" IN ({inClause})
   AND T0.""RefDate"" <= '{toDate:yyyy-MM-dd}'
     ORDER BY T0.""RefDate"", T0.""Number"", T1.""Line_ID"";";
 
-        var rows = await sapClient.ExecuteRawSqlQueryAsync(
-            CreateQueryCode("StmtRows"),
+        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+            "StmtRows",
             "Statement Ledger Rows",
             sqlText,
             cancellationToken);
@@ -310,9 +310,6 @@ WHERE T1.""ShortName"" IN ({inClause})
 
     private static string BuildInClause(IEnumerable<string> cardCodes) =>
         string.Join(", ", cardCodes.Select(cardCode => $"'{cardCode.Replace("'", "''")}'"));
-
-    private static string CreateQueryCode(string prefix) =>
-        ($"{prefix}{Guid.NewGuid():N}")[..20];
 
     private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
         row.TryGetValue(key, out var value) ? value?.ToString() : null;
