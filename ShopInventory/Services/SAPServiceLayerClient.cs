@@ -9678,7 +9678,7 @@ ORDER BY T0.""ItemCode""";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var url = "PurchaseOrders?{PurchaseOrderSelect}&$orderby=DocEntry desc&$top=100";
+        var url = $"PurchaseOrders?{PurchaseOrderSelect}&$orderby=DocEntry desc&$top=100";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -11951,7 +11951,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var url = "CreditNotes?{CreditNoteSelect}&$orderby=DocEntry desc&$top=100";
+        var url = $"CreditNotes?{CreditNoteSelect}&$orderby=DocEntry desc&$top=100";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -13270,7 +13270,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
-        var url = "Quotations?{QuotationSelect}&$orderby=DocEntry desc&$top=100";
+        var url = $"Quotations?{QuotationSelect}&$orderby=DocEntry desc&$top=100";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
