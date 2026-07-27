@@ -1,3 +1,4 @@
+using System.Globalization;
 using ShopInventory.Common;
 using ShopInventory.Services;
 
@@ -66,6 +67,109 @@ public class SqlIdRangeCoverTests
     public void Bucket_size_must_be_positive()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => SqlIdRangeCover.Cover([1], bucketSize: 0));
+    }
+
+    [Fact]
+    public void Same_digit_width_ranges_never_mix_number_lengths()
+    {
+        // RIN1.BaseRef holds the document number as text, so the range is compared
+        // lexicographically. '90' < '100' is false as text, so a range that spanned both widths
+        // would silently miss rows.
+        var ranges = SqlIdRangeCover.CoverSameDigitWidth([5, 42, 700], bucketSize: 1000);
+
+        foreach (var (start, end) in ranges)
+        {
+            Assert.Equal(
+                start.ToString(CultureInfo.InvariantCulture).Length,
+                end.ToString(CultureInfo.InvariantCulture).Length);
+        }
+    }
+
+    [Fact]
+    public void Same_digit_width_cover_is_still_complete()
+    {
+        int[] ids = [1, 9, 10, 99, 100, 999, 1000, 12_345];
+
+        var ranges = SqlIdRangeCover.CoverSameDigitWidth(ids);
+
+        foreach (var id in ids)
+        {
+            Assert.Contains(ranges, range => id >= range.Start && id <= range.End);
+        }
+    }
+
+    [Fact]
+    public void Same_digit_width_ranges_compare_correctly_as_text()
+    {
+        // The property the SQL actually relies on: for every returned range, text comparison
+        // agrees with numeric comparison for the ids inside it.
+        int[] ids = [7, 88, 512, 4096];
+
+        foreach (var (start, end) in SqlIdRangeCover.CoverSameDigitWidth(ids))
+        {
+            foreach (var id in ids.Where(candidate => candidate >= start && candidate <= end))
+            {
+                var text = id.ToString(CultureInfo.InvariantCulture);
+                var lo = start.ToString(CultureInfo.InvariantCulture);
+                var hi = end.ToString(CultureInfo.InvariantCulture);
+
+                Assert.True(
+                    string.CompareOrdinal(text, lo) >= 0 && string.CompareOrdinal(text, hi) <= 0,
+                    $"'{text}' should sort within '{lo}'..'{hi}'");
+            }
+        }
+    }
+}
+
+public class SqlMonthRangeCoverTests
+{
+    [Fact]
+    public void A_range_inside_one_month_yields_that_month()
+    {
+        var months = SqlMonthRangeCover.CoverMonths(new DateTime(2026, 7, 9), new DateTime(2026, 7, 21));
+
+        Assert.Equal([(new DateTime(2026, 7, 1), new DateTime(2026, 7, 31))], months);
+    }
+
+    [Fact]
+    public void A_range_spanning_months_yields_each_whole_month()
+    {
+        var months = SqlMonthRangeCover.CoverMonths(new DateTime(2026, 1, 20), new DateTime(2026, 3, 2));
+
+        Assert.Equal(
+            [
+                (new DateTime(2026, 1, 1), new DateTime(2026, 1, 31)),
+                (new DateTime(2026, 2, 1), new DateTime(2026, 2, 28)),
+                (new DateTime(2026, 3, 1), new DateTime(2026, 3, 31))
+            ],
+            months);
+    }
+
+    [Fact]
+    public void Leap_february_ends_on_the_29th()
+    {
+        var months = SqlMonthRangeCover.CoverMonths(new DateTime(2028, 2, 3), new DateTime(2028, 2, 4));
+
+        Assert.Equal([(new DateTime(2028, 2, 1), new DateTime(2028, 2, 29))], months);
+    }
+
+    [Fact]
+    public void The_requested_window_always_falls_inside_the_covered_months()
+    {
+        // Callers filter the surplus days in memory, so the cover only has to be complete.
+        var from = new DateTime(2026, 5, 14);
+        var to = new DateTime(2026, 8, 3);
+
+        var months = SqlMonthRangeCover.CoverMonths(from, to);
+
+        Assert.True(months[0].Start <= from);
+        Assert.True(months[^1].End >= to);
+    }
+
+    [Fact]
+    public void An_inverted_range_yields_nothing_so_no_query_runs()
+    {
+        Assert.Empty(SqlMonthRangeCover.CoverMonths(new DateTime(2026, 7, 10), new DateTime(2026, 7, 1)));
     }
 }
 

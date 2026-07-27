@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace ShopInventory.Common;
 
 /// <summary>
@@ -45,5 +47,46 @@ public static class SqlIdRangeCover
         return buckets
             .Select(bucket => (Start: bucket * bucketSize, End: (bucket * bucketSize) + bucketSize - 1))
             .ToList();
+    }
+
+    /// <summary>
+    /// Like <see cref="Cover"/>, but no returned range spans numbers of different decimal widths.
+    /// </summary>
+    /// <remarks>
+    /// For columns that hold a number as text — SAP stores the source document number in
+    /// <c>RIN1.BaseRef</c> as a string — a range has to be compared lexicographically, and that only
+    /// agrees with numeric ordering when both ends have the same digit count. <c>'90' &lt; '100'</c>
+    /// is false as text. Splitting at the powers of ten keeps each emitted range safe to compare as
+    /// text; the split points are constants, so the statements still recur.
+    /// </remarks>
+    public static IReadOnlyList<(int Start, int End)> CoverSameDigitWidth(
+        IEnumerable<int> ids,
+        int bucketSize = DefaultBucketSize)
+    {
+        var ranges = new List<(int Start, int End)>();
+
+        foreach (var (start, end) in Cover(ids, bucketSize))
+        {
+            // Ids are positive, so a bucket starting at 0 begins at 1.
+            var segmentStart = Math.Max(start, 1);
+
+            while (segmentStart <= end)
+            {
+                var width = segmentStart.ToString(CultureInfo.InvariantCulture).Length;
+                var widthCeiling = (int)Math.Min(Math.Pow(10, width) - 1, int.MaxValue);
+                var segmentEnd = Math.Min(end, widthCeiling);
+
+                ranges.Add((segmentStart, segmentEnd));
+
+                if (segmentEnd == int.MaxValue)
+                {
+                    break;
+                }
+
+                segmentStart = segmentEnd + 1;
+            }
+        }
+
+        return ranges;
     }
 }
