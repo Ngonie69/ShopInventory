@@ -2732,24 +2732,42 @@ public class SalesOrderService : ISalesOrderService
                 ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
             var specialPriceLookup = await _sapClient.GetSpecialPricesForBPWithStatusAsync(order.CardCode, itemCodes, pricingCts.Token);
+
+            if (!specialPriceLookup.IsComplete)
+            {
+                // Falling through to list price would overcharge a customer who has negotiated
+                // rates. Special prices are agreed for long validity windows and change rarely, so
+                // the synced local copy is a sound stand-in — and it is applied before the live
+                // result below, so anything SAP did manage to return still wins.
+                var storedSpecialPrices = await _localPriceCatalogService.GetActiveSpecialPricesAsync(
+                    order.CardCode,
+                    itemCodes,
+                    pricingCts.Token);
+
+                foreach (var storedSpecialPrice in storedSpecialPrices)
+                {
+                    if (storedSpecialPrice.Value > 0)
+                    {
+                        priceMap[storedSpecialPrice.Key] = storedSpecialPrice.Value;
+                    }
+                }
+
+                // Approval deliberately continues either way — a special-price outage should not
+                // stop reps posting orders — but which prices the document was built from has to
+                // be on the record against the order number.
+                _logger.LogWarning(
+                    "Special prices for order {OrderId} (BP: {CardCode}) could not be fully retrieved from SAP; applied {StoredCount} special price(s) from the local catalog instead. Any item missing from both is priced at list and may be too high.",
+                    order.Id,
+                    order.CardCode,
+                    storedSpecialPrices.Count);
+            }
+
             foreach (var specialPrice in specialPriceLookup.Prices)
             {
                 if (!string.IsNullOrWhiteSpace(specialPrice.Key) && specialPrice.Value > 0)
                 {
                     priceMap[specialPrice.Key] = specialPrice.Value;
                 }
-            }
-
-            if (!specialPriceLookup.IsComplete)
-            {
-                // Approval deliberately continues — a special-price outage should not stop reps
-                // posting orders. But the order is about to be priced from list prices that may be
-                // missing this customer's negotiated rates, so the risk has to be visible rather
-                // than hidden behind a "0 special prices" line that reads like a normal result.
-                _logger.LogWarning(
-                    "Special prices for order {OrderId} (BP: {CardCode}) could not be fully retrieved. Pricing continues from the customer price list and may be too high — check the posted document before invoicing.",
-                    order.Id,
-                    order.CardCode);
             }
 
             foreach (var line in order.Lines)
