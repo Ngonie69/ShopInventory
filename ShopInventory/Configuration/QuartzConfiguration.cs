@@ -66,6 +66,11 @@ public static class QuartzConfiguration
             }
 
             // Time-of-day jobs → cron triggers evaluated in CAT.
+
+            // Ahead of the morning approval run, and off-peak so its SAP queries do not compete
+            // with anything a person is waiting on.
+            AddCronJob<SapItemUomWarmJob>(q, "sap-item-uom-warm", "0 30 3 * * ?");
+
             if (dailyStock.EnableAutoStockFetch)
             {
                 AddCronJob<DailyStockSnapshotJob>(q, "daily-stock-snapshot", BuildDailyCron(dailyStock.StockFetchTimeCAT, "07:00"));
