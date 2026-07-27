@@ -28,11 +28,30 @@ public static class SapRequestPriority
     /// </summary>
     public static IDisposable BeginInteractive()
     {
-        Depth.Value++;
-        return new Scope();
+        var previous = Depth.Value;
+        Depth.Value = previous + 1;
+        return new Scope(previous);
     }
 
-    private sealed class Scope : IDisposable
+    /// <summary>
+    /// Drops the ambient priority for the current logical call, so work started from a request
+    /// thread but not awaited by it — fire-and-forget bulk operations — does not inherit the
+    /// caller's reservation.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Depth"/> is an <see cref="AsyncLocal{T}"/>, so it flows into anything started
+    /// inside a request, including a <c>Task.Run</c> the request never awaits. Marking the endpoint
+    /// with <see cref="SapBackgroundWorkAttribute"/> is the primary control; this is for the case
+    /// where one endpoint does both, and for making the intent explicit at the hand-off.
+    /// </remarks>
+    public static IDisposable SuppressInteractive()
+    {
+        var previous = Depth.Value;
+        Depth.Value = 0;
+        return new Scope(previous);
+    }
+
+    private sealed class Scope(int previousDepth) : IDisposable
     {
         private bool _disposed;
 
@@ -44,7 +63,7 @@ public static class SapRequestPriority
             }
 
             _disposed = true;
-            Depth.Value--;
+            Depth.Value = previousDepth;
         }
     }
 }

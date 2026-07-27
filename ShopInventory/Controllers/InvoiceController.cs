@@ -137,6 +137,8 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpPost("pods/validate-bulk")]
+    // Validates a whole batch of documents against SAP in one call — bulk by definition.
+    [SapBackgroundWork]
     [Authorize(Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep")]
     [ProducesResponseType(typeof(BulkPodValidationResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
