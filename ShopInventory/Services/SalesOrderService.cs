@@ -2731,13 +2731,25 @@ public class SalesOrderService : ISalesOrderService
                 .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
 
-            var specialPrices = await _sapClient.GetSpecialPricesForBPAsync(order.CardCode, itemCodes, pricingCts.Token);
-            foreach (var specialPrice in specialPrices)
+            var specialPriceLookup = await _sapClient.GetSpecialPricesForBPWithStatusAsync(order.CardCode, itemCodes, pricingCts.Token);
+            foreach (var specialPrice in specialPriceLookup.Prices)
             {
                 if (!string.IsNullOrWhiteSpace(specialPrice.Key) && specialPrice.Value > 0)
                 {
                     priceMap[specialPrice.Key] = specialPrice.Value;
                 }
+            }
+
+            if (!specialPriceLookup.IsComplete)
+            {
+                // Approval deliberately continues — a special-price outage should not stop reps
+                // posting orders. But the order is about to be priced from list prices that may be
+                // missing this customer's negotiated rates, so the risk has to be visible rather
+                // than hidden behind a "0 special prices" line that reads like a normal result.
+                _logger.LogWarning(
+                    "Special prices for order {OrderId} (BP: {CardCode}) could not be fully retrieved. Pricing continues from the customer price list and may be too high — check the posted document before invoicing.",
+                    order.Id,
+                    order.CardCode);
             }
 
             foreach (var line in order.Lines)
