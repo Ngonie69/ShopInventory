@@ -6281,18 +6281,24 @@ ORDER BY T0.""ItemCode""";
     }
 
     /// <summary>
-    /// Canonicalises line endings so a statement keeps one identity end to end.
+    /// Canonicalises a statement so it keeps one identity end to end.
     /// </summary>
     /// <remarks>
-    /// SAP rewrites the newlines it is given — text posted with CRLF comes back with bare CR. Without
-    /// this, the stored text would never compare equal to the text about to be sent, so every call
-    /// would PATCH: exactly the slow write this whole change exists to avoid. Normalising also keeps
-    /// the fingerprint stable across source files with different line endings.
+    /// Two transforms have to be applied together, and both are load-bearing:
+    ///
+    /// SAP rewrites the newlines it is given — text posted with CRLF comes back with bare CR. And
+    /// <see cref="NormalizeSapSqlText"/> strips the trailing semicolon before the text is ever sent,
+    /// so what SAP stores is already terminator-free while the caller's string still has one.
+    ///
+    /// Miss either and the stored text never compares equal to the text about to be sent, so every
+    /// call PATCHes — exactly the slow write this is meant to avoid. Canonicalising through the same
+    /// transform that <see cref="CreateSqlQueryAsync"/> applies is what keeps the two in step.
     /// </remarks>
-    private static string NormalizeSqlText(string sqlText) =>
-        sqlText.Replace("\r\n", "\n", StringComparison.Ordinal)
-               .Replace("\r", "\n", StringComparison.Ordinal)
-               .Trim();
+    internal static string NormalizeSqlText(string sqlText) =>
+        NormalizeSapSqlText(sqlText)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\r", "\n", StringComparison.Ordinal)
+            .Trim();
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];

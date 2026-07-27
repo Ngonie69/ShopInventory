@@ -2,6 +2,7 @@ using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Pods;
@@ -344,15 +345,23 @@ public sealed class GetPodUploadStatusHandler(
         DateTime toDate,
         CancellationToken cancellationToken)
     {
-        var fromDateText = fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        var toDateText = toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        // Whole months rather than the caller's exact dates: see SqlMonthRangeCover. Every distinct
+        // range picked in the UI would otherwise leave another undeletable SAP query object behind.
+        // DocDate is projected so the surplus days can be dropped here.
+        var rows = new List<Dictionary<string, object?>>();
 
-        var sqlText = $@"
+        foreach (var (monthStart, monthEnd) in SqlMonthRangeCover.CoverMonths(fromDate, toDate))
+        {
+            var monthStartText = monthStart.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var monthEndText = monthEnd.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+            var sqlText = $@"
 SELECT
     T0.""BaseEntry"" AS ""InvoiceDocEntry"",
     T0.""BaseRef"" AS ""InvoiceDocNum"",
     T1.""DocEntry"" AS ""CreditNoteDocEntry"",
     T1.""DocNum"" AS ""CreditNoteDocNum"",
+    T1.""DocDate"" AS ""CreditNoteDocDate"",
     T0.""LineNum"" AS ""CreditLineNum"",
     T0.""LineTotal"" AS ""CreditLineTotal"",
     T0.""VatSum"" AS ""CreditVatSum"",
@@ -362,15 +371,26 @@ INNER JOIN ORIN T1
         ON T1.""DocEntry"" = T0.""DocEntry""
 WHERE T0.""BaseType"" = 13
   AND T1.""CANCELED"" = 'N'
-  AND T1.""DocDate"" >= '{fromDateText}'
-  AND T1.""DocDate"" <= '{toDateText}'
+  AND T1.""DocDate"" >= '{monthStartText}'
+  AND T1.""DocDate"" <= '{monthEndText}'
 ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""LineNum""";
 
-        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-            "PODCNDT",
-            "POD credit note activity invoice links",
-            sqlText,
-            cancellationToken);
+            var monthRows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+                "PODCNDT",
+                "POD credit note activity invoice links",
+                sqlText,
+                cancellationToken);
+
+            // Drop the days the month covers but the caller did not ask for.
+            foreach (var row in monthRows)
+            {
+                var docDate = TryGetDateTime(row, "CreditNoteDocDate");
+                if (docDate is null || (docDate.Value.Date >= fromDate.Date && docDate.Value.Date <= toDate.Date))
+                {
+                    rows.Add(row);
+                }
+            }
+        }
 
         var docEntries = rows
             .Select(row => TryGetInt32(row, "InvoiceDocEntry"))
@@ -437,25 +457,35 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         try
         {
             var creditNoteLines = new List<CreditNoteLineInfo>();
-            var chunkIndex = 0;
 
-            foreach (var chunk in reportInvoices.Chunk(200))
+            // The original OR combined an integer BaseEntry list with a string BaseRef list, so no
+            // single range covers it. Split into one ranged query per column and union the results:
+            // BaseEntry numerically, BaseRef over same-digit-width ranges so the text comparison
+            // agrees with numeric order. See SqlIdRangeCover.
+            var linkFilters = new List<string>();
+
+            linkFilters.AddRange(
+                SqlIdRangeCover
+                    .Cover(reportInvoices.Select(invoice => invoice.DocEntry))
+                    .Select(range => $@"T0.""BaseEntry"" BETWEEN {range.Start} AND {range.End}"));
+
+            linkFilters.AddRange(
+                SqlIdRangeCover
+                    .CoverSameDigitWidth(reportInvoices.Select(invoice => invoice.DocNum))
+                    .Select(range => $@"T0.""BaseRef"" BETWEEN '{range.Start}' AND '{range.End}'"));
+
+            // A credit note line can satisfy both predicates; keep it once.
+            var seenCreditNoteLines = new HashSet<(int CreditNoteDocEntry, int CreditLineNum)>();
+
+            foreach (var linkFilter in linkFilters)
             {
-                chunkIndex++;
-                var docEntryFilter = string.Join(", ", chunk.Select(invoice => invoice.DocEntry));
-                var docNumFilter = string.Join(", ", chunk
-                    .Where(invoice => invoice.DocNum > 0)
-                    .Select(invoice => $"'{invoice.DocNum.ToString(CultureInfo.InvariantCulture)}'"));
-                var linkFilter = string.IsNullOrWhiteSpace(docNumFilter)
-                    ? $@"T0.""BaseEntry"" IN ({docEntryFilter})"
-                    : $@"(T0.""BaseEntry"" IN ({docEntryFilter}) OR T0.""BaseRef"" IN ({docNumFilter}))";
-
                 var sqlText = $@"
 SELECT
     T0.""BaseEntry"" AS ""InvoiceDocEntry"",
     T0.""BaseRef"" AS ""InvoiceDocNum"",
     T1.""DocEntry"" AS ""CreditNoteDocEntry"",
     T1.""DocNum"" AS ""CreditNoteDocNum"",
+    T0.""LineNum"" AS ""CreditLineNum"",
     T0.""LineTotal"" AS ""CreditLineTotal"",
     T0.""VatSum"" AS ""CreditVatSum"",
     T0.""U_Reasons"" AS ""CreditReason""
@@ -469,7 +499,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
                 var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
                     "PODCN",
-                    $"POD credit note links {chunkIndex}",
+                    "POD credit note links",
                     sqlText,
                     cancellationToken);
 
@@ -493,6 +523,14 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 
                     if (!creditNoteDocEntry.HasValue ||
                         !creditNoteDocNum.HasValue)
+                    {
+                        continue;
+                    }
+
+                    // Both ranged queries can return the same RIN1 line; counting it twice would
+                    // double the credited amount.
+                    var lineKey = (creditNoteDocEntry.Value, TryGetInt32(row, "CreditLineNum") ?? -1);
+                    if (!seenCreditNoteLines.Add(lineKey))
                     {
                         continue;
                     }
@@ -749,6 +787,28 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
     private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
         GetValue(row, key)?.ToString()?.Trim();
 
+    /// <summary>
+    /// Reads a SAP date column. Returns null when it is absent or unparseable, which callers treat
+    /// as "do not filter on it" rather than as an exclusion.
+    /// </summary>
+    private static DateTime? TryGetDateTime(IReadOnlyDictionary<string, object?> row, string key)
+    {
+        var value = GetValue(row, key);
+
+        return value switch
+        {
+            null => null,
+            DateTime dateTimeValue => dateTimeValue,
+            DateTimeOffset dateTimeOffsetValue => dateTimeOffsetValue.DateTime,
+            _ when DateTime.TryParse(
+                value.ToString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                out var parsed) => parsed,
+            _ => null
+        };
+    }
+
     private static object? GetValue(IReadOnlyDictionary<string, object?> row, string key)
     {
         if (row.TryGetValue(key, out var value))
@@ -784,22 +844,27 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             .Distinct()
             .ToList();
 
-        var chunkIndex = 0;
+        // Ranges rather than the exact doc entries: see SqlIdRangeCover. A range recurs across
+        // requests, so SAP reuses one query object instead of accumulating one per request.
+        var requestedDocEntries = unresolvedDocEntries.ToHashSet();
+        var rangeIndex = 0;
         try
         {
-            foreach (var chunk in unresolvedDocEntries.Chunk(100))
+            foreach (var (start, end) in SqlIdRangeCover.Cover(unresolvedDocEntries))
             {
-                chunkIndex++;
+                rangeIndex++;
                 var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
                     "PODCRA",
-                    $"POD SAP crate invoice classification {chunkIndex}",
-                    BuildCrateInvoiceClassificationSql(chunk),
+                    "POD SAP crate invoice classification",
+                    BuildCrateInvoiceClassificationSql(start, end),
                     cancellationToken);
 
                 foreach (var row in rows)
                 {
                     var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
-                    if (invoiceDocEntry.HasValue)
+
+                    // The range covers ids nobody asked about; keep only the requested ones.
+                    if (invoiceDocEntry.HasValue && requestedDocEntries.Contains(invoiceDocEntry.Value))
                     {
                         crateInvoiceDocEntries.Add(invoiceDocEntry.Value);
                     }
@@ -814,8 +879,8 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         {
             logger.LogWarning(
                 ex,
-                "SAP SQL crate-invoice classification failed after {CompletedChunkCount} chunk(s); falling back to the Invoices API for {InvoiceCount} unresolved invoices",
-                chunkIndex,
+                "SAP SQL crate-invoice classification failed after {CompletedRangeCount} range(s); falling back to the Invoices API for {InvoiceCount} unresolved invoices",
+                rangeIndex,
                 unresolvedDocEntries.Count);
 
             var invoicesWithLines = await sapClient.GetInvoiceHeadersByDocEntriesAsync(
@@ -842,12 +907,12 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             !string.IsNullOrWhiteSpace(line.ItemCode) &&
             CrateInvoiceItemCodes.Contains(line.ItemCode.Trim())) == true;
 
-    private static string BuildCrateInvoiceClassificationSql(IEnumerable<int> invoiceDocEntries)
+    /// <summary>
+    /// Classification SQL for one aligned slice of DocEntry space. The item codes are a compile-time
+    /// constant, so the whole statement is fixed once the range is chosen.
+    /// </summary>
+    private static string BuildCrateInvoiceClassificationSql(int docEntryStart, int docEntryEnd)
     {
-        var docEntryFilter = string.Join(", ", invoiceDocEntries
-            .Where(docEntry => docEntry > 0)
-            .Distinct()
-            .OrderBy(docEntry => docEntry));
         var itemCodeFilter = string.Join(", ", CrateInvoiceItemCodes
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .Select(code => $"'{code}'"));
@@ -856,7 +921,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 SELECT DISTINCT
     T0.""DocEntry"" AS ""InvoiceDocEntry""
 FROM INV1 T0
-WHERE T0.""DocEntry"" IN ({docEntryFilter})
+WHERE T0.""DocEntry"" BETWEEN {docEntryStart} AND {docEntryEnd}
   AND T0.""ItemCode"" IN ({itemCodeFilter})
 ORDER BY T0.""DocEntry""";
     }

@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using ShopInventory.Common;
 using ShopInventory.Common.Pods;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
@@ -219,9 +220,19 @@ public sealed class ValidateBulkPodsHandler(
             .Where(docNum => !locallyResolvedSalesOrderDocNums.Contains(docNum))
             .ToList();
 
-        foreach (var chunk in unresolvedSalesOrderDocNums.Chunk(200))
+        // Aligned ranges rather than the exact doc nums: see SqlIdRangeCover. An id list made this
+        // statement unique per request, and a SAP SQLQueries object cannot be deleted, so every
+        // bulk validation left a permanent row behind. Surplus rows are filtered below.
+        var unresolvedSalesOrderDocNumSet = unresolvedSalesOrderDocNums.ToHashSet();
+
+        foreach (var (rangeStart, rangeEnd) in SqlIdRangeCover.Cover(unresolvedSalesOrderDocNums))
         {
             chunkIndex++;
+
+            // Failure reporting is per requested doc num, so narrow the range back down first.
+            var rangeDocNums = unresolvedSalesOrderDocNums
+                .Where(docNum => docNum >= rangeStart && docNum <= rangeEnd)
+                .ToList();
 
             try
             {
@@ -240,15 +251,15 @@ INNER JOIN INV1 invl
        AND invl.""BaseEntry"" = so.""DocEntry""
 INNER JOIN OINV inv
         ON inv.""DocEntry"" = invl.""DocEntry""
-WHERE so.""DocNum"" IN ({string.Join(", ", chunk)})
+WHERE so.""DocNum"" BETWEEN {rangeStart} AND {rangeEnd}
 ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
 
-                // Scoped query: the code and name have to be unique per call, otherwise two bulk
-                // validations in flight at once overwrite each other's SQL text and read each
-                // other's rows out of the same SAP SQLQueries object.
+                // The query object is shared by every caller running this same range. That is safe
+                // because the code is derived from the SQL text itself, so a shared code implies
+                // identical text - concurrent callers cannot read each other's rows.
                 var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-                    $"POD_SO{chunkIndex:D2}",
-                    $"Sales order POD links {chunkIndex}",
+                    "POD_SO",
+                    "Sales order POD links",
                     sqlText,
                     cancellationToken);
 
@@ -260,6 +271,10 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
                     var invoiceDocNum = TryGetInt32(row, "InvoiceDocNum");
 
                     if (!salesOrderDocEntry.HasValue || !salesOrderDocNum.HasValue || !invoiceDocEntry.HasValue || !invoiceDocNum.HasValue)
+                        continue;
+
+                    // The range spans doc nums nobody asked about; keep only the requested ones.
+                    if (!unresolvedSalesOrderDocNumSet.Contains(salesOrderDocNum.Value))
                         continue;
 
                     linkedInvoices.Add((
@@ -274,20 +289,20 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                logger.LogWarning(ex, "Timed out while resolving invoice links for {Count} sales orders", chunk.Length);
-                foreach (var docNum in chunk)
+                logger.LogWarning(ex, "Timed out while resolving invoice links for {Count} sales orders", rangeDocNums.Count);
+                foreach (var docNum in rangeDocNums)
                     lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup failed (SAP timeout)";
             }
             catch (HttpRequestException ex)
             {
-                logger.LogWarning(ex, "Network error while resolving invoice links for {Count} sales orders", chunk.Length);
-                foreach (var docNum in chunk)
+                logger.LogWarning(ex, "Network error while resolving invoice links for {Count} sales orders", rangeDocNums.Count);
+                foreach (var docNum in rangeDocNums)
                     lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup failed (SAP connection error)";
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Unexpected error while resolving invoice links for {Count} sales orders", chunk.Length);
-                foreach (var docNum in chunk)
+                logger.LogWarning(ex, "Unexpected error while resolving invoice links for {Count} sales orders", rangeDocNums.Count);
+                foreach (var docNum in rangeDocNums)
                     lookupFailures[docNum] = $"Sales order #{docNum} invoice lookup failed";
             }
         }
