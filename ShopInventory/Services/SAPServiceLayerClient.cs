@@ -28,6 +28,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private readonly ILogger<SAPServiceLayerClient> _logger;
     private readonly IMemoryCache _memoryCache;
     private readonly CacheSyncStateRecorder _cacheSyncStateRecorder;
+    private readonly ISapItemUomMappingStore _itemUomMappingStore;
 
     // Session state is static so all transient instances share a single SAP session
     // instead of each injected instance creating its own login.
@@ -107,7 +108,8 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         IHostEnvironment hostEnvironment,
         ILogger<SAPServiceLayerClient> logger,
         IMemoryCache memoryCache,
-        CacheSyncStateRecorder cacheSyncStateRecorder)
+        CacheSyncStateRecorder cacheSyncStateRecorder,
+        ISapItemUomMappingStore itemUomMappingStore)
     {
         _httpClient = httpClient;
         _httpClientFactory = httpClientFactory;
@@ -116,6 +118,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         _logger = logger;
         _memoryCache = memoryCache;
         _cacheSyncStateRecorder = cacheSyncStateRecorder;
+        _itemUomMappingStore = itemUomMappingStore;
     }
 
     private HttpClient GetLongRunningHttpClient()
@@ -11051,6 +11054,15 @@ ORDER BY T0.""ItemCode""";
         return sapOrder ?? throw new Exception("Failed to deserialize created sales order from SAP");
     }
 
+    public async Task WarmSalesOrderLineSapUomsAsync(
+        IEnumerable<(string? ItemCode, string? RequestedUomCode)> lines,
+        CancellationToken cancellationToken = default)
+    {
+        // The resolver already persists what it resolves and skips what is stored, so warming is
+        // just a resolution nobody is waiting on. Deliberately not marked interactive.
+        await ResolveSalesOrderLineSapUomsAsync(lines, cancellationToken);
+    }
+
     private async Task<Dictionary<string, (string? UoMCode, int? UoMEntry)>> ResolveSalesOrderLineSapUomsAsync(
         IEnumerable<(string? ItemCode, string? RequestedUomCode)> lines,
         CancellationToken cancellationToken)
@@ -11096,7 +11108,40 @@ ORDER BY T0.""ItemCode""";
             return resolvedUoms;
         }
 
-        itemCodes = uncachedItemCodes;
+        // Anything this process has not seen since it started may still have been resolved by an
+        // earlier run or another node. The durable store costs one local query; the SAP path below
+        // costs several SQLQueries round-trips per batch, each queued behind every other SAP call
+        // in flight, and that is what made approvals take minutes rather than seconds.
+        var storedUoms = await _itemUomMappingStore.GetAsync(
+            uncachedItemCodes
+                .Select(itemCode => SapItemUomKey.For(itemCode, RequestedUomCodeFor(normalizedLines, itemCode)))
+                .ToList(),
+            cancellationToken);
+
+        var unstoredItemCodes = new List<string>();
+        foreach (var itemCode in uncachedItemCodes)
+        {
+            var requestedUomCode = RequestedUomCodeFor(normalizedLines, itemCode);
+            if (storedUoms.TryGetValue(SapItemUomKey.For(itemCode, requestedUomCode), out var storedUom))
+            {
+                var restored = (storedUom.UoMCode, (int?)storedUom.UoMEntry);
+                resolvedUoms[itemCode] = restored;
+                CacheSalesOrderLineSapUom(itemCode, requestedUomCode, restored);
+                continue;
+            }
+
+            unstoredItemCodes.Add(itemCode);
+        }
+
+        if (unstoredItemCodes.Count == 0)
+        {
+            return resolvedUoms;
+        }
+
+        itemCodes = unstoredItemCodes;
+
+        // Collected rather than written per item so the whole approval pays one local round-trip.
+        var newlyResolved = new List<(SapItemUomKey Key, string? UoMCode, int UoMEntry)>();
 
         var itemUnitsByCode = await GetSalesOrderLineItemUnitsAsync(itemCodes, cancellationToken);
         var invoiceCandidatesByItemCode = await TryGetSalesOrderLineSapUomHistoryCandidatesAsync(
@@ -11118,7 +11163,7 @@ ORDER BY T0.""ItemCode""";
             if (match.UoMEntry.HasValue)
             {
                 resolvedUoms[itemCode] = match;
-                CacheSalesOrderLineSapUom(itemCode, requestedUomCode, match);
+                RecordResolvedUom(itemCode, requestedUomCode, match);
                 continue;
             }
 
@@ -11146,11 +11191,29 @@ ORDER BY T0.""ItemCode""";
                     : ResolveSalesOrderSapUomFallback(itemUnits.SalesUnit, itemUnits.InventoryUom, requestedUomCode);
 
                 resolvedUoms[itemCode] = resolved;
-                CacheSalesOrderLineSapUom(itemCode, requestedUomCode, resolved);
+                RecordResolvedUom(itemCode, requestedUomCode, resolved);
             }
         }
 
+        await _itemUomMappingStore.SaveAsync(newlyResolved, cancellationToken);
+
         return resolvedUoms;
+
+        // Mirrors CacheSalesOrderLineSapUom's rule: only a resolution that produced a UoMEntry is
+        // kept. Storing a miss would keep posts on the fallback unit long after the item master is
+        // corrected — and unlike the in-process cache, a stored miss would outlive a restart.
+        void RecordResolvedUom(string itemCode, string? requestedUomCode, (string? UoMCode, int? UoMEntry) resolved)
+        {
+            CacheSalesOrderLineSapUom(itemCode, requestedUomCode, resolved);
+
+            if (resolved.UoMEntry.HasValue)
+            {
+                newlyResolved.Add((
+                    SapItemUomKey.For(itemCode, requestedUomCode),
+                    resolved.UoMCode,
+                    resolved.UoMEntry.Value));
+            }
+        }
     }
 
     private static string? RequestedUomCodeFor(
@@ -11230,7 +11293,20 @@ ORDER BY T0.""ItemCode""";
             try
             {
                 await TryDeleteQueryAsync(queryCode, cancellationToken);
-                await CreateSqlQueryAsync(queryCode, $"Resolve sales-order UoM from {sourceName} history", sqlText, cancellationToken);
+
+                // SAP enforces uniqueness on the query name as well as the code. A constant name
+                // meant two approvals resolving UoMs at the same moment collided: the second
+                // create came back -2035 "already exists", the code assumed its own randomised
+                // code was the one that existed, PATCHed it, got NotFound, and gave up — falling
+                // back to a guessed unit. Naming the query after its code keeps them independent.
+                // Kept short deliberately: the previous name was already 44 characters and these
+                // queries are transient, so the code carries the meaning and the name only has to
+                // be unique.
+                await CreateSqlQueryAsync(
+                    queryCode,
+                    $"Sales order UoM {queryCode}",
+                    sqlText,
+                    cancellationToken);
 
                 var batchCandidates = await GetSalesOrderLineSapUomCandidatesAsync(queryCode, cancellationToken);
                 foreach (var (itemCode, candidates) in batchCandidates)

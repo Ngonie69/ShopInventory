@@ -590,6 +590,9 @@ try
     builder.Services.AddTransient<SAPConcurrencyHandler>();
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
     builder.Services.AddSingleton<CacheSyncStateRecorder>();
+    // Singleton: it opens its own scope per call, so the transient SAP client can hold it without
+    // capturing a scoped DbContext.
+    builder.Services.AddSingleton<ISapItemUomMappingStore, SapItemUomMappingStore>();
 
     // Configure a longer-running SAP client for bulk sync operations.
     builder.Services.AddHttpClient("SAPServiceLayerLongRunning", (serviceProvider, client) =>

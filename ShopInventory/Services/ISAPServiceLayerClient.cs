@@ -263,6 +263,15 @@ public interface ISAPServiceLayerClient
     Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default, bool duplicateCheckAlreadyPerformed = false);
     Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Resolves and persists the canonical SAP UoM for the given item / requested-UoM pairs
+    /// without posting anything, so an approval does not have to pay for it while a rep waits.
+    /// Pairs already resolved cost nothing. Each item code may appear at most once per call.
+    /// </summary>
+    Task WarmSalesOrderLineSapUomsAsync(
+        IEnumerable<(string? ItemCode, string? RequestedUomCode)> lines,
+        CancellationToken cancellationToken = default);
+
     // Credit Note/Credit Memo Operations (from SAP)
     Task<List<SAPCreditNote>> GetCreditNotesAsync(CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetPagedCreditNotesAsync(int page, int pageSize, CancellationToken cancellationToken = default);

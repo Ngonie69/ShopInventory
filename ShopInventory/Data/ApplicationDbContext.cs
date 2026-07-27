@@ -189,6 +189,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
   public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
+  public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -227,6 +228,28 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(e => e.ResponsePayload)
             .HasColumnType("text");
+    });
+
+    modelBuilder.Entity<SapItemUomMappingEntity>(entity =>
+    {
+      entity.ToTable("SapItemUomMappings");
+      entity.HasKey(e => e.Id);
+
+      // Approvals read this by the exact pair, and the upsert relies on the uniqueness to let
+      // two nodes resolving the same item concurrently collapse onto one row.
+      entity.HasIndex(e => new { e.ItemCode, e.RequestedUomCode })
+            .IsUnique();
+
+      entity.Property(e => e.ItemCode)
+            .IsRequired()
+            .HasMaxLength(100);
+
+      entity.Property(e => e.RequestedUomCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+      entity.Property(e => e.UoMCode)
+            .HasMaxLength(50);
     });
 
     modelBuilder.Entity<ApprovalStageDefinitionEntity>(entity =>

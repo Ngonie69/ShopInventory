@@ -9,6 +9,7 @@ using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Middleware;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 
@@ -1079,6 +1080,10 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto> ApproveAsync(int id, Guid userId, CancellationToken cancellationToken = default)
     {
+        // A rep is holding the phone waiting for this. The scope covers pricing, UoM resolution
+        // and the post itself, so none of those round-trips queue behind background SAP traffic.
+        using var interactive = SapRequestPriority.BeginInteractive();
+
         var order = await _context.SalesOrders
             .AsTracking()
             .Include(o => o.Lines)

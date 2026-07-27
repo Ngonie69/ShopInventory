@@ -40,6 +40,13 @@ public class SAPSettings
     /// </summary>
     public int MaxConcurrentRequests { get; set; } = 6;
 
+    /// <summary>
+    /// How many of <see cref="MaxConcurrentRequests"/> stay out of reach of background work, so
+    /// requests a person is waiting on — chiefly sales order approval — are not queued behind
+    /// polling and bulk sync traffic. Clamped to leave background work at least one slot.
+    /// </summary>
+    public int InteractiveReservedRequests { get; set; } = 2;
+
     public bool SkipCertificateValidation { get; set; }
 
     /// <summary>
