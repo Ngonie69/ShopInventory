@@ -243,8 +243,11 @@ INNER JOIN OINV inv
 WHERE so.""DocNum"" IN ({string.Join(", ", chunk)})
 ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
 
-                var rows = await sapClient.ExecuteRawSqlQueryAsync(
-                    $"POD_SO_{chunkIndex:D2}",
+                // Scoped query: the code and name have to be unique per call, otherwise two bulk
+                // validations in flight at once overwrite each other's SQL text and read each
+                // other's rows out of the same SAP SQLQueries object.
+                var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+                    $"POD_SO{chunkIndex:D2}",
                     $"Sales order POD links {chunkIndex}",
                     sqlText,
                     cancellationToken);
