@@ -167,7 +167,7 @@ it needs manual attention by then, and widening the lookback would worsen §4.2.
 
 `MobileSalesOrderListTests` pins this shut with an `ISAPServiceLayerClient` that throws on any call.
 
-### 4.2 Background reconciliation re-probes the same unreconcilable orders forever
+### 4.2 Background reconciliation re-probes the same unreconcilable orders forever — FIXED
 
 `SalesOrderService.ReconcileUnlinkedSapSalesOrdersAsync:1877` selects up to 25 candidates
 (`SalesOrderReconciliationJob.cs:17`) with a 7-day lookback, and probes each individually. There is
@@ -175,8 +175,16 @@ no attempt counter, backoff, or negative cache. An order that legitimately never
 candidate and is re-probed every 2 minutes for 7 days — ~5,000 unindexed `ORDR` scans per stuck
 order.
 
-**Fix:** record `LastReconcileAttemptAt` / attempt count and back off exponentially; and batch the
-25 probes into one query.
+**Fixed** by batching rather than by backing off. `GetSalesOrdersByOrderNumbersAsync` resolves the
+whole candidate set in one filter of ORed equalities, so a sweep costs one scan of `ORDR` instead of
+25 — the run rate drops from roughly 18,000 scans a day to 720. Only the candidates SAP actually
+holds then take a posting lock and a re-read; the rest cost nothing beyond that single probe, and
+the resolved document is passed into the linking step so the per-order probe does not creep back in
+under the lock.
+
+Attempt tracking and exponential backoff would still be worth having, but they need a column on
+`SalesOrders` and therefore a migration applied to both databases. Batching removes the cost that
+made the absence of backoff matter, without that.
 
 ### 4.3 Stock validation fetches the entire warehouse, once per line — FIXED
 
@@ -234,7 +242,7 @@ just dropped by roughly an order of magnitude, but it is still an N+1 and wants 
 `StockReservationValidationTests` asserts the read *pattern*, not just the verdict — the answers
 were never wrong here, only the cost.
 
-### 4.4 Account sales/payment report: two sequential fan-outs over accounts
+### 4.4 Account sales/payment report: two sequential fan-outs over accounts — FIXED
 
 `Features/Reports/Queries/GetAccountSalesPaymentReport/GetAccountSalesPaymentReportHandler.cs:167`
 and `:201` loop over `accountCodes` calling `GetInvoicesByCustomerAsync(…, includeDocumentLines:
@@ -242,10 +250,10 @@ true)` and `GetIncomingPaymentsByCustomerAsync` per account, sequentially. With 
 page size drops to 100 (`SAPServiceLayerClient.cs:1771`), so a busy account is several round-trips on
 its own.
 
-**Fix:** one date-ranged query filtered by an `IN` list of card codes (the report already
-de-duplicates afterwards, so a single combined result set is a drop-in replacement). The rest of
-`ReportService` already routes through `ExecuteScopedRawSqlQueryAsync` with caching — this handler is
-the outlier.
+**Fixed.** `GetInvoicesByCustomersAsync` and `GetIncomingPaymentsByCustomersAsync` take the whole
+account set and filter on ORed `CardCode` equalities, chunked at 25 because the filter travels in the
+URL. The report already de-duplicated afterwards, so a single combined result set was a drop-in
+replacement.
 
 ### 4.5 Sales-order UoM fallback probes SAP per item
 
@@ -371,14 +379,22 @@ list under `ItemPrices`, a row per warehouse under `ItemWarehouseInfoCollection`
 packaging collections. `GetAllItemsAsync` already got this right with an 8-field select; the
 single-item path did not.
 
-### 5.3 Customer statement aging pulls every invoice a customer has ever had
+### 5.3 Customer statement aging pulls every invoice a customer has ever had — FIXED
 
 `Features/Statements/Queries/GetCustomerStatement/GetCustomerStatementHandler.cs:200` fans out over
 `cardCodes` (in parallel, which is at least right) into `GetInvoicesByCustomerAsync(cardCode)` —
 the unbounded overload (`SAPServiceLayerClient.cs:1686`) that pages until exhaustion with no date or
 status filter. It then keeps only invoices with `Balance > 0`.
 
-**Fix:** filter server-side — `DocumentStatus eq 'bost_Open'`, and a date floor.
+**Fixed.** `GetOpenInvoicesByCustomersAsync` filters `DocumentStatus eq 'bost_Open' and
+Cancelled eq 'tNO'` for the whole card-code set at once, so the handler no longer fans out per
+customer into the unbounded overload and discards almost everything it reads. `bost_Open` is
+confirmed against the metadata as a member of `BoStatus`.
+
+`Cancelled` is checked as well as the status. A cancelled invoice normally closes, but the code this
+replaced excluded cancellations explicitly, and that should not quietly become an assumption about
+SAP's bookkeeping. No date floor: aging is about what is outstanding now, and an old unpaid invoice
+is exactly what it needs to see.
 
 ---
 
@@ -503,4 +519,4 @@ Worth stating so it is not undone:
 7. ~~§7 — the injection fixes and the unbounded/truncated queries.~~ **Done.**
 8. ~~§5.1a — the incoming-payment total.~~ **Done.**
 9. ~~§6 and §5.2 — cache the reference data, `$select` the item master.~~ **Done.**
-10. §4.2, §4.4, §5.3 remaining.
+10. ~~§4.2, §4.4 and §5.3 — the remaining fan-outs.~~ **Done.** Every item in this audit is now addressed.

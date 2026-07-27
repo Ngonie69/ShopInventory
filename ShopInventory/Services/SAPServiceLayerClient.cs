@@ -70,6 +70,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // unique, so this only needs enough headroom to spot and report pre-existing duplicates.
     private const int DuplicateOrderProbePageSize = 5;
 
+    // How many U_OrderNumber values a single batched probe carries. The whole filter travels in the
+    // URL, so this is bounded by URL length rather than by anything SAP-side.
+    private const int OrderNumberProbeChunkSize = 25;
+
+    // Same reasoning for a set of card codes ORed into one filter.
+    private const int CustomerFilterChunkSize = 25;
+
     // Item UoM mappings come from the item master and posted document history, both of which change
     // rarely. Caching them keeps a large multi-line approval from re-scanning OINV/INV1 every time.
     private static readonly TimeSpan SalesOrderLineSapUomCacheLifetime = TimeSpan.FromHours(6);
@@ -2027,6 +2034,186 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         _logger.LogInformation("Retrieved {Count} invoices for customer {CardCode} between {From} and {To}. IncludeDocumentLines={IncludeDocumentLines}",
             allInvoices.Count, cardCode, fromDateStr, toDateStr, includeDocumentLines);
         return allInvoices;
+    }
+
+    /// <summary>Invoice header fields, plus lines when the caller needs them.</summary>
+    private const string InvoiceHeaderSelectFields = "DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocCurrency,DocTotal,PaidToDate,VatSum,DiscountPercent,TotalDiscount,Address,Address2,DocumentStatus,Cancelled";
+
+    public Task<List<Invoice>> GetInvoicesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        bool includeDocumentLines = false,
+        CancellationToken cancellationToken = default) =>
+        ReadInvoicesForCustomersAsync(
+            cardCodes,
+            $"DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}'",
+            includeDocumentLines,
+            "invoices for customers over a date range",
+            cancellationToken);
+
+    public Task<List<Invoice>> GetOpenInvoicesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        CancellationToken cancellationToken = default) =>
+        ReadInvoicesForCustomersAsync(
+            cardCodes,
+            // Cancelled is checked as well as the status: a cancelled invoice normally closes, but
+            // the caller this replaced excluded cancellations explicitly and that should not become
+            // an assumption about SAP's bookkeeping.
+            "DocumentStatus eq 'bost_Open' and Cancelled eq 'tNO'",
+            includeDocumentLines: false,
+            "open invoices for customers",
+            cancellationToken);
+
+    /// <summary>
+    /// Reads invoices for a set of customers in one walk per chunk of card codes.
+    /// </summary>
+    /// <remarks>
+    /// Callers used to loop over customers and issue a paged walk each. One ORed CardCode filter
+    /// covers the set instead, which for a report over thirty accounts is the difference between
+    /// thirty sequential walks and one or two.
+    /// </remarks>
+    private async Task<List<Invoice>> ReadInvoicesForCustomersAsync(
+        IEnumerable<string> cardCodes,
+        string additionalFilter,
+        bool includeDocumentLines,
+        string operationDescription,
+        CancellationToken cancellationToken)
+    {
+        var codes = cardCodes
+            .Where(cardCode => !string.IsNullOrWhiteSpace(cardCode))
+            .Select(cardCode => cardCode.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(cardCode => cardCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var selectFields = includeDocumentLines
+            ? $"{InvoiceHeaderSelectFields},DocumentLines"
+            : InvoiceHeaderSelectFields;
+
+        // Lines multiply the payload, so a page carries fewer documents when they are asked for.
+        var pageSize = includeDocumentLines ? 100 : 500;
+        var invoices = new List<Invoice>();
+
+        foreach (var chunk in codes.Chunk(CustomerFilterChunkSize))
+        {
+            var customerFilter = string.Join(
+                " or ",
+                chunk.Select(cardCode => $"CardCode eq '{SanitizeODataValue(cardCode)}'"));
+            var filter = $"({customerFilter}) and {additionalFilter}";
+
+            var skip = 0;
+            while (true)
+            {
+                var url = $"Invoices?$filter={Uri.EscapeDataString(filter)}&$select={selectFields}"
+                    + $"&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+
+                HttpRequestMessage CreateRequest()
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                    return request;
+                }
+
+                var currentSession = _sessionId;
+                var response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"read {operationDescription} at skip {skip}",
+                    cancellationToken);
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await HandleAuthFailureAsync(currentSession, cancellationToken);
+                    response.Dispose();
+                    response = await SendSapRequestWithTransientRetryAsync(
+                        _httpClient,
+                        CreateRequest,
+                        HttpCompletionOption.ResponseContentRead,
+                        $"read {operationDescription} at skip {skip} after SAP re-authentication",
+                        cancellationToken);
+                }
+
+                using var responseOwner = response;
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError(
+                        "Failed to read {Operation}: {StatusCode} - {Error}",
+                        operationDescription,
+                        response.StatusCode,
+                        errorContent);
+                    throw new Exception($"Failed to read {operationDescription}: {response.StatusCode} - {errorContent}");
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var page = JsonSerializer.Deserialize<SAPResponse<Invoice>>(content)?.Value ?? [];
+                invoices.AddRange(page);
+
+                if (page.Count < pageSize)
+                {
+                    break;
+                }
+
+                skip += page.Count;
+            }
+        }
+
+        _logger.LogInformation(
+            "Read {InvoiceCount} invoice(s) as {Operation} for {CustomerCount} customer(s)",
+            invoices.Count,
+            operationDescription,
+            codes.Count);
+
+        return invoices;
+    }
+
+    public async Task<List<IncomingPayment>> GetIncomingPaymentsByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default)
+    {
+        var codes = cardCodes
+            .Where(cardCode => !string.IsNullOrWhiteSpace(cardCode))
+            .Select(cardCode => cardCode.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(cardCode => cardCode, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return [];
+        }
+
+        var payments = new List<IncomingPayment>();
+
+        foreach (var chunk in codes.Chunk(CustomerFilterChunkSize))
+        {
+            var customerFilter = string.Join(
+                " or ",
+                chunk.Select(cardCode => $"CardCode eq '{SanitizeODataValue(cardCode)}'"));
+
+            payments.AddRange(await ReadDocumentPagesAsync<IncomingPayment>(
+                "IncomingPayments",
+                $"({customerFilter}) and DocDate ge '{fromDate:yyyy-MM-dd}' and DocDate le '{toDate:yyyy-MM-dd}' and Cancelled eq 'tNO'",
+                IncomingPaymentSelect,
+                $"get incoming payments for {chunk.Length} customer(s)",
+                cancellationToken));
+        }
+
+        return payments;
     }
 
     public async Task<List<Invoice>> GetInvoicesByDateRangeAsync(
@@ -11873,6 +12060,114 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves several U_OrderNumber values in one pass, keyed by order number.
+    /// </summary>
+    /// <remarks>
+    /// One filter of ORed equalities rather than one request each: U_OrderNumber is unindexed, so
+    /// the cost here is the scan of ORDR, and a batch pays for one scan instead of N. Chunked
+    /// because the whole filter travels in the URL. As with the single-order probe there is no
+    /// $orderby — sorting on the UDF would make HANA materialise and order the matched set — so
+    /// duplicates are resolved client-side by taking the highest DocEntry per order number.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, SAPSalesOrder>> GetSalesOrdersByOrderNumbersAsync(
+        IEnumerable<string> orderNumbers,
+        CancellationToken cancellationToken = default)
+    {
+        var wanted = orderNumbers
+            .Where(orderNumber => !string.IsNullOrWhiteSpace(orderNumber))
+            .Select(orderNumber => orderNumber.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var resolved = new Dictionary<string, SAPSalesOrder>(StringComparer.OrdinalIgnoreCase);
+        if (wanted.Count == 0)
+        {
+            return resolved;
+        }
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        foreach (var chunk in wanted.Chunk(OrderNumberProbeChunkSize))
+        {
+            var filter = string.Join(
+                " or ",
+                chunk.Select(orderNumber => $"U_OrderNumber eq '{SanitizeODataValue(orderNumber)}'"));
+
+            var url = $"Orders?$filter=({filter}) and Cancelled eq 'tNO'"
+                + $"&$top={chunk.Length * DuplicateOrderProbePageSize}"
+                + "&$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocCurrency,U_OrderNumber";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                return request;
+            }
+
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"resolve {chunk.Length} sales order number(s) by U_OrderNumber",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    "resolve sales order numbers by U_OrderNumber after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Failed to resolve sales orders by U_OrderNumber: {StatusCode} - {Error}",
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to resolve sales orders by U_OrderNumber: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var matches = JsonSerializer.Deserialize<SAPResponse<SAPSalesOrder>>(content)?.Value ?? [];
+
+            foreach (var match in matches)
+            {
+                if (string.IsNullOrWhiteSpace(match.U_OrderNumber))
+                {
+                    continue;
+                }
+
+                var key = match.U_OrderNumber.Trim();
+
+                // Highest DocEntry wins, matching the single-order probe: U_OrderNumber is meant to
+                // be unique, so more than one match means SAP already holds duplicates.
+                if (!resolved.TryGetValue(key, out var existing) || match.DocEntry > existing.DocEntry)
+                {
+                    resolved[key] = match;
+                }
+            }
+        }
+
+        _logger.LogInformation(
+            "Resolved {ResolvedCount} of {RequestedCount} sales order number(s) in SAP across {ChunkCount} request(s)",
+            resolved.Count,
+            wanted.Count,
+            (wanted.Count + OrderNumberProbeChunkSize - 1) / OrderNumberProbeChunkSize);
+
+        return resolved;
     }
 
     public async Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(

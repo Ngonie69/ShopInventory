@@ -71,6 +71,28 @@ public interface ISAPServiceLayerClient
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, bool includeDocumentLines, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Invoices for several customers over one date range, in a single set of requests rather than
+    /// one walk per customer.
+    /// </summary>
+    Task<List<Invoice>> GetInvoicesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        bool includeDocumentLines = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Open invoices for several customers, filtered by SAP rather than after the fact.
+    /// </summary>
+    /// <remarks>
+    /// For aging and outstanding-balance work, where reading a customer's entire invoice history to
+    /// keep the handful that are still open is the wrong shape.
+    /// </remarks>
+    Task<List<Invoice>> GetOpenInvoicesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        CancellationToken cancellationToken = default);
+
     Task<List<Invoice>> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
@@ -158,6 +180,16 @@ public interface ISAPServiceLayerClient
     Task<List<IncomingPayment>> GetIncomingPaymentsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetIncomingPaymentsByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetIncomingPaymentsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Incoming payments for several customers over one date range, in a single set of requests
+    /// rather than one walk per customer.
+    /// </summary>
+    Task<List<IncomingPayment>> GetIncomingPaymentsByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Creates a new incoming payment in SAP Business One.
@@ -260,6 +292,18 @@ public interface ISAPServiceLayerClient
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPSalesOrder?> GetSalesOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves several U_OrderNumber values in one pass, keyed by order number.
+    /// </summary>
+    /// <remarks>
+    /// U_OrderNumber is an unindexed UDF, so each single-order probe costs a scan of ORDR. Asking
+    /// for a batch turns a sweep of N orders into one scan instead of N. Order numbers SAP does not
+    /// hold are simply absent from the result.
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, SAPSalesOrder>> GetSalesOrdersByOrderNumbersAsync(
+        IEnumerable<string> orderNumbers,
+        CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, int skip = 0, int pageSize = 20, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default);

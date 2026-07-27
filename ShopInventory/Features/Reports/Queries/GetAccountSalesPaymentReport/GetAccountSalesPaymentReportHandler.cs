@@ -162,18 +162,15 @@ public sealed class GetAccountSalesPaymentReportHandler(
         DateTime toDateUtc,
         CancellationToken cancellationToken)
     {
-        var invoices = new List<Invoice>();
-
-        foreach (var accountCode in accountCodes)
-        {
-            var accountInvoices = await sapClient.GetInvoicesByCustomerAsync(
-                accountCode,
-                fromDateUtc,
-                toDateUtc,
-                includeDocumentLines: true,
-                cancellationToken: cancellationToken);
-            invoices.AddRange(accountInvoices);
-        }
+        // One filter over all the accounts rather than a paged walk each. With document lines the
+        // page size drops to 100, so a busy account was several round-trips on its own and the
+        // report paid that per account, sequentially.
+        var invoices = await sapClient.GetInvoicesByCustomersAsync(
+            accountCodes,
+            fromDateUtc,
+            toDateUtc,
+            includeDocumentLines: true,
+            cancellationToken: cancellationToken);
 
         var dedupedInvoices = invoices
             .GroupBy(invoice => GetSapDocumentKey(invoice.DocEntry, invoice.DocNum))
@@ -196,13 +193,11 @@ public sealed class GetAccountSalesPaymentReportHandler(
         DateTime toDateUtc,
         CancellationToken cancellationToken)
     {
-        var payments = new List<IncomingPayment>();
-
-        foreach (var accountCode in accountCodes)
-        {
-            var accountPayments = await sapClient.GetIncomingPaymentsByCustomerAsync(accountCode, fromDateUtc, toDateUtc, cancellationToken);
-            payments.AddRange(accountPayments);
-        }
+        var payments = await sapClient.GetIncomingPaymentsByCustomersAsync(
+            accountCodes,
+            fromDateUtc,
+            toDateUtc,
+            cancellationToken);
 
         var dedupedPayments = payments
             .GroupBy(payment => GetSapDocumentKey(payment.DocEntry, payment.DocNum))

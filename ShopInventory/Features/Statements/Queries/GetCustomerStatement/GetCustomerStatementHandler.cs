@@ -9,7 +9,6 @@ namespace ShopInventory.Features.Statements.Queries.GetCustomerStatement;
 
 public sealed class GetCustomerStatementHandler(
     IBusinessPartnerService businessPartnerService,
-    IInvoiceService invoiceService,
     ISAPServiceLayerClient sapClient,
     ILogger<GetCustomerStatementHandler> logger
 ) : IRequestHandler<GetCustomerStatementQuery, ErrorOr<CustomerStatementResponseDto>>
@@ -197,12 +196,13 @@ WHERE T1.""ShortName"" IN ({inClause})
             : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
         var bucketSize = paymentTermsDays > 0 ? paymentTermsDays : 30;
 
-        var invoiceTasks = cardCodes.Select(invoiceService.GetInvoicesByCustomerAsync).ToArray();
-        await Task.WhenAll(invoiceTasks);
+        // Aging only ever uses invoices that are still open, so SAP filters them rather than this
+        // handler. It used to fan out per customer into the unbounded "every invoice ever" overload
+        // and discard almost all of it: an old account's whole trading history, paged 500 at a time,
+        // to age the handful of documents still carrying a balance.
+        var invoices = await sapClient.GetOpenInvoicesByCustomersAsync(cardCodes, cancellationToken);
 
-        var openInvoices = invoiceTasks
-            .SelectMany(task => task.Result)
-            .Where(invoice => !string.Equals(invoice.DocStatus, "X", StringComparison.OrdinalIgnoreCase))
+        var openInvoices = invoices
             .Select(invoice => new OpenInvoiceRow(
                 DocDate: ParseDate(invoice.DocDate),
                 DueDate: ParseNullableDate(invoice.DocDueDate),
