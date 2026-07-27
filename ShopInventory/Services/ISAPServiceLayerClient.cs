@@ -117,8 +117,12 @@ public interface ISAPServiceLayerClient
 
     /// <summary>
     /// Gets prices for specific items using a customer's assigned price list (from OCRD.ListNum).
-    /// Combines BP lookup + price fetch into a single SAP SQL query for efficiency.
     /// </summary>
+    /// <remarks>
+    /// Two OData calls — the business partner, then the Items API filtered to the requested codes.
+    /// It does not go through SQLQueries, so unlike the other bulk item lookups it creates no
+    /// SAP-side query object.
+    /// </remarks>
     Task<List<ItemPriceByListDto>> GetItemPricesForCustomerAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
