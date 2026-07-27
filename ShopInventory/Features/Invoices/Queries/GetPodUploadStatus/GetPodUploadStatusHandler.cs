@@ -2,6 +2,7 @@ using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Pods;
@@ -784,22 +785,27 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             .Distinct()
             .ToList();
 
-        var chunkIndex = 0;
+        // Ranges rather than the exact doc entries: see SqlIdRangeCover. A range recurs across
+        // requests, so SAP reuses one query object instead of accumulating one per request.
+        var requestedDocEntries = unresolvedDocEntries.ToHashSet();
+        var rangeIndex = 0;
         try
         {
-            foreach (var chunk in unresolvedDocEntries.Chunk(100))
+            foreach (var (start, end) in SqlIdRangeCover.Cover(unresolvedDocEntries))
             {
-                chunkIndex++;
+                rangeIndex++;
                 var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
                     "PODCRA",
-                    $"POD SAP crate invoice classification {chunkIndex}",
-                    BuildCrateInvoiceClassificationSql(chunk),
+                    "POD SAP crate invoice classification",
+                    BuildCrateInvoiceClassificationSql(start, end),
                     cancellationToken);
 
                 foreach (var row in rows)
                 {
                     var invoiceDocEntry = TryGetInt32(row, "InvoiceDocEntry");
-                    if (invoiceDocEntry.HasValue)
+
+                    // The range covers ids nobody asked about; keep only the requested ones.
+                    if (invoiceDocEntry.HasValue && requestedDocEntries.Contains(invoiceDocEntry.Value))
                     {
                         crateInvoiceDocEntries.Add(invoiceDocEntry.Value);
                     }
@@ -814,8 +820,8 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
         {
             logger.LogWarning(
                 ex,
-                "SAP SQL crate-invoice classification failed after {CompletedChunkCount} chunk(s); falling back to the Invoices API for {InvoiceCount} unresolved invoices",
-                chunkIndex,
+                "SAP SQL crate-invoice classification failed after {CompletedRangeCount} range(s); falling back to the Invoices API for {InvoiceCount} unresolved invoices",
+                rangeIndex,
                 unresolvedDocEntries.Count);
 
             var invoicesWithLines = await sapClient.GetInvoiceHeadersByDocEntriesAsync(
@@ -842,12 +848,12 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
             !string.IsNullOrWhiteSpace(line.ItemCode) &&
             CrateInvoiceItemCodes.Contains(line.ItemCode.Trim())) == true;
 
-    private static string BuildCrateInvoiceClassificationSql(IEnumerable<int> invoiceDocEntries)
+    /// <summary>
+    /// Classification SQL for one aligned slice of DocEntry space. The item codes are a compile-time
+    /// constant, so the whole statement is fixed once the range is chosen.
+    /// </summary>
+    private static string BuildCrateInvoiceClassificationSql(int docEntryStart, int docEntryEnd)
     {
-        var docEntryFilter = string.Join(", ", invoiceDocEntries
-            .Where(docEntry => docEntry > 0)
-            .Distinct()
-            .OrderBy(docEntry => docEntry));
         var itemCodeFilter = string.Join(", ", CrateInvoiceItemCodes
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .Select(code => $"'{code}'"));
@@ -856,7 +862,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
 SELECT DISTINCT
     T0.""DocEntry"" AS ""InvoiceDocEntry""
 FROM INV1 T0
-WHERE T0.""DocEntry"" IN ({docEntryFilter})
+WHERE T0.""DocEntry"" BETWEEN {docEntryStart} AND {docEntryEnd}
   AND T0.""ItemCode"" IN ({itemCodeFilter})
 ORDER BY T0.""DocEntry""";
     }
