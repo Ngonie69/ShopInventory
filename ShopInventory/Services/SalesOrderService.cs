@@ -1082,6 +1082,9 @@ public class SalesOrderService : ISalesOrderService
     {
         // A rep is holding the phone waiting for this. The scope covers pricing, UoM resolution
         // and the post itself, so none of those round-trips queue behind background SAP traffic.
+        // SapRequestPriorityMiddleware now marks every HTTP request the same way, which makes this
+        // a nested no-op on the only route that currently reaches here — kept so the guarantee
+        // belongs to the approval itself rather than to the caller happening to be a request.
         using var interactive = SapRequestPriority.BeginInteractive();
 
         var order = await _context.SalesOrders
@@ -1874,9 +1877,13 @@ public class SalesOrderService : ISalesOrderService
 
         var cutoff = DateTime.UtcNow - lookback;
 
+        // Null *or* non-positive: everywhere else "has a SAP document" means HasSapDocNum, which
+        // reads DocNum <= 0 as unlinked. Matching only null left those rows to the repair loop that
+        // used to run on the mobile order list, and this sweep is now the only thing that relinks
+        // them.
         var candidateIds = await _context.SalesOrders
             .AsNoTracking()
-            .Where(o => o.SAPDocNum == null
+            .Where(o => (o.SAPDocNum == null || o.SAPDocNum <= 0)
                 && o.CreatedAt >= cutoff
                 && (o.Status == SalesOrderStatus.Pending
                     || o.Status == SalesOrderStatus.Approved
