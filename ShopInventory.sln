@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{C4AD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AccountSalesPaymentWorkbookRestyler", "scripts\AccountSalesPaymentWorkbookRestyler\AccountSalesPaymentWorkbookRestyler.csproj", "{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShopInventory.IntegrationTests", "ShopInventory.IntegrationTests\ShopInventory.IntegrationTests.csproj", "{5B33A7A4-9049-4B19-B558-5649346731AA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,6 +73,18 @@ Global
 		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x64.Build.0 = Release|Any CPU
 		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x86.ActiveCfg = Release|Any CPU
 		{58A5E583-0DE9-4C8F-A2E1-17BA498AE17E}.Release|x86.Build.0 = Release|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Debug|x64.Build.0 = Debug|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Debug|x86.Build.0 = Debug|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Release|x64.ActiveCfg = Release|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Release|x64.Build.0 = Release|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Release|x86.ActiveCfg = Release|Any CPU
+		{5B33A7A4-9049-4B19-B558-5649346731AA}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
