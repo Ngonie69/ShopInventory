@@ -6156,6 +6156,38 @@ ORDER BY T0.""ItemCode""";
         return allRows;
     }
 
+    /// <summary>
+    /// Execute one-off SQL under a code and name unique to this call, then delete the query object.
+    /// SAP enforces uniqueness on both SqlCode and SqlName, and a SQLQueries entry is a mutable
+    /// server-side object: a fixed code means two concurrent callers PATCH the same object and each
+    /// can read the other's rows, while a fixed name makes the second concurrent create fail -2035.
+    /// </summary>
+    public async Task<List<Dictionary<string, object?>>> ExecuteScopedRawSqlQueryAsync(
+        string queryCodePrefix,
+        string queryNamePrefix,
+        string sqlText,
+        CancellationToken cancellationToken = default)
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
+        var queryCode = $"{Truncate(queryCodePrefix, 24)}_{suffix}";
+        // SAP caps the name around 50 characters, so leave room for the suffix.
+        var queryName = $"{Truncate(queryNamePrefix, 36)} {suffix}";
+
+        try
+        {
+            return await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
+        }
+        finally
+        {
+            // Not the caller's token: a cancelled or timed-out request must still clean up after
+            // itself, otherwise these per-request codes accumulate in SAP forever.
+            await TryDeleteQueryAsync(queryCode, CancellationToken.None);
+        }
+    }
+
+    private static string Truncate(string value, int maxLength) =>
+        value.Length <= maxLength ? value : value[..maxLength];
+
     private async Task<List<StockQuantityDto>> ExecuteStockQueryWithParameterAsync(
         string queryCode,
         string warehouseCode,
