@@ -191,6 +191,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
   public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
   public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
+  public DbSet<PodReportCacheEntryEntity> PodReportCacheEntries { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -251,6 +252,23 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(e => e.UoMCode)
             .HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<PodReportCacheEntryEntity>(entity =>
+    {
+      entity.ToTable("PodReportCacheEntries");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.CacheKey)
+            .IsUnique();
+      entity.HasIndex(e => e.ExpiresAtUtc);
+
+      entity.Property(e => e.FromDate)
+            .HasColumnType("date");
+      entity.Property(e => e.ToDate)
+            .HasColumnType("date");
+      entity.Property(e => e.PayloadJson)
+            .HasColumnType("jsonb");
     });
 
     modelBuilder.Entity<ApprovalStageDefinitionEntity>(entity =>

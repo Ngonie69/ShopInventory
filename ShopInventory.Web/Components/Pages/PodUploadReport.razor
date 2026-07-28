@@ -70,21 +70,25 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                    <MudDatePicker @bind-Date="fromDate" @bind-Date:after="OnDateRangeChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
                                    DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                    <MudDatePicker @bind-Date="toDate" @bind-Date:after="OnDateRangeChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
                                    DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
-                    <select class="form-select" @onchange="OnQuickSelectChanged" style="border-radius: 8px;">
+                    <select class="form-select" value="@selectedQuickRange" @onchange="OnQuickSelectChanged"
+                            style="border-radius: 8px;">
                         <option value="7">Last 7 Days</option>
-                        <option value="30" selected>Last 30 Days</option>
+                        <option value="30">Last 30 Days</option>
                         <option value="90">Last 90 Days</option>
                         <option value="180">Last 6 Months</option>
+                        <option value="custom">Custom Range</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -145,10 +149,10 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Generated Location</label>
-                    <select class="form-select" @bind="uploadLocationFilter" @bind:after="OnAdvancedFiltersChanged"
+                    <select class="form-select" @bind="generatedLocationFilter" @bind:after="OnAdvancedFiltersChanged"
                             style="border-radius: 8px;">
                         <option value="all">Any location</option>
-                        @foreach (var location in AvailableUploadLocations)
+                        @foreach (var location in AvailableGeneratedLocations)
                         {
                             <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
                         }
@@ -900,14 +904,16 @@
     private bool isLoading;
     private bool isExporting;
     private string? errorMessage;
-    private DateTime? fromDate = DateTime.Today.AddDays(-30);
+    private const int DefaultQuickRangeDays = 30;
+    private DateTime? fromDate = InclusiveRangeStart(DateTime.Today, DefaultQuickRangeDays);
     private DateTime? toDate = DateTime.Today;
+    private string selectedQuickRange = DefaultQuickRangeDays.ToString();
     private string filterMode = "all";
     private string? searchTerm;
     private string currencyFilter = "all";
     private string uploadedByFilter = "all";
     private string uploaderRoleFilter = "all";
-    private string uploadLocationFilter = "all";
+    private string generatedLocationFilter = "all";
     private decimal? minAmount;
     private decimal? maxAmount;
     private int currentPage = 1;
@@ -938,14 +944,19 @@
         .OrderBy(role => role)
         ?? Enumerable.Empty<string>();
 
-    private IEnumerable<string> AvailableUploadLocations => AssignedSectionOptions.All;
+    private IEnumerable<string> AvailableGeneratedLocations => report?.Items?
+        .Select(item => NormalizeLocationValue(item.CreatedLocation))
+        .Where(location => !string.IsNullOrWhiteSpace(location))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(location => location)
+        ?? Enumerable.Empty<string>();
 
     private bool HasUploaderIdentityFilters =>
         !string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase) ||
         !string.Equals(uploaderRoleFilter, "all", StringComparison.OrdinalIgnoreCase);
 
     private bool HasGeneratedLocationFilter =>
-        !string.Equals(uploadLocationFilter, "all", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase);
 
     private IEnumerable<PodUploadStatusItem> BaseFilteredItems
     {
@@ -1042,6 +1053,12 @@
             return;
         }
 
+        if (fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "From Date cannot be later than To Date.";
+            return;
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         if (authState.User.Identity?.IsAuthenticated != true)
         {
@@ -1094,11 +1111,25 @@
 
     private void OnQuickSelectChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value?.ToString(), out var days))
+        var selectedValue = e.Value?.ToString();
+        selectedQuickRange = selectedValue ?? "custom";
+
+        if (int.TryParse(selectedValue, out var days) && days > 0)
         {
-            fromDate = DateTime.Today.AddDays(-days);
-            toDate = DateTime.Today;
+            var today = DateTime.Today;
+            fromDate = InclusiveRangeStart(today, days);
+            toDate = today;
+            currentPage = 1;
         }
+    }
+
+    private static DateTime InclusiveRangeStart(DateTime endDate, int days) =>
+        endDate.Date.AddDays(-(days - 1));
+
+    private void OnDateRangeChanged()
+    {
+        selectedQuickRange = "custom";
+        currentPage = 1;
     }
 
     private void OnAdvancedFiltersChanged()
@@ -1113,7 +1144,7 @@
         currencyFilter = "all";
         uploadedByFilter = "all";
         uploaderRoleFilter = "all";
-        uploadLocationFilter = "all";
+        generatedLocationFilter = "all";
         minAmount = null;
         maxAmount = null;
         currentPage = 1;
@@ -1139,15 +1170,15 @@
             uploaderRoleFilter = "all";
         }
 
-        if (!string.Equals(uploadLocationFilter, "all", StringComparison.OrdinalIgnoreCase)
-            && !AvailableUploadLocations.Contains(uploadLocationFilter, StringComparer.OrdinalIgnoreCase))
+        if (!string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !AvailableGeneratedLocations.Contains(generatedLocationFilter, StringComparer.OrdinalIgnoreCase))
         {
-            uploadLocationFilter = "all";
+            generatedLocationFilter = "all";
         }
     }
 
     private bool MatchesGeneratedLocationFilter(PodUploadStatusItem item) =>
-        LocationMatchesFilter(item.CreatedLocation, uploadLocationFilter);
+        LocationMatchesFilter(item.CreatedLocation, generatedLocationFilter);
 
     private static bool LocationMatchesFilter(string? location, string? filterValue)
     {

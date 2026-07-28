@@ -1,8 +1,11 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common;
+using ShopInventory.Common.Caching;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Mobile;
 using ShopInventory.Common.Pods;
@@ -21,6 +24,7 @@ public sealed class GetPodUploadStatusHandler(
     IDocumentService documentService,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
+    IPodReportCacheStore reportCache,
     ILogger<GetPodUploadStatusHandler> logger
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
 {
@@ -38,11 +42,10 @@ public sealed class GetPodUploadStatusHandler(
         GetPodUploadStatusQuery request,
         CancellationToken cancellationToken)
     {
-        if (!settings.Value.Enabled)
-            return Errors.Invoice.SapDisabled;
-
         if (request.FromDate > request.ToDate)
             return Errors.Invoice.InvalidDateRange;
+
+        PodReportCacheSnapshot? cachedSnapshot = null;
 
         try
         {
@@ -77,6 +80,44 @@ public sealed class GetPodUploadStatusHandler(
                 }
 
                 assignedCustomerCodes = effectiveCustomerCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var cacheScopeKey = BuildCacheScopeKey(
+                request.IncludeCreditNoteActivity,
+                isPodOperator,
+                assignedCustomerCodes);
+
+            if (cacheScopeKey is not null)
+            {
+                cachedSnapshot = await reportCache.GetAsync(
+                    request.FromDate,
+                    request.ToDate,
+                    cacheScopeKey,
+                    cancellationToken);
+
+                if (cachedSnapshot?.IsFresh == true)
+                {
+                    logger.LogInformation(
+                        "Serving POD report for {FromDate} to {ToDate} from the local database cache refreshed at {RefreshedAtUtc}",
+                        request.FromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                        request.ToDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                        cachedSnapshot.RefreshedAtUtc);
+
+                    return await RefreshCachedPodStatusesAsync(cachedSnapshot.Report, cancellationToken);
+                }
+            }
+
+            if (!settings.Value.Enabled)
+            {
+                if (cachedSnapshot is not null)
+                {
+                    return await UseStaleSnapshotAsync(
+                        cachedSnapshot,
+                        "SAP is disabled; invoice data may be out of date.",
+                        cancellationToken);
+                }
+
+                return Errors.Invoice.SapDisabled;
             }
 
             var invoices = await sapClient.GetInvoiceHeadersByDateRangeAsync(
@@ -201,7 +242,7 @@ public sealed class GetPodUploadStatusHandler(
                 };
             }).OrderByDescending(i => i.DocNum).ToList();
 
-            return new PodUploadStatusReportDto
+            var result = new PodUploadStatusReportDto
             {
                 FromDate = request.FromDate.ToString("yyyy-MM-dd"),
                 ToDate = request.ToDate.ToString("yyyy-MM-dd"),
@@ -212,6 +253,18 @@ public sealed class GetPodUploadStatusHandler(
                 CreditNoteDataWarning = creditNoteLookupResult.Warning,
                 Items = items
             };
+
+            if (cacheScopeKey is not null)
+            {
+                await reportCache.SaveAsync(
+                    request.FromDate,
+                    request.ToDate,
+                    cacheScopeKey,
+                    result,
+                    cancellationToken);
+            }
+
+            return result;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -219,10 +272,26 @@ public sealed class GetPodUploadStatusHandler(
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
+            if (cachedSnapshot is not null)
+            {
+                return await UseStaleSnapshotAsync(
+                    cachedSnapshot,
+                    "SAP timed out; invoice data may be out of date.",
+                    cancellationToken);
+            }
+
             return Errors.Invoice.SapTimeout;
         }
         catch (HttpRequestException ex)
         {
+            if (cachedSnapshot is not null)
+            {
+                return await UseStaleSnapshotAsync(
+                    cachedSnapshot,
+                    "SAP is unavailable; invoice data may be out of date.",
+                    cancellationToken);
+            }
+
             return Errors.Invoice.SapConnectionError(ex.Message);
         }
         catch (Exception ex)
@@ -230,6 +299,105 @@ public sealed class GetPodUploadStatusHandler(
             logger.LogError(ex, "Error generating POD upload status report");
             return Errors.Invoice.CreationFailed(ex.Message);
         }
+    }
+
+    internal static string? BuildCacheScopeKey(
+        bool includeCreditNoteActivity,
+        bool isPodOperator,
+        IReadOnlyCollection<string>? assignedCustomerCodes)
+    {
+        // Credit-note activity can pull invoices from outside the selected invoice-date range.
+        // POD operators also require live SAP warehouse scoping when local line data is incomplete.
+        if (includeCreditNoteActivity || isPodOperator)
+        {
+            return null;
+        }
+
+        if (assignedCustomerCodes is null)
+        {
+            return "global";
+        }
+
+        // Include the effective assignment set in the key. A driver's cached result therefore
+        // becomes inaccessible immediately when their customer assignments change.
+        var normalizedAssignments = string.Join(
+            '\n',
+            assignedCustomerCodes
+                .Select(code => code.Trim().ToUpperInvariant())
+                .Where(code => code.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(code => code, StringComparer.Ordinal));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedAssignments));
+        return $"driver-{Convert.ToHexString(hash)}";
+    }
+
+    private async Task<PodUploadStatusReportDto> RefreshCachedPodStatusesAsync(
+        PodUploadStatusReportDto report,
+        CancellationToken cancellationToken)
+    {
+        var docEntries = report.Items
+            .Select(item => item.DocEntry)
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .ToList();
+        var podLookup = await documentService.GetPodStatusByDocEntriesAsync(docEntries, cancellationToken);
+        var cratePodStatusByDocNum = await GetCratePodStatusByInvoiceDocNumsAsync(
+            report.Items
+                .Where(item => item.IsCrateInvoice)
+                .Select(item => item.DocNum)
+                .ToList(),
+            cancellationToken);
+
+        foreach (var item in report.Items)
+        {
+            podLookup.TryGetValue(item.DocEntry, out var podInfo);
+            var cratePodInfo = item.IsCrateInvoice &&
+                cratePodStatusByDocNum.TryGetValue(item.DocNum, out var matchedCratePodInfo)
+                    ? matchedCratePodInfo
+                    : null;
+            var combinedPodInfo = MergePodStatusInfo(podInfo, cratePodInfo);
+            var podTypeInfo = ResolvePodTypeInfo(podInfo, cratePodInfo, item.IsCrateInvoice);
+
+            item.HasPod = combinedPodInfo is not null;
+            item.HasProductPod = podTypeInfo.HasProductPod;
+            item.HasCratePod = podTypeInfo.HasCratePod;
+            item.PodUploadedAt = combinedPodInfo?.UploadedAt;
+            item.PodUploadedBy = combinedPodInfo?.UploadedBy;
+            item.PodUploadedByUsers = combinedPodInfo?.UploadedByUsers
+                .Select(uploader => new PodUploadUserSummaryDto
+                {
+                    Username = uploader.Username,
+                    Role = uploader.Role,
+                    AssignedSection = uploader.AssignedSection,
+                    FileCount = uploader.FileCount,
+                    LatestUploadedAt = uploader.LatestUploadedAt
+                })
+                .ToList() ?? [];
+            item.PodCount = combinedPodInfo?.Count ?? 0;
+            item.ProductPodCount = podTypeInfo.ProductPodCount;
+            item.CratePodCount = podTypeInfo.CratePodCount;
+        }
+
+        report.TotalInvoices = report.Items.Count;
+        report.UploadedCount = report.Items.Count(item => item.HasPod);
+        report.PendingCount = report.Items.Count(item => !item.HasPod);
+        return report;
+    }
+
+    private async Task<PodUploadStatusReportDto> UseStaleSnapshotAsync(
+        PodReportCacheSnapshot snapshot,
+        string warning,
+        CancellationToken cancellationToken)
+    {
+        logger.LogWarning(
+            "Serving stale POD report data refreshed at {RefreshedAtUtc}: {Warning}",
+            snapshot.RefreshedAtUtc,
+            warning);
+
+        var report = await RefreshCachedPodStatusesAsync(snapshot.Report, cancellationToken);
+        report.CreditNoteDataComplete = false;
+        report.CreditNoteDataWarning = warning;
+        return report;
     }
 
     private static PodTypeInfo ResolvePodTypeInfo(

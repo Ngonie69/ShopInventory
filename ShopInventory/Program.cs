@@ -246,6 +246,8 @@ try
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<RevmaxSettings>(builder.Configuration.GetSection("Revmax"));
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
+    builder.Services.Configure<PodReportCacheSettings>(
+        builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
     builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
 
     // Get JWT settings for authentication configuration
@@ -494,6 +496,7 @@ try
 
     // Register reporting service
     builder.Services.AddScoped<IReportService, ReportService>();
+    builder.Services.AddScoped<IPodReportCacheStore, PodReportCacheStore>();
 
     // Register notification services
     builder.Services.Configure<FirebaseSettings>(builder.Configuration.GetSection("Firebase"));
