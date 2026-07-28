@@ -19,8 +19,16 @@ public class SAPPurchaseRequest
     [JsonPropertyName("Comments")]
     public string? Comments { get; set; }
 
+    /// <summary>
+    /// The requester's user code, e.g. "Wkshop2".
+    /// </summary>
+    /// <remarks>
+    /// A string, both in the Service Layer metadata (<c>Edm.String</c>) and in what SAP returns.
+    /// This was declared <c>int?</c>, so deserializing any purchase request that had a requester
+    /// threw — which is every real one. Nothing exercised this path until the integration tests.
+    /// </remarks>
     [JsonPropertyName("Requester")]
-    public int? Requester { get; set; }
+    public string? Requester { get; set; }
 
     [JsonPropertyName("RequesterName")]
     public string? RequesterName { get; set; }

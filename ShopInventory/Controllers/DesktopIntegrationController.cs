@@ -58,6 +58,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalizedSalesReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
@@ -335,6 +336,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpPost("fiscal-transactions/backfill")]
+    [SapBackgroundWork]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> BackfillFiscalTransactions(
         [FromBody] BackfillFiscalTransactionsRequest? request,
@@ -705,12 +707,18 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Runs in background — returns 202 Accepted immediately.
     /// </summary>
     [HttpPost("stock/fetch-daily")]
+    [SapBackgroundWork]
     public IActionResult FetchDailyStock([FromBody] FetchDailyStockCommand? command)
     {
         var cmd = command ?? new FetchDailyStockCommand();
 
         _ = Task.Run(async () =>
         {
+            // The request returns 202 immediately, so nobody is waiting on what follows. SAP
+            // priority is an AsyncLocal and would otherwise flow in from the request that started
+            // this; dropping it here means the endpoint's annotation is not the only thing
+            // standing between a whole-warehouse stock fetch and the interactive reservation.
+            using var background = SapRequestPriority.SuppressInteractive();
             using var scope = scopeFactory.CreateScope();
             var scopedMediator = scope.ServiceProvider.GetRequiredService<IMediator>();
             try

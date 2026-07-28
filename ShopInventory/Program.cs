@@ -589,6 +589,11 @@ try
     builder.Services.AddTransient<SAPCircuitBreakerHandler>();
     builder.Services.AddTransient<SAPConcurrencyHandler>();
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
+    // The sync-history rows are written off the SAP request path: the handler only enqueues, and
+    // this drains in batches. Doing it inline put an insert, a trim query and a delete inside every
+    // SAP call, while that call held a concurrency slot.
+    builder.Services.AddSingleton<SapRequestLogQueue>();
+    builder.Services.AddHostedService<SapRequestLogWriter>();
     builder.Services.AddSingleton<CacheSyncStateRecorder>();
     // Singleton: it opens its own scope per call, so the transient SAP client can hold it without
     // capturing a scoped DbContext.
@@ -875,10 +880,12 @@ try
         Predicate = registration => registration.Tags.Contains("ready")
     }).AllowAnonymous();
 
+    // The only health endpoint whose checks reach SAP (SapDependencyHealthCheck). It is polled by
+    // monitoring rather than waited on by a person, so it stays in the background queue.
     app.MapHealthChecks("/health/dependencies", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("dependencies")
-    }).AllowAnonymous();
+    }).AllowAnonymous().WithMetadata(new SapBackgroundWorkAttribute());
 
     // Enable HSTS in production
     if (!app.Environment.IsDevelopment() && securitySettings.EnableHsts)
@@ -910,6 +917,10 @@ try
 
     // Output caching for GET endpoints
     app.UseOutputCache();
+
+    // Anything still running at this point is a person waiting on a response, so its SAP calls get
+    // the slots reserved from background work. After UseOutputCache so a cache hit claims nothing.
+    app.UseSapRequestPriority();
 
     // Map controllers with default rate limiting
     app.MapControllers().RequireRateLimiting("api");

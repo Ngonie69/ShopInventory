@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.OutputCaching;
+using ShopInventory.Middleware;
 using ShopInventory.Features.Reports.Queries.GetCreditNoteSummary;
 using ShopInventory.Features.Reports.Queries.GetAccountSalesPaymentReport;
 using ShopInventory.Features.Reports.Queries.GetLowStockAlerts;
@@ -23,6 +24,10 @@ namespace ShopInventory.Controllers;
 [Route("api/[controller]")]
 [Authorize(Policy = "ApiAccess")]
 [OutputCache(PolicyName = "reports")]
+// Reports scan months of SAP documents. Somebody is waiting on them, but not the way a rep waits
+// on an approval, and letting one hold the interactive reservation would queue that approval
+// behind it — the exact failure the reservation exists to prevent.
+[SapBackgroundWork]
 public class ReportController(IMediator mediator) : ApiControllerBase
 {
     [HttpGet("sales-summary")]

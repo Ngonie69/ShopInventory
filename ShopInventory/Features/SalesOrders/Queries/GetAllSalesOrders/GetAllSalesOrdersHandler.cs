@@ -29,14 +29,10 @@ public sealed class GetAllSalesOrdersHandler(
 
         if (request.Source.HasValue)
         {
-            await RepairMobileOrdersMissingSapMetadataAsync(
-                request.Status,
-                customerSearch,
-                localFromDate,
-                localToExclusive,
-                request.Source.Value,
-                cancellationToken);
-
+            // Deliberately no SAP work on this path. Listing source-filtered orders is answered
+            // entirely from the local tables; relinking orders whose SAP metadata went missing is
+            // owned by SalesOrderReconciliationJob. See the note on
+            // GetSalesOrderByOrderNumberAsync for why doing it here was so expensive.
             return await GetAllFromLocalAsync(
                 page,
                 pageSize,
@@ -312,79 +308,6 @@ public sealed class GetAllSalesOrdersHandler(
                 RowVersion = o.RowVersion != null ? Convert.ToBase64String(o.RowVersion) : null
             })
             .ToListAsync(cancellationToken);
-    }
-
-    private async Task RepairMobileOrdersMissingSapMetadataAsync(
-        SalesOrderStatus? status,
-        string? customerSearch,
-        DateTime? fromDate,
-        DateTime? toExclusive,
-        SalesOrderSource source,
-        CancellationToken cancellationToken)
-    {
-        if (source != SalesOrderSource.Mobile)
-            return;
-
-        if (status.HasValue && status.Value != SalesOrderStatus.Approved)
-            return;
-
-        var query = context.SalesOrders
-            .AsTracking()
-            .Where(o => o.Source == SalesOrderSource.Mobile)
-            .Where(o => o.Status == SalesOrderStatus.Approved)
-            .Where(o => !o.IsSynced || !o.SAPDocNum.HasValue || o.SAPDocNum <= 0);
-
-        if (!string.IsNullOrWhiteSpace(customerSearch))
-        {
-            var customerPattern = $"%{customerSearch}%";
-            query = query.Where(o =>
-                EF.Functions.ILike(o.CardCode, customerPattern) ||
-                (o.CardName != null && EF.Functions.ILike(o.CardName, customerPattern)));
-        }
-
-        if (fromDate.HasValue)
-            query = query.Where(o => o.OrderDate >= fromDate.Value);
-
-        if (toExclusive.HasValue)
-            query = query.Where(o => o.OrderDate < toExclusive.Value);
-
-        var candidates = await query
-            .OrderByDescending(o => o.UpdatedAt)
-            .ThenByDescending(o => o.Id)
-            .Take(100)
-            .ToListAsync(cancellationToken);
-
-        if (candidates.Count == 0)
-            return;
-
-        var repairedOrders = 0;
-
-        foreach (var order in candidates)
-        {
-            if (string.IsNullOrWhiteSpace(order.OrderNumber))
-                continue;
-
-            var sapOrder = await sapClient.GetSalesOrderByOrderNumberAsync(order.OrderNumber, cancellationToken);
-            if (sapOrder == null || sapOrder.DocNum <= 0)
-                continue;
-
-            order.SAPDocEntry = sapOrder.DocEntry;
-            order.SAPDocNum = sapOrder.DocNum;
-            order.IsSynced = true;
-            order.SyncError = null;
-            order.Status = SalesOrderStatus.Approved;
-            order.UpdatedAt = DateTime.UtcNow;
-            repairedOrders++;
-        }
-
-        if (repairedOrders == 0)
-            return;
-
-        await context.SaveChangesAsync(cancellationToken);
-
-        logger.LogInformation(
-            "Repaired {Count} mobile sales orders missing SAP metadata during list retrieval.",
-            repairedOrders);
     }
 
     private static SalesOrderDto MapFromSap(SAPSalesOrder sap)

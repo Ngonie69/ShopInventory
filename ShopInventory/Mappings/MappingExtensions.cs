@@ -124,17 +124,15 @@ public static class MappingExtensions
     /// </summary>
     public static IncomingPaymentDto ToDto(this IncomingPayment model)
     {
-        // Calculate total from payment method sums if DocTotal is 0
-        var calculatedTotal = model.DocTotal > 0
-            ? model.DocTotal
-            : model.CashSum + model.TransferSum + model.CheckSum + model.CreditSum;
-
+        // IncomingPayment.DocTotal is composed from the four means of payment; SAP has no header
+        // total on a payment. The fallback that used to live here could not work — it added
+        // CheckSum and CreditSum, which were bound to fields SAP does not have and were always zero.
         return new IncomingPaymentDto
         {
             DocEntry = model.DocEntry,
             DocNum = model.DocNum,
             DocDate = model.DocDate,
-            DocDueDate = model.DocDueDate,
+            DocDueDate = model.DueDate,
             CardCode = model.CardCode,
             CardName = model.CardName,
             DocCurrency = model.DocCurrency,
@@ -142,7 +140,7 @@ public static class MappingExtensions
             CheckSum = model.CheckSum,
             TransferSum = model.TransferSum,
             CreditSum = model.CreditSum,
-            DocTotal = calculatedTotal,
+            DocTotal = model.DocTotal,
             Remarks = model.Remarks,
             TransferReference = model.TransferReference,
             TransferDate = model.TransferDate,

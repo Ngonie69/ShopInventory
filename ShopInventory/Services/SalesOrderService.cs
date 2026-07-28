@@ -1082,6 +1082,9 @@ public class SalesOrderService : ISalesOrderService
     {
         // A rep is holding the phone waiting for this. The scope covers pricing, UoM resolution
         // and the post itself, so none of those round-trips queue behind background SAP traffic.
+        // SapRequestPriorityMiddleware now marks every HTTP request the same way, which makes this
+        // a nested no-op on the only route that currently reaches here — kept so the guarantee
+        // belongs to the approval itself rather than to the caller happening to be a request.
         using var interactive = SapRequestPriority.BeginInteractive();
 
         var order = await _context.SalesOrders
@@ -1874,35 +1877,73 @@ public class SalesOrderService : ISalesOrderService
 
         var cutoff = DateTime.UtcNow - lookback;
 
-        var candidateIds = await _context.SalesOrders
+        // Null *or* non-positive: everywhere else "has a SAP document" means HasSapDocNum, which
+        // reads DocNum <= 0 as unlinked. Matching only null left those rows to the repair loop that
+        // used to run on the mobile order list, and this sweep is now the only thing that relinks
+        // them.
+        var candidates = await _context.SalesOrders
             .AsNoTracking()
-            .Where(o => o.SAPDocNum == null
+            .Where(o => (o.SAPDocNum == null || o.SAPDocNum <= 0)
                 && o.CreatedAt >= cutoff
                 && (o.Status == SalesOrderStatus.Pending
                     || o.Status == SalesOrderStatus.Approved
-                    || (o.Status == SalesOrderStatus.Draft && o.SyncError != null)))
+                    || (o.Status == SalesOrderStatus.Draft && o.SyncError != null))
+                && o.OrderNumber != null
+                && o.OrderNumber != "")
             .OrderBy(o => o.Id)
-            .Select(o => o.Id)
+            .Select(o => new { o.Id, o.OrderNumber })
             .Take(maxOrders)
             .ToListAsync(cancellationToken);
 
-        if (candidateIds.Count == 0)
+        if (candidates.Count == 0)
+        {
+            return 0;
+        }
+
+        // One scan of ORDR for the whole sweep. This used to probe U_OrderNumber once per
+        // candidate, and since a candidate only stops being one when it links, an order SAP never
+        // received stayed in the set and was re-scanned every two minutes for the whole lookback
+        // window — thousands of unindexed scans for a single stuck order.
+        IReadOnlyDictionary<string, SAPSalesOrder> sapOrdersByNumber;
+        try
+        {
+            sapOrdersByNumber = await _sapClient.GetSalesOrdersByOrderNumbersAsync(
+                candidates.Select(candidate => candidate.OrderNumber),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to resolve {CandidateCount} unlinked sales order(s) against SAP by U_OrderNumber. They will be retried on the next sweep.",
+                candidates.Count);
+            return 0;
+        }
+
+        if (sapOrdersByNumber.Count == 0)
         {
             return 0;
         }
 
         var linkedCount = 0;
 
-        foreach (var candidateId in candidateIds)
+        // Only the orders SAP actually holds are worth a posting lock and a re-read; the rest cost
+        // nothing beyond the single probe above.
+        foreach (var candidate in candidates)
         {
             if (cancellationToken.IsCancellationRequested)
             {
                 break;
             }
 
+            if (!sapOrdersByNumber.TryGetValue(candidate.OrderNumber, out var sapOrder))
+            {
+                continue;
+            }
+
             try
             {
-                if (await TryReconcileUnlinkedSapSalesOrderAsync(candidateId, cancellationToken))
+                if (await TryReconcileUnlinkedSapSalesOrderAsync(candidate.Id, sapOrder, cancellationToken))
                 {
                     linkedCount++;
                 }
@@ -1912,7 +1953,7 @@ public class SalesOrderService : ISalesOrderService
                 _logger.LogWarning(
                     ex,
                     "Failed to reconcile sales order {OrderId} against SAP by U_OrderNumber. It will be retried on the next sweep.",
-                    candidateId);
+                    candidate.Id);
             }
         }
 
@@ -1921,13 +1962,19 @@ public class SalesOrderService : ISalesOrderService
             _logger.LogInformation(
                 "Linked {LinkedCount} of {CandidateCount} unlinked local sales order(s) to SAP documents found by U_OrderNumber.",
                 linkedCount,
-                candidateIds.Count);
+                candidates.Count);
         }
 
         return linkedCount;
     }
 
-    private async Task<bool> TryReconcileUnlinkedSapSalesOrderAsync(int orderId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Links one local order to the SAP document already resolved for it, under the posting lock.
+    /// </summary>
+    private async Task<bool> TryReconcileUnlinkedSapSalesOrderAsync(
+        int orderId,
+        SAPSalesOrder sapOrder,
+        CancellationToken cancellationToken)
     {
         _context.ChangeTracker.Clear();
 
@@ -1972,10 +2019,20 @@ public class SalesOrderService : ISalesOrderService
                 return false;
             }
 
-            return await TryAttachExistingSapSalesOrderAsync(
-                order,
-                "background reconciliation of an unlinked local order",
-                cancellationToken);
+            // The document was resolved before the lock was taken. Re-probing here would put the
+            // per-order ORDR scan straight back, which is what the batched sweep exists to avoid.
+            ApplySapDocumentToLocalOrder(order, sapOrder);
+            await TryRefreshLocalSalesOrderSnapshotFromSapAsync(order, cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogWarning(
+                "Linked local sales order {OrderId} ({OrderNumber}) to existing SAP sales order DocEntry={DocEntry}, DocNum={DocNum} found by background reconciliation of an unlinked local order.",
+                order.Id,
+                order.OrderNumber,
+                sapOrder.DocEntry,
+                sapOrder.DocNum);
+
+            return true;
         }
     }
 

@@ -211,6 +211,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost("backfill-product-details")]
+    [SapBackgroundWork]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> BackfillProductDetails(CancellationToken cancellationToken)
     {

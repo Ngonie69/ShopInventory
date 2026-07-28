@@ -413,8 +413,12 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             try
             {
-                var stockQuantities = await _sapClient.GetStockQuantitiesInWarehouseAsync(
+                // Groups are already one per (item, warehouse), so this asks for the single item it
+                // is about. It used to scan OITM/OITW for the whole warehouse and page 500 rows at
+                // a time to pick one row out of the result — once per group.
+                var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
                     warehouseCode,
+                    [itemCode],
                     cancellationToken);
 
                 var stock = stockQuantities.FirstOrDefault(stockItem =>
@@ -1344,8 +1348,10 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         // Get available quantity from SAP
         try
         {
-            var stockQuantities = await _sapClient.GetStockQuantitiesInWarehouseAsync(
-                warehouseCode, cancellationToken);
+            // One item, asked for by name — this is called per line, and used to scan the whole
+            // warehouse each time.
+            var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                warehouseCode, [itemCode], cancellationToken);
 
             var stock = stockQuantities?.FirstOrDefault(s =>
                 string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
