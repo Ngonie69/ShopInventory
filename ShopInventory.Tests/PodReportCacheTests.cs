@@ -263,15 +263,12 @@ public sealed class PodReportCacheTests : IDisposable
     {
         var first = GetPodUploadStatusHandler.BuildCacheScopeKey(
             includeCreditNoteActivity: false,
-            isPodOperator: false,
             [" c002 ", "C001"]);
         var reordered = GetPodUploadStatusHandler.BuildCacheScopeKey(
             includeCreditNoteActivity: false,
-            isPodOperator: false,
             ["c001", "c002"]);
         var changed = GetPodUploadStatusHandler.BuildCacheScopeKey(
             includeCreditNoteActivity: false,
-            isPodOperator: false,
             ["c001"]);
 
         Assert.Equal(first, reordered);
@@ -306,12 +303,17 @@ public sealed class PodReportCacheTests : IDisposable
     {
         Assert.Null(GetPodUploadStatusHandler.BuildCacheScopeKey(
             includeCreditNoteActivity: true,
-            isPodOperator: false,
             assignedCustomerCodes: null));
-        Assert.Null(GetPodUploadStatusHandler.BuildCacheScopeKey(
-            includeCreditNoteActivity: false,
-            isPodOperator: true,
-            assignedCustomerCodes: null));
+    }
+
+    [Fact]
+    public void Pod_operators_share_the_global_cache_scope()
+    {
+        Assert.Equal(
+            "global",
+            GetPodUploadStatusHandler.BuildCacheScopeKey(
+                includeCreditNoteActivity: false,
+                assignedCustomerCodes: null));
     }
 
     private PodReportCacheStore CreateStore() =>
