@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260728005456_WidenQuotationLineDiscountPrecision")]
+    partial class WidenQuotationLineDiscountPrecision
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1082,7 +1085,7 @@ namespace ShopInventory.Migrations
                         .HasColumnType("integer");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(9,6)");
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<bool>("IsRestocked")
                         .HasColumnType("boolean");
@@ -2862,8 +2865,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasPrecision(9, 6)
-                        .HasColumnType("numeric(9,6)");
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
 
                     b.Property<int>("InvoiceId")
                         .HasColumnType("integer");
@@ -3257,103 +3260,6 @@ namespace ShopInventory.Migrations
                     b.HasIndex("Status", "Priority", "CreatedAt");
 
                     b.ToTable("MobileOrderPostProcessingQueue");
-                });
-
-            modelBuilder.Entity("ShopInventory.Models.Entities.PendingInventoryTransferEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ApprovalRequestId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ClientRequestId")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Comments")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedByName")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<string>("CreatedByRole")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("DecidedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DocDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DueDate")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FromWarehouse")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("LastError")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<int>("LineCount")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("PostedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("PostedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int?>("SapDocEntry")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("SapDocNum")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("ToWarehouse")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<decimal>("TotalQuantity")
-                        .HasColumnType("decimal(18,4)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ClientRequestId")
-                        .IsUnique()
-                        .HasFilter("\"ClientRequestId\" IS NOT NULL");
-
-                    b.HasIndex("CreatedByUserId");
-
-                    b.HasIndex("FromWarehouse");
-
-                    b.HasIndex("Status", "CreatedAtUtc");
-
-                    b.ToTable("PendingInventoryTransfers", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.PriceListEntity", b =>
@@ -4380,7 +4286,7 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(50)");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(9,6)");
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()

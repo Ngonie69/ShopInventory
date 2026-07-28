@@ -555,7 +555,8 @@
                             <td>@line.ItemDescription</td>
                             <td style="text-align:right">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                             <td style="text-align:right">@line.UnitPrice.ToString("N2")</td>
-                            <td style="text-align:right">@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("N1") + "%" : "—")</td>
+                            @* Up to six decimals so a special-price discount reads the same here as in SAP (5.714286%), while a typed 10% still shows as 10.0% *@
+                            <td style="text-align:right">@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("0.0####") + "%" : "—")</td>
                             <td style="text-align:right">@(line.TaxPercent > 0 ? line.TaxPercent.ToString("N1") + "%" : "—")</td>
                             <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                         </tr>
@@ -785,7 +786,8 @@
                                                 <input type="number" @bind="line.UnitPrice" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" step="0.01" />
                                             </td>
                                             <td>
-                                                <input type="number" @bind="line.DiscountPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.1" />
+                                                @* step matches SAP's six-decimal discounts so editing a line priced from a special price does not trip step validation *@
+                                                <input type="number" @bind="line.DiscountPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.000001" />
                                             </td>
                                             <td>
                                                 <input type="number" @bind="line.TaxPercent" style="width:100%;padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:6px;font-size:.82rem;text-align:right;" min="0" max="100" step="0.1" />

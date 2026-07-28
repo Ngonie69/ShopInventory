@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Pricing;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -342,7 +343,12 @@ public sealed class LocalPriceCatalogService(
 
             if (mergedPrices.TryGetValue(specialPrice.ItemCode, out var existingPrice))
             {
+                // Same as the live SAP path: keep the price list price and the discount that gets us
+                // to the special price, so the document line can be shown the way SAP shows it.
+                var listPrice = existingPrice.Price;
                 existingPrice.Price = specialPrice.Price;
+                existingPrice.DiscountPercent = SpecialPriceDiscount.CalculatePercent(listPrice, specialPrice.Price);
+                existingPrice.PriceBeforeDiscount = existingPrice.DiscountPercent.HasValue ? listPrice : null;
                 continue;
             }
 
