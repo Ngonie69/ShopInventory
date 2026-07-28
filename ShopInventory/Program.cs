@@ -22,6 +22,7 @@ using ShopInventory.Common.ProblemDetails;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
+using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
@@ -465,6 +466,9 @@ try
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
     builder.Services.AddScoped<IInventoryTransferApprovalService, InventoryTransferApprovalService>();
+    builder.Services.AddScoped<ITransferWarehouseAuthorizer, TransferWarehouseAuthorizer>();
+    builder.Services.AddScoped<IPendingInventoryTransferPoster, PendingInventoryTransferPoster>();
+    builder.Services.AddScoped<IPendingInventoryTransferEnricher, PendingInventoryTransferEnricher>();
     builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 

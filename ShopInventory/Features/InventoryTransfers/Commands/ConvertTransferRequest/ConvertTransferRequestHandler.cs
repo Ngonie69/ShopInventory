@@ -15,6 +15,7 @@ namespace ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequ
 public sealed class ConvertTransferRequestHandler(
     ISAPServiceLayerClient sapClient,
     IInventoryTransferApprovalService approvalService,
+    ITransferWarehouseAuthorizer warehouseAuthorizer,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     IOptions<SAPSettings> settings,
@@ -30,6 +31,11 @@ public sealed class ConvertTransferRequestHandler(
         {
             var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
             if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
+
+            // Converting issues the goods, so the caller must control the source warehouse.
+            var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
+                command.UserId, document.FromWarehouse, cancellationToken);
+            if (scopeCheck.IsError) return scopeCheck.Errors;
 
             var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:approve:{command.GenerateDocument}";
             var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestConvertedResponseDto>(

@@ -144,6 +144,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<ApprovalTemplateDefinitionEntity> ApprovalTemplateDefinitions { get; set; }
   public DbSet<ApprovalRequestEntity> ApprovalRequests { get; set; }
   public DbSet<ApprovalDecisionEntity> ApprovalDecisions { get; set; }
+  public DbSet<PendingInventoryTransferEntity> PendingInventoryTransfers { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -307,6 +308,21 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.AuthorizerRole).IsRequired().HasMaxLength(50);
       entity.Property(e => e.Decision).IsRequired().HasMaxLength(30);
       entity.Property(e => e.Remarks).HasMaxLength(1000);
+    });
+
+    modelBuilder.Entity<PendingInventoryTransferEntity>(entity =>
+    {
+      entity.ToTable("PendingInventoryTransfers");
+      entity.HasIndex(e => e.ClientRequestId).IsUnique().HasFilter("\"ClientRequestId\" IS NOT NULL");
+      entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.PayloadJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.CreatedByName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.CreatedByRole).HasMaxLength(50);
+      entity.Property(e => e.ClientRequestId).HasMaxLength(200);
+      entity.Property(e => e.Comments).HasMaxLength(500);
+      entity.Property(e => e.LastError).HasMaxLength(2000);
     });
 
     // User configuration
