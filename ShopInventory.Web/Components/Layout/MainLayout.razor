@@ -20,7 +20,7 @@
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<MudLayout Class="staff-shell kf-shell">
+<MudLayout Class="@ShellClass">
     <MudAppBar Elevation="0" Dense="true" Class="staff-appbar kf-appbar">
         <Topbar UnreadCount="@_unreadCount"
                 NotificationsOpen="@_notifPopoverOpen"
@@ -34,8 +34,7 @@
         <MudDrawer @bind-Open="@_mobileDrawerOpen" Elevation="0" Variant="@DrawerVariant.Temporary"
                    ClipMode="DrawerClipMode.Never" Class="staff-drawer staff-drawer-mobile kf-drawer">
             <div class="kf-sidebar-brand">
-                <img class="kf-app-logo" src="/images/kefalos-app-icon.svg" alt="" aria-hidden="true" />
-                <span>Kefalos Cheese</span>
+                <BrandLogo />
                 <button class="kf-sidebar-close" type="button" @onclick="ToggleDrawer" aria-label="Close navigation">
                     <MudIcon Icon="@Icons.Material.Outlined.Close" />
                 </button>
@@ -47,10 +46,7 @@
     {
         <MudDrawer @bind-Open="@_drawerOpen" Elevation="0" Variant="@DrawerVariant.Persistent"
                    ClipMode="DrawerClipMode.Always" Class="staff-drawer kf-drawer">
-            <div class="kf-sidebar-brand">
-                <img class="kf-app-logo" src="/images/kefalos-app-icon.svg" alt="" aria-hidden="true" />
-                <span>Kefalos Cheese</span>
-            </div>
+            @* The brand lives in the topbar on desktop, so navigation starts flush under the app bar. *@
             <Sidebar />
         </MudDrawer>
     }
@@ -115,6 +111,11 @@
     private bool _viewportSubscribed;
     private readonly Guid _viewportObserverId = Guid.NewGuid();
     private MudThemeProvider? _mudThemeProvider;
+
+    // The topbar's brand cell only lines up with the drawer while the persistent drawer is open,
+    // so its divider is toggled from the same state that drives the drawer.
+    private string ShellClass =>
+        $"staff-shell kf-shell {(!_isMobileLayout && _drawerOpen ? "kf-nav-open" : "kf-nav-closed")}";
 
     // Notification state
     private int _unreadCount;

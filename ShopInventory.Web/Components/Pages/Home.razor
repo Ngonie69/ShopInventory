@@ -37,28 +37,29 @@ else
         <section class="kf-kpi-grid" aria-label="Today’s key performance indicators">
             <StatCard Label="Invoices"
                       Value="@todayInvoiceCount.ToString()"
-                      ValueLabel="Total invoices"
-                      Trend="18%"
+                      ValueLabel="Today's invoices"
+                      Trend="@invoiceTrend.Text"
+                      Direction="@invoiceTrend.Direction"
                       Amount="@FormatMoney(invoiceTotal)"
                       AmountLabel="Total value"
                       Icon="@Icons.Material.Outlined.ReceiptLong" />
             <StatCard Label="Payments"
                       Value="@todayPaymentCount.ToString()"
-                      ValueLabel="Total payments"
-                      Trend="24%"
+                      ValueLabel="Today's payments"
+                      Trend="@paymentTrend.Text"
+                      Direction="@paymentTrend.Direction"
                       Amount="@FormatMoney(paymentTotal)"
                       AmountLabel="Total received"
-                      Icon="@Icons.Material.Outlined.Payments"
-                      Sparkline="@(new[] { 20, 31, 28, 45, 41, 59, 66, 62, 82, 94 })" />
-            <StatCard Label="Inventory transfers"
-                      Value="@transferCount.ToString()"
-                      ValueLabel="Total transfers"
-                      Trend="0%"
-                      Amount="USD 0.00"
-                      AmountLabel="Total value"
-                      Icon="@Icons.Material.Outlined.SwapHoriz"
-                      IsPositive="false"
-                      Sparkline="@(new[] { 35, 35, 35, 35, 35, 35, 35, 35, 35, 35 })" />
+                      Icon="@Icons.Material.Outlined.Payments" />
+            @* Transfers carry no monetary value and every per-warehouse read needs a
+               warehouse code, so this card reports the approval queue across all
+               warehouses. No historical series is available, hence no trend or sparkline. *@
+            <StatCard Label="Pending transfers"
+                      Value="@pendingTransferCount.ToString()"
+                      ValueLabel="Awaiting approval"
+                      Amount="@pendingTransferUnits.ToString("N0")"
+                      AmountLabel="Total units"
+                      Icon="@Icons.Material.Outlined.SwapHoriz" />
         </section>
 
         <section class="kf-activity-grid" aria-label="Recent sales activity">
@@ -76,7 +77,9 @@ else
 
         <section class="kf-quick-panel" aria-labelledby="quick-actions-heading">
             <header class="kf-quick-panel__header">
-                <span aria-hidden="true">ϟ</span>
+                <span class="kf-panel-icon" aria-hidden="true">
+                    <MudIcon Icon="@Icons.Material.Outlined.Bolt" />
+                </span>
                 <h2 id="quick-actions-heading">Quick actions</h2>
             </header>
             <div class="kf-quick-grid">
@@ -107,9 +110,12 @@ else
 
     private int todayInvoiceCount;
     private int todayPaymentCount;
-    private int transferCount = 0;
+    private int pendingTransferCount;
+    private decimal pendingTransferUnits;
     private decimal invoiceTotal;
     private decimal paymentTotal;
+    private (string? Text, int Direction) invoiceTrend;
+    private (string? Text, int Direction) paymentTrend;
     private List<InvoiceDto>? recentInvoices;
     private List<IncomingPaymentDto>? recentPayments;
     private bool isLoadingInvoices = true;
@@ -188,11 +194,50 @@ else
         }
     }
 
+    // The invoice date-range API clamps a page to 100 rows.
+    private const int InvoicePageSize = 100;
+    private const int MaxInvoiceStatPages = 10;
+
     private async Task LoadDashboardData()
     {
-        var invoiceTask = LoadInvoicesAsync();
-        var paymentTask = LoadPaymentsAsync();
-        await Task.WhenAll(invoiceTask, paymentTask);
+        // The recent lists feed the activity tables and are not date-scoped; the stats
+        // are today-versus-yesterday. Both run together so the page paints once.
+        var tasks = new[]
+        {
+            LoadInvoicesAsync(),
+            LoadPaymentsAsync(),
+            LoadInvoiceStatsAsync(),
+            LoadPaymentStatsAsync(),
+            LoadPendingTransfersAsync()
+        };
+
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task LoadPendingTransfersAsync()
+    {
+        try
+        {
+            // 200 comfortably covers an approval queue, so TotalCount and the summed
+            // quantities describe the same set of transfers.
+            var response = await TransferService.GetPendingTransfersAsync(
+                PendingTransferStatuses.AwaitingApproval,
+                pageSize: 200);
+
+            if (response != null)
+            {
+                pendingTransferCount = response.TotalCount;
+                pendingTransferUnits = response.Items.Sum(item => item.TotalQuantity);
+            }
+        }
+        catch
+        {
+            // Preserve the existing graceful unavailable state.
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task LoadInvoicesAsync()
@@ -203,8 +248,6 @@ else
             if (invoiceResponse?.Invoices != null)
             {
                 recentInvoices = invoiceResponse.Invoices;
-                todayInvoiceCount = invoiceResponse.Count;
-                invoiceTotal = recentInvoices.Sum(invoice => invoice.DocTotal);
             }
         }
         catch
@@ -226,8 +269,6 @@ else
             if (paymentResponse?.Payments != null)
             {
                 recentPayments = paymentResponse.Payments;
-                todayPaymentCount = paymentResponse.Count;
-                paymentTotal = recentPayments.Sum(payment => payment.DocTotal);
             }
         }
         catch
@@ -239,5 +280,112 @@ else
             isLoadingPayments = false;
             await InvokeAsync(StateHasChanged);
         }
+    }
+
+    private async Task LoadInvoiceStatsAsync()
+    {
+        try
+        {
+            var today = DateTime.Today;
+            var todayTask = GetInvoiceDayTotalsAsync(today, includeValue: true);
+            // Yesterday only feeds the comparison, so ask for the smallest page that
+            // still returns an authoritative TotalCount.
+            var yesterdayTask = GetInvoiceDayTotalsAsync(today.AddDays(-1), includeValue: false);
+            await Task.WhenAll(todayTask, yesterdayTask);
+
+            var (count, total) = await todayTask;
+            var (yesterdayCount, _) = await yesterdayTask;
+
+            todayInvoiceCount = count;
+            invoiceTotal = total;
+            invoiceTrend = BuildTrend(count, yesterdayCount);
+        }
+        catch
+        {
+            // Preserve the existing graceful unavailable state.
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task LoadPaymentStatsAsync()
+    {
+        try
+        {
+            var today = DateTime.Today;
+            var todayTask = GetPaymentDayTotalsAsync(today);
+            var yesterdayTask = GetPaymentDayTotalsAsync(today.AddDays(-1));
+            await Task.WhenAll(todayTask, yesterdayTask);
+
+            var (count, total) = await todayTask;
+            var (yesterdayCount, _) = await yesterdayTask;
+
+            todayPaymentCount = count;
+            paymentTotal = total;
+            paymentTrend = BuildTrend(count, yesterdayCount);
+        }
+        catch
+        {
+            // Preserve the existing graceful unavailable state.
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<(int Count, decimal Total)> GetInvoiceDayTotalsAsync(DateTime date, bool includeValue)
+    {
+        var response = await InvoiceService.GetInvoicesByDateRangeAsync(
+            date, date, page: 1, pageSize: includeValue ? InvoicePageSize : 1);
+
+        if (response == null) return (0, 0m);
+
+        // TotalCount comes from a separate count query, so it is accurate even though
+        // the API clamps a page to 100 rows.
+        var count = response.TotalCount;
+        if (!includeValue) return (count, 0m);
+
+        var total = response.Invoices?.Sum(invoice => invoice.DocTotal) ?? 0m;
+        var fetched = response.Invoices?.Count ?? 0;
+
+        // A day busier than one page needs following pages before the value total
+        // covers the same invoices the count describes.
+        for (var page = 2; fetched < count && page <= MaxInvoiceStatPages; page++)
+        {
+            var next = await InvoiceService.GetInvoicesByDateRangeAsync(
+                date, date, page: page, pageSize: InvoicePageSize);
+
+            if (next?.Invoices is not { Count: > 0 }) break;
+
+            total += next.Invoices.Sum(invoice => invoice.DocTotal);
+            fetched += next.Invoices.Count;
+        }
+
+        return (count, total);
+    }
+
+    private async Task<(int Count, decimal Total)> GetPaymentDayTotalsAsync(DateTime date)
+    {
+        // The payments date-range endpoint is unpaged, so one call covers the whole day.
+        var response = await PaymentService.GetPaymentsByDateAsync(date);
+        if (response?.Payments == null) return (0, 0m);
+
+        return (response.Payments.Count, response.Payments.Sum(payment => payment.DocTotal));
+    }
+
+    /// <summary>
+    /// Day-over-day change in document count. Returns no text when neither day has
+    /// any documents, and an absolute delta when yesterday gives nothing to divide by.
+    /// </summary>
+    private static (string? Text, int Direction) BuildTrend(int today, int yesterday)
+    {
+        if (today == 0 && yesterday == 0) return (null, 0);
+        if (yesterday == 0) return ($"+{today}", 1);
+
+        var change = Math.Round((today - yesterday) / (double)yesterday * 100d);
+        return ($"{Math.Abs(change):N0}%", Math.Sign(change));
     }
 }

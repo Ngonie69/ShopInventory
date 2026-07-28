@@ -10,24 +10,33 @@
             <div class="kf-stat-card__value">@Value</div>
             <span class="kf-stat-card__value-label">@ValueLabel</span>
         </div>
-        <div class="kf-sparkline" aria-hidden="true">
-            @foreach (var segment in SparklineSegments)
-            {
-                <i class="kf-sparkline__segment" style="@segment"></i>
-            }
-            @for (var index = 0; index < Sparkline.Length; index++)
-            {
-                <i class="kf-sparkline__point" style="@PointStyle(index)"></i>
-            }
-        </div>
+        @if (Sparkline.Length >= 2)
+        {
+            <svg class="kf-sparkline @(Direction < 0 ? "kf-sparkline--muted" : null)"
+                 viewBox="0 0 @ViewWidth @ViewHeight" preserveAspectRatio="none"
+                 aria-hidden="true" focusable="false">
+                <defs>
+                    <linearGradient id="@_gradientId" x1="0" y1="0" x2="0" y2="1">
+                        <stop class="kf-sparkline__stop-top" offset="0" />
+                        <stop class="kf-sparkline__stop-bottom" offset="1" />
+                    </linearGradient>
+                </defs>
+                <polygon class="kf-sparkline__area" points="@AreaPoints" fill="url(#@_gradientId)" />
+                @* The stroke is exempted from the non-uniform scale so it stays an even 2px. *@
+                <polyline class="kf-sparkline__line" points="@LinePoints" vector-effect="non-scaling-stroke" />
+            </svg>
+        }
     </div>
 
     <div class="kf-stat-card__footer">
-        <div class="kf-stat-card__comparison @(IsPositive ? "is-positive" : "is-neutral")">
-            <MudIcon Icon="@(IsPositive ? Icons.Material.Outlined.ArrowUpward : Icons.Material.Outlined.Remove)" />
-            <strong>@Trend</strong>
-            <span>vs yesterday</span>
-        </div>
+        @if (!string.IsNullOrWhiteSpace(Trend))
+        {
+            <div class="kf-stat-card__comparison @DirectionClass">
+                <MudIcon Icon="@DirectionIcon" />
+                <strong>@Trend</strong>
+                <span>vs yesterday</span>
+            </div>
+        }
         <div class="kf-stat-card__amount">
             <strong>@Amount</strong>
             <span>@AmountLabel</span>
@@ -39,43 +48,72 @@
     [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
     [Parameter] public string ValueLabel { get; set; } = string.Empty;
-    [Parameter, EditorRequired] public string Trend { get; set; } = string.Empty;
+    /// <summary>Comparison against yesterday. Omit when no comparison is available.</summary>
+    [Parameter] public string? Trend { get; set; }
+
+    /// <summary>Which way <see cref="Trend"/> moved: 1 up, 0 unchanged, -1 down.</summary>
+    [Parameter] public int Direction { get; set; } = 1;
+
     [Parameter, EditorRequired] public string Amount { get; set; } = string.Empty;
     [Parameter] public string AmountLabel { get; set; } = "Total value";
     [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
-    [Parameter] public bool IsPositive { get; set; } = true;
-    [Parameter] public int[] Sparkline { get; set; } = [24, 38, 31, 52, 47, 68, 61, 82, 76, 92];
 
-    private IEnumerable<string> SparklineSegments
+    /// <summary>Values 0-100. Omit when the metric has no historical series to plot.</summary>
+    [Parameter] public int[] Sparkline { get; set; } = [];
+
+    private string DirectionClass => Direction switch
+    {
+        > 0 => "is-positive",
+        < 0 => "is-negative",
+        _ => "is-neutral"
+    };
+
+    private string DirectionIcon => Direction switch
+    {
+        > 0 => Icons.Material.Outlined.ArrowUpward,
+        < 0 => Icons.Material.Outlined.ArrowDownward,
+        _ => Icons.Material.Outlined.Remove
+    };
+
+    private const double ViewWidth = 168;
+    private const double ViewHeight = 58;
+
+    // Half the stroke width, so peaks and troughs are not clipped by the viewBox edge.
+    private const double Inset = 2;
+
+    private readonly string _gradientId = $"spark-{Guid.NewGuid():N}";
+
+    private IReadOnlyList<(double X, double Y)> Points
     {
         get
         {
-            if (Sparkline.Length < 2) yield break;
+            if (Sparkline.Length < 2) return [];
 
-            const double width = 168;
-            const double height = 58;
-            var step = width / (Sparkline.Length - 1);
+            var step = ViewWidth / (Sparkline.Length - 1);
+            var span = ViewHeight - (Inset * 2);
 
-            for (var index = 0; index < Sparkline.Length - 1; index++)
-            {
-                var x1 = index * step;
-                var x2 = (index + 1) * step;
-                var y1 = height - (Sparkline[index] / 100d * height);
-                var y2 = height - (Sparkline[index + 1] / 100d * height);
-                var length = Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2));
-                var angle = Math.Atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
-                yield return $"left:{x1:F2}px;top:{y1:F2}px;width:{length:F2}px;transform:rotate({angle:F2}deg)";
-            }
+            return Sparkline
+                .Select((value, index) => (
+                    X: index * step,
+                    Y: ViewHeight - Inset - (Math.Clamp(value, 0, 100) / 100d * span)))
+                .ToList();
         }
     }
 
-    private string PointStyle(int index)
+    private string LinePoints => string.Join(
+        ' ',
+        Points.Select(point => FormattableString.Invariant($"{point.X:F2},{point.Y:F2}")));
+
+    private string AreaPoints
     {
-        if (Sparkline.Length < 2) return string.Empty;
-        const double width = 168;
-        const double height = 58;
-        var x = index * (width / (Sparkline.Length - 1));
-        var y = height - (Sparkline[index] / 100d * height);
-        return $"left:{x:F2}px;top:{y:F2}px";
+        get
+        {
+            var points = Points;
+            if (points.Count == 0) return string.Empty;
+
+            return FormattableString.Invariant($"0,{ViewHeight} ")
+                + LinePoints
+                + FormattableString.Invariant($" {ViewWidth},{ViewHeight}");
+        }
     }
 }
