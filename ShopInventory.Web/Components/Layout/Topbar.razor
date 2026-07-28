@@ -11,7 +11,7 @@
         <label class="visually-hidden" for="dashboard-search">Search invoices, customers, and documents</label>
         <input id="dashboard-search" name="search" type="search"
                placeholder="Search invoices, customers, docs…" autocomplete="off" />
-        <kbd>⌘ K</kbd>
+        <kbd>Ctrl K</kbd>
     </form>
 
     <div class="kf-topbar__actions">
@@ -26,14 +26,41 @@
 
         <ThemeToggle />
 
-        <div class="kf-user" aria-label="Current user">
-            <span class="kf-avatar" aria-hidden="true">NM</span>
-            <span class="kf-user__copy">
-                <strong>Ngoni M</strong>
-                <small>Admin</small>
-            </span>
-            <MudIcon Icon="@Icons.Material.Outlined.KeyboardArrowDown" aria-hidden="true" />
-        </div>
+        <details class="kf-profile-menu">
+            <summary aria-label="Open user menu">
+                <span class="kf-avatar" aria-hidden="true">NM</span>
+                <span class="kf-user__copy">
+                    <strong>Ngoni M</strong>
+                    <small>Admin</small>
+                </span>
+                <MudIcon Class="kf-profile-chevron" Icon="@Icons.Material.Outlined.KeyboardArrowDown" aria-hidden="true" />
+            </summary>
+            <div class="kf-profile-dropdown">
+                <div class="kf-profile-dropdown__identity">
+                    <span class="kf-avatar" aria-hidden="true">NM</span>
+                    <span>
+                        <strong>Ngoni M</strong>
+                        <small>Administrator</small>
+                    </span>
+                </div>
+                <a href="/settings">
+                    <MudIcon Icon="@Icons.Material.Outlined.Settings" />
+                    <span>Settings</span>
+                </a>
+                <AuthorizeView Roles="Admin">
+                    <Authorized>
+                        <a href="/user-management">
+                            <MudIcon Icon="@Icons.Material.Outlined.ManageAccounts" />
+                            <span>User management</span>
+                        </a>
+                    </Authorized>
+                </AuthorizeView>
+                <button type="button" @onclick="OnLogout">
+                    <MudIcon Icon="@Icons.Material.Outlined.Logout" />
+                    <span>Sign out</span>
+                </button>
+            </div>
+        </details>
 
         <button class="kf-logout-button" type="button" @onclick="OnLogout">
             <MudIcon Icon="@Icons.Material.Outlined.Logout" />

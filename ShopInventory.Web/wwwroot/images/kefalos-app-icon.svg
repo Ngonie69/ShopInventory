@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Kefalos</title>
+  <rect width="512" height="512" rx="96" fill="#071425"/>
+  <g fill="#F5B301">
+    <path d="M88 145 256 64l168 81v18H88z"/>
+    <path d="M104 176h304v18H104zm18 28h74v18h-74zm194 0h74v18h-74z"/>
+    <path d="M132 220h24v154h-24zm44 0h20v154h-20zm140 0h20v154h-20zm40 0h24v154h-24z"/>
+    <path d="M218 218h45v58l56-58h57l-81 79 88 91h-61l-59-65v65h-45z"/>
+    <path d="M108 388h296v18H108zm-18 28h332v16H90zm-16 26h364v14H74z"/>
+  </g>
+</svg>

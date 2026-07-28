@@ -34,7 +34,7 @@
         <MudDrawer @bind-Open="@_mobileDrawerOpen" Elevation="0" Variant="@DrawerVariant.Temporary"
                    ClipMode="DrawerClipMode.Never" Class="staff-drawer staff-drawer-mobile kf-drawer">
             <div class="kf-sidebar-brand">
-                <span class="kf-cheese-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+                <img class="kf-app-logo" src="/images/kefalos-app-icon.svg" alt="" aria-hidden="true" />
                 <span>Kefalos Cheese</span>
                 <button class="kf-sidebar-close" type="button" @onclick="ToggleDrawer" aria-label="Close navigation">
                     <MudIcon Icon="@Icons.Material.Outlined.Close" />
@@ -48,7 +48,7 @@
         <MudDrawer @bind-Open="@_drawerOpen" Elevation="0" Variant="@DrawerVariant.Persistent"
                    ClipMode="DrawerClipMode.Always" Class="staff-drawer kf-drawer">
             <div class="kf-sidebar-brand">
-                <span class="kf-cheese-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+                <img class="kf-app-logo" src="/images/kefalos-app-icon.svg" alt="" aria-hidden="true" />
                 <span>Kefalos Cheese</span>
             </div>
             <Sidebar />
