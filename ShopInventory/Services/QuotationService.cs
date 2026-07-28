@@ -51,8 +51,10 @@ public class QuotationService : IQuotationService
     public async Task<QuotationListResponseDto> GetAllAsync(int page, int pageSize, QuotationStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
+        // No Include(q => q.Lines): the list renders header fields only, and the totals it shows are
+        // stored on the header. Callers that need the lines (the detail drawer, repricing) read the
+        // quotation back through GetByIdAsync.
         var query = _context.Quotations
-            .Include(q => q.Lines)
             .Include(q => q.CreatedByUser)
             .AsNoTracking()
             .AsQueryable();
