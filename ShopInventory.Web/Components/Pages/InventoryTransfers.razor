@@ -3,7 +3,7 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using System.Text
 @using ShopInventory.Web.Services
-@attribute [Authorize]
+@attribute [Authorize(Roles = UserRoles.InventoryTransferRoles)]
 @inject IInventoryTransferService TransferService
 @inject IApprovalProcessService ApprovalProcessService
 @inject IMasterDataCacheService CacheService
@@ -41,7 +41,7 @@
             <a href="/transfer-request/create" class="itx-btn">
                 <i class="bi bi-file-earmark-plus"></i> New Request
             </a>
-            <AuthorizeView Roles="Admin,Manager,StockController,DepotController,Sales">
+            <AuthorizeView Roles="@UserRoles.InventoryTransferRoles">
                 <a href="/inventory-transfer/create" class="itx-btn itx-btn-primary">
                     <i class="bi bi-plus-lg"></i> New Transfer
                 </a>
@@ -252,7 +252,7 @@
                 </div>
             }
         }
-        else
+        else if (activeTabIndex == 1)
         {
             <!-- ══════ TRANSFER REQUESTS ══════ -->
             <div class="itx-toolbar">
