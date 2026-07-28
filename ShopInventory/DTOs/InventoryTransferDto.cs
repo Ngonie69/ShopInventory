@@ -75,6 +75,15 @@ public class InventoryTransferCreatedResponseDto
     public string? QueueExternalReference { get; set; }
     public int? EstimatedProcessingSeconds { get; set; }
     public string? StatusUrl { get; set; }
+
+    /// <summary>
+    /// True when the transfer was parked for approval rather than posted. <see cref="Transfer"/>
+    /// stays null until every approval stage signs off.
+    /// </summary>
+    public bool RequiresApproval { get; set; }
+
+    /// <summary>The held transfer, when <see cref="RequiresApproval"/> is true.</summary>
+    public PendingInventoryTransferDto? PendingTransfer { get; set; }
 }
 
 #region Transfer Request DTOs

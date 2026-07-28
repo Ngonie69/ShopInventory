@@ -9,9 +9,52 @@ using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
+/// <summary>
+/// Identifies a document the approval engine can track, independent of where it lives.
+/// Inventory transfer requests are keyed by their SAP DocEntry; direct inventory transfers
+/// are keyed by the id of the locally held <see cref="PendingInventoryTransferEntity"/>.
+/// </summary>
+/// <remarks>
+/// <c>OriginatorUserId</c> is who raised the document, when the document itself records it.
+/// It picks the approval template if no originator is passed in explicitly, so a decision
+/// arriving before the approval request exists still routes to the right stages rather than
+/// falling through to the catch-all template.
+/// </remarks>
+public sealed record ApprovalDocumentContext(
+    string DocumentType,
+    string DocumentKey,
+    string? DocumentNumber,
+    string? FromWarehouse,
+    string? ToWarehouse,
+    bool AlreadyClosed = false,
+    Guid? OriginatorUserId = null)
+{
+    public static ApprovalDocumentContext ForTransferRequest(InventoryTransferRequest document) => new(
+        ApprovalDocumentTypes.InventoryTransferRequest,
+        document.DocEntry.ToString(),
+        document.DocNum.ToString(),
+        document.FromWarehouse,
+        document.ToWarehouse,
+        IsClosedStatus(document.DocumentStatus));
+
+    public static ApprovalDocumentContext ForPendingTransfer(PendingInventoryTransferEntity pending) => new(
+        ApprovalDocumentTypes.InventoryTransfer,
+        pending.Id.ToString(),
+        pending.SapDocNum?.ToString(),
+        pending.FromWarehouse,
+        pending.ToWarehouse,
+        AlreadyClosed: false,
+        OriginatorUserId: pending.CreatedByUserId);
+
+    private static bool IsClosedStatus(string? status) =>
+        string.Equals(status, "bost_Close", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "Closed", StringComparison.OrdinalIgnoreCase);
+}
+
 public interface IInventoryTransferApprovalService
 {
     Task<ApprovalRequestEntity> EnsureRequestAsync(InventoryTransferRequest document, Guid? originatorUserId, CancellationToken cancellationToken);
+    Task<ApprovalRequestEntity> EnsureRequestAsync(ApprovalDocumentContext document, Guid? originatorUserId, CancellationToken cancellationToken);
     Task EnrichAsync(IEnumerable<InventoryTransferRequestDto> documents, CancellationToken cancellationToken);
     Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
         InventoryTransferRequest document,
@@ -20,7 +63,21 @@ public interface IInventoryTransferApprovalService
         Guid? stageId,
         string? remarks,
         CancellationToken cancellationToken);
+    Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
+        ApprovalDocumentContext document,
+        Guid authorizerUserId,
+        string decision,
+        Guid? stageId,
+        string? remarks,
+        CancellationToken cancellationToken);
+    /// <summary>
+    /// Current approval request and per-stage progress for a document, creating the request if it does not exist yet.
+    /// </summary>
+    Task<(ApprovalRequestEntity Request, List<ApprovalStageProgressDto> Stages)> GetProgressAsync(
+        ApprovalDocumentContext document,
+        CancellationToken cancellationToken);
     Task MarkGeneratedAsync(int requestDocEntry, int transferDocEntry, int transferDocNum, Guid generatedByUserId, bool byAuthorizer, CancellationToken cancellationToken);
+    Task MarkGeneratedAsync(string documentType, string documentKey, int generatedDocEntry, int generatedDocNum, Guid generatedByUserId, bool byAuthorizer, CancellationToken cancellationToken);
     Task<List<ApprovalStageDefinitionDto>> GetStagesAsync(CancellationToken cancellationToken);
     Task<ErrorOr<ApprovalStageDefinitionDto>> SaveStageAsync(ApprovalStageDefinitionDto stage, CancellationToken cancellationToken);
     Task<ErrorOr<Deleted>> DeleteStageAsync(Guid id, CancellationToken cancellationToken);
@@ -35,6 +92,7 @@ public sealed class InventoryTransferApprovalService(
     ILogger<InventoryTransferApprovalService> logger)
     : IInventoryTransferApprovalService
 {
+    private const string UnknownOriginator = "Unknown";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly Guid DepotStageId = Guid.Parse("11000000-0000-0000-0000-000000000001");
     private static readonly Guid StockStageId = Guid.Parse("11000000-0000-0000-0000-000000000002");
@@ -42,26 +100,56 @@ public sealed class InventoryTransferApprovalService(
     private static readonly Guid DispatchTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000001");
     private static readonly Guid DepotTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000002");
     private static readonly Guid FallbackTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000003");
+    private static readonly Guid DirectDepotTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000012");
+    private static readonly Guid DirectFallbackTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000013");
 
     public async Task<ApprovalRequestEntity> EnsureRequestAsync(
         InventoryTransferRequest document,
         Guid? originatorUserId,
         CancellationToken cancellationToken)
     {
-        await EnsureDefaultsAsync(cancellationToken);
-        var documentKey = document.DocEntry.ToString();
+        var resolvedOriginatorId = originatorUserId
+            ?? (await ResolveOriginatorAsync(document, null, cancellationToken))?.Id;
+        var request = await EnsureRequestAsync(
+            ApprovalDocumentContext.ForTransferRequest(document), resolvedOriginatorId, cancellationToken);
+
+        // Older requests carry the requester only in the SAP comments; keep that as the display fallback.
+        if (request.OriginatorUserId is null && request.OriginatorName == UnknownOriginator)
+        {
+            var fromComments = ExtractCommentValue(document.Comments, "Requester");
+            if (!string.IsNullOrWhiteSpace(fromComments))
+            {
+                request.OriginatorName = fromComments;
+                await context.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        return request;
+    }
+
+    public async Task<ApprovalRequestEntity> EnsureRequestAsync(
+        ApprovalDocumentContext document,
+        Guid? originatorUserId,
+        CancellationToken cancellationToken)
+    {
+        await EnsureDefaultsAsync(document.DocumentType, cancellationToken);
+        var documentType = document.DocumentType;
+        var documentKey = document.DocumentKey;
         var existing = await context.ApprovalRequests
             .Include(request => request.Decisions)
             .FirstOrDefaultAsync(request =>
-                request.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest &&
+                request.DocumentType == documentType &&
                 request.DocumentKey == documentKey,
                 cancellationToken);
         if (existing is not null)
             return existing;
 
-        var originator = await ResolveOriginatorAsync(document, originatorUserId, cancellationToken);
+        var resolvedOriginatorId = originatorUserId ?? document.OriginatorUserId;
+        var originator = resolvedOriginatorId.HasValue
+            ? await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Id == resolvedOriginatorId.Value, cancellationToken)
+            : null;
         var template = await SelectTemplateAsync(originator, document, cancellationToken)
-            ?? throw new InvalidOperationException("No active approval template is available for inventory transfer requests.");
+            ?? throw new InvalidOperationException($"No active approval template is available for {document.DocumentType}.");
         var stageIds = Deserialize<Guid>(template.StageIdsJson);
         var stages = await context.ApprovalStageDefinitions
             .AsNoTracking()
@@ -79,16 +167,16 @@ public sealed class InventoryTransferApprovalService(
         {
             ApprovalTemplateId = template.Id,
             TemplateName = template.Name,
-            DocumentType = ApprovalDocumentTypes.InventoryTransferRequest,
+            DocumentType = documentType,
             DocumentKey = documentKey,
-            DocumentNumber = document.DocNum.ToString(),
+            DocumentNumber = document.DocumentNumber,
             OriginatorUserId = originator?.Id,
-            OriginatorName = originator?.Username ?? ExtractCommentValue(document.Comments, "Requester") ?? "Unknown",
-            OriginatorRole = originator?.Role ?? "Unknown",
+            OriginatorName = originator?.Username ?? UnknownOriginator,
+            OriginatorRole = originator?.Role ?? UnknownOriginator,
             FromWarehouse = document.FromWarehouse,
             ToWarehouse = document.ToWarehouse,
             StageSnapshotsJson = Serialize(orderedStages),
-            Status = IsClosed(document.DocumentStatus)
+            Status = document.AlreadyClosed
                 ? ApprovalRequestStatuses.Generated
                 : ApprovalRequestStatuses.Pending
         };
@@ -105,7 +193,7 @@ public sealed class InventoryTransferApprovalService(
             return await context.ApprovalRequests
                 .Include(item => item.Decisions)
                 .SingleAsync(item =>
-                    item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest &&
+                    item.DocumentType == documentType &&
                     item.DocumentKey == documentKey,
                     cancellationToken);
         }
@@ -133,8 +221,26 @@ public sealed class InventoryTransferApprovalService(
         }
     }
 
-    public async Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
+    public Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
         InventoryTransferRequest document,
+        Guid authorizerUserId,
+        string decision,
+        Guid? stageId,
+        string? remarks,
+        CancellationToken cancellationToken)
+        => SubmitDecisionAsync(
+            ApprovalDocumentContext.ForTransferRequest(document), authorizerUserId, decision, stageId, remarks, cancellationToken);
+
+    public async Task<(ApprovalRequestEntity Request, List<ApprovalStageProgressDto> Stages)> GetProgressAsync(
+        ApprovalDocumentContext document,
+        CancellationToken cancellationToken)
+    {
+        var request = await EnsureRequestAsync(document, null, cancellationToken);
+        return (request, BuildProgress(request, Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson)));
+    }
+
+    public async Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
+        ApprovalDocumentContext document,
         Guid authorizerUserId,
         string decision,
         Guid? stageId,
@@ -192,7 +298,7 @@ public sealed class InventoryTransferApprovalService(
         request.CompletedAtUtc = request.Status == ApprovalRequestStatuses.Pending ? null : DateTime.UtcNow;
         await context.SaveChangesAsync(cancellationToken);
 
-        var notificationEntityId = ApprovalNotificationEntityId(request.DocumentKey, selectedStage.StageId);
+        var notificationEntityId = ApprovalNotificationEntityId(request.DocumentType, request.DocumentKey, selectedStage.StageId);
         await context.Notifications
             .Where(item => item.Category == "TransferApproval" &&
                            item.EntityType == "TransferRequestApproval" &&
@@ -206,7 +312,7 @@ public sealed class InventoryTransferApprovalService(
         if (request.Status == ApprovalRequestStatuses.Pending)
             await NotifyPendingAuthorizersAsync(request, snapshots, cancellationToken);
         else
-            await MarkApprovalNotificationsReadAsync(request.DocumentKey, cancellationToken);
+            await MarkApprovalNotificationsReadAsync(request.DocumentType, request.DocumentKey, cancellationToken);
 
         return new ApprovalDecisionOutcomeDto
         {
@@ -225,8 +331,20 @@ public sealed class InventoryTransferApprovalService(
         };
     }
 
-    public async Task MarkGeneratedAsync(
+    public Task MarkGeneratedAsync(
         int requestDocEntry,
+        int transferDocEntry,
+        int transferDocNum,
+        Guid generatedByUserId,
+        bool byAuthorizer,
+        CancellationToken cancellationToken)
+        => MarkGeneratedAsync(
+            ApprovalDocumentTypes.InventoryTransferRequest, requestDocEntry.ToString(),
+            transferDocEntry, transferDocNum, generatedByUserId, byAuthorizer, cancellationToken);
+
+    public async Task MarkGeneratedAsync(
+        string documentType,
+        string documentKey,
         int transferDocEntry,
         int transferDocNum,
         Guid generatedByUserId,
@@ -234,8 +352,8 @@ public sealed class InventoryTransferApprovalService(
         CancellationToken cancellationToken)
     {
         var request = await context.ApprovalRequests.FirstOrDefaultAsync(item =>
-            item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest &&
-            item.DocumentKey == requestDocEntry.ToString(), cancellationToken);
+            item.DocumentType == documentType &&
+            item.DocumentKey == documentKey, cancellationToken);
         if (request is null)
             return;
         request.Status = byAuthorizer ? ApprovalRequestStatuses.GeneratedByAuthorizer : ApprovalRequestStatuses.Generated;
@@ -249,7 +367,7 @@ public sealed class InventoryTransferApprovalService(
 
     public async Task<List<ApprovalStageDefinitionDto>> GetStagesAsync(CancellationToken cancellationToken)
     {
-        await EnsureDefaultsAsync(cancellationToken);
+        await EnsureAllDefaultsAsync(cancellationToken);
         return (await context.ApprovalStageDefinitions.AsNoTracking().OrderBy(stage => stage.Name).ToListAsync(cancellationToken))
             .Select(ToDto).ToList();
     }
@@ -295,7 +413,7 @@ public sealed class InventoryTransferApprovalService(
 
     public async Task<List<ApprovalTemplateDefinitionDto>> GetTemplatesAsync(CancellationToken cancellationToken)
     {
-        await EnsureDefaultsAsync(cancellationToken);
+        await EnsureAllDefaultsAsync(cancellationToken);
         return (await context.ApprovalTemplateDefinitions.AsNoTracking().OrderByDescending(template => template.Priority).ThenBy(template => template.Name).ToListAsync(cancellationToken))
             .Select(ToDto).ToList();
     }
@@ -304,6 +422,12 @@ public sealed class InventoryTransferApprovalService(
     {
         if (string.IsNullOrWhiteSpace(dto.Name) || dto.StageIds.Count == 0)
             return Errors.InventoryTransfer.ValidationFailed("Template name and at least one approval stage are required.");
+        var documentType = string.IsNullOrWhiteSpace(dto.DocumentType)
+            ? ApprovalDocumentTypes.InventoryTransferRequest
+            : dto.DocumentType.Trim();
+        if (!ApprovalDocumentTypes.IsKnown(documentType))
+            return Errors.InventoryTransfer.ValidationFailed(
+                $"Document type must be one of: {string.Join(", ", ApprovalDocumentTypes.All)}.");
         var validStageCount = await context.ApprovalStageDefinitions.CountAsync(stage => dto.StageIds.Contains(stage.Id), cancellationToken);
         if (validStageCount != dto.StageIds.Distinct().Count())
             return Errors.InventoryTransfer.ValidationFailed("One or more selected approval stages do not exist.");
@@ -315,7 +439,7 @@ public sealed class InventoryTransferApprovalService(
             return Error.NotFound("ApprovalProcess.TemplateNotFound", "Approval template was not found.");
         entity.Name = dto.Name.Trim();
         entity.Description = dto.Description?.Trim();
-        entity.DocumentType = ApprovalDocumentTypes.InventoryTransferRequest;
+        entity.DocumentType = documentType;
         entity.OriginatorUserIdsJson = Serialize(dto.OriginatorUserIds.Distinct());
         entity.OriginatorRolesJson = Serialize(dto.OriginatorRoles.Where(role => !string.IsNullOrWhiteSpace(role)).Select(role => role.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
         entity.StageIdsJson = Serialize(dto.StageIds.Distinct());
@@ -340,25 +464,62 @@ public sealed class InventoryTransferApprovalService(
         return Result.Deleted;
     }
 
-    private async Task EnsureDefaultsAsync(CancellationToken cancellationToken)
+    private async Task EnsureAllDefaultsAsync(CancellationToken cancellationToken)
     {
-        if (await context.ApprovalTemplateDefinitions.AnyAsync(cancellationToken)) return;
-        context.ApprovalStageDefinitions.AddRange(
+        foreach (var documentType in ApprovalDocumentTypes.All)
+            await EnsureDefaultsAsync(documentType, cancellationToken);
+    }
+
+    /// <summary>
+    /// Seeds the built-in stages and, for the requested document type, its default templates.
+    /// Seeding is per document type so that installs created before a document type existed still
+    /// pick up its defaults on first use.
+    /// </summary>
+    private async Task EnsureDefaultsAsync(string documentType, CancellationToken cancellationToken)
+    {
+        var seededTemplates = await context.ApprovalTemplateDefinitions.AsNoTracking()
+            .AnyAsync(template => template.DocumentType == documentType, cancellationToken);
+        if (seededTemplates) return;
+
+        var existingStageIds = await context.ApprovalStageDefinitions.AsNoTracking()
+            .Select(stage => stage.Id).ToListAsync(cancellationToken);
+        var missingStages = new[]
+        {
             NewStage(DepotStageId, "Depot Acceptance", "Depot controllers accept transfers arriving from Dispatch.", ApplicationRoles.DepotController),
             NewStage(StockStageId, "Stock Officer Approval", "Stock officers approve transfers initiated by depot controllers.", ApplicationRoles.StockController),
-            NewStage(AdminStageId, "Administrator Review", "Fallback review for requests that do not match a specific template.", ApplicationRoles.Admin));
-        context.ApprovalTemplateDefinitions.AddRange(
-            NewTemplate(DispatchTemplateId, "Dispatch Transfers", 100, [ApplicationRoles.StockController], [DepotStageId]),
-            NewTemplate(DepotTemplateId, "Depot Controller Transfers", 100, [ApplicationRoles.DepotController], [StockStageId]),
-            NewTemplate(FallbackTemplateId, "General Transfer Review", -100, [], [AdminStageId]));
+            NewStage(AdminStageId, "Administrator Review", "Fallback review for requests that do not match a specific template.", ApplicationRoles.Admin)
+        }.Where(stage => !existingStageIds.Contains(stage.Id));
+        context.ApprovalStageDefinitions.AddRange(missingStages);
+
+        context.ApprovalTemplateDefinitions.AddRange(documentType switch
+        {
+            // Direct transfers deliberately do not default to the depot-acceptance stage. Depot
+            // controllers are scoped to the warehouse stock leaves from, so routing a transfer
+            // *into* their depot to them would leave it with no eligible authorizer. Stock
+            // officers are unscoped, and the administrator stage is the catch-all.
+            ApprovalDocumentTypes.InventoryTransfer =>
+            [
+                NewTemplate(DirectDepotTemplateId, "Depot Controller Direct Transfers", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
+                NewTemplate(DirectFallbackTemplateId, "General Direct Transfer Review", documentType, -100, [], [AdminStageId])
+            ],
+            _ =>
+            (ApprovalTemplateDefinitionEntity[])
+            [
+                NewTemplate(DispatchTemplateId, "Dispatch Transfers", documentType, 100, [ApplicationRoles.StockController], [DepotStageId]),
+                NewTemplate(DepotTemplateId, "Depot Controller Transfers", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
+                NewTemplate(FallbackTemplateId, "General Transfer Review", documentType, -100, [], [AdminStageId])
+            ]
+        });
+
         try { await context.SaveChangesAsync(cancellationToken); }
         catch (DbUpdateException) { context.ChangeTracker.Clear(); }
     }
 
-    private async Task<ApprovalTemplateDefinitionEntity?> SelectTemplateAsync(User? originator, InventoryTransferRequest document, CancellationToken cancellationToken)
+    private async Task<ApprovalTemplateDefinitionEntity?> SelectTemplateAsync(User? originator, ApprovalDocumentContext document, CancellationToken cancellationToken)
     {
+        var documentType = document.DocumentType;
         var templates = await context.ApprovalTemplateDefinitions.AsNoTracking()
-            .Where(template => template.IsActive && template.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
+            .Where(template => template.IsActive && template.DocumentType == documentType)
             .OrderByDescending(template => template.Priority).ToListAsync(cancellationToken);
         return templates.FirstOrDefault(template =>
         {
@@ -451,9 +612,12 @@ public sealed class InventoryTransferApprovalService(
                                    (authorizerUserIds.Contains(user.Id) || authorizerRoles.Contains(user.Role)))
                     .ToListAsync(cancellationToken);
 
+                var isDirectTransfer = request.DocumentType == ApprovalDocumentTypes.InventoryTransfer;
+                var label = isDirectTransfer ? "Inventory transfer" : "Transfer request";
+
                 foreach (var recipient in recipients.Where(user => !decidedUserIds.Contains(user.Id)).DistinctBy(user => user.Id))
                 {
-                    var entityId = ApprovalNotificationEntityId(request.DocumentKey, stage.StageId);
+                    var entityId = ApprovalNotificationEntityId(request.DocumentType, request.DocumentKey, stage.StageId);
                     var exists = await context.Notifications.AsNoTracking().AnyAsync(item =>
                         item.Category == "TransferApproval" &&
                         item.EntityType == "TransferRequestApproval" &&
@@ -464,23 +628,29 @@ public sealed class InventoryTransferApprovalService(
 
                     await notificationService.CreateNotificationAsync(new CreateNotificationRequest
                     {
-                        Title = $"Transfer #{request.DocumentNumber ?? request.DocumentKey} needs approval",
+                        Title = isDirectTransfer
+                            ? $"Inventory transfer from {request.OriginatorName} needs approval"
+                            : $"Transfer #{request.DocumentNumber ?? request.DocumentKey} needs approval",
                         Message = $"{stage.StageName}: {request.FromWarehouse} to {request.ToWarehouse}. " +
                                   $"Requested by {request.OriginatorName}.",
                         Type = "Alert",
                         Category = "TransferApproval",
                         EntityType = "TransferRequestApproval",
                         EntityId = entityId,
-                        ActionUrl = $"/inventory-transfers?requestDocEntry={request.DocumentKey}",
+                        ActionUrl = isDirectTransfer
+                            ? $"/inventory-transfers?pendingTransferId={request.DocumentKey}"
+                            : $"/inventory-transfers?requestDocEntry={request.DocumentKey}",
                         TargetUserId = recipient.Id,
                         TargetUsername = recipient.Username,
                         Data = new Dictionary<string, string>
                         {
+                            ["documentType"] = request.DocumentType,
                             ["requestDocEntry"] = request.DocumentKey,
                             ["requestDocNum"] = request.DocumentNumber ?? request.DocumentKey,
                             ["approvalRequestId"] = request.Id.ToString(),
                             ["stageId"] = stage.StageId.ToString(),
-                            ["stageName"] = stage.StageName
+                            ["stageName"] = stage.StageName,
+                            ["documentLabel"] = label
                         }
                     }, cancellationToken);
                 }
@@ -492,24 +662,34 @@ public sealed class InventoryTransferApprovalService(
         }
     }
 
-    private Task MarkApprovalNotificationsReadAsync(string documentKey, CancellationToken cancellationToken)
-        => context.Notifications
+    private Task MarkApprovalNotificationsReadAsync(string documentType, string documentKey, CancellationToken cancellationToken)
+    {
+        var prefix = ApprovalNotificationEntityPrefix(documentType, documentKey);
+        return context.Notifications
             .Where(item => item.Category == "TransferApproval" &&
                            item.EntityType == "TransferRequestApproval" &&
                            item.EntityId != null &&
-                           item.EntityId.StartsWith(documentKey + ":") &&
+                           item.EntityId.StartsWith(prefix) &&
                            !item.IsRead)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.IsRead, true)
                 .SetProperty(item => item.ReadAt, DateTime.UtcNow), cancellationToken);
+    }
 
-    private static string ApprovalNotificationEntityId(string documentKey, Guid stageId)
-        => $"{documentKey}:{stageId:N}";
+    // Transfer request notification ids predate multi-document-type support, so their format is
+    // preserved verbatim; only newer document types carry a type prefix.
+    private static string ApprovalNotificationEntityPrefix(string documentType, string documentKey)
+        => documentType == ApprovalDocumentTypes.InventoryTransferRequest
+            ? $"{documentKey}:"
+            : $"{documentType}:{documentKey}:";
+
+    private static string ApprovalNotificationEntityId(string documentType, string documentKey, Guid stageId)
+        => $"{ApprovalNotificationEntityPrefix(documentType, documentKey)}{stageId:N}";
 
     private static ApprovalStageDefinitionEntity NewStage(Guid id, string name, string description, string role) => new()
     { Id = id, Name = name, Description = description, AuthorizerRolesJson = Serialize([role]) };
-    private static ApprovalTemplateDefinitionEntity NewTemplate(Guid id, string name, int priority, IEnumerable<string> roles, IEnumerable<Guid> stages) => new()
-    { Id = id, Name = name, Description = name, Priority = priority, OriginatorRolesJson = Serialize(roles), StageIdsJson = Serialize(stages) };
+    private static ApprovalTemplateDefinitionEntity NewTemplate(Guid id, string name, string documentType, int priority, IEnumerable<string> roles, IEnumerable<Guid> stages) => new()
+    { Id = id, Name = name, Description = name, DocumentType = documentType, Priority = priority, OriginatorRolesJson = Serialize(roles), StageIdsJson = Serialize(stages) };
     private static ApprovalStageSnapshot ToSnapshot(ApprovalStageDefinitionEntity stage) => new()
     { Id = stage.Id, Name = stage.Name, Description = stage.Description, ApprovalsRequired = stage.ApprovalsRequired, RejectionsRequired = stage.RejectionsRequired, AuthorizerUserIds = Deserialize<Guid>(stage.AuthorizerUserIdsJson), AuthorizerRoles = Deserialize<string>(stage.AuthorizerRolesJson) };
     private static ApprovalStageDefinitionDto ToDto(ApprovalStageDefinitionEntity stage) => new()
@@ -520,7 +700,6 @@ public sealed class InventoryTransferApprovalService(
     private static List<T> Deserialize<T>(string? json) { try { return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<T>>(json, JsonOptions) ?? []; } catch { return []; } }
     private static bool Matches(string? configured, string? actual) => string.IsNullOrWhiteSpace(configured) || string.Equals(configured.Trim(), actual?.Trim(), StringComparison.OrdinalIgnoreCase);
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static bool IsClosed(string? status) => string.Equals(status, "bost_Close", StringComparison.OrdinalIgnoreCase) || string.Equals(status, "Closed", StringComparison.OrdinalIgnoreCase);
     private static string? ExtractCommentValue(string? comments, string label) { if (string.IsNullOrWhiteSpace(comments)) return null; var prefix = $"{label}:"; return comments.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault(part => part.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))?[prefix.Length..].Trim(); }
 
     private sealed class ApprovalStageSnapshot

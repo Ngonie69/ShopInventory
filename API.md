@@ -1024,7 +1024,7 @@ Change the current user's password.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/InventoryTransfer` | Create an inventory transfer between warehouses |
+| POST | `/api/InventoryTransfer` | Submit an inventory transfer for approval (`stock.transfer` or `inventory.transfer`) |
 | GET | `/api/InventoryTransfer/{docEntry}` | Get transfer details |
 | GET | `/api/InventoryTransfer/status/{docEntry}` | Get posting status |
 
@@ -1047,6 +1047,64 @@ Change the current user's password.
   ]
 }
 ```
+
+#### Approval gate on direct transfers
+
+`POST /api/InventoryTransfer` does **not** post to SAP. Quantities, warehouse codes and stock are
+validated, then the transfer is held locally and an approval request is opened against the
+configured stages. The response is `202 Accepted`:
+
+```json
+{
+  "message": "Inventory transfer submitted for approval. It will post to SAP once all approval stages are complete.",
+  "requiresApproval": true,
+  "transfer": null,
+  "statusUrl": "https://…/api/InventoryTransfer/pending/3f2a…",
+  "pendingTransfer": {
+    "id": "3f2a…",
+    "status": "AwaitingApproval",
+    "fromWarehouse": "WH01",
+    "toWarehouse": "WH02",
+    "approvalStatus": "Pending",
+    "approvalStages": [{ "stageName": "Stock Officer Approval", "status": "Pending" }]
+  }
+}
+```
+
+The transfer posts to SAP on the **final** approval, and only then does `transfer` carry a
+`docEntry` / `docNum`. Stock is re-validated immediately before posting, because it can move while
+the transfer waits. Send `Idempotency-Key` (or `clientRequestId`) to make resubmission safe — a
+repeat returns the existing held transfer rather than opening a second approval.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/InventoryTransfer/pending` | List held transfers. `status` (default `AwaitingApproval`, or `all`), `warehouseCode`, `mineOnly`, `page`, `pageSize` |
+| GET | `/api/InventoryTransfer/pending/{id}` | Held transfer with lines and per-stage approval progress |
+| POST | `/api/InventoryTransfer/pending/{id}/decision` | Approve or reject. Admin, StockController, DepotController, Manager |
+| POST | `/api/InventoryTransfer/pending/{id}/post` | Retry the SAP post after a `PostFailed` |
+| POST | `/api/InventoryTransfer/pending/{id}/cancel` | Withdraw. Submitter or Admin only, before any decision |
+
+**Decision body:**
+
+```json
+{ "decision": "Approved", "stageId": null, "remarks": "Confirmed against stock count" }
+```
+
+`decision` is `Approved` or `NotApproved`. Omit `stageId` to let the API pick the caller's pending
+stage. `POST /api/approval-process/transfers/{id}/decision` is an equivalent route.
+
+**Statuses:** `AwaitingApproval` → `Approved` → `Posted`, or `Rejected` / `Cancelled`.
+`PostFailed` means the approval stands but SAP rejected the post; `lastError` explains why and the
+`/post` endpoint retries.
+
+#### Warehouse scoping
+
+**Depot controllers** may only action transfers whose **source** warehouse is one of their
+`assignedWarehouseCodes` — converting or rejecting a transfer request, and deciding on or posting a
+held direct transfer. Violations return `403` with
+`InventoryTransfer.WarehouseNotAssigned`, or `InventoryTransfer.NoAssignedWarehouses` when the
+account has no warehouses at all. Administrators are unrestricted, and other roles are not
+warehouse-scoped.
 
 ---
 

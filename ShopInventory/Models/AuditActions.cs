@@ -83,6 +83,10 @@ public static class AuditActions
     public const string CloseTransferRequest = "CloseTransferRequest";
     public const string ApproveTransferRequestStage = "ApproveTransferRequestStage";
     public const string RejectTransferRequestStage = "RejectTransferRequestStage";
+    public const string SubmitTransferForApproval = "SubmitTransferForApproval";
+    public const string ApproveTransferStage = "ApproveTransferStage";
+    public const string RejectTransferStage = "RejectTransferStage";
+    public const string CancelPendingTransfer = "CancelPendingTransfer";
 
     // User Management actions
     public const string CreateUser = "CreateUser";

@@ -79,6 +79,14 @@ public sealed class ApprovalDecisionEntity
 public static class ApprovalDocumentTypes
 {
     public const string InventoryTransferRequest = "InventoryTransferRequest";
+
+    /// <summary>A direct inventory transfer, held locally until fully approved.</summary>
+    public const string InventoryTransfer = "InventoryTransfer";
+
+    public static readonly IReadOnlyList<string> All = [InventoryTransferRequest, InventoryTransfer];
+
+    public static bool IsKnown(string? documentType) =>
+        All.Contains(documentType, StringComparer.OrdinalIgnoreCase);
 }
 
 public static class ApprovalRequestStatuses

@@ -153,6 +153,16 @@ public class InventoryTransferCreatedResponse
 
     [JsonPropertyName("transfer")]
     public InventoryTransferDto? Transfer { get; set; }
+
+    /// <summary>
+    /// True when the transfer was parked for approval rather than posted; <see cref="Transfer"/>
+    /// stays null until every approval stage signs off.
+    /// </summary>
+    [JsonPropertyName("requiresApproval")]
+    public bool RequiresApproval { get; set; }
+
+    [JsonPropertyName("pendingTransfer")]
+    public PendingInventoryTransferDto? PendingTransfer { get; set; }
 }
 
 #endregion

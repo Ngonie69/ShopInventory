@@ -68,5 +68,21 @@ public static partial class Errors
 
         public static readonly Error ApprovalInProgress =
             Error.Conflict("InventoryTransfer.ApprovalInProgress", "Another approval decision is already being processed for this transfer request.");
+
+        public static Error PendingTransferNotFound(Guid id) =>
+            Error.NotFound("InventoryTransfer.PendingTransferNotFound", $"Pending inventory transfer {id} was not found.");
+
+        public static Error PendingTransferNotActionable(string status) =>
+            Error.Conflict("InventoryTransfer.PendingTransferNotActionable", $"This inventory transfer is {status} and can no longer be actioned.");
+
+        public static Error WarehouseNotAssigned(string warehouseCode) =>
+            Error.Forbidden(
+                "InventoryTransfer.WarehouseNotAssigned",
+                $"You are not assigned to source warehouse {warehouseCode}, so you cannot action this transfer.");
+
+        public static readonly Error NoAssignedWarehouses =
+            Error.Forbidden(
+                "InventoryTransfer.NoAssignedWarehouses",
+                "Your account has no assigned warehouses. Ask an administrator to assign one before actioning transfers.");
     }
 }

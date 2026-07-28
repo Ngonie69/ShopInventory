@@ -94,7 +94,7 @@
                     {
                         <button class="definition-card @(editingTemplate.Id == template.Id ? "active" : "")" @onclick="() => EditTemplate(template)">
                             <strong>@template.Name</strong>
-                            <span>@template.StageIds.Count stage(s), priority @template.Priority</span>
+                            <span>@FriendlyDocumentType(template.DocumentType) — @template.StageIds.Count stage(s), priority @template.Priority</span>
                             <small>@(template.IsActive ? "Active" : "Inactive")</small>
                         </button>
                     }
@@ -103,7 +103,14 @@
                     <h5>@(editingTemplate.Id == Guid.Empty ? "Create Approval Template" : "Edit Approval Template")</h5>
                     <label>Template Name</label><input class="form-control" @bind="editingTemplate.Name" />
                     <label>Description</label><textarea class="form-control" rows="2" @bind="editingTemplate.Description"></textarea>
-                    <div class="row g-3">
+                    <label class="mt-3">Applies To</label>
+                    <select class="form-select" @bind="editingTemplate.DocumentType">
+                        @foreach (var documentType in documentTypes)
+                        {
+                            <option value="@documentType">@FriendlyDocumentType(documentType)</option>
+                        }
+                    </select>
+                    <div class="row g-3 mt-1">
                         <div class="col-md-4"><label>Priority</label><input type="number" class="form-control" @bind="editingTemplate.Priority" /></div>
                         <div class="col-md-4"><label>From Warehouse</label><select class="form-select" @bind="editingTemplate.FromWarehouse"><option value="">Any</option>@foreach (var warehouse in warehouses){<option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>}</select></div>
                         <div class="col-md-4"><label>To Warehouse</label><select class="form-select" @bind="editingTemplate.ToWarehouse"><option value="">Any</option>@foreach (var warehouse in warehouses){<option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>}</select></div>
@@ -474,6 +481,10 @@
     private List<ApprovalTemplateDefinitionModel> templates = [];
     private List<UserModel> users = [];
     private List<WarehouseDto> warehouses = [];
+
+    // Document types the approval engine can drive. Must match ApprovalDocumentTypes on the API.
+    private readonly List<string> documentTypes = ["InventoryTransferRequest", "InventoryTransfer"];
+
     private ApprovalStageDefinitionModel editingStage = new();
     private ApprovalTemplateDefinitionModel editingTemplate = new();
     private bool isLoading = true, isSaving, isError;
@@ -519,4 +530,5 @@
     private static ApprovalStageDefinitionModel Clone(ApprovalStageDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,ApprovalsRequired=x.ApprovalsRequired,RejectionsRequired=x.RejectionsRequired,AuthorizerUserIds=[..x.AuthorizerUserIds],AuthorizerRoles=[..x.AuthorizerRoles],IsActive=x.IsActive};
     private static ApprovalTemplateDefinitionModel Clone(ApprovalTemplateDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,DocumentType=x.DocumentType,OriginatorUserIds=[..x.OriginatorUserIds],OriginatorRoles=[..x.OriginatorRoles],StageIds=[..x.StageIds],FromWarehouse=x.FromWarehouse,ToWarehouse=x.ToWarehouse,Priority=x.Priority,IsActive=x.IsActive};
     private static string FriendlyRole(string role)=>role switch{"StockController"=>"Stock Officer","DepotController"=>"Depot Controller",_=>role};
+    private static string FriendlyDocumentType(string? documentType)=>documentType switch{"InventoryTransferRequest"=>"Transfer requests","InventoryTransfer"=>"Direct transfers",_=>documentType ?? "Unknown"};
 }

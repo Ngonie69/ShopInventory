@@ -41,7 +41,7 @@
             <a href="/transfer-request/create" class="itx-btn">
                 <i class="bi bi-file-earmark-plus"></i> New Request
             </a>
-            <AuthorizeView Roles="Admin">
+            <AuthorizeView Roles="Admin,Manager,StockController,DepotController,Sales">
                 <a href="/inventory-transfer/create" class="itx-btn itx-btn-primary">
                     <i class="bi bi-plus-lg"></i> New Transfer
                 </a>
@@ -85,6 +85,14 @@
                 @if (transferRequestCount > 0)
                 {
                     <span class="itx-tab-count">@transferRequestCount</span>
+                }
+            </button>
+            <button type="button" class="itx-tab @(activeTabIndex == 2 ? "active" : "")" @onclick="() => SwitchTab(2)">
+                <i class="bi bi-hourglass-split"></i>
+                Awaiting Approval
+                @if (pendingTransferCount > 0)
+                {
+                    <span class="itx-tab-count">@pendingTransferCount</span>
                 }
             </button>
         </div>
@@ -411,8 +419,208 @@
                 </div>
             }
         }
+        else if (activeTabIndex == 2)
+        {
+            <!-- ══════ DIRECT TRANSFERS AWAITING APPROVAL ══════ -->
+            <div class="itx-toolbar">
+                <div class="itx-grow">
+                    <MudSelect T="string" @bind-Value="pendingStatusFilter" Label="Status" Dense="true"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-0"
+                               SelectedValuesChanged="@(_ => LoadPendingTransfersAsync())">
+                        <MudSelectItem T="string" Value="@PendingTransferStatuses.AwaitingApproval">Awaiting approval</MudSelectItem>
+                        <MudSelectItem T="string" Value="@PendingTransferStatuses.PostFailed">Failed to post</MudSelectItem>
+                        <MudSelectItem T="string" Value="@PendingTransferStatuses.Rejected">Rejected</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                    </MudSelect>
+                </div>
+                <button type="button" class="itx-btn itx-btn-sm" @onclick="LoadPendingTransfersAsync" disabled="@isLoadingPending">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+
+            @if (isLoadingPending)
+            {
+                <div class="itx-empty">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-3 mb-0">Loading transfers awaiting approval…</p>
+                </div>
+            }
+            else if (pendingTransfers?.Any() == true)
+            {
+                <div class="itx-meta">@pendingTransfers.Count transfer(s)</div>
+                <div class="itx-body">
+                    <MudTable Items="@pendingTransfers" RowsPerPage="@_pageSize" Hover="true" Dense="true"
+                              Breakpoint="Breakpoint.Sm" Elevation="0">
+                        <HeaderContent>
+                            <MudTh>Submitted</MudTh>
+                            <MudTh>Route</MudTh>
+                            <MudTh>Requested by</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Awaiting</MudTh>
+                            <MudTh>Items</MudTh>
+                            <MudTh Style="width:150px;text-align:center;">Actions</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Submitted">@context.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudTd>
+                            <MudTd DataLabel="Route">
+                                <span class="itx-route">
+                                    <span class="itx-wh src">@context.FromWarehouse</span>
+                                    <i class="bi bi-arrow-right itx-arrow"></i>
+                                    <span class="itx-wh dst">@context.ToWarehouse</span>
+                                </span>
+                            </MudTd>
+                            <MudTd DataLabel="Requested by">@context.CreatedByName</MudTd>
+                            <MudTd DataLabel="Status">
+                                <span class="itx-status @GetStatusCssClass(context.Status)">@FormatPendingStatus(context)</span>
+                            </MudTd>
+                            <MudTd DataLabel="Awaiting">@PendingStageNames(context)</MudTd>
+                            <MudTd DataLabel="Items"><span class="itx-wh count">@context.LineCount</span></MudTd>
+                            <MudTd DataLabel="Actions" Style="text-align:center;">
+                                <div class="d-flex justify-content-center gap-1">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
+                                                   Color="Color.Primary" OnClick="() => ViewPendingTransfer(context)" />
+                                    @if (context.CanCurrentUserDecide)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.Check" Size="Size.Small" Color="Color.Success"
+                                                       title="Approve" Disabled="@isDecidingPending"
+                                                       OnClick="@(() => DecidePendingTransferAsync(context, ApprovedDecision))" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Color="Color.Error"
+                                                       title="Reject" Disabled="@isDecidingPending"
+                                                       OnClick="@(() => DecidePendingTransferAsync(context, RejectedDecision))" />
+                                    }
+                                    @if (context.Status == PendingTransferStatuses.PostFailed)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.Replay" Size="Size.Small" Color="Color.Warning"
+                                                       title="Retry posting to SAP" Disabled="@isDecidingPending"
+                                                       OnClick="() => RetryPendingTransferAsync(context)" />
+                                    }
+                                    @if (context.Status == PendingTransferStatuses.AwaitingApproval && context.CreatedByUserId == currentUserId)
+                                    {
+                                        <MudIconButton Icon="@Icons.Material.Filled.Undo" Size="Size.Small" Color="Color.Default"
+                                                       title="Withdraw" Disabled="@isDecidingPending"
+                                                       OnClick="() => CancelPendingTransferAsync(context)" />
+                                    }
+                                </div>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </div>
+            }
+            else
+            {
+                <div class="itx-empty">
+                    <i class="bi bi-hourglass itx-empty-icon"></i>
+                    <h6>Nothing Awaiting Approval</h6>
+                    <p>Inventory transfers appear here after they are submitted, until every approval stage signs off.</p>
+                </div>
+            }
+        }
     </div>
 </div>
+
+<!-- ── Pending transfer detail drawer ─────────────────────── -->
+@if (selectedPendingTransfer != null)
+{
+    <div class="itx-scrim" @onclick="ClosePendingTransfer"></div>
+    <div class="itx-drawer">
+        <div class="itx-drawer-head">
+            <h5><i class="bi bi-hourglass-split me-2"></i>Transfer awaiting approval</h5>
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="ClosePendingTransfer" />
+        </div>
+        <div class="itx-drawer-body">
+            <div class="itx-route-card">
+                <div class="leg src">
+                    <small>From</small>
+                    <strong>@selectedPendingTransfer.FromWarehouse</strong>
+                </div>
+                <i class="bi bi-arrow-right"></i>
+                <div class="leg dst">
+                    <small>To</small>
+                    <strong>@selectedPendingTransfer.ToWarehouse</strong>
+                </div>
+            </div>
+
+            <dl class="row small mt-3">
+                <dt class="col-5">Submitted by</dt>
+                <dd class="col-7">@selectedPendingTransfer.CreatedByName (@selectedPendingTransfer.CreatedByRole)</dd>
+                <dt class="col-5">Submitted</dt>
+                <dd class="col-7">@selectedPendingTransfer.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</dd>
+                <dt class="col-5">Status</dt>
+                <dd class="col-7">@FormatPendingStatus(selectedPendingTransfer)</dd>
+                <dt class="col-5">Approval process</dt>
+                <dd class="col-7">@(selectedPendingTransfer.ApprovalTemplateName ?? "—")</dd>
+                @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.Comments))
+                {
+                    <dt class="col-5">Comments</dt>
+                    <dd class="col-7">@selectedPendingTransfer.Comments</dd>
+                }
+                @if (selectedPendingTransfer.SapDocNum.HasValue)
+                {
+                    <dt class="col-5">SAP document</dt>
+                    <dd class="col-7">#@selectedPendingTransfer.SapDocNum</dd>
+                }
+            </dl>
+
+            @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.LastError))
+            {
+                <div class="itx-alert err">
+                    <i class="bi bi-exclamation-octagon-fill"></i>
+                    <div class="itx-alert-body">@selectedPendingTransfer.LastError</div>
+                </div>
+            }
+
+            <h6 class="mt-3">Approval stages</h6>
+            <ul class="list-unstyled small">
+                @foreach (var stage in selectedPendingTransfer.ApprovalStages)
+                {
+                    <li class="d-flex justify-content-between border-bottom py-2">
+                        <span>
+                            <strong>@stage.StageName</strong>
+                            <br />
+                            <span class="text-muted">@string.Join(", ", stage.AuthorizerRoles)</span>
+                        </span>
+                        <span class="itx-status @GetStatusCssClass(stage.Status)">
+                            @stage.Status (@stage.ApprovalCount/@stage.ApprovalsRequired)
+                        </span>
+                    </li>
+                }
+            </ul>
+
+            <h6 class="mt-3">Lines</h6>
+            <table class="table table-sm small">
+                <thead>
+                    <tr><th>Item</th><th class="text-end">Qty</th><th>UoM</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in selectedPendingTransfer.Lines)
+                    {
+                        <tr>
+                            <td>@line.ItemCode</td>
+                            <td class="text-end">@line.Quantity.ToString("N2")</td>
+                            <td>@(line.UoMCode ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (selectedPendingTransfer.CanCurrentUserDecide)
+            {
+                <MudTextField @bind-Value="pendingDecisionRemarks" Label="Remarks (optional)" Variant="Variant.Outlined"
+                              Margin="Margin.Dense" Lines="2" Class="mt-3" />
+                <div class="d-flex gap-2 mt-2">
+                    <button type="button" class="itx-btn itx-btn-primary" disabled="@isDecidingPending"
+                            @onclick="@(() => DecidePendingTransferAsync(selectedPendingTransfer, ApprovedDecision))">
+                        <i class="bi bi-check-lg"></i> Approve
+                    </button>
+                    <button type="button" class="itx-btn" disabled="@isDecidingPending"
+                            @onclick="@(() => DecidePendingTransferAsync(selectedPendingTransfer, RejectedDecision))">
+                        <i class="bi bi-x-lg"></i> Reject
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+}
 
 <!-- ── Transfer detail drawer ─────────────────────────────── -->
 @if (selectedTransfer != null)
@@ -768,6 +976,18 @@
     private const int transferRequestBatchSize = 100;
     private int transferRequestCount = 0;
 
+    // ── Direct transfers held for approval ──────────────
+    private List<PendingInventoryTransferDto>? pendingTransfers;
+    private PendingInventoryTransferDto? selectedPendingTransfer;
+    private bool isLoadingPending = false;
+    private bool isDecidingPending = false;
+    private int pendingTransferCount = 0;
+    private string pendingStatusFilter = PendingTransferStatuses.AwaitingApproval;
+    private string? pendingDecisionRemarks;
+    private const string ApprovedDecision = "Approved";
+    private const string RejectedDecision = "NotApproved";
+    private const string PendingStageStatus = "Pending";
+
     // ── Warehouse search ────────────────────────────────
     private bool isLoadingWarehouses = true;
     private List<WarehouseDto> cachedWarehouses = new();
@@ -983,6 +1203,152 @@
         activeTabIndex = index;
         if (index == 1 && transferRequests == null)
             await LoadTransferRequestsAsync();
+        else if (index == 2 && pendingTransfers == null)
+            await LoadPendingTransfersAsync();
+    }
+
+    // ── Direct transfers held for approval ──────────────
+    private async Task LoadPendingTransfersAsync()
+    {
+        isLoadingPending = true;
+        StateHasChanged();
+        try
+        {
+            var response = await TransferService.GetPendingTransfersAsync(pendingStatusFilter, pageSize: 200);
+            pendingTransfers = response?.Items ?? [];
+            pendingTransferCount = pendingStatusFilter == PendingTransferStatuses.AwaitingApproval
+                ? pendingTransfers.Count
+                : pendingTransfers.Count(item => item.Status == PendingTransferStatuses.AwaitingApproval);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading transfers awaiting approval");
+            errorMessage = "Could not load transfers awaiting approval.";
+            pendingTransfers = [];
+        }
+        finally
+        {
+            isLoadingPending = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ViewPendingTransfer(PendingInventoryTransferDto pending)
+    {
+        selectedPendingTransfer = pending;
+        pendingDecisionRemarks = null;
+    }
+
+    private void ClosePendingTransfer()
+    {
+        selectedPendingTransfer = null;
+        pendingDecisionRemarks = null;
+    }
+
+    private async Task DecidePendingTransferAsync(PendingInventoryTransferDto pending, string decision)
+    {
+        if (isDecidingPending) return;
+
+        isDecidingPending = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+        try
+        {
+            var (success, message, _) = await TransferService.DecidePendingTransferAsync(
+                pending.Id, decision, remarks: pendingDecisionRemarks);
+            if (success)
+            {
+                successMessage = message;
+                ClosePendingTransfer();
+                await LoadPendingTransfersAsync();
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        finally
+        {
+            isDecidingPending = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RetryPendingTransferAsync(PendingInventoryTransferDto pending)
+    {
+        if (isDecidingPending) return;
+
+        isDecidingPending = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+        try
+        {
+            var (success, message, _) = await TransferService.RetryPendingTransferPostAsync(pending.Id);
+            if (success)
+            {
+                successMessage = message;
+                ClosePendingTransfer();
+                await LoadPendingTransfersAsync();
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        finally
+        {
+            isDecidingPending = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CancelPendingTransferAsync(PendingInventoryTransferDto pending)
+    {
+        if (isDecidingPending) return;
+
+        isDecidingPending = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+        try
+        {
+            var (success, message) = await TransferService.CancelPendingTransferAsync(pending.Id);
+            if (success)
+            {
+                successMessage = message;
+                ClosePendingTransfer();
+                await LoadPendingTransfersAsync();
+            }
+            else
+            {
+                errorMessage = message;
+            }
+        }
+        finally
+        {
+            isDecidingPending = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string FormatPendingStatus(PendingInventoryTransferDto pending) => pending.Status switch
+    {
+        PendingTransferStatuses.AwaitingApproval => "Awaiting approval",
+        PendingTransferStatuses.Approved => "Approved — posting",
+        PendingTransferStatuses.PostFailed => "Failed to post",
+        PendingTransferStatuses.Posted => $"Posted (#{pending.SapDocNum})",
+        _ => pending.Status
+    };
+
+    private static string PendingStageNames(PendingInventoryTransferDto pending)
+    {
+        var names = pending.ApprovalStages
+            .Where(stage => stage.Status == PendingStageStatus)
+            .Select(stage => stage.StageName)
+            .ToList();
+        return names.Count == 0 ? "—" : string.Join(", ", names);
     }
 
     // ── Load transfers ──────────────────────────────────

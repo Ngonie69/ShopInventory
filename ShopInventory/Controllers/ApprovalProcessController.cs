@@ -5,6 +5,7 @@ using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers.Commands.CloseTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
+using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingTransfer;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -82,5 +83,24 @@ public sealed class ApprovalProcessController(
         }
 
         return BadRequest(new { message = "Decision must be Approved or NotApproved." });
+    }
+
+    /// <summary>
+    /// Records a decision on a direct inventory transfer being held for approval.
+    /// The final approval posts the transfer to SAP.
+    /// </summary>
+    [HttpPost("transfers/{pendingTransferId:guid}/decision")]
+    public async Task<IActionResult> SubmitTransferDecision(
+        Guid pendingTransferId,
+        [FromBody] SubmitPendingTransferDecisionDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null) return Unauthorized();
+
+        var result = await mediator.Send(
+            new DecidePendingTransferCommand(pendingTransferId, userId.Value, request.Decision, request.StageId, request.Remarks),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 }

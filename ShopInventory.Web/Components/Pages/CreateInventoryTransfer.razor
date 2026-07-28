@@ -1,7 +1,7 @@
 @page "/inventory-transfer/create"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
-@attribute [Authorize(Roles = "Admin")]
+@attribute [Authorize(Roles = "Admin,Manager,StockController,DepotController,Sales")]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
 @inject IWarehouseStockCacheService StockCacheService
@@ -1764,16 +1764,28 @@
             Logger.LogInformation("Submitting inventory transfer: From={From}, To={To}, Lines={Lines}",
             request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
-            var (success, message, transfer) = await TransferService.CreateInventoryTransferAsync(request);
+            var (success, message, transfer, pendingTransfer) = await TransferService.CreateInventoryTransferAsync(request);
 
             if (success)
             {
-                successMessage = $"Transfer #{transfer?.DocNum} created successfully! Redirecting…";
-                Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}",
-                transfer?.DocNum, transfer?.DocEntry);
+                if (pendingTransfer is not null)
+                {
+                    var pendingStage = pendingTransfer.ApprovalStages.FirstOrDefault(stage => stage.Status == "Pending");
+                    successMessage = pendingStage is null
+                    ? "Transfer submitted for approval. It will post to SAP once approved. Redirecting…"
+                    : $"Transfer submitted for approval — waiting on {pendingStage.StageName}. Redirecting…";
+                    Logger.LogInformation("Inventory transfer submitted for approval: PendingId={PendingId}", pendingTransfer.Id);
+                }
+                else
+                {
+                    successMessage = $"Transfer #{transfer?.DocNum} created successfully! Redirecting…";
+                    Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}",
+                    transfer?.DocNum, transfer?.DocEntry);
+                }
 
-                // Audit log: transfer created
-                await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", transfer?.DocNum.ToString());
+                // Audit log: transfer submitted
+                await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer",
+                transfer?.DocNum.ToString() ?? pendingTransfer?.Id.ToString());
 
                 StateHasChanged();
                 await Task.Delay(1500);

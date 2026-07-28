@@ -14,6 +14,7 @@ namespace ShopInventory.Features.InventoryTransfers.Commands.CloseTransferReques
 public sealed class CloseTransferRequestHandler(
     ISAPServiceLayerClient sapClient,
     IInventoryTransferApprovalService approvalService,
+    ITransferWarehouseAuthorizer warehouseAuthorizer,
     IIdempotencyRequestStore idempotencyRequestStore,
     IAuditService auditService,
     IOptions<SAPSettings> settings,
@@ -29,6 +30,11 @@ public sealed class CloseTransferRequestHandler(
         {
             var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
             if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
+
+            // Whoever may convert a request is also the one who may turn it down.
+            var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
+                command.UserId, document.FromWarehouse, cancellationToken);
+            if (scopeCheck.IsError) return scopeCheck.Errors;
 
             var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:reject";
             var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestDecisionResponseDto>(
