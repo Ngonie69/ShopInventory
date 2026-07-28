@@ -22,7 +22,8 @@
 
 <MudLayout Class="@ShellClass">
     <MudAppBar Elevation="0" Dense="true" Class="staff-appbar kf-appbar">
-        <Topbar UnreadCount="@_unreadCount"
+        <Topbar @ref="_topbar"
+                UnreadCount="@_unreadCount"
                 NotificationsOpen="@_notifPopoverOpen"
                 OnMenuClick="@ToggleDrawer"
                 OnNotificationsClick="@ToggleNotificationPopover"
@@ -58,44 +59,50 @@
     </MudMainContent>
 </MudLayout>
 
-<MudPopover Open="@_notifPopoverOpen" AnchorOrigin="Origin.TopRight"
-            TransformOrigin="Origin.TopRight" Class="notification-popover kf-notification-popover"
-            Style="width: min(380px, calc(100vw - 32px)); max-height: 480px; margin-top: 72px; margin-right: 16px;">
-    <div class="kf-notification-header">
-        <strong>Notifications</strong>
-        @if (_unreadCount > 0)
-        {
-            <button type="button" @onclick="MarkAllRead">Mark all read</button>
-        }
-    </div>
-    <div class="kf-notification-list">
-        @if (_recentNotifications.Count == 0)
-        {
-            <div class="kf-notification-empty">
-                <MudIcon Icon="@Icons.Material.Outlined.NotificationsNone" />
-                <span>No notifications</span>
-            </div>
-        }
-        else
-        {
-            @foreach (var n in _recentNotifications)
+@* Anchored to the topbar in CSS rather than by MudPopover: a popover declared at
+   layout level has no meaningful anchor element, so it positioned itself against
+   the end of the shell instead of against the bell. *@
+@if (_notifPopoverOpen)
+{
+    <div class="kf-notification-backdrop" @onclick="CloseNotifications"></div>
+    <div class="kf-notification-panel" @ref="_notifPanel" tabindex="-1"
+         role="dialog" aria-label="Notifications" @onkeydown="OnNotificationsKeyDown">
+        <div class="kf-notification-header">
+            <strong>Notifications</strong>
+            @if (_unreadCount > 0)
             {
-                <button type="button" class="notification-item @(n.IsRead ? "" : "unread")"
-                        @onclick="() => OnNotificationClick(n)">
-                    <MudIcon Icon="@GetNotifIcon(n.Type)" Color="@GetNotifColor(n.Type)" />
-                    <span>
-                        <strong>@n.Title</strong>
-                        <small>@n.Message</small>
-                        <time>@n.TimeAgo</time>
-                    </span>
-                </button>
+                <button type="button" @onclick="MarkAllRead">Mark all read</button>
             }
-        }
+        </div>
+        <div class="kf-notification-list">
+            @if (_recentNotifications.Count == 0)
+            {
+                <div class="kf-notification-empty">
+                    <MudIcon Icon="@Icons.Material.Outlined.NotificationsNone" />
+                    <span>No notifications</span>
+                </div>
+            }
+            else
+            {
+                @foreach (var n in _recentNotifications)
+                {
+                    <button type="button" class="notification-item @(n.IsRead ? "" : "unread")"
+                            @onclick="() => OnNotificationClick(n)">
+                        <MudIcon Icon="@GetNotifIcon(n.Type)" Color="@GetNotifColor(n.Type)" />
+                        <span>
+                            <strong>@n.Title</strong>
+                            <small>@n.Message</small>
+                            <time>@n.TimeAgo</time>
+                        </span>
+                    </button>
+                }
+            }
+        </div>
+        <button class="kf-notification-view-all" type="button" @onclick="GoToNotifications">
+            View all notifications
+        </button>
     </div>
-    <button class="kf-notification-view-all" type="button" @onclick="GoToNotifications">
-        View all notifications
-    </button>
-</MudPopover>
+}
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
@@ -120,6 +127,9 @@
     // Notification state
     private int _unreadCount;
     private bool _notifPopoverOpen;
+    private bool _notifPanelNeedsFocus;
+    private ElementReference _notifPanel;
+    private Topbar? _topbar;
     private List<NotificationModel> _recentNotifications = new();
     private System.Threading.Timer? _pollTimer;
     private bool _isAuthenticated;
@@ -140,6 +150,19 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_notifPanelNeedsFocus)
+        {
+            _notifPanelNeedsFocus = false;
+            try
+            {
+                await _notifPanel.FocusAsync();
+            }
+            catch (JSException)
+            {
+                // The panel closed again before this render committed; nothing to focus.
+            }
+        }
+
         if (firstRender)
         {
             await BrowserViewportService.SubscribeAsync(_viewportObserverId, OnBrowserViewportChangedAsync, null, true);
@@ -281,6 +304,33 @@
     private void ToggleNotificationPopover()
     {
         _notifPopoverOpen = !_notifPopoverOpen;
+        _notifPanelNeedsFocus = _notifPopoverOpen;
+    }
+
+    private async Task CloseNotifications()
+    {
+        if (!_notifPopoverOpen)
+        {
+            return;
+        }
+
+        _notifPopoverOpen = false;
+        _notifPanelNeedsFocus = false;
+
+        // Focus came from the bell, so send it back there rather than to the top
+        // of the document.
+        if (_topbar is not null)
+        {
+            await _topbar.FocusNotificationButtonAsync();
+        }
+    }
+
+    private async Task OnNotificationsKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            await CloseNotifications();
+        }
     }
 
     private async void OnRealTimeNotification(NotificationModel notification)

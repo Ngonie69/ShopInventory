@@ -261,9 +261,11 @@
         color: #b91c1c;
     }
 
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
     .rc-modal-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         z-index: 1100;
         display: flex;
         align-items: center;
@@ -275,7 +277,7 @@
 
     .rc-modal {
         width: min(720px, 100%);
-        max-height: calc(100vh - 2rem);
+        max-height: calc(100vh - var(--kf-topbar-h, 74px) - 2rem);
         overflow: auto;
         border-radius: 18px;
         border: 1px solid #e5e7eb;

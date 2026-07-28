@@ -51,6 +51,9 @@
    ============================================================ */
 :root,
 [data-theme="light"] {
+    /* Single source of truth for the app bar height. Anything that has to sit
+       flush under the topbar (the notification panel) measures from this. */
+    --kf-topbar-h: 74px;
     --kf-app-bg: #F6F8FB;
     --kf-sidebar-bg: #FFFFFF;
     --kf-topbar-bg: #FFFFFF;
@@ -927,19 +930,46 @@ body {
     transform: translateX(2px);
 }
 
-.kf-notification-popover {
-    background: var(--kf-panel-raised) !important;
-    border: 1px solid var(--kf-border) !important;
-    border-radius: 12px !important;
-    box-shadow: var(--kf-shadow-raised) !important;
+/* The panel anchors itself to the topbar in CSS. It deliberately does not use
+   MudPopover: that positions against the DOM node the popover is declared next
+   to, which for a layout-level popover is a zero-height element at the end of
+   the shell, so the panel landed wherever the page happened to end. */
+.kf-notification-panel {
+    background: var(--kf-panel-raised);
+    border: 1px solid var(--kf-border);
+    border-radius: 12px;
+    box-shadow: var(--kf-shadow-raised);
     color: var(--kf-text);
+    display: flex;
+    flex-direction: column;
+    max-height: min(480px, calc(100vh - var(--kf-topbar-h) - 24px));
     overflow: hidden;
+    position: fixed;
+    right: 16px;
+    top: calc(var(--kf-topbar-h) + 8px);
+    width: min(380px, calc(100vw - 32px));
+    /* MudBlazor's scale: drawer 1100, app bar 1300, dialog 1400, snackbar 1500.
+       The panel clears the app bar but still yields to dialogs and toasts. */
+    z-index: 1302;
+}
+
+.kf-notification-panel:focus {
+    outline: none;
+}
+
+/* Click-away surface. Transparent, but it has to cover the app bar too so the
+   first click outside dismisses instead of landing on whatever is underneath. */
+.kf-notification-backdrop {
+    inset: 0;
+    position: fixed;
+    z-index: 1301;
 }
 
 .kf-notification-header {
     align-items: center;
     border-bottom: 1px solid var(--kf-border);
     display: flex;
+    flex: none;
     justify-content: space-between;
     padding: 14px 16px;
 }
@@ -956,8 +986,11 @@ body {
     font-weight: 700;
 }
 
+/* Only the list scrolls; the header and the footer link stay pinned. min-height
+   is required or the flex item refuses to shrink below its content height. */
 .kf-notification-list {
-    max-height: 340px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -1010,6 +1043,7 @@ body {
 
 .kf-notification-view-all {
     border-top: 1px solid var(--kf-border);
+    flex: none;
     padding: 11px;
     width: 100%;
 }
@@ -5484,6 +5518,34 @@ html.dark-theme {
 .dark-theme .cn-modal-header {
     border-color: #334155 !important;
 }
+/* The page style blocks pin these to #fff. Without a background here the footer
+   stayed a white band under a dark drawer; the separator border alone is enough
+   to lift it off the body. */
+.dark-theme .drawer-footer,
+.dark-theme .cn-modal-footer {
+    background: #1e293b !important;
+    box-shadow: none !important;
+}
+
+/* --- Drawer footer buttons --- */
+.dark-theme .drawer-btn.ghost {
+    background: #334155 !important;
+    border-color: #475569 !important;
+    color: #e2e8f0 !important;
+}
+.dark-theme .drawer-btn.ghost:hover:not(:disabled) {
+    background: #475569 !important;
+    border-color: #64748b !important;
+}
+.dark-theme .drawer-btn.accent {
+    background: rgba(245, 158, 11, 0.14) !important;
+    border-color: rgba(245, 158, 11, 0.38) !important;
+    color: #fcd34d !important;
+}
+.dark-theme .drawer-btn.accent:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.22) !important;
+    border-color: rgba(245, 158, 11, 0.55) !important;
+}
 .dark-theme .cn-modal-header h5 {
     color: #f1f5f9 !important;
 }
@@ -5494,6 +5556,12 @@ html.dark-theme {
 .dark-theme .cn-modal-header .btn-close-modal:hover {
     background: #475569 !important;
     color: #e2e8f0 !important;
+}
+
+/* Free-text blocks inside a drawer (comments, terms) — #374151 on a #1e293b
+   panel is effectively unreadable. */
+.dark-theme .drawer-prose {
+    color: #cbd5e1 !important;
 }
 
 /* --- Detail grid fields --- */
@@ -11659,13 +11727,6 @@ html.dark-theme {
         padding: 0.75rem !important;
     }
 
-    /* Notification popover responsive */
-    .notification-popover {
-        width: min(380px, 92vw) !important;
-        max-width: 92vw !important;
-        right: 0.5rem !important;
-    }
-
     /* Stat cards: tighter */
     .stat-card {
         padding: 0.85rem 1rem !important;
@@ -11851,14 +11912,6 @@ html.dark-theme {
         max-height: 95vh !important;
     }
 
-    /* Notification popover: full width on phones */
-    .notification-popover {
-        width: calc(100vw - 1rem) !important;
-        max-width: calc(100vw - 1rem) !important;
-        left: 0.5rem !important;
-        right: 0.5rem !important;
-    }
-
     /* Dashboard stat row */
     .staff-dashboard .stat-row {
         grid-template-columns: 1fr !important;
@@ -11935,9 +11988,6 @@ html.dark-theme {
         padding-bottom: 0.25rem !important;
     }
 
-    .notification-popover {
-        max-height: 70vh !important;
-    }
 }
 
 /* ── Print: hide navigation ─────────────────────────── */
@@ -11945,7 +11995,8 @@ html.dark-theme {
     .staff-appbar,
     .staff-drawer,
     .mud-overlay,
-    .notification-popover {
+    .kf-notification-backdrop,
+    .kf-notification-panel {
         display: none !important;
     }
 
@@ -13397,22 +13448,22 @@ html body .staff-container.kf-container {
 
 /* Reference-match refinement: desktop composition and density. */
 html body .staff-appbar.kf-appbar {
-    height: 74px !important;
-    min-height: 74px !important;
+    height: var(--kf-topbar-h) !important;
+    min-height: var(--kf-topbar-h) !important;
 }
 
 html body .staff-appbar.kf-appbar .mud-toolbar {
-    height: 74px !important;
-    min-height: 74px !important;
+    height: var(--kf-topbar-h) !important;
+    min-height: var(--kf-topbar-h) !important;
 }
 
 html body .staff-main.kf-main,
 html body .staff-shell.kf-shell .mud-main-content {
-    padding-top: 74px !important;
+    padding-top: var(--kf-topbar-h) !important;
 }
 
 html body .staff-container.kf-container {
-    min-height: calc(100vh - 74px) !important;
+    min-height: calc(100vh - var(--kf-topbar-h)) !important;
     padding: 28px 32px 30px !important;
 }
 

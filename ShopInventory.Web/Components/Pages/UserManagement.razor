@@ -1778,9 +1778,11 @@
                                         }
 
                                         /* ── Modal ────────────────────────────── */
+                                        /* Centres below the app bar, not the viewport: the page container is a stacking
+                                           context, so the bar paints over anything centred against the full viewport. */
                                         .um-overlay {
                                             position: fixed;
-                                            inset: 0;
+                                            inset: var(--kf-topbar-h, 74px) 0 0;
                                             background: rgba(0, 0, 0, .4);
                                             backdrop-filter: blur(4px);
                                             display: flex;
@@ -1795,7 +1797,7 @@
                                             border-radius: 16px;
                                             width: 100%;
                                             max-width: 600px;
-                                            max-height: calc(100vh - 2rem);
+                                            max-height: calc(100vh - var(--kf-topbar-h, 74px) - 2rem);
                                             box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
                                             overflow: hidden;
                                             display: flex;
@@ -2218,7 +2220,7 @@
                                             }
 
                                             .um-modal {
-                                                max-height: calc(100vh - 1rem);
+                                                max-height: calc(100vh - var(--kf-topbar-h, 74px) - 1rem);
                                             }
 
                                             .um-modal-header,

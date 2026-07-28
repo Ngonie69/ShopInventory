@@ -86,8 +86,11 @@
     .refresh-strip { height: 3px; background: linear-gradient(90deg, #fde68a, #f59e0b, #fde68a); background-size: 200% 100%; animation: sweep 1.1s linear infinite; }
 
     /* ── Drawer ── */
-    .modal-backdrop-custom { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9998; animation: fadeIn .2s ease; }
-    .detail-drawer { position: fixed; top: 0; right: 0; width: min(680px, 95vw); height: 100vh; background: #fff; z-index: 9999; box-shadow: -8px 0 30px rgba(0,0,0,.12); display: flex; flex-direction: column; animation: slideInRight .25s ease; }
+    /* The page container is a stacking context (position:relative; z-index:1), so the
+       drawer cannot paint over the app bar no matter how high its z-index goes. It
+       starts below the bar instead, which kept its header from being clipped. */
+    .modal-backdrop-custom { position: fixed; inset: var(--kf-topbar-h, 74px) 0 0; background: rgba(0,0,0,.45); z-index: 9998; animation: fadeIn .2s ease; }
+    .detail-drawer { position: fixed; top: var(--kf-topbar-h, 74px); right: 0; width: min(680px, 95vw); height: calc(100vh - var(--kf-topbar-h, 74px)); background: #fff; z-index: 9999; box-shadow: -8px 0 30px rgba(0,0,0,.12); display: flex; flex-direction: column; animation: slideInRight .25s ease; }
     .drawer-header { padding: 1.1rem 1.4rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-shrink: 0; }
     .drawer-header .drawer-eyebrow { font-size: .68rem; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; opacity: .8; }
     .drawer-header h5 { margin: .1rem 0 0; font-weight: 700; font-size: 1.15rem; letter-spacing: -.2px; }
@@ -95,6 +98,7 @@
     .drawer-header .btn-close-drawer { background: rgba(255,255,255,.18); border: none; color: #fff; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; font-size: 1rem; flex-shrink: 0; }
     .drawer-header .btn-close-drawer:hover { background: rgba(255,255,255,.3); }
     .drawer-body { flex: 1; overflow-y: auto; padding: 1.5rem; }
+    .drawer-prose { font-size: .88rem; color: #374151; white-space: pre-wrap; }
 
     /* ── Drawer actions ──
        One button style for the whole footer: fixed height, never wraps its label, always leaves room
@@ -122,8 +126,10 @@
     .lines-table td { padding: .55rem .75rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
 
     /* ── Create Modal ── */
-    .create-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 10000; display: flex; justify-content: center; align-items: center; animation: fadeIn .2s ease; padding: 1rem; }
-    .create-modal { background: #fff; border-radius: 14px; width: min(780px, 95vw); max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.2); animation: scaleIn .25s ease; }
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
+    .create-modal-overlay { position: fixed; inset: var(--kf-topbar-h, 74px) 0 0; background: rgba(0,0,0,.5); z-index: 10000; display: flex; justify-content: center; align-items: center; animation: fadeIn .2s ease; padding: 1rem; }
+    .create-modal { background: #fff; border-radius: 14px; width: min(780px, 95vw); max-height: calc(90vh - var(--kf-topbar-h, 74px)); display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.2); animation: scaleIn .25s ease; }
     .create-modal-header { padding: 1.15rem 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
     .create-modal-header h5 { margin: 0; font-weight: 600; font-size: 1rem; color: #1a1a2e; display: flex; align-items: center; gap: .4rem; }
     .create-modal-header .btn-close-modal { background: #f3f4f6; border: none; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; transition: all .15s; font-size: .9rem; }
@@ -210,8 +216,8 @@
         .detail-drawer,
         .create-modal { width: 100vw; max-width: 100vw; }
         .create-modal {
-            height: 100vh;
-            max-height: 100vh;
+            height: calc(100vh - var(--kf-topbar-h, 74px));
+            max-height: calc(100vh - var(--kf-topbar-h, 74px));
             border-radius: 0;
         }
         .create-modal-footer,
@@ -598,7 +604,7 @@
             {
                 <div style="margin-bottom:1rem;">
                     <div class="detail-section-title"><i class="bi bi-chat-left-text"></i> Comments</div>
-                    <p style="font-size:.88rem;color:#374151;white-space:pre-wrap;">@selectedQuotation.Comments</p>
+                    <p class="drawer-prose">@selectedQuotation.Comments</p>
                 </div>
             }
 
@@ -606,7 +612,7 @@
             {
                 <div style="margin-bottom:1rem;">
                     <div class="detail-section-title"><i class="bi bi-file-text"></i> Terms &amp; Conditions</div>
-                    <p style="font-size:.88rem;color:#374151;white-space:pre-wrap;">@selectedQuotation.TermsAndConditions</p>
+                    <p class="drawer-prose">@selectedQuotation.TermsAndConditions</p>
                 </div>
             }
 
