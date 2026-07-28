@@ -22,7 +22,7 @@ else
     <div class="kf-dashboard">
         <header class="kf-dashboard-header">
             <div>
-                <h1>Good morning, Ngoni</h1>
+                <h1>@GreetingText, @GreetingName</h1>
                 <p>Today's sales snapshot</p>
             </div>
             <div class="kf-dashboard-header__actions">
@@ -119,6 +119,30 @@ else
     private bool _initialized;
 
     private static string FormatMoney(decimal value) => $"USD {value:N2}";
+    private string GreetingName
+    {
+        get
+        {
+            var localName = currentUsername.Split('@')[0];
+            var firstName = localName
+                .Replace('.', ' ')
+                .Replace('_', ' ')
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault();
+
+            if (string.IsNullOrWhiteSpace(firstName)) return "there";
+            return firstName.Length == 1
+                ? firstName.ToUpperInvariant()
+                : char.ToUpperInvariant(firstName[0]) + firstName[1..];
+        }
+    }
+
+    private static string GreetingText => DateTime.Now.Hour switch
+    {
+        < 12 => "Good morning",
+        < 17 => "Good afternoon",
+        _ => "Good evening"
+    };
 
     protected override async Task OnParametersSetAsync()
     {

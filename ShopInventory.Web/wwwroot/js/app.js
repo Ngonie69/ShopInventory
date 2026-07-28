@@ -140,6 +140,75 @@ window.keyboardShortcuts = {
     }
 };
 
+window.dashboardSearch = {
+    inputId: null,
+    handler: null,
+
+    init: function (inputId) {
+        this.dispose();
+        this.inputId = inputId;
+        this.handler = function (event) {
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+                event.preventDefault();
+                const input = document.getElementById(inputId);
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
+            }
+        };
+        document.addEventListener('keydown', this.handler);
+    },
+
+    dispose: function () {
+        if (this.handler) {
+            document.removeEventListener('keydown', this.handler);
+        }
+        this.handler = null;
+        this.inputId = null;
+    }
+};
+
+window.dashboardProfile = {
+    detailsId: null,
+    pointerHandler: null,
+    keyHandler: null,
+
+    init: function (detailsId) {
+        this.dispose();
+        this.detailsId = detailsId;
+        this.pointerHandler = function (event) {
+            const details = document.getElementById(detailsId);
+            if (details && details.open && !details.contains(event.target)) {
+                details.open = false;
+            }
+        };
+        this.keyHandler = function (event) {
+            if (event.key === 'Escape') {
+                const details = document.getElementById(detailsId);
+                if (details && details.open) {
+                    details.open = false;
+                    details.querySelector('summary')?.focus();
+                }
+            }
+        };
+        document.addEventListener('pointerdown', this.pointerHandler);
+        document.addEventListener('keydown', this.keyHandler);
+    },
+
+    dispose: function () {
+        if (this.pointerHandler) {
+            document.removeEventListener('pointerdown', this.pointerHandler);
+        }
+        if (this.keyHandler) {
+            document.removeEventListener('keydown', this.keyHandler);
+        }
+        this.detailsId = null;
+        this.pointerHandler = null;
+        this.keyHandler = null;
+    }
+};
+
 // Theme management
 window.themeManager = {
     isTransitioning: false,

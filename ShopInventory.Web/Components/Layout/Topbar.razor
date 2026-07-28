@@ -1,4 +1,9 @@
 @using MudBlazor
+@using System.Security.Claims
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject IGlobalSearchService GlobalSearchService
+@implements IAsyncDisposable
 
 <header class="kf-topbar">
     <button class="kf-icon-button kf-menu-toggle" type="button" @onclick="OnMenuClick"
@@ -6,13 +11,64 @@
         <MudIcon Icon="@Icons.Material.Outlined.Menu" />
     </button>
 
-    <form class="kf-search" action="/invoices" method="get" role="search">
-        <MudIcon Icon="@Icons.Material.Outlined.Search" aria-hidden="true" />
-        <label class="visually-hidden" for="dashboard-search">Search invoices, customers, and documents</label>
-        <input id="dashboard-search" name="search" type="search"
-               placeholder="Search invoices, customers, docs…" autocomplete="off" />
-        <kbd>Ctrl K</kbd>
-    </form>
+    <div class="kf-search-shell" @onfocusin="OpenSearch" @onfocusout="CloseSearch">
+        <div class="kf-search" role="combobox" aria-haspopup="listbox"
+             aria-expanded="@ShowSearchResults" aria-owns="dashboard-search-results">
+            <MudIcon Icon="@Icons.Material.Outlined.Search" aria-hidden="true" />
+            <label class="visually-hidden" for="dashboard-search">Search modules and documents</label>
+            <input id="dashboard-search" type="search" value="@_searchQuery"
+                   placeholder="Search invoices, customers, docs…" autocomplete="off"
+                   @oninput="OnSearchInput" @onkeydown="HandleSearchKeyDown"
+                   aria-autocomplete="list" aria-controls="dashboard-search-results"
+                   aria-activedescendant="@ActiveResultId" />
+            <kbd>Ctrl K</kbd>
+        </div>
+
+        @if (ShowSearchResults)
+        {
+            <div id="dashboard-search-results" class="kf-search-results" role="listbox"
+                 aria-label="Matching modules">
+                @if (SearchChoices.Count > 0)
+                {
+                    <p class="kf-search-results__label">Search results</p>
+                    @for (var index = 0; index < SearchChoices.Count; index++)
+                    {
+                        var resultIndex = index;
+                        var choice = SearchChoices[index];
+                        <button id="@ResultId(index)" type="button" role="option"
+                                aria-selected="@(index == _selectedSearchIndex)"
+                                class="@(index == _selectedSearchIndex ? "is-selected" : "")"
+                                @onmousedown:preventDefault="true"
+                                @onmouseenter="() => _selectedSearchIndex = resultIndex"
+                                @onclick="() => NavigateTo(choice.Url)">
+                            <span class="kf-search-result__icon">
+                                <MudIcon Icon="@choice.Icon" />
+                            </span>
+                            <span>
+                                <strong>@choice.Label</strong>
+                                <small><b>@choice.Category</b>@choice.Description</small>
+                            </span>
+                            <MudIcon Class="kf-search-result__arrow" Icon="@Icons.Material.Outlined.ArrowForward" />
+                        </button>
+                    }
+                }
+                else if (!_isSearching)
+                {
+                    <div class="kf-search-empty">
+                        <MudIcon Icon="@Icons.Material.Outlined.SearchOff" />
+                        <span>No results found for “@_searchQuery”</span>
+                    </div>
+                }
+                @if (_isSearching)
+                {
+                    <div class="kf-search-loading" role="status">
+                        <span class="kf-spinner" aria-hidden="true"></span>
+                        Searching records…
+                    </div>
+                }
+            </div>
+        }
+    </div>
 
     <div class="kf-topbar__actions">
         <button class="kf-icon-button kf-notification-button" type="button" @onclick="OnNotificationsClick"
@@ -26,21 +82,21 @@
 
         <ThemeToggle />
 
-        <details class="kf-profile-menu">
+        <details id="dashboard-profile-menu" class="kf-profile-menu">
             <summary aria-label="Open user menu">
-                <span class="kf-avatar" aria-hidden="true">NM</span>
+                <span class="kf-avatar" aria-hidden="true">@_userInitials</span>
                 <span class="kf-user__copy">
-                    <strong>Ngoni M</strong>
-                    <small>Admin</small>
+                    <strong>@_displayName</strong>
+                    <small>@_displayRole</small>
                 </span>
                 <MudIcon Class="kf-profile-chevron" Icon="@Icons.Material.Outlined.KeyboardArrowDown" aria-hidden="true" />
             </summary>
             <div class="kf-profile-dropdown">
                 <div class="kf-profile-dropdown__identity">
-                    <span class="kf-avatar" aria-hidden="true">NM</span>
+                    <span class="kf-avatar" aria-hidden="true">@_userInitials</span>
                     <span>
-                        <strong>Ngoni M</strong>
-                        <small>Administrator</small>
+                        <strong>@_displayName</strong>
+                        <small>@_displayRole</small>
                     </span>
                 </div>
                 <a href="/settings">
@@ -76,8 +132,296 @@
     [Parameter] public EventCallback OnNotificationsClick { get; set; }
     [Parameter] public EventCallback OnLogout { get; set; }
 
+    private string _searchQuery = string.Empty;
+    private bool _searchOpen;
+    private int _selectedSearchIndex;
+    private bool _isSearching;
+    private CancellationTokenSource? _searchCts;
+    private List<SearchChoice> _recordChoices = [];
+    private string _displayName = "User";
+    private string _displayRole = "Staff";
+    private string _userInitials = "U";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     private string NotificationLabel =>
         UnreadCount > 0 ? $"Notifications, {UnreadCount} unread" : "Notifications";
 
     private string UnreadDisplay => UnreadCount > 9 ? "9+" : UnreadCount.ToString();
+
+    private bool ShowSearchResults => _searchOpen && _searchQuery.Trim().Length >= 2;
+
+    private List<SearchDestination> FilteredDestinations => SearchDestinations
+        .Where(destination => destination.Matches(_searchQuery))
+        .Take(5)
+        .ToList();
+
+    private List<SearchChoice> SearchChoices
+    {
+        get
+        {
+            var choices = FilteredDestinations
+                .Select(destination => new SearchChoice(
+                    destination.Label,
+                    destination.Description,
+                    destination.Url,
+                    destination.Icon,
+                    "Module"))
+                .ToList();
+
+            choices.AddRange(_recordChoices);
+            return choices.Take(8).ToList();
+        }
+    }
+
+    private string? ActiveResultId =>
+        ShowSearchResults && SearchChoices.Count > 0
+            ? ResultId(Math.Clamp(_selectedSearchIndex, 0, SearchChoices.Count - 1))
+            : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthenticationStateTask is null) return;
+
+        var authenticationState = await AuthenticationStateTask;
+        var user = authenticationState.User;
+        _displayName = FormatDisplayName(user.Identity?.Name);
+        _displayRole = GetDisplayRole(user);
+        _userInitials = GetInitials(_displayName);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("dashboardSearch.init", "dashboard-search");
+            await JS.InvokeVoidAsync("dashboardProfile.init", "dashboard-profile-menu");
+        }
+    }
+
+    private void OpenSearch()
+    {
+        _searchOpen = true;
+    }
+
+    private async Task CloseSearch()
+    {
+        await Task.Delay(100);
+        _searchOpen = false;
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs args)
+    {
+        _searchQuery = args.Value?.ToString() ?? string.Empty;
+        _selectedSearchIndex = 0;
+        _searchOpen = true;
+
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _recordChoices = [];
+
+        if (_searchQuery.Trim().Length < 2)
+        {
+            _isSearching = false;
+            return;
+        }
+
+        var query = _searchQuery.Trim();
+        var cts = new CancellationTokenSource();
+        _searchCts = cts;
+        _isSearching = true;
+
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            var results = await GlobalSearchService.SearchAsync(query, cts.Token);
+            _recordChoices = results.Invoices
+                .Concat(results.Products)
+                .Concat(results.Customers)
+                .Concat(results.Payments)
+                .Take(5)
+                .Select(ToSearchChoice)
+                .ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            if (ReferenceEquals(_searchCts, cts))
+            {
+                _isSearching = false;
+            }
+        }
+    }
+
+    private void HandleSearchKeyDown(KeyboardEventArgs args)
+    {
+        var results = SearchChoices;
+
+        switch (args.Key)
+        {
+            case "ArrowDown" when results.Count > 0:
+                _selectedSearchIndex = (_selectedSearchIndex + 1) % results.Count;
+                break;
+            case "ArrowUp" when results.Count > 0:
+                _selectedSearchIndex = _selectedSearchIndex <= 0 ? results.Count - 1 : _selectedSearchIndex - 1;
+                break;
+            case "Enter" when results.Count > 0:
+                NavigateTo(results[Math.Clamp(_selectedSearchIndex, 0, results.Count - 1)].Url);
+                break;
+            case "Escape":
+                _searchOpen = false;
+                _searchQuery = string.Empty;
+                break;
+        }
+    }
+
+    private void NavigateTo(string url)
+    {
+        _searchCts?.Cancel();
+        _searchOpen = false;
+        _searchQuery = string.Empty;
+        _recordChoices = [];
+        Navigation.NavigateTo(url);
+    }
+
+    private static string ResultId(int index) => $"dashboard-search-result-{index}";
+
+    public async ValueTask DisposeAsync()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        try
+        {
+            await JS.InvokeVoidAsync("dashboardSearch.dispose");
+            await JS.InvokeVoidAsync("dashboardProfile.dispose");
+        }
+        catch { }
+    }
+
+    private static SearchChoice ToSearchChoice(SearchResultItem item) =>
+        new(
+            item.Title,
+            item.Subtitle,
+            NormalizeRecordUrl(item),
+            GetRecordIcon(item.Category),
+            item.Category);
+
+    private static string NormalizeRecordUrl(SearchResultItem item)
+    {
+        if (item.Category.Equals("Invoice", StringComparison.OrdinalIgnoreCase)
+            && item.Title.StartsWith("Invoice #", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"/invoices?search={Uri.EscapeDataString(item.Title["Invoice #".Length..])}";
+        }
+
+        return item.Url;
+    }
+
+    private static string GetRecordIcon(string category) => category switch
+    {
+        "Invoice" => Icons.Material.Outlined.ReceiptLong,
+        "Product" => Icons.Material.Outlined.Inventory2,
+        "Customer" => Icons.Material.Outlined.Person,
+        "Payment" => Icons.Material.Outlined.Payments,
+        _ => Icons.Material.Outlined.Search
+    };
+
+    private static string FormatDisplayName(string? identityName)
+    {
+        if (string.IsNullOrWhiteSpace(identityName)) return "User";
+
+        var localName = identityName.Split('@')[0];
+        var parts = localName
+            .Replace('.', ' ')
+            .Replace('_', ' ')
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        return string.Join(" ", parts.Select(part =>
+            part.Length == 1
+                ? part.ToUpperInvariant()
+                : char.ToUpperInvariant(part[0]) + part[1..]));
+    }
+
+    private static string GetDisplayRole(ClaimsPrincipal user)
+    {
+        if (user.IsInRole("Admin")) return "Administrator";
+        if (user.IsInRole("Manager")) return "Manager";
+        if (user.IsInRole("Cashier")) return "Cashier";
+        if (user.IsInRole("SalesRep")) return "Sales representative";
+        if (user.IsInRole("StockController")) return "Stock controller";
+        if (user.IsInRole("DepotController")) return "Depot controller";
+        if (user.IsInRole("Driver")) return "Driver";
+        return "Staff";
+    }
+
+    private static string GetInitials(string displayName)
+    {
+        var parts = displayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => "U",
+            1 => parts[0][..1].ToUpperInvariant(),
+            _ => string.Concat(parts[0][0], parts[^1][0]).ToUpperInvariant()
+        };
+    }
+
+    private sealed record SearchDestination(
+        string Label,
+        string Description,
+        string Url,
+        string Icon,
+        params string[] Keywords)
+    {
+        public bool Matches(string query)
+        {
+            var term = query.Trim();
+            return Label.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || Description.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || Url.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || Keywords.Any(keyword => keyword.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private sealed record SearchChoice(
+        string Label,
+        string Description,
+        string Url,
+        string Icon,
+        string Category);
+
+    private static readonly IReadOnlyList<SearchDestination> SearchDestinations =
+    [
+        new("Dashboard", "Sales and operations overview", "/dashboard", Icons.Material.Outlined.GridView, "home", "overview"),
+        new("Invoices", "Find and manage customer invoices", "/invoices", Icons.Material.Outlined.ReceiptLong, "billing", "documents"),
+        new("Create invoice", "Create a new customer invoice", "/invoices/create", Icons.Material.Outlined.NoteAdd, "new invoice"),
+        new("Van sales invoices", "View van sales invoices", "/van-sales-invoices", Icons.Material.Outlined.LocalShipping, "van"),
+        new("Payments", "Find incoming customer payments", "/payments", Icons.Material.Outlined.Payments, "receipts", "cash"),
+        new("Create payment", "Record an incoming payment", "/payments/create", Icons.Material.Outlined.AddCard, "new payment"),
+        new("Sales orders", "Find and manage sales orders", "/sales-orders", Icons.Material.Outlined.ShoppingCart, "orders"),
+        new("Create sales order", "Create a new sales order", "/sales-orders/create", Icons.Material.Outlined.AddShoppingCart, "new order"),
+        new("Mobile orders", "Review mobile and van sales orders", "/mobile-drafts", Icons.Material.Outlined.PhoneAndroid, "drafts", "van"),
+        new("Route customers", "Manage customers assigned to routes", "/route-customers", Icons.Material.Outlined.Route, "routes"),
+        new("Quotations", "Find and manage quotations", "/quotations", Icons.Material.Outlined.RequestQuote, "quotes"),
+        new("Create quotation", "Create a new customer quotation", "/quotations/create", Icons.Material.Outlined.PostAdd, "new quote"),
+        new("Credit notes", "Find and manage credit notes", "/credit-notes", Icons.Material.Outlined.NoteAlt, "credits"),
+        new("Products", "Browse the product catalogue", "/products", Icons.Material.Outlined.Inventory2, "items", "catalog"),
+        new("Prices", "View customer and product pricing", "/prices", Icons.Material.Outlined.Sell, "pricing"),
+        new("Customers", "Find business partners and customers", "/customers", Icons.Material.Outlined.Groups, "business partners"),
+        new("Stock", "View current warehouse stock", "/stock", Icons.Material.Outlined.Warehouse, "inventory"),
+        new("Inventory transfers", "Manage stock movements between warehouses", "/inventory-transfers", Icons.Material.Outlined.SwapHoriz, "transfers"),
+        new("Purchase orders", "Find and manage purchase orders", "/purchase-orders", Icons.Material.Outlined.ShoppingBag, "purchasing"),
+        new("Reports", "Open sales and operations reports", "/reports", Icons.Material.Outlined.Assessment, "analytics"),
+        new("Notifications", "View system notifications", "/notifications", Icons.Material.Outlined.Notifications, "alerts"),
+        new("Settings", "Configure application preferences", "/settings", Icons.Material.Outlined.Settings, "configuration", "preferences"),
+        new("User management", "Manage staff accounts and access", "/user-management", Icons.Material.Outlined.ManageAccounts, "users", "roles"),
+        new("Security", "Review security configuration", "/security", Icons.Material.Outlined.Security, "authentication"),
+        new("Sync status", "Review synchronization health", "/sync-status", Icons.Material.Outlined.Sync, "integration"),
+        new("Backups", "Manage application backups", "/backups", Icons.Material.Outlined.Backup, "restore"),
+        new("AI assistant", "Open the business assistant", "/ai-assistant", Icons.Material.Outlined.AutoAwesome, "help"),
+        new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", Icons.Material.Outlined.Chat, "messages")
+    ];
 }
