@@ -7,7 +7,8 @@ using ShopInventory.Services;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Covers which stored special prices count as applying today.
+/// Covers which stored special prices count as applying today, through both the standalone
+/// lookup and the business partner pricing merge.
 /// </summary>
 /// <remarks>
 /// This is the query approval falls back to when SAP cannot be reached, so a wrong answer here
@@ -178,7 +179,82 @@ public sealed class LocalSpecialPriceLookupTests : IDisposable
         Assert.Empty(await _service.GetActiveSpecialPricesAsync("   "));
     }
 
+    [Fact]
+    public async Task Merged_pricing_applies_a_special_price_over_the_price_list_price()
+    {
+        // The override the merge exists for — pinned so the zero tests below cannot pass merely
+        // because the merge stopped applying special prices at all.
+        await GivenPriceProfile();
+        await GivenPriceListPrice("YOG149", 20.00m);
+        await GivenSpecialPrice("YOG149", 12.50m);
+
+        var pricing = await _service.GetBusinessPartnerPricingAsync(CardCode);
+
+        Assert.Equal(12.50m, Assert.Single(pricing!.Prices.Prices!).Price);
+    }
+
+    [Fact]
+    public async Task Merged_pricing_keeps_the_price_list_price_when_the_special_price_is_zero()
+    {
+        // Zero_price_is_excluded's rule, on the path that actually prices a document: overwriting
+        // 20.00 with a zero row would hand the customer the goods free.
+        await GivenPriceProfile();
+        await GivenPriceListPrice("YOG149", 20.00m);
+        await GivenSpecialPrice("YOG149", 0m);
+
+        var pricing = await _service.GetBusinessPartnerPricingAsync(CardCode);
+
+        Assert.Equal(20.00m, Assert.Single(pricing!.Prices.Prices!).Price);
+    }
+
+    [Fact]
+    public async Task Merged_pricing_does_not_add_a_zero_line_for_an_item_the_price_list_omits()
+    {
+        // The other half of the merge: a zero row must not invent a free line for an item that
+        // carries no price list price either.
+        await GivenPriceProfile();
+        await GivenSpecialPrice("YOG149", 0m);
+
+        var pricing = await _service.GetBusinessPartnerPricingAsync(CardCode);
+
+        Assert.Empty(pricing!.Prices.Prices!);
+    }
+
     private static DateTime Today => DateTime.UtcNow.Date;
+
+    private const int PriceListNum = 1;
+
+    private async Task GivenPriceProfile()
+    {
+        _context.BusinessPartnerPriceProfiles.Add(new BusinessPartnerPriceProfileEntity
+        {
+            CardCode = CardCode,
+            CardName = "Test Customer",
+            Currency = "USD",
+            PriceListNum = PriceListNum,
+            IsActive = true,
+            SyncedFromSAP = true
+        });
+
+        await _context.SaveChangesAsync();
+    }
+
+    private async Task GivenPriceListPrice(string itemCode, decimal price)
+    {
+        _context.ItemPrices.Add(new ItemPriceEntity
+        {
+            ItemCode = itemCode,
+            ItemName = itemCode,
+            PriceList = PriceListNum,
+            PriceListName = "Base Price List",
+            Price = price,
+            Currency = "USD",
+            IsActive = true,
+            SyncedFromSAP = true
+        });
+
+        await _context.SaveChangesAsync();
+    }
 
     private async Task GivenSpecialPrice(
         string itemCode,

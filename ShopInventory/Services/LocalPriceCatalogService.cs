@@ -253,16 +253,21 @@ public sealed class LocalPriceCatalogService(
             .ToListAsync(cancellationToken);
 
         return rows
-            .Where(row => !string.IsNullOrWhiteSpace(row.ItemCode) && row.Price > 0)
+            .Where(row => !string.IsNullOrWhiteSpace(row.ItemCode))
             .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// The single definition of "a special price that applies today" — synced from SAP, active,
-    /// and inside its validity window. Shared so the pricing merge and the standalone lookup
-    /// cannot drift apart on what counts as current.
+    /// priced above zero, and inside its validity window. Shared so the pricing merge and the
+    /// standalone lookup cannot drift apart on what counts as current.
     /// </summary>
+    /// <remarks>
+    /// A zero (or negative) row means the price never made it across from SAP, not that the
+    /// customer gets the goods free, so it is excluded here rather than at each call site —
+    /// applying one would put the document line through at 0.00.
+    /// </remarks>
     private IQueryable<BusinessPartnerSpecialPriceEntity> BuildCurrentSpecialPriceQuery(
         string normalizedCardCode,
         IReadOnlyCollection<string> normalizedItemCodes,
@@ -273,6 +278,7 @@ public sealed class LocalPriceCatalogService(
             .Where(price =>
                 price.SyncedFromSAP &&
                 price.IsActive &&
+                price.Price > 0 &&
                 price.CardCode == normalizedCardCode &&
                 (!price.ValidFrom.HasValue || price.ValidFrom <= todayUtc) &&
                 (!price.ValidTo.HasValue || price.ValidTo >= todayUtc));
