@@ -8,6 +8,7 @@ public interface IQuotationService
     Task<QuotationListResponse?> GetQuotationsAsync(int page = 1, int pageSize = 20, QuotationStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<QuotationListResponse?> GetQuotationsFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<QuotationDto?> GetQuotationByIdAsync(int id);
+    Task<QuotationDto?> GetQuotationFromSAPByDocEntryAsync(int docEntry);
     Task<QuotationDto?> GetQuotationByNumberAsync(string quotationNumber);
     Task<byte[]?> GetQuotationPdfAsync(int id);
     Task<byte[]?> GetQuotationPdfFromSAPAsync(int docEntry);
@@ -127,6 +128,19 @@ public class QuotationService : IQuotationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching quotation {Id}", id);
+            return null;
+        }
+    }
+
+    public async Task<QuotationDto?> GetQuotationFromSAPByDocEntryAsync(int docEntry)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<QuotationDto>($"api/quotation/sap/{docEntry}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching SAP quotation {DocEntry}", docEntry);
             return null;
         }
     }

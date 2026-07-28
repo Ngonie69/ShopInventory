@@ -75,15 +75,44 @@
     .empty-state { text-align: center; padding: 3rem; background: #fff; border-radius: 12px; border: 1px solid #e5e7eb; }
     .empty-icon { font-size: 3rem; color: #d1d5db; margin-bottom: .75rem; }
 
+    /* ── Skeletons ── */
+    .skeleton-bar { height: 12px; border-radius: 6px; background: linear-gradient(90deg, #eef1f5 25%, #e1e6ed 37%, #eef1f5 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
+    .skeleton-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+    .skeleton-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+    .skeleton-stat { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem 1.15rem; display: flex; align-items: center; gap: .85rem; }
+    .skeleton-stat .skeleton-icon { width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0; }
+    .skeleton-stat .skeleton-lines { flex: 1; display: grid; gap: .4rem; }
+    .skeleton-table-row { display: grid; grid-template-columns: 1fr 2fr 1fr 1fr 1fr 1fr; gap: 1rem; align-items: center; padding: .8rem 1.25rem; border-bottom: 1px solid #f3f4f6; }
+    .refresh-strip { height: 3px; background: linear-gradient(90deg, #fde68a, #f59e0b, #fde68a); background-size: 200% 100%; animation: sweep 1.1s linear infinite; }
+
     /* ── Drawer ── */
     .modal-backdrop-custom { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9998; animation: fadeIn .2s ease; }
-    .detail-drawer { position: fixed; top: 0; right: 0; width: min(640px, 95vw); height: 100vh; background: #fff; z-index: 9999; box-shadow: -8px 0 30px rgba(0,0,0,.12); display: flex; flex-direction: column; animation: slideInRight .25s ease; }
-    .drawer-header { padding: 1.15rem 1.5rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-    .drawer-header h5 { margin: 0; font-weight: 600; font-size: 1.05rem; }
-    .drawer-header .btn-close-drawer { background: rgba(255,255,255,.15); border: none; color: #fff; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; font-size: 1rem; }
-    .drawer-header .btn-close-drawer:hover { background: rgba(255,255,255,.25); }
+    .detail-drawer { position: fixed; top: 0; right: 0; width: min(680px, 95vw); height: 100vh; background: #fff; z-index: 9999; box-shadow: -8px 0 30px rgba(0,0,0,.12); display: flex; flex-direction: column; animation: slideInRight .25s ease; }
+    .drawer-header { padding: 1.1rem 1.4rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-shrink: 0; }
+    .drawer-header .drawer-eyebrow { font-size: .68rem; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; opacity: .8; }
+    .drawer-header h5 { margin: .1rem 0 0; font-weight: 700; font-size: 1.15rem; letter-spacing: -.2px; }
+    .drawer-header .drawer-subtitle { font-size: .82rem; opacity: .9; margin-top: .15rem; overflow-wrap: anywhere; }
+    .drawer-header .btn-close-drawer { background: rgba(255,255,255,.18); border: none; color: #fff; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; font-size: 1rem; flex-shrink: 0; }
+    .drawer-header .btn-close-drawer:hover { background: rgba(255,255,255,.3); }
     .drawer-body { flex: 1; overflow-y: auto; padding: 1.5rem; }
-    .drawer-footer { padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; gap: .5rem; justify-content: flex-end; flex-shrink: 0; }
+
+    /* ── Drawer actions ──
+       One button style for the whole footer: fixed height, never wraps its label, always leaves room
+       for a spinner so the row does not resize when an action starts. */
+    .drawer-footer { padding: .85rem 1.4rem 1rem; border-top: 1px solid #e5e7eb; background: #fff; display: flex; flex-direction: column; gap: .6rem; flex-shrink: 0; box-shadow: 0 -2px 10px rgba(0,0,0,.04); }
+    .drawer-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .drawer-actions.primary-row { justify-content: flex-end; align-items: center; }
+    .drawer-btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 38px; padding: 0 1rem; border-radius: 9px; border: 1px solid transparent; font-family: inherit; font-size: .84rem; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s, transform .15s; }
+    .drawer-btn i { font-size: .95rem; }
+    .drawer-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+    .drawer-btn.ghost { background: #fff; color: #374151; border-color: #d1d5db; }
+    .drawer-btn.ghost:hover:not(:disabled) { background: #f9fafb; border-color: #9ca3af; }
+    .drawer-btn.accent { background: #fffbeb; color: #b45309; border-color: #fcd34d; }
+    .drawer-btn.accent:hover:not(:disabled) { background: #fef3c7; border-color: #f59e0b; }
+    .drawer-btn.primary { background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,.28); padding: 0 1.35rem; }
+    .drawer-btn.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37,99,235,.38); }
+    .drawer-btn .btn-spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+    .drawer-detail-loading { display: flex; align-items: center; gap: .5rem; font-size: .84rem; color: #6b7280; padding: .75rem 0; }
     .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .85rem; margin-bottom: 1.25rem; }
     .detail-item .detail-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #9ca3af; margin-bottom: .15rem; }
     .detail-item .detail-value { font-size: .92rem; font-weight: 600; color: #1a1a2e; }
@@ -127,6 +156,14 @@
     @@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
     @@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @@keyframes scaleIn { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+    @@keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+    @@keyframes sweep { 0% { background-position: 0 0; } 100% { background-position: 200% 0; } }
+    @@keyframes spin { to { transform: rotate(360deg); } }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .skeleton-bar, .refresh-strip { animation: none; }
+        .detail-drawer { animation: none; }
+    }
 
     @@media (max-width:768px) {
         .qt-header {
@@ -177,17 +214,20 @@
             max-height: 100vh;
             border-radius: 0;
         }
-        .drawer-footer,
         .create-modal-footer,
         .pager-row {
             flex-direction: column;
             align-items: stretch;
         }
-        .drawer-footer > *,
         .create-modal-footer > * {
             width: 100%;
             justify-content: center;
         }
+        /* Stack the drawer actions so no label is ever squeezed, primary action last and full width. */
+        .drawer-actions .drawer-btn { flex: 1 1 calc(50% - .25rem); }
+        .drawer-actions.primary-row { flex-direction: column-reverse; }
+        .drawer-actions.primary-row .drawer-btn { flex: 1 1 auto; width: 100%; }
+        .skeleton-table-row { grid-template-columns: 1fr 1fr; }
     }
 
     @@media (max-width:640px) {
@@ -231,7 +271,22 @@
         }
 
         <!-- ━━━ Stat Cards ━━━ -->
-        @if (quotations?.Any() == true)
+        @if (IsFirstLoad)
+        {
+            <div class="skeleton-stats">
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div class="skeleton-stat">
+                        <div class="skeleton-bar skeleton-icon"></div>
+                        <div class="skeleton-lines">
+                            <div class="skeleton-bar" style="width:60%;height:16px;"></div>
+                            <div class="skeleton-bar" style="width:40%;height:9px;"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else if (quotations?.Any() == true)
         {
             <div class="stat-row">
                 <div class="stat-card">
@@ -312,33 +367,53 @@
                                DateFormat="@AppSettings.DateFormat" Editable="true" />
             </div>
             <div class="filter-actions-row">
-                <MudButton Class="btn-search" OnClick="ApplyFilter">
-                    <i class="bi bi-search"></i> Search
+                <MudButton Class="btn-search" OnClick="ApplyFilter" Disabled="@isLoading">
+                    <i class="bi @(isLoading ? "bi-arrow-repeat" : "bi-search")"></i> @(isLoading ? "Searching..." : "Search")
                 </MudButton>
-                <MudButton Class="btn-clear" OnClick="ClearFilter">
+                <MudButton Class="btn-clear" OnClick="ClearFilter" Disabled="@isLoading">
                     <i class="bi bi-x-circle"></i> Clear
                 </MudButton>
             </div>
         </div>
 
         <!-- ━━━ Content ━━━ -->
-        @if (isLoading)
+        @if (IsFirstLoad)
         {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#f59e0b;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading quotations...</p>
+            <div class="skeleton-card">
+                <div style="padding:.85rem 1.25rem;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;">
+                    <div class="skeleton-bar" style="width:180px;"></div>
+                    <div class="skeleton-bar" style="width:80px;"></div>
+                </div>
+                @for (var i = 0; i < 8; i++)
+                {
+                    <div class="skeleton-table-row">
+                        <div class="skeleton-bar" style="width:70%;"></div>
+                        <div class="skeleton-bar" style="width:85%;"></div>
+                        <div class="skeleton-bar" style="width:60%;"></div>
+                        <div class="skeleton-bar" style="width:55%;"></div>
+                        <div class="skeleton-bar" style="width:45%;"></div>
+                        <div class="skeleton-bar" style="width:65%;"></div>
+                    </div>
+                }
+                <div style="padding:.9rem 1.25rem;color:#6b7280;font-size:.85rem;">Loading quotations from @(dataSource == "sap" ? "SAP" : "the local database")...</div>
             </div>
         }
         else if (quotations?.Any() == true)
         {
             <div class="qt-table-wrap">
+                @if (isLoading)
+                {
+                    <div class="refresh-strip"></div>
+                }
                 <div class="qt-table-header">
                     <h6><i class="bi bi-table"></i> Quotations <span
                             style="font-size:.75rem;font-weight:500;color:#6b7280;margin-left:.5rem;">(@(dataSource == "sap" ? "SAP" : "Local"))</span></h6>
                     <span class="qt-count-badge">@totalCount total</span>
                 </div>
+                @* Refreshes are shown by the strip above the header, so the table keeps its own
+                   progress bar off and the rows stay readable while new data is fetched. *@
                 <MudTable @ref="@_table" Items="@quotations" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
-                          Breakpoint="Breakpoint.Md" Loading="@isLoading" LoadingProgressColor="Color.Warning" T="QuotationDto"
+                          Breakpoint="Breakpoint.Md" T="QuotationDto"
                           Elevation="0" Style="background:transparent;">
                     <HeaderContent>
                         <MudTh>Quote #</MudTh>
@@ -454,11 +529,15 @@
 <!-- ━━━ Detail Drawer ━━━ -->
 @if (selectedQuotation != null)
 {
-    <div class="modal-backdrop-custom" @onclick="() => selectedQuotation = null"></div>
+    <div class="modal-backdrop-custom" @onclick="CloseDrawer"></div>
     <div class="detail-drawer">
         <div class="drawer-header">
-            <h5>@selectedQuotation.QuotationNumber</h5>
-            <button class="btn-close-drawer" @onclick="() => selectedQuotation = null"><i class="bi bi-x-lg"></i></button>
+            <div>
+                <div class="drawer-eyebrow">Quotation</div>
+                <h5>@selectedQuotation.QuotationNumber</h5>
+                <div class="drawer-subtitle">@(selectedQuotation.CardName ?? selectedQuotation.CardCode) · @selectedQuotation.Currency @selectedQuotation.DocTotal.ToString("N2")</div>
+            </div>
+            <button class="btn-close-drawer" @onclick="CloseDrawer" aria-label="Close"><i class="bi bi-x-lg"></i></button>
         </div>
         <div class="drawer-body">
             <div class="detail-grid">
@@ -531,7 +610,41 @@
                 </div>
             }
 
-            <div class="detail-section-title"><i class="bi bi-list-ul"></i> Line Items (@selectedQuotation.Lines.Count)</div>
+            <div class="detail-section-title">
+                <i class="bi bi-list-ul"></i> Line Items
+                @if (!IsDetailLoading)
+                {
+                    <span>(@selectedQuotation.Lines.Count)</span>
+                }
+            </div>
+            @if (IsDetailLoading)
+            {
+                <div class="drawer-detail-loading">
+                    <span class="spinner-border spinner-border-sm" style="color:#f59e0b;"></span>
+                    <span>Loading line items...</span>
+                </div>
+                <div class="skeleton-card">
+                    @for (var i = 0; i < 3; i++)
+                    {
+                        <div class="skeleton-table-row">
+                            <div class="skeleton-bar" style="width:60%;"></div>
+                            <div class="skeleton-bar" style="width:85%;"></div>
+                            <div class="skeleton-bar" style="width:40%;"></div>
+                            <div class="skeleton-bar" style="width:50%;"></div>
+                            <div class="skeleton-bar" style="width:35%;"></div>
+                            <div class="skeleton-bar" style="width:55%;"></div>
+                        </div>
+                    }
+                </div>
+            }
+            else if (detailLoadFailed)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                    Couldn't load the line items for this quotation. Close and reopen it to try again.
+                </MudAlert>
+            }
+            else
+            {
             <div style="overflow-x:auto;">
             <table class="lines-table">
                 <thead>
@@ -589,36 +702,79 @@
                 </tfoot>
             </table>
             </div>
+            }
         </div>
         <div class="drawer-footer">
-            @if (CanRepriceSelectedQuotation)
-            {
-                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="() => OpenRepriceModal(selectedQuotation)">
-                    <i class="bi bi-pencil-square me-1"></i> Edit / Reprice
-                </MudButton>
+            @{
+                var isConverting = convertingQuotationId == selectedQuotation.Id;
+                var canConvert = (selectedQuotation.Status == QuotationStatus.Approved || selectedQuotation.Status == QuotationStatus.Accepted)
+                    && selectedQuotation.SalesOrderId == null;
             }
-            @if (CanApplyStandardVat)
+            @if (CanRepriceSelectedQuotation || CanApplyStandardVat || CanDownloadQuotationPdf)
             {
-                <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ApplyStandardVat" Disabled="@isApplyingStandardVat">
-                    <i class="bi bi-percent me-1"></i> Apply 15.5% VAT
-                </MudButton>
-            }
-            @if (CanDownloadQuotationPdf)
-            {
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadQuotationPdf" Disabled="@isPdfLoading">
-                    <i class="bi bi-download me-1"></i> Download PDF
-                </MudButton>
-                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintQuotationPdf" Disabled="@isPdfLoading">
-                    <i class="bi bi-printer me-1"></i> Print
-                </MudButton>
-            }
-            @if ((selectedQuotation.Status == QuotationStatus.Approved || selectedQuotation.Status == QuotationStatus.Accepted) && selectedQuotation.SalesOrderId == null)
+                <div class="drawer-actions">
+                    @if (CanRepriceSelectedQuotation)
                     {
-                <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="() => ConvertToSalesOrder(selectedQuotation)">
-                    <i class="bi bi-cart-check"></i>&nbsp; Convert to Sales Order
-                </MudButton>
+                        <button type="button" class="drawer-btn accent" disabled="@(IsDetailLoading || isConverting)"
+                                @onclick="() => OpenRepriceModal(selectedQuotation)">
+                            <i class="bi bi-pencil-square"></i> Edit / Reprice
+                        </button>
+                    }
+                    @if (CanApplyStandardVat)
+                    {
+                        <button type="button" class="drawer-btn accent" disabled="@(isApplyingStandardVat || IsDetailLoading || isConverting)"
+                                @onclick="ApplyStandardVat">
+                            @if (isApplyingStandardVat)
+                            {
+                                <span class="btn-spinner"></span>
+                                <span>Applying...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-percent"></i>
+                                <span>Apply 15.5% VAT</span>
+                            }
+                        </button>
+                    }
+                    @if (CanDownloadQuotationPdf)
+                    {
+                        <button type="button" class="drawer-btn ghost" disabled="@(isPdfLoading || isConverting)" @onclick="DownloadQuotationPdf">
+                            @if (isPdfLoading)
+                            {
+                                <span class="btn-spinner"></span>
+                                <span>Preparing...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-download"></i>
+                                <span>Download PDF</span>
+                            }
+                        </button>
+                        <button type="button" class="drawer-btn ghost" disabled="@(isPdfLoading || isConverting)" @onclick="PrintQuotationPdf">
+                            <i class="bi bi-printer"></i> Print
+                        </button>
+                    }
+                </div>
             }
-            <MudButton Variant="Variant.Outlined" OnClick="() => selectedQuotation = null">Close</MudButton>
+            <div class="drawer-actions primary-row">
+                <button type="button" class="drawer-btn ghost" disabled="@isConverting" @onclick="CloseDrawer">Close</button>
+                @if (canConvert)
+                {
+                    <button type="button" class="drawer-btn primary" disabled="@(isConverting || IsDetailLoading)"
+                            @onclick="() => ConvertToSalesOrder(selectedQuotation)">
+                        @if (isConverting)
+                        {
+                            <span class="btn-spinner"></span>
+                            <span>Converting...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-cart-check"></i>
+                            <span>Convert to Sales Order</span>
+                        }
+                    </button>
+                }
+            </div>
         </div>
     </div>
 }
@@ -852,6 +1008,13 @@
 @code {
     private const decimal DefaultVatPercent = 15.5m;
 
+    /// <summary>
+    /// How many quotation headers one page load pulls. The list is filtered, sorted and paged in the
+    /// browser, so it wants the whole set; it is affordable because neither source returns line items
+    /// here — the drawer fetches those for the one quotation being looked at.
+    /// </summary>
+    private const int ListFetchSize = 10000;
+
     private MudTable<QuotationDto> _table = null!;
     private int _pageSize = 10;
     private List<QuotationDto>? quotations;
@@ -865,6 +1028,15 @@
     private string? errorMessage;
     private int? convertingQuotationId;
     private int? editingQuotationId;
+
+    // Line items arrive with the quotation the user opens, not with the list. These track that fetch.
+    private readonly HashSet<int> quotationsWithLines = new();
+    private int? detailLoadingId;
+    private bool detailLoadFailed;
+
+    private bool IsDetailLoading => selectedQuotation is not null && detailLoadingId == selectedQuotation.Id;
+
+    private bool IsFirstLoad => isLoading && (quotations is null || quotations.Count == 0);
 
     private bool CanDownloadQuotationPdf => selectedQuotation is not null &&
         (dataSource == "local" || selectedQuotation.SAPDocEntry.HasValue);
@@ -887,7 +1059,7 @@
 
     // Pagination
     private int currentPage = 1;
-    private int pageSize = 10000;
+    private int pageSize = ListFetchSize;
     private int totalPages = 1;
     private int totalCount = 0;
 
@@ -939,6 +1111,8 @@
     {
         isLoading = true;
         errorMessage = null;
+        // Ids are only unique within a source, and the rows about to arrive carry no lines yet.
+        quotationsWithLines.Clear();
 
         try
         {
@@ -1009,9 +1183,72 @@
         await LoadQuotations();
     }
 
-    private void ViewQuotation(QuotationDto quotation)
+    private async Task ViewQuotation(QuotationDto quotation)
     {
+        // The header is already in hand, so the drawer opens on the first frame; only the line items
+        // have to be fetched, and they render into the section that shows a placeholder meanwhile.
         selectedQuotation = quotation;
+        detailLoadFailed = false;
+
+        var detailed = await EnsureLinesLoadedAsync(quotation);
+        if (detailed is null && selectedQuotation?.Id == quotation.Id)
+        {
+            detailLoadFailed = true;
+        }
+    }
+
+    private void CloseDrawer()
+    {
+        selectedQuotation = null;
+        detailLoadFailed = false;
+    }
+
+    /// <summary>
+    /// Returns the quotation with its line items, fetching the full document the first time it is
+    /// asked for. Returns null when the fetch fails.
+    /// </summary>
+    private async Task<QuotationDto?> EnsureLinesLoadedAsync(QuotationDto quotation)
+    {
+        if (quotationsWithLines.Contains(quotation.Id))
+        {
+            return quotation;
+        }
+
+        detailLoadingId = quotation.Id;
+        try
+        {
+            var detailed = dataSource == "sap"
+                ? await QuotationService.GetQuotationFromSAPByDocEntryAsync(quotation.SAPDocEntry ?? quotation.Id)
+                : await QuotationService.GetQuotationByIdAsync(quotation.Id);
+
+            if (detailed is null)
+            {
+                Logger.LogWarning("Could not load line items for quotation {QuotationNumber}", quotation.QuotationNumber);
+                return null;
+            }
+
+            quotationsWithLines.Add(detailed.Id);
+            ReplaceQuotation(detailed);
+
+            if (selectedQuotation?.Id == detailed.Id)
+            {
+                selectedQuotation = detailed;
+            }
+
+            return detailed;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading line items for quotation {QuotationNumber}", quotation.QuotationNumber);
+            return null;
+        }
+        finally
+        {
+            if (detailLoadingId == quotation.Id)
+            {
+                detailLoadingId = null;
+            }
+        }
     }
 
     private async Task DownloadQuotationPdf()
@@ -1159,7 +1396,7 @@
             {
                 Snackbar.Add($"Quotation converted to Sales Order {salesOrder.OrderNumber} successfully!", Severity.Success);
                 await AuditService.LogAsync(AuditActions.ConvertQuotationToOrder, "Quotation", quotation.Id.ToString(), $"Converted to Sales Order {salesOrder.OrderNumber}", true);
-                selectedQuotation = null;
+                CloseDrawer();
                 await LoadQuotations();
             }
             else
@@ -1224,12 +1461,22 @@
         }
     }
 
-    private void OpenRepriceModal(QuotationDto quotation)
+    private async Task OpenRepriceModal(QuotationDto quotation)
     {
         if (!CanRepriceQuotation(quotation))
         {
             return;
         }
+
+        // Repricing rewrites the whole document, so it needs the lines the list no longer carries.
+        var detailed = await EnsureLinesLoadedAsync(quotation);
+        if (detailed is null)
+        {
+            Snackbar.Add("Couldn't load this quotation for editing. Please try again.", Severity.Error);
+            return;
+        }
+
+        quotation = detailed;
 
         isEditMode = true;
         editingQuotationId = quotation.Id;

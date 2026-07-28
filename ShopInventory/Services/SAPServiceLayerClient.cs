@@ -229,6 +229,10 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // fallback to the lines, and the fallback was always what actually answered.
     private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
     private const string QuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,ContactPersonCode,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,U_OrderNumber,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,ShipToCode,PayToCode,DocumentLines";
+    // The quotation list shows header fields only, so it asks for no DocumentLines. On a company with
+    // ~1,500 quotations the nested lines were the bulk of the payload and none of it was rendered;
+    // the line items in the detail drawer are fetched per document by GetQuotationByDocEntryAsync.
+    private const string QuotationListSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,ContactPersonCode,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,U_OrderNumber,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,ShipToCode,PayToCode";
     private const string StockTransferSelect = "$select=DocEntry,DocNum,DocDate,DueDate,FromWarehouse,ToWarehouse,Comments,JournalMemo,StockTransferLines";
     private const string InventoryTransferRequestSelect = "$select=DocEntry,DocNum,DocDate,DueDate,FromWarehouse,ToWarehouse,Comments,JournalMemo,DocumentStatus,StockTransferLines";
     // PaymentChecks and PaymentCreditCards are not optional detail here: SAP keeps no header total
@@ -13616,24 +13620,27 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         while (hasMore && allQuotations.Count < pageSize)
         {
             var top = Math.Min(batchSize, pageSize - allQuotations.Count);
-            var url = $"Quotations?{QuotationSelect}&$orderby=DocEntry desc&$top={top}&$skip={skip}";
+            var url = $"Quotations?{QuotationListSelect}&$orderby=DocEntry desc&$top={top}&$skip={skip}";
 
             _logger.LogInformation("Fetching quotations from SAP: {Url}", url);
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            HttpRequestMessage CreateRequest()
+            {
+                var message = new HttpRequestMessage(HttpMethod.Get, url);
+                message.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                // Without this the Service Layer caps the response at its default page of ~20 rows
+                // whatever $top says, so a full list took one round trip per 20 documents.
+                message.Headers.Add("Prefer", $"odata.maxpagesize={top}");
+                return message;
+            }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await _httpClient.SendAsync(CreateRequest(), cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await _httpClient.SendAsync(CreateRequest(), cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -13894,7 +13901,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return await ReadDocumentPagesAsync<SAPQuotation>(
             "Quotations",
             $"CardCode eq '{SanitizeODataValue(cardCode)}'",
-            QuotationSelect,
+            QuotationListSelect,
             $"get quotations for customer {cardCode}",
             cancellationToken);
     }
@@ -13914,22 +13921,23 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         while (hasMore)
         {
-            var url = $"Quotations?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&{QuotationSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"Quotations?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&{QuotationListSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            HttpRequestMessage CreateRequest()
+            {
+                var message = new HttpRequestMessage(HttpMethod.Get, url);
+                message.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                message.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
+                return message;
+            }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var response = await _httpClient.SendAsync(CreateRequest(), cancellationToken);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
+                response = await _httpClient.SendAsync(CreateRequest(), cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)
