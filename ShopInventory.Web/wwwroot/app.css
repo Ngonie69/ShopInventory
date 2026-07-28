@@ -69,6 +69,7 @@
     --kf-gold-hover: rgba(217, 154, 0, 0.13);
     --kf-teal: #0F9F8D;
     --kf-teal-soft: rgba(15, 159, 141, 0.11);
+    --kf-danger: #C93B36;
     --kf-neutral-soft: #EEF2F6;
     --kf-hover: #F8FAFC;
     --kf-focus: rgba(217, 154, 0, 0.32);
@@ -97,6 +98,7 @@
     --kf-gold-hover: rgba(245, 179, 1, 0.16);
     --kf-teal: #2DD4BF;
     --kf-teal-soft: rgba(45, 212, 191, 0.12);
+    --kf-danger: #F87171;
     --kf-neutral-soft: #18263A;
     --kf-hover: #101D31;
     --kf-focus: rgba(245, 179, 1, 0.36);
@@ -373,20 +375,6 @@ body {
     padding: 0 20px;
 }
 
-.kf-brand-mark {
-    align-items: center;
-    background: var(--kf-gold);
-    border-radius: 9px;
-    color: var(--kf-gold-contrast);
-    display: flex;
-    font-family: "Space Grotesk", sans-serif;
-    font-size: 17px;
-    font-weight: 800;
-    height: 34px;
-    justify-content: center;
-    width: 34px;
-}
-
 .kf-sidebar-brand strong {
     color: var(--kf-gold-strong);
     font-weight: 700;
@@ -658,15 +646,6 @@ body {
     gap: 2px;
     height: 26px;
     width: 84px;
-}
-
-.kf-sparkline span {
-    background: var(--kf-gold);
-    border-radius: 2px 2px 0 0;
-    height: var(--spark-height);
-    min-height: 2px;
-    opacity: 0.78;
-    width: 6px;
 }
 
 .kf-stat-card__footer {
@@ -13511,46 +13490,6 @@ html body .staff-container.kf-container {
     color: inherit;
 }
 
-.kf-cheese-mark {
-    background: var(--kf-text);
-    clip-path: polygon(0 25%, 100% 0, 100% 100%, 0 82%);
-    display: block;
-    flex: 0 0 46px;
-    height: 37px;
-    overflow: hidden;
-    position: relative;
-    transform: rotate(-3deg);
-    width: 46px;
-}
-
-.kf-cheese-mark i {
-    background: var(--kf-sidebar-bg);
-    border-radius: 50%;
-    display: block;
-    position: absolute;
-}
-
-.kf-cheese-mark i:nth-child(1) {
-    height: 8px;
-    left: 10px;
-    top: 10px;
-    width: 8px;
-}
-
-.kf-cheese-mark i:nth-child(2) {
-    height: 6px;
-    left: 27px;
-    top: 7px;
-    width: 6px;
-}
-
-.kf-cheese-mark i:nth-child(3) {
-    height: 9px;
-    left: 29px;
-    top: 23px;
-    width: 9px;
-}
-
 .kf-sidebar-nav {
     padding: 34px 14px 26px;
 }
@@ -13694,26 +13633,6 @@ html body .staff-container.kf-container {
     width: 168px;
 }
 
-.kf-sparkline__segment {
-    background: var(--kf-gold);
-    border-radius: 2px;
-    display: block;
-    height: 2px;
-    position: absolute;
-    transform-origin: left center;
-}
-
-.kf-sparkline__point {
-    background: var(--kf-gold);
-    border: 1px solid var(--kf-panel-bg);
-    border-radius: 50%;
-    display: block;
-    height: 5px;
-    position: absolute;
-    transform: translate(-2px, -2px);
-    width: 5px;
-}
-
 .kf-stat-card__footer {
     align-items: center;
     border-top: 1px solid var(--kf-border);
@@ -13778,21 +13697,6 @@ html body .staff-container.kf-container {
     align-items: center;
     display: flex;
     gap: 12px;
-}
-
-.kf-activity-card__icon {
-    align-items: center;
-    border: 1px solid var(--kf-gold);
-    border-radius: 8px;
-    color: var(--kf-gold);
-    display: flex;
-    height: 34px;
-    justify-content: center;
-    width: 34px;
-}
-
-.kf-activity-card__icon .mud-icon-root {
-    font-size: 18px;
 }
 
 .kf-activity-card__header h2 {
@@ -13882,15 +13786,6 @@ html body .staff-container.kf-container {
     padding: 0 20px;
 }
 
-.kf-quick-panel__header > span {
-    color: var(--kf-gold);
-    font-family: Georgia, serif;
-    font-size: 29px;
-    font-weight: 800;
-    line-height: 1;
-    transform: skew(-8deg);
-}
-
 .kf-quick-panel__header h2 {
     color: var(--kf-text);
     font-size: 15px;
@@ -13925,22 +13820,6 @@ html body .staff-container.kf-container {
 
 .kf-quick-action__copy span {
     font-size: 11px;
-}
-
-@media (max-width: 1350px) {
-    .kf-stat-card__body {
-        gap: 14px;
-    }
-
-    .kf-sparkline {
-        flex-basis: 128px;
-        transform: scaleX(.76);
-        transform-origin: right center;
-    }
-
-    .kf-stat-card__metrics {
-        min-width: 105px;
-    }
 }
 
 @media (max-width: 1199.98px) {
@@ -14034,14 +13913,6 @@ html body .staff-container.kf-container {
 }
 
 /* Full application navigation, vector identity, and working profile menu. */
-.kf-app-logo {
-    display: block;
-    flex: 0 0 44px;
-    height: 44px;
-    object-fit: contain;
-    width: 44px;
-}
-
 .kf-sidebar-scroll {
     flex: 1 1 auto;
     min-height: 0;
@@ -14503,5 +14374,581 @@ html body .staff-container.kf-container {
     .kf-search-results {
         left: -46px;
         right: -98px;
+    }
+}
+
+/* ============================================================
+   Brand identity lockup and app-shell alignment
+   ------------------------------------------------------------
+   The header is one unbroken 74px band. The topbar's lead cell is
+   exactly the drawer width (272px), so its divider continues the
+   drawer's right edge, the menu icon sits on the same vertical as
+   the navigation icons (24px), and the search field starts on the
+   page container's content edge (272px drawer + 32px padding).
+   ============================================================ */
+.kf-brand {
+    align-items: center;
+    color: var(--kf-text);
+    display: flex;
+    gap: 11px;
+    min-width: 0;
+}
+
+.kf-brand__mark {
+    color: var(--kf-gold);
+    fill: currentColor;
+    flex: 0 0 34px;
+    height: 34px;
+    width: 34px;
+}
+
+.kf-brand__copy {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.kf-brand__copy strong {
+    color: var(--kf-text);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: .075em;
+    line-height: 1.1;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.kf-brand__copy small {
+    color: var(--kf-text-soft);
+    font-family: "Inter", sans-serif;
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    line-height: 1.1;
+    margin-top: 3px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.kf-topbar {
+    gap: 0;
+    padding: 0 18px 0 0;
+}
+
+.kf-topbar__lead {
+    align-items: center;
+    box-sizing: border-box;
+    display: flex;
+    flex: 0 0 272px;
+    gap: 10px;
+    height: 100%;
+    margin-right: 32px;
+    /* 14px + the 42px menu button's half-width puts the menu glyph on the same
+       vertical centre as the drawer's navigation icons (14px nav + 10px link + 11px). */
+    padding-left: 14px;
+}
+
+.kf-nav-open .kf-topbar__lead {
+    border-right: 1px solid var(--kf-border);
+}
+
+.kf-topbar__brand {
+    align-items: center;
+    border-radius: 10px;
+    color: inherit;
+    display: flex;
+    min-width: 0;
+    padding: 4px 6px;
+    text-decoration: none !important;
+}
+
+.kf-topbar__brand:hover .kf-brand__mark {
+    color: var(--kf-gold-strong);
+}
+
+.kf-topbar__brand:focus-visible {
+    outline: 3px solid var(--kf-focus);
+    outline-offset: 2px;
+}
+
+.kf-search-shell {
+    margin-right: 16px;
+}
+
+/* Mobile drawer keeps its own brand row, matched to the header band height.
+   The 24px inset puts the mark on the same left edge as the navigation icons. */
+.kf-sidebar-brand {
+    flex: 0 0 74px;
+    gap: 10px;
+    padding: 0 12px 0 24px;
+}
+
+@media (max-width: 1199.98px) {
+    .kf-topbar__lead {
+        margin-right: 24px;
+    }
+}
+
+@media (max-width: 959.98px) {
+    .kf-topbar__lead {
+        border-right: 0;
+        flex: 0 0 auto;
+        margin-right: 18px;
+        padding-left: 12px;
+    }
+}
+
+@media (max-width: 699.98px) {
+    .kf-topbar {
+        padding-right: 12px;
+    }
+
+    .kf-topbar__lead {
+        gap: 4px;
+        margin-right: 10px;
+        padding-left: 8px;
+    }
+
+    .kf-topbar__brand .kf-brand__copy {
+        display: none;
+    }
+
+    .kf-search-shell {
+        margin-right: 10px;
+    }
+}
+
+/* ============================================================
+   Dashboard polish
+   ------------------------------------------------------------
+   Spacing runs on a 4px scale (12/16/20/24), container radii are
+   14px with 10-12px for nested boxes, and every accent icon uses
+   the same gold-soft treatment at three sizes.
+   ============================================================ */
+
+/* --- Page rhythm --- */
+.kf-dashboard {
+    gap: 20px;
+}
+
+.kf-dashboard-header {
+    align-items: flex-end;
+    gap: 24px;
+    min-height: 0;
+}
+
+.kf-dashboard-header h1 {
+    font-size: clamp(22px, 1.9vw, 26px);
+    margin: 0 0 6px;
+}
+
+.kf-dashboard-header > div:first-child > p {
+    font-size: 14px;
+}
+
+.kf-dashboard-header__actions {
+    gap: 16px;
+}
+
+/* A quiet pill keeps the status from floating loose beside the gold button. */
+.kf-live-status {
+    background: var(--kf-panel-bg);
+    border: 1px solid var(--kf-border);
+    border-radius: 999px;
+    font-size: 12px;
+    gap: 8px;
+    height: 34px;
+    padding: 0 14px;
+    white-space: nowrap;
+}
+
+.kf-primary-button {
+    border-radius: 10px;
+    font-size: 13px;
+    gap: 8px;
+    height: 44px;
+    min-width: 0;
+    padding: 0 18px;
+}
+
+.kf-primary-button .mud-icon-root {
+    font-size: 19px;
+}
+
+.kf-kpi-grid,
+.kf-activity-grid {
+    gap: 16px;
+}
+
+/* --- Shared surfaces --- */
+.kf-stat-card,
+.kf-activity-card,
+.kf-quick-panel {
+    border-radius: 14px;
+}
+
+/* --- Accent icons: one treatment, three sizes --- */
+.kf-icon-box,
+.kf-panel-icon,
+.kf-quick-action__icon {
+    align-items: center;
+    background: var(--kf-gold-soft);
+    border: 1px solid var(--kf-gold);
+    color: var(--kf-gold-strong);
+    display: flex;
+    justify-content: center;
+}
+
+.kf-icon-box {
+    border-radius: 12px;
+    flex: 0 0 48px;
+    height: 48px;
+    width: 48px;
+}
+
+.kf-icon-box .mud-icon-root {
+    font-size: 24px;
+}
+
+.kf-panel-icon {
+    border-radius: 10px;
+    flex: 0 0 34px;
+    height: 34px;
+    width: 34px;
+}
+
+.kf-panel-icon .mud-icon-root {
+    font-size: 19px;
+}
+
+.kf-quick-action__icon {
+    border-radius: 10px;
+    flex: 0 0 42px;
+    height: 42px;
+    width: 42px;
+}
+
+.kf-quick-action__icon .mud-icon-root {
+    font-size: 22px;
+}
+
+/* --- Stat cards --- */
+/* Column layout with a growing body keeps every footer on the same baseline
+   even when a label wraps to two lines. */
+.kf-stat-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+}
+
+.kf-stat-card__body {
+    align-items: center;
+    flex: 1;
+    gap: 18px;
+    height: auto;
+    min-height: 104px;
+    padding: 20px;
+}
+
+.kf-stat-card__metrics {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.kf-stat-card__label {
+    font-size: 13px;
+    margin: 0 0 8px;
+}
+
+.kf-stat-card__value {
+    font-size: 30px;
+}
+
+.kf-stat-card__value-label {
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.kf-stat-card__footer {
+    border-top: 1px solid var(--kf-border);
+    gap: 12px;
+    height: auto;
+    min-height: 62px;
+    padding: 12px 20px;
+}
+
+.kf-stat-card__comparison strong {
+    font-size: 14px;
+}
+
+.kf-stat-card__comparison.is-negative {
+    color: var(--kf-danger);
+}
+
+/* Stays on the right even when the card has no comparison to show beside it. */
+.kf-stat-card__amount {
+    margin-left: auto;
+}
+
+.kf-stat-card__amount strong {
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+/* --- Sparkline (SVG; see StatCard.razor) --- */
+/* Flexible width with a non-scaling stroke: the line fills whatever space is
+   left over and stays an even 2px, so no transform hacks are needed. */
+/* A proportional basis keeps every card's sparkline the same width, whether or
+   not its label wraps; the metrics column absorbs the difference instead. */
+.kf-sparkline {
+    display: block;
+    flex: 0 0 38%;
+    height: 58px;
+    margin-left: auto;
+    max-width: 168px;
+    min-width: 76px;
+    overflow: visible;
+    width: auto;
+}
+
+.kf-sparkline__line {
+    fill: none;
+    stroke: var(--kf-gold);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
+
+.kf-sparkline__area {
+    stroke: none;
+}
+
+.kf-sparkline__stop-top {
+    stop-color: var(--kf-gold);
+    stop-opacity: .26;
+}
+
+.kf-sparkline__stop-bottom {
+    stop-color: var(--kf-gold);
+    stop-opacity: 0;
+}
+
+/* A flat or falling series reads as "no movement" rather than brand accent. */
+.kf-sparkline--muted .kf-sparkline__line {
+    stroke: var(--kf-text-soft);
+}
+
+.kf-sparkline--muted .kf-sparkline__stop-top,
+.kf-sparkline--muted .kf-sparkline__stop-bottom {
+    stop-color: var(--kf-text-soft);
+}
+
+.kf-sparkline--muted .kf-sparkline__stop-top {
+    stop-opacity: .20;
+}
+
+/* --- Activity cards --- */
+.kf-activity-card__header {
+    min-height: 60px;
+    padding: 12px 20px;
+}
+
+.kf-activity-card__header h2 {
+    font-size: 15px;
+    margin: 0;
+}
+
+.kf-activity-card__header a {
+    align-items: center;
+    display: inline-flex;
+    font-size: 12px;
+    gap: 6px;
+}
+
+.kf-activity-card__header a span {
+    font-size: 18px;
+    line-height: 1;
+    margin: 0;
+    vertical-align: baseline;
+}
+
+.kf-activity-table {
+    font-size: 12px;
+}
+
+.kf-activity-table th {
+    font-size: 10px;
+    height: 38px;
+    overflow: hidden;
+    padding: 0 14px;
+    text-overflow: ellipsis;
+}
+
+/* Fixed widths for the predictable columns; the customer name takes what is
+   left and ellipsises, with the full value on the cell's title attribute.
+   border-box is explicit here: under table-layout:fixed these widths must
+   include their own padding, or the auto column collapses to zero. */
+.kf-activity-table th,
+.kf-activity-table td {
+    box-sizing: border-box;
+}
+
+/* Each width leaves its chip or badge a couple of pixels of slack once the
+   cell's own padding is subtracted, so nothing is clipped by overflow:hidden. */
+.kf-activity-table th:first-child,
+.kf-activity-table td:first-child {
+    padding-left: 20px;
+    width: 124px;
+}
+
+.kf-activity-table th:nth-child(2) {
+    width: auto;
+}
+
+.kf-activity-table th:nth-child(3) {
+    width: 100px;
+}
+
+.kf-activity-table th:nth-child(4) {
+    width: 120px;
+}
+
+.kf-activity-table th:last-child,
+.kf-activity-table td:last-child {
+    padding-right: 20px;
+    width: 114px;
+}
+
+/* Money reads far better on a common right edge. */
+.kf-activity-table th:nth-child(4),
+.kf-activity-table td:nth-child(4) {
+    text-align: right;
+}
+
+.kf-activity-table td {
+    font-size: 12px;
+    height: 46px;
+    padding: 0 14px;
+}
+
+/* Row separators alone; zebra striping fights with the chips and badges. */
+.kf-activity-table tbody tr:nth-child(even) {
+    background: transparent;
+}
+
+.kf-activity-table tbody tr:hover {
+    background: var(--kf-gold-soft);
+}
+
+/* inline-block rather than inline-flex: text-overflow does not apply to a flex
+   container's anonymous item, so an unusually long doc number would hard-clip. */
+.kf-doc-chip {
+    border-radius: 6px;
+    display: inline-block;
+    font-size: 11px;
+    line-height: 18px;
+    max-width: 100%;
+    min-width: 72px;
+    overflow: hidden;
+    padding: 3px 8px;
+    text-align: center;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.kf-status-badge {
+    font-size: 11px;
+    min-width: 58px;
+    padding: 5px 10px;
+}
+
+/* --- Quick actions --- */
+.kf-quick-panel__header {
+    gap: 12px;
+    min-height: 60px;
+    padding: 0 20px;
+}
+
+.kf-quick-panel__header h2 {
+    font-size: 15px;
+}
+
+.kf-quick-grid {
+    gap: 16px;
+    padding: 16px 20px 20px;
+}
+
+.kf-quick-action {
+    border-radius: 12px;
+    gap: 12px;
+    min-height: 76px;
+    padding: 14px;
+    transition: background .18s ease, border-color .18s ease;
+}
+
+.kf-quick-action__copy strong {
+    font-size: 13px;
+}
+
+.kf-quick-action__copy span {
+    font-size: 11px;
+    margin-top: 3px;
+}
+
+/* The drawer takes 272px off the viewport, so both grids need to reflow well
+   before the raw viewport width suggests. A five-column table with money and
+   status badges needs ~570px before it is worth showing two side by side. */
+@media (max-width: 1499.98px) {
+    .kf-activity-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Four across leaves too little room for the descriptions to survive. */
+    .kf-quick-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1379.98px) {
+    .kf-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .kf-kpi-grid > :last-child {
+        grid-column: 1 / -1;
+    }
+
+    .kf-stat-card__body {
+        gap: 14px;
+    }
+}
+
+@media (max-width: 699.98px) {
+    .kf-dashboard-header {
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .kf-stat-card__body {
+        padding: 16px;
+    }
+
+    .kf-stat-card__footer {
+        padding: 12px 16px;
+    }
+
+    .kf-activity-card__header,
+    .kf-quick-panel__header {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .kf-quick-grid {
+        padding: 16px;
     }
 }

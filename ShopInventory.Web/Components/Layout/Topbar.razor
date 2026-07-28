@@ -7,10 +7,17 @@
 @implements IAsyncDisposable
 
 <header class="kf-topbar">
-    <button class="kf-icon-button kf-menu-toggle" type="button" @onclick="OnMenuClick"
-            aria-label="Open navigation menu">
-        <MudIcon Icon="@Icons.Material.Outlined.Menu" />
-    </button>
+    @* Lead cell spans the drawer width so its divider continues the drawer's right edge. *@
+    <div class="kf-topbar__lead">
+        <button class="kf-icon-button kf-menu-toggle" type="button" @onclick="OnMenuClick"
+                aria-label="Toggle navigation menu">
+            <MudIcon Icon="@Icons.Material.Outlined.Menu" />
+        </button>
+
+        <a class="kf-topbar__brand" href="/dashboard" aria-label="Kefalos dashboard">
+            <BrandLogo />
+        </a>
+    </div>
 
     <div class="kf-search-shell" @onfocusin="OpenSearch" @onfocusout="CloseSearch">
         <div class="kf-search" role="combobox" aria-haspopup="listbox"
