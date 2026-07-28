@@ -169,23 +169,39 @@
         box-shadow: 0 1px 4px rgba(0,0,0,.04);
     }
 
+    /* A grid rather than a wrapping flex row: flex lets the items on the final
+       row grow to fill it, which stretched a lone "SAP Doc #" across the whole
+       panel. Grid columns are shared by every row, so each field keeps its width
+       wherever it lands. */
     .md-filter-panel-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .65rem;
-        align-items: flex-end;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: .65rem .7rem;
+        align-items: end;
     }
 
     .md-filter-group {
         display: flex;
         flex-direction: column;
         gap: .28rem;
-        flex: 1 1 120px;
-        min-width: 100px;
+        min-width: 0;
     }
 
-    .md-filter-group.wide {
-        flex: 2 1 200px;
+    /* Only widen once there are at least two columns to span, otherwise this
+       would create an implicit second column on a narrow screen. */
+    @@media (min-width: 640px) {
+        .md-filter-group.wide {
+            grid-column: span 2;
+        }
+    }
+
+    /* Its own full-width row, right-aligned. Letting it flow inline would drop it
+       into whichever column happened to be free, which moves as the panel resizes. */
+    .md-filter-actions {
+        display: flex;
+        grid-column: 1 / -1;
+        justify-content: flex-end;
+        min-width: 0;
     }
 
     .md-filter-label {
@@ -917,7 +933,7 @@
                     </div>
                     @if (HasActiveFilters())
                     {
-                        <div style="display:flex;align-items:flex-end;flex:0 0 auto;">
+                        <div class="md-filter-actions">
                             <button type="button" class="md-clear-filters" @onclick="ClearFilter">
                                 <i class="bi bi-x-circle"></i> Clear
                             </button>
