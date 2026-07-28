@@ -1,0 +1,56 @@
+@using MudBlazor
+
+<header class="kf-topbar">
+    <button class="kf-icon-button kf-menu-toggle" type="button" @onclick="OnMenuClick"
+            aria-label="Open navigation menu">
+        <MudIcon Icon="@Icons.Material.Outlined.Menu" />
+    </button>
+
+    <form class="kf-search" action="/invoices" method="get" role="search">
+        <MudIcon Icon="@Icons.Material.Outlined.Search" aria-hidden="true" />
+        <label class="visually-hidden" for="dashboard-search">Search invoices, customers, and documents</label>
+        <input id="dashboard-search" name="search" type="search"
+               placeholder="Search invoices, customers, docs…" autocomplete="off" />
+        <kbd>⌘ K</kbd>
+    </form>
+
+    <div class="kf-topbar__actions">
+        <button class="kf-icon-button kf-notification-button" type="button" @onclick="OnNotificationsClick"
+                aria-label="@NotificationLabel" aria-expanded="@NotificationsOpen">
+            <MudIcon Icon="@Icons.Material.Outlined.Notifications" />
+            @if (UnreadCount > 0)
+            {
+                <span class="kf-notification-count">@UnreadDisplay</span>
+            }
+        </button>
+
+        <ThemeToggle />
+
+        <div class="kf-user" aria-label="Current user">
+            <span class="kf-avatar" aria-hidden="true">NM</span>
+            <span class="kf-user__copy">
+                <strong>Ngoni M</strong>
+                <small>Admin</small>
+            </span>
+            <MudIcon Icon="@Icons.Material.Outlined.KeyboardArrowDown" aria-hidden="true" />
+        </div>
+
+        <button class="kf-logout-button" type="button" @onclick="OnLogout">
+            <MudIcon Icon="@Icons.Material.Outlined.Logout" />
+            <span>Logout</span>
+        </button>
+    </div>
+</header>
+
+@code {
+    [Parameter] public int UnreadCount { get; set; }
+    [Parameter] public bool NotificationsOpen { get; set; }
+    [Parameter] public EventCallback OnMenuClick { get; set; }
+    [Parameter] public EventCallback OnNotificationsClick { get; set; }
+    [Parameter] public EventCallback OnLogout { get; set; }
+
+    private string NotificationLabel =>
+        UnreadCount > 0 ? $"Notifications, {UnreadCount} unread" : "Notifications";
+
+    private string UnreadDisplay => UnreadCount > 9 ? "9+" : UnreadCount.ToString();
+}

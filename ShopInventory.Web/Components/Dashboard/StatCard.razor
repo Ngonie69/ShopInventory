@@ -1,0 +1,81 @@
+@using MudBlazor
+
+<article class="kf-stat-card">
+    <div class="kf-stat-card__body">
+        <span class="kf-icon-box" aria-hidden="true">
+            <MudIcon Icon="@Icon" />
+        </span>
+        <div class="kf-stat-card__metrics">
+            <p class="kf-stat-card__label">@Label</p>
+            <div class="kf-stat-card__value">@Value</div>
+            <span class="kf-stat-card__value-label">@ValueLabel</span>
+        </div>
+        <div class="kf-sparkline" aria-hidden="true">
+            @foreach (var segment in SparklineSegments)
+            {
+                <i class="kf-sparkline__segment" style="@segment"></i>
+            }
+            @for (var index = 0; index < Sparkline.Length; index++)
+            {
+                <i class="kf-sparkline__point" style="@PointStyle(index)"></i>
+            }
+        </div>
+    </div>
+
+    <div class="kf-stat-card__footer">
+        <div class="kf-stat-card__comparison @(IsPositive ? "is-positive" : "is-neutral")">
+            <MudIcon Icon="@(IsPositive ? Icons.Material.Outlined.ArrowUpward : Icons.Material.Outlined.Remove)" />
+            <strong>@Trend</strong>
+            <span>vs yesterday</span>
+        </div>
+        <div class="kf-stat-card__amount">
+            <strong>@Amount</strong>
+            <span>@AmountLabel</span>
+        </div>
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public string ValueLabel { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Trend { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Amount { get; set; } = string.Empty;
+    [Parameter] public string AmountLabel { get; set; } = "Total value";
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+    [Parameter] public bool IsPositive { get; set; } = true;
+    [Parameter] public int[] Sparkline { get; set; } = [24, 38, 31, 52, 47, 68, 61, 82, 76, 92];
+
+    private IEnumerable<string> SparklineSegments
+    {
+        get
+        {
+            if (Sparkline.Length < 2) yield break;
+
+            const double width = 168;
+            const double height = 58;
+            var step = width / (Sparkline.Length - 1);
+
+            for (var index = 0; index < Sparkline.Length - 1; index++)
+            {
+                var x1 = index * step;
+                var x2 = (index + 1) * step;
+                var y1 = height - (Sparkline[index] / 100d * height);
+                var y2 = height - (Sparkline[index + 1] / 100d * height);
+                var length = Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2));
+                var angle = Math.Atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+                yield return $"left:{x1:F2}px;top:{y1:F2}px;width:{length:F2}px;transform:rotate({angle:F2}deg)";
+            }
+        }
+    }
+
+    private string PointStyle(int index)
+    {
+        if (Sparkline.Length < 2) return string.Empty;
+        const double width = 168;
+        const double height = 58;
+        var x = index * (width / (Sparkline.Length - 1));
+        var y = height - (Sparkline[index] / 100d * height);
+        return $"left:{x:F2}px;top:{y:F2}px";
+    }
+}

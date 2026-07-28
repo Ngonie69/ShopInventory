@@ -43,9 +43,11 @@
     <script>
             (function () {
                 try {
-                    var theme = localStorage.getItem('app-theme') || 'light';
+                    var storedTheme = localStorage.getItem('app-theme');
+                    var theme = storedTheme
+                        ? storedTheme.replace(/"/g, '')
+                        : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
                     // Remove quotes if stored as JSON string
-                    theme = theme.replace(/"/g, '');
                     var htmlEl = document.documentElement;
                     htmlEl.setAttribute('data-theme', theme);
                     htmlEl.setAttribute('data-bs-theme', theme);
@@ -62,7 +64,7 @@
                         metaTC.name = 'theme-color';
                         document.head.appendChild(metaTC);
                     }
-                    metaTC.content = theme === 'dark' ? '#0f172a' : '#f8fafc';
+                    metaTC.content = theme === 'dark' ? '#071425' : '#F6F8FB';
                 } catch (e) { }
             })();
     </script>

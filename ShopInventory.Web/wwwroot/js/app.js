@@ -144,6 +144,12 @@ window.keyboardShortcuts = {
 window.themeManager = {
     isTransitioning: false,
 
+    getPreferredTheme: function () {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light';
+    },
+
     setTheme: function (theme, animate = true) {
         const html = document.documentElement;
         const body = document.body;
@@ -189,7 +195,7 @@ window.themeManager = {
             metaThemeColor.name = 'theme-color';
             document.head.appendChild(metaThemeColor);
         }
-        metaThemeColor.content = theme === 'dark' ? '#0f172a' : '#f8fafc';
+        metaThemeColor.content = theme === 'dark' ? '#071425' : '#F6F8FB';
 
         // Remove transition class after animation completes
         if (animate && this.isTransitioning) {
