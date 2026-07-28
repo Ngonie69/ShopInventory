@@ -3,6 +3,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IGlobalSearchService GlobalSearchService
+@inject ILogger<Topbar> Logger
 @implements IAsyncDisposable
 
 <header class="kf-topbar">
@@ -193,10 +194,21 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
         {
             await JS.InvokeVoidAsync("dashboardSearch.init", "dashboard-search");
             await JS.InvokeVoidAsync("dashboardProfile.init", "dashboard-profile-menu");
+        }
+        catch (JSException ex)
+        {
+            // Search shortcuts and click-away handling are progressive enhancements. A stale
+            // browser-cached app.js must not terminate the entire Blazor circuit.
+            Logger.LogWarning(ex, "Could not initialize topbar JavaScript enhancements");
         }
     }
 

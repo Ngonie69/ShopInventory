@@ -286,6 +286,7 @@ try
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();
     builder.Services.AddScoped<IReportExportService, ReportExportService>();
+    builder.Services.AddScoped<IGlobalSearchService, GlobalSearchService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<IPushNotificationClientService, PushNotificationClientService>();
@@ -378,6 +379,14 @@ try
 
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
+
+    // Topbar is rendered on every authenticated page. Resolve its application-level dependency
+    // during startup so a missing registration fails the deployment warm-up instead of returning
+    // a blank Blazor shell on every route.
+    using (var topbarDependencyScope = app.Services.CreateScope())
+    {
+        _ = topbarDependencyScope.ServiceProvider.GetRequiredService<IGlobalSearchService>();
+    }
 
     // Apply database migrations and seed default data
     try
