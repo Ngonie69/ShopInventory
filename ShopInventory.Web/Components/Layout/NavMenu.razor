@@ -374,7 +374,7 @@
             </AuthorizeView>
 
             @* ── Inventory ── *@
-            <AuthorizeView Context="transferCtx">
+            <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="transferCtx">
                 <Authorized>
                     <div class="nav-section-label">Inventory</div>
                     <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">

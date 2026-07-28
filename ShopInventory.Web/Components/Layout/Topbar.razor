@@ -149,6 +149,7 @@
     private string _displayName = "User";
     private string _displayRole = "Staff";
     private string _userInitials = "U";
+    private ClaimsPrincipal? _user;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
@@ -161,6 +162,7 @@
     private bool ShowSearchResults => _searchOpen && _searchQuery.Trim().Length >= 2;
 
     private List<SearchDestination> FilteredDestinations => SearchDestinations
+        .Where(destination => destination.IsVisibleTo(_user))
         .Where(destination => destination.Matches(_searchQuery))
         .Take(5)
         .ToList();
@@ -194,6 +196,7 @@
 
         var authenticationState = await AuthenticationStateTask;
         var user = authenticationState.User;
+        _user = user;
         _displayName = FormatDisplayName(user.Identity?.Name);
         _displayRole = GetDisplayRole(user);
         _userInitials = GetInitials(_displayName);
@@ -255,10 +258,12 @@
         {
             await Task.Delay(250, cts.Token);
             var results = await GlobalSearchService.SearchAsync(query, cts.Token);
-            _recordChoices = results.Invoices
-                .Concat(results.Products)
-                .Concat(results.Customers)
-                .Concat(results.Payments)
+            // The search service is not role-aware, so drop the categories this user
+            // cannot open. Each role set mirrors the [Authorize] on the landing page.
+            _recordChoices = VisibleRecords(results.Invoices, UserRoles.InvoicingRoles)
+                .Concat(VisibleRecords(results.Products, UserRoles.CatalogueRoles))
+                .Concat(VisibleRecords(results.Customers, UserRoles.CatalogueRoles))
+                .Concat(VisibleRecords(results.Payments, UserRoles.PaymentRoles))
                 .Take(5)
                 .Select(ToSearchChoice)
                 .ToList();
@@ -308,6 +313,14 @@
     }
 
     private static string ResultId(int index) => $"dashboard-search-result-{index}";
+
+    private static bool HasAnyRole(ClaimsPrincipal? user, string roles) =>
+        user?.Identity?.IsAuthenticated == true
+        && roles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(user.IsInRole);
+
+    private IEnumerable<SearchResultItem> VisibleRecords(IEnumerable<SearchResultItem> items, string roles) =>
+        HasAnyRole(_user, roles) ? items : [];
 
     public async ValueTask DisposeAsync()
     {
@@ -388,11 +401,14 @@
         };
     }
 
+    @* Roles must mirror the [Authorize] attribute on the destination page. An empty
+       string means the page only requires authentication, not a specific role. *@
     private sealed record SearchDestination(
         string Label,
         string Description,
         string Url,
         string Icon,
+        string Roles,
         params string[] Keywords)
     {
         public bool Matches(string query)
@@ -403,6 +419,11 @@
                 || Url.Contains(term, StringComparison.OrdinalIgnoreCase)
                 || Keywords.Any(keyword => keyword.Contains(term, StringComparison.OrdinalIgnoreCase));
         }
+
+        public bool IsVisibleTo(ClaimsPrincipal? user) =>
+            string.IsNullOrWhiteSpace(Roles)
+                ? user?.Identity?.IsAuthenticated == true
+                : HasAnyRole(user, Roles);
     }
 
     private sealed record SearchChoice(
@@ -414,33 +435,33 @@
 
     private static readonly IReadOnlyList<SearchDestination> SearchDestinations =
     [
-        new("Dashboard", "Sales and operations overview", "/dashboard", Icons.Material.Outlined.GridView, "home", "overview"),
-        new("Invoices", "Find and manage customer invoices", "/invoices", Icons.Material.Outlined.ReceiptLong, "billing", "documents"),
-        new("Create invoice", "Create a new customer invoice", "/invoices/create", Icons.Material.Outlined.NoteAdd, "new invoice"),
-        new("Van sales invoices", "View van sales invoices", "/van-sales-invoices", Icons.Material.Outlined.LocalShipping, "van"),
-        new("Payments", "Find incoming customer payments", "/payments", Icons.Material.Outlined.Payments, "receipts", "cash"),
-        new("Create payment", "Record an incoming payment", "/payments/create", Icons.Material.Outlined.AddCard, "new payment"),
-        new("Sales orders", "Find and manage sales orders", "/sales-orders", Icons.Material.Outlined.ShoppingCart, "orders"),
-        new("Create sales order", "Create a new sales order", "/sales-orders/create", Icons.Material.Outlined.AddShoppingCart, "new order"),
-        new("Mobile orders", "Review mobile and van sales orders", "/mobile-drafts", Icons.Material.Outlined.PhoneAndroid, "drafts", "van"),
-        new("Route customers", "Manage customers assigned to routes", "/route-customers", Icons.Material.Outlined.Route, "routes"),
-        new("Quotations", "Find and manage quotations", "/quotations", Icons.Material.Outlined.RequestQuote, "quotes"),
-        new("Create quotation", "Create a new customer quotation", "/quotations/create", Icons.Material.Outlined.PostAdd, "new quote"),
-        new("Credit notes", "Find and manage credit notes", "/credit-notes", Icons.Material.Outlined.NoteAlt, "credits"),
-        new("Products", "Browse the product catalogue", "/products", Icons.Material.Outlined.Inventory2, "items", "catalog"),
-        new("Prices", "View customer and product pricing", "/prices", Icons.Material.Outlined.Sell, "pricing"),
-        new("Customers", "Find business partners and customers", "/customers", Icons.Material.Outlined.Groups, "business partners"),
-        new("Stock", "View current warehouse stock", "/stock", Icons.Material.Outlined.Warehouse, "inventory"),
-        new("Inventory transfers", "Manage stock movements between warehouses", "/inventory-transfers", Icons.Material.Outlined.SwapHoriz, "transfers"),
-        new("Purchase orders", "Find and manage purchase orders", "/purchase-orders", Icons.Material.Outlined.ShoppingBag, "purchasing"),
-        new("Reports", "Open sales and operations reports", "/reports", Icons.Material.Outlined.Assessment, "analytics"),
-        new("Notifications", "View system notifications", "/notifications", Icons.Material.Outlined.Notifications, "alerts"),
-        new("Settings", "Configure application preferences", "/settings", Icons.Material.Outlined.Settings, "configuration", "preferences"),
-        new("User management", "Manage staff accounts and access", "/user-management", Icons.Material.Outlined.ManageAccounts, "users", "roles"),
-        new("Security", "Review security configuration", "/security", Icons.Material.Outlined.Security, "authentication"),
-        new("Sync status", "Review synchronization health", "/sync-status", Icons.Material.Outlined.Sync, "integration"),
-        new("Backups", "Manage application backups", "/backups", Icons.Material.Outlined.Backup, "restore"),
-        new("AI assistant", "Open the business assistant", "/ai-assistant", Icons.Material.Outlined.AutoAwesome, "help"),
-        new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", Icons.Material.Outlined.Chat, "messages")
+        new("Dashboard", "Sales and operations overview", "/dashboard", Icons.Material.Outlined.GridView, UserRoles.DashboardRoles, "home", "overview"),
+        new("Invoices", "Find and manage customer invoices", "/invoices", Icons.Material.Outlined.ReceiptLong, UserRoles.InvoicingRoles, "billing", "documents"),
+        new("Create invoice", "Create a new customer invoice", "/invoices/create", Icons.Material.Outlined.NoteAdd, UserRoles.InvoicingRoles, "new invoice"),
+        new("Van sales invoices", "View van sales invoices", "/van-sales-invoices", Icons.Material.Outlined.LocalShipping, UserRoles.InvoicingRoles, "van"),
+        new("Payments", "Find incoming customer payments", "/payments", Icons.Material.Outlined.Payments, UserRoles.PaymentRoles, "receipts", "cash"),
+        new("Create payment", "Record an incoming payment", "/payments/create", Icons.Material.Outlined.AddCard, UserRoles.PaymentRoles, "new payment"),
+        new("Sales orders", "Find and manage sales orders", "/sales-orders", Icons.Material.Outlined.ShoppingCart, "Admin,Cashier,SalesRep", "orders"),
+        new("Create sales order", "Create a new sales order", "/sales-orders/create", Icons.Material.Outlined.AddShoppingCart, "Admin,Cashier,SalesRep", "new order"),
+        new("Mobile orders", "Review mobile and van sales orders", "/mobile-drafts", Icons.Material.Outlined.PhoneAndroid, UserRoles.SalesOrderRoles, "drafts", "van"),
+        new("Route customers", "Manage customers assigned to routes", "/route-customers", Icons.Material.Outlined.Route, "Admin,Manager,Cashier", "routes"),
+        new("Quotations", "Find and manage quotations", "/quotations", Icons.Material.Outlined.RequestQuote, UserRoles.InvoicingRoles, "quotes"),
+        new("Create quotation", "Create a new customer quotation", "/quotations/create", Icons.Material.Outlined.PostAdd, UserRoles.InvoicingRoles, "new quote"),
+        new("Credit notes", "Find and manage credit notes", "/credit-notes", Icons.Material.Outlined.NoteAlt, UserRoles.InvoicingRoles, "credits"),
+        new("Products", "Browse the product catalogue", "/products", Icons.Material.Outlined.Inventory2, UserRoles.CatalogueRoles, "items", "catalog"),
+        new("Prices", "View customer and product pricing", "/prices", Icons.Material.Outlined.Sell, UserRoles.CatalogueRoles, "pricing"),
+        new("Customers", "Find business partners and customers", "/customers", Icons.Material.Outlined.Groups, UserRoles.CatalogueRoles, "business partners"),
+        new("Stock", "View current warehouse stock", "/stock", Icons.Material.Outlined.Warehouse, UserRoles.CatalogueRoles, "inventory"),
+        new("Inventory transfers", "Manage stock movements between warehouses", "/inventory-transfers", Icons.Material.Outlined.SwapHoriz, UserRoles.InventoryTransferRoles, "transfers"),
+        new("Purchase orders", "Find and manage purchase orders", "/purchase-orders", Icons.Material.Outlined.ShoppingBag, UserRoles.PurchasingRoles, "purchasing"),
+        new("Reports", "Open sales and operations reports", "/reports", Icons.Material.Outlined.Assessment, UserRoles.InsightsRoles, "analytics"),
+        new("Notifications", "View system notifications", "/notifications", Icons.Material.Outlined.Notifications, UserRoles.SystemRoles, "alerts"),
+        new("Settings", "Configure application preferences", "/settings", Icons.Material.Outlined.Settings, UserRoles.Admin, "configuration", "preferences"),
+        new("User management", "Manage staff accounts and access", "/user-management", Icons.Material.Outlined.ManageAccounts, UserRoles.UserManagementRoles, "users", "roles"),
+        new("Security", "Review security configuration", "/security", Icons.Material.Outlined.Security, "", "authentication"),
+        new("Sync status", "Review synchronization health", "/sync-status", Icons.Material.Outlined.Sync, UserRoles.SystemRoles, "integration"),
+        new("Backups", "Manage application backups", "/backups", Icons.Material.Outlined.Backup, UserRoles.Admin, "restore"),
+        new("AI assistant", "Open the business assistant", "/ai-assistant", Icons.Material.Outlined.AutoAwesome, UserRoles.SystemRoles, "help"),
+        new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", Icons.Material.Outlined.Chat, UserRoles.Admin, "messages")
     ];
 }

@@ -69,7 +69,7 @@ public static class UserRoles
     public const string SystemRoles = "Admin,Cashier,StockController,DepotController,Manager";
     public const string InvoicingRoles = "Admin,Cashier";
     public const string PaymentRoles = "Admin,Cashier,DepotController";
-    public const string InventoryTransferRoles = "Admin,StockController,DepotController";
+    public const string InventoryTransferRoles = "Admin,Manager,StockController,DepotController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 
@@ -159,6 +159,7 @@ public static class UserRoles
     /// </summary>
     public static bool CanViewInventoryTransfers(string role) =>
         IsAdmin(role) ||
+        string.Equals(role, Manager, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
 
