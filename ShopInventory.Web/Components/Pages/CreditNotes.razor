@@ -1891,7 +1891,8 @@
                                                                     </td>
                                                                     <td><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
                                                                     <td><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
-                                                                    <td><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                                    @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
+                                                                    <td><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
                                                                     </td>
                                                                     <td><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
                                                                     <td>
@@ -2080,7 +2081,7 @@
 
     // Business partner autocomplete
     private BusinessPartnerDto? selectedBusinessPartner;
-    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
     private int? customerPriceListNum;
     private string? bpSearchTerm;
     private bool showBPDropdown = false;
@@ -2613,7 +2614,7 @@ Severity.Warning);
         newCreditNote.CardCode = string.Empty;
         newCreditNote.CardName = null;
         bpSearchTerm = null;
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = null;
         UpdateExistingLinePrices();
     }
@@ -2641,7 +2642,7 @@ Severity.Warning);
                 var product = cachedProducts.FirstOrDefault(p =>
                     string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
                 var defaultPrice = product?.Price ?? line.UnitPrice;
-                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
             }
         }
     }
@@ -2651,28 +2652,43 @@ Severity.Warning);
         try
         {
             var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
-            customerPriceListPrices = lookup.Prices;
+            customerPricing = lookup.Pricing;
             customerPriceListNum = lookup.PriceListNum;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading credit note prices for {CardCode}", bp.CardCode);
-            customerPriceListPrices.Clear();
+            customerPricing.Clear();
             customerPriceListNum = null;
         }
     }
 
-    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
     {
         if (string.IsNullOrEmpty(itemCode))
         {
-            return defaultPrice;
+            return ResolvedItemPrice.Flat(defaultPrice);
         }
 
-        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice)
+        return customerPricing.TryGetValue(itemCode, out var customerPrice)
             ? customerPrice
-            : defaultPrice;
+            : ResolvedItemPrice.Flat(defaultPrice);
     }
+
+    /// <summary>
+    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
+    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// </summary>
+    private static void ApplyPricing(CreateCreditNoteLineRequest line, ResolvedItemPrice pricing)
+    {
+        line.UnitPrice = pricing.UnitPrice;
+        line.DiscountPercent = pricing.DiscountPercent;
+    }
+
+    private bool HasSpecialPrice(string? itemCode)
+        => !string.IsNullOrEmpty(itemCode)
+            && customerPricing.TryGetValue(itemCode, out var pricing)
+            && pricing.DiscountPercent > 0;
 
     private void OnCnItemCodeInput(int index, string? value)
     {
@@ -2723,19 +2739,19 @@ Severity.Warning);
         var line = newCreditNote.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName;
-        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
 
         if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
                     product.ItemCode,
                     selectedBusinessPartner?.Currency ?? AppSettings.DefaultCurrency,
                     product.Price,
                     newCreditNote.CardCode,
                     customerPriceListNum,
-                    customerPriceListPrices);
+                    customerPricing));
             }
             catch (Exception ex)
             {

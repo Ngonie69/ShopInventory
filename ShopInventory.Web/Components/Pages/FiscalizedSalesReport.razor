@@ -918,7 +918,8 @@
                                     </td>
                                     <td>@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                     <td>@line.UnitPrice.ToString("N2")</td>
-                                    <td>@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("N1") + "%" : "—")</td>
+                                    @* Up to six decimals so a special-price discount reads the same here as in SAP (5.714286%) *@
+                                    <td>@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("0.0####") + "%" : "—")</td>
                                     <td style="font-weight:600">@line.LineTotal.ToString("N2")</td>
                                 </tr>
                             }

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ShopInventory.Data;
@@ -11,9 +12,11 @@ using ShopInventory.Data;
 namespace ShopInventory.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260728005456_WidenQuotationLineDiscountPrecision")]
+    partial class WidenQuotationLineDiscountPrecision
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1082,7 +1085,7 @@ namespace ShopInventory.Migrations
                         .HasColumnType("integer");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(9,6)");
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<bool>("IsRestocked")
                         .HasColumnType("boolean");
@@ -2862,8 +2865,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasPrecision(9, 6)
-                        .HasColumnType("numeric(9,6)");
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
 
                     b.Property<int>("InvoiceId")
                         .HasColumnType("integer");
@@ -4283,7 +4286,7 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(50)");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(9,6)");
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()

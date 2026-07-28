@@ -78,7 +78,20 @@ public class ItemPriceByListDto
     /// Foreign name from OITM.FrgnName - used for fiscalisation
     /// </summary>
     public string? ForeignName { get; set; }
+    /// <summary>
+    /// Effective price for the customer - the special price when one applies, otherwise the price list price.
+    /// </summary>
     public decimal Price { get; set; }
+    /// <summary>
+    /// Price list price before the business partner's special price was applied.
+    /// Null when <see cref="Price"/> is already the price list price.
+    /// </summary>
+    public decimal? PriceBeforeDiscount { get; set; }
+    /// <summary>
+    /// Discount percent taking <see cref="PriceBeforeDiscount"/> down to <see cref="Price"/>, matching
+    /// SAP's Discount % column. Null when no special price discount applies.
+    /// </summary>
+    public decimal? DiscountPercent { get; set; }
     public int PriceListNum { get; set; }
     public string? PriceListName { get; set; }
     public string? Currency { get; set; }

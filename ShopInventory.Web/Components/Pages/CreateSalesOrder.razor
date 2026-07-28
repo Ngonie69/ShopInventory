@@ -384,7 +384,7 @@
                                             {
                                                 <span
                                                     style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                                    @customerPriceListPrices.Count items
+                                                    @customerPricing.Count items
                                                 </span>
                                             }
                                         </div>
@@ -552,7 +552,7 @@
                                     @foreach (var product in lineState.FilteredProducts.Take(10))
                                     {
                                         var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
-                                        var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                        var displayPrice = GetPricingForItem(product.ItemCode, product.Price).NetPrice;
                                         <div class="dropdown-item @(isSelected ? "selected" : "")"
                                              @onmousedown="async () => await SelectProduct(index, product)">
                                             <div class="d-flex justify-content-between align-items-center">
@@ -622,9 +622,16 @@
                                     <label
                                         style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
                                         %</label>
+                                        @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                         <input type="number"
                                                style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                               @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                               @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
+                                        @if (HasSpecialPrice(line.ItemCode))
+                                        {
+                                            <div style="color:#059669; font-size:.7rem; margin-top:.2rem;">
+                                                <i class="bi bi-tag-fill me-1"></i>Customer special price
+                                            </div>
+                                        }
                                     </div>
                                     <div class="col-3">
                                         <label
@@ -727,7 +734,7 @@
     private List<WarehouseDto> cachedWarehouses = new();
 
     // Customer price list
-    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
     private int? customerPriceListNum;
     private bool isLoadingCustomerPrices = false;
 
@@ -841,7 +848,7 @@
         newOrder.CardCode = string.Empty;
         newOrder.CardName = null;
         bpSearchTerm = null;
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = null;
         UpdateExistingLinePrices();
     }
@@ -855,7 +862,7 @@
                 var product = cachedProducts.FirstOrDefault(p =>
                     string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
                 var defaultPrice = product?.Price ?? line.UnitPrice;
-                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
             }
         }
     }
@@ -868,13 +875,13 @@
         try
         {
             var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
-            customerPriceListPrices = lookup.Prices;
+            customerPricing = lookup.Pricing;
             customerPriceListNum = lookup.PriceListNum;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading customer prices for {CardCode}", bp.CardCode);
-            customerPriceListPrices.Clear();
+            customerPricing.Clear();
             customerPriceListNum = null;
         }
         finally
@@ -884,11 +891,26 @@
         }
     }
 
-    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
     {
-        if (string.IsNullOrEmpty(itemCode)) return defaultPrice;
-        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice) ? customerPrice : defaultPrice;
+        if (string.IsNullOrEmpty(itemCode)) return ResolvedItemPrice.Flat(defaultPrice);
+        return customerPricing.TryGetValue(itemCode, out var customerPrice) ? customerPrice : ResolvedItemPrice.Flat(defaultPrice);
     }
+
+    /// <summary>
+    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
+    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// </summary>
+    private static void ApplyPricing(CreateSalesOrderLineRequest line, ResolvedItemPrice pricing)
+    {
+        line.UnitPrice = pricing.UnitPrice;
+        line.DiscountPercent = pricing.DiscountPercent;
+    }
+
+    private bool HasSpecialPrice(string? itemCode)
+        => !string.IsNullOrEmpty(itemCode)
+            && customerPricing.TryGetValue(itemCode, out var pricing)
+            && pricing.DiscountPercent > 0;
 
     private async Task OnBPSearchBlur()
     {
@@ -1052,19 +1074,19 @@ state.FilteredProducts.Count;
         var line = newOrder.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
-        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
 
         if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
                     product.ItemCode,
                     newOrder.Currency,
                     product.Price,
                     newOrder.CardCode,
                     customerPriceListNum,
-                    customerPriceListPrices);
+                    customerPricing));
             }
             catch (Exception ex)
             {

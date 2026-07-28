@@ -1586,7 +1586,8 @@
                                             <td>@line.WarehouseCode</td>
                                             <td style="text-align:right;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                             <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                            <td style="text-align:right;">@line.DiscountPercent%</td>
+                                            @* Up to six decimals so a special-price discount reads the same here as in SAP (5.714286%), without the trailing zeros a six-scale decimal prints raw *@
+                                            <td style="text-align:right;">@line.DiscountPercent.ToString("0.0####")%</td>
                                             <td style="text-align:right; font-weight:600;">@line.LineTotal.ToString("N2")</td>
                                         </tr>
                                     }
