@@ -2154,8 +2154,22 @@ public class ReportExportService : IReportExportService
         var productInvoices = reportItems.Where(item => !item.IsCrateInvoice).ToList();
         var crateInvoices = reportItems.Where(item => item.IsCrateInvoice).ToList();
 
-        BuildPodInvoiceSheet(workbook, "Product Invoices", "PRODUCT", productInvoices, periodText, now);
-        BuildPodInvoiceSheet(workbook, "Crate Invoices", "CRATE", crateInvoices, periodText, now);
+        BuildPodInvoiceSheet(
+            workbook,
+            "Product Invoices",
+            "PRODUCT",
+            productInvoices,
+            periodText,
+            now,
+            report.CreditNoteDataComplete);
+        BuildPodInvoiceSheet(
+            workbook,
+            "Crate Invoices",
+            "CRATE",
+            crateInvoices,
+            periodText,
+            now,
+            report.CreditNoteDataComplete);
 
         var pendingAmount = reportItems.Where(item => !item.HasPod).Sum(item => item.DocTotal);
 
@@ -2216,7 +2230,13 @@ public class ReportExportService : IReportExportService
                 StylePodTypeCell(ws.Cell(row, 6), item);
                 ws.Cell(row, 7).Value = daysAging;
                 StylePodAgingCell(ws.Cell(row, 7), daysAging);
-                WritePodCreditNoteCells(ws, row, 8, 9, item);
+                WritePodCreditNoteCells(
+                    ws,
+                    row,
+                    8,
+                    9,
+                    item,
+                    report.CreditNoteDataComplete);
                 ws.Cell(row, 10).Value = item.DocTotal;
                 StylePodTotalCell(ws.Cell(row, 10), isStripe);
 
@@ -2230,7 +2250,9 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 6).Value = "No POD uploaded";
             ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 7).Value = $"Oldest: {oldestPendingDays:N0} days";
-            ws.Cell(row, 8).Value = $"{pending.Count(item => item.IsFullyCredited):N0} fully credited";
+            ws.Cell(row, 8).Value = report.CreditNoteDataComplete
+                ? $"{pending.Count(item => item.IsFullyCredited):N0} fully credited"
+                : $"{pending.Count(item => item.IsFullyCredited):N0} confirmed fully credited";
             ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 9).Value = "Reasons shown where supplied";
             ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -2425,7 +2447,13 @@ public class ReportExportService : IReportExportService
                 ws.Cell(row, 7).Style.Font.FontColor = PodTextMuted;
                 ws.Cell(row, 8).Value = FormatPodUploadedByDisplay(item);
                 ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                WritePodCreditNoteCells(ws, row, 9, 10, item);
+                WritePodCreditNoteCells(
+                    ws,
+                    row,
+                    9,
+                    10,
+                    item,
+                    report.CreditNoteDataComplete);
                 ws.Cell(row, 11).Value = item.DocTotal;
                 StylePodTotalCell(ws.Cell(row, 11), isStripe);
 
@@ -2439,7 +2467,9 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 6).Value = $"{uploadedFileCount:N0} files";
             ws.Cell(row, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 8).Value = $"{uploadedUsers:N0} uploaders";
-            ws.Cell(row, 9).Value = $"{uploaded.Count(item => item.IsFullyCredited):N0} fully credited";
+            ws.Cell(row, 9).Value = report.CreditNoteDataComplete
+                ? $"{uploaded.Count(item => item.IsFullyCredited):N0} fully credited"
+                : $"{uploaded.Count(item => item.IsFullyCredited):N0} confirmed fully credited";
             ws.Cell(row, 9).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
             ws.Cell(row, 10).Value = "Reasons shown where supplied";
             ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -2471,7 +2501,8 @@ public class ReportExportService : IReportExportService
         string invoiceType,
         IReadOnlyCollection<PodUploadStatusItem> reportItems,
         string periodText,
-        DateTime now)
+        DateTime now,
+        bool creditNoteDataComplete)
     {
         var totalInvoices = reportItems.Count;
         var uploadedCount = reportItems.Count(item => item.HasPod);
@@ -2555,7 +2586,13 @@ public class ReportExportService : IReportExportService
                 StylePodMutedCell(ws.Cell(row, 9));
             }
 
-            WritePodCreditNoteCells(ws, row, 10, 11, item);
+            WritePodCreditNoteCells(
+                ws,
+                row,
+                10,
+                11,
+                item,
+                creditNoteDataComplete);
 
             ws.Cell(row, 12).Value = item.DocTotal;
             StylePodTotalCell(ws.Cell(row, 12), isStripe);
@@ -2575,7 +2612,9 @@ public class ReportExportService : IReportExportService
         ws.Cell(row, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ws.Cell(row, 8).Value = $"{invoiceType.ToLowerInvariant()} invoices only";
         ws.Cell(row, 8).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        ws.Cell(row, 10).Value = $"{reportItems.Count(item => item.IsFullyCredited):N0} fully credited";
+        ws.Cell(row, 10).Value = creditNoteDataComplete
+            ? $"{reportItems.Count(item => item.IsFullyCredited):N0} fully credited"
+            : $"{reportItems.Count(item => item.IsFullyCredited):N0} confirmed fully credited";
         ws.Cell(row, 10).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
         ws.Cell(row, 11).Value = "Reasons shown where supplied";
         ws.Cell(row, 11).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
@@ -2604,12 +2643,13 @@ public class ReportExportService : IReportExportService
         int row,
         int creditNoteColumn,
         int reasonColumn,
-        PodUploadStatusItem item)
+        PodUploadStatusItem item,
+        bool creditNoteDataComplete)
     {
         if (string.IsNullOrWhiteSpace(item.CreditNoteNumber))
         {
-            ws.Cell(row, creditNoteColumn).Value = "-";
-            ws.Cell(row, reasonColumn).Value = "-";
+            ws.Cell(row, creditNoteColumn).Value = creditNoteDataComplete ? "-" : "Not verified";
+            ws.Cell(row, reasonColumn).Value = creditNoteDataComplete ? "-" : "Pending verification";
             StylePodMutedCell(ws.Cell(row, creditNoteColumn));
             StylePodMutedCell(ws.Cell(row, reasonColumn));
             return;

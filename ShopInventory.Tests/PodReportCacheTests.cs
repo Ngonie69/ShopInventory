@@ -151,6 +151,7 @@ public sealed class PodReportCacheTests : IDisposable
             documentService,
             _context,
             Options.Create(new SAPSettings { Enabled = false }),
+            Options.Create(new CreditNoteSyncSettings()),
             store,
             NullLogger<GetPodUploadStatusHandler>.Instance);
 
@@ -165,6 +166,96 @@ public sealed class PodReportCacheTests : IDisposable
         Assert.Equal("local-uploader", item.PodUploadedBy);
         Assert.Equal(2, item.PodCount);
         Assert.Equal(1, result.Value.UploadedCount);
+    }
+
+    [Fact]
+    public async Task Cached_report_is_reenriched_from_the_fresh_credit_note_projection()
+    {
+        var store = CreateStore();
+        var fromDate = new DateTime(2026, 7, 1);
+        var toDate = new DateTime(2026, 7, 28);
+        await store.SaveAsync(
+            fromDate,
+            toDate,
+            "global",
+            new PodUploadStatusReportDto
+            {
+                FromDate = "2026-07-01",
+                ToDate = "2026-07-28",
+                CreditNoteDataComplete = true,
+                Items =
+                [
+                    new PodUploadStatusItemDto
+                    {
+                        DocEntry = 123,
+                        DocNum = 456,
+                        DocTotal = 115,
+                        CardCode = "C001",
+                        CardName = "Projected customer"
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        _context.SapCreditNoteSnapshots.Add(new SapCreditNoteSnapshotEntity
+        {
+            SapDocEntry = 7001,
+            SapDocNum = 9001,
+            DocDate = new DateTime(2026, 7, 20),
+            SyncedAtUtc = DateTime.UtcNow,
+            LastSeenInSapAtUtc = DateTime.UtcNow,
+            Lines =
+            [
+                new SapCreditNoteLineSnapshotEntity
+                {
+                    CreditNoteDocEntry = 7001,
+                    LineNum = 0,
+                    BaseType = 13,
+                    BaseEntry = 123,
+                    LineTotal = 100,
+                    VatSum = 15,
+                    CreditReason = "Returned"
+                }
+            ]
+        });
+        _context.CacheSyncStates.Add(new CacheSyncStateEntity
+        {
+            CacheKey = CreditNoteProjectionSyncService.CacheKey,
+            DisplayName = "Credit Notes",
+            LastSyncedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await _context.SaveChangesAsync();
+
+        var documentService = StubProxy.For<IDocumentService>((method, _) =>
+            method.Name == nameof(IDocumentService.GetPodStatusByDocEntriesAsync)
+                ? Task.FromResult(new Dictionary<int, PodStatusInfo>())
+                : throw new InvalidOperationException($"IDocumentService.{method.Name} was not expected."));
+        var handler = new GetPodUploadStatusHandler(
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            documentService,
+            _context,
+            Options.Create(new SAPSettings { Enabled = false }),
+            Options.Create(new CreditNoteSyncSettings
+            {
+                Enabled = true,
+                UseForPodReports = true,
+                StaleAfterMinutes = 10
+            }),
+            store,
+            NullLogger<GetPodUploadStatusHandler>.Instance);
+
+        var result = await handler.Handle(
+            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null),
+            CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var item = Assert.Single(result.Value.Items);
+        Assert.Equal("9001", item.CreditNoteNumber);
+        Assert.Equal("Returned", item.CreditNoteReason);
+        Assert.True(item.IsFullyCredited);
+        Assert.True(result.Value.CreditNoteDataComplete);
     }
 
     [Fact]
@@ -186,6 +277,28 @@ public sealed class PodReportCacheTests : IDisposable
         Assert.Equal(first, reordered);
         Assert.NotEqual(first, changed);
         Assert.StartsWith("driver-", first);
+    }
+
+    [Fact]
+    public void Fresh_cache_is_served_only_when_credit_note_data_is_complete()
+    {
+        var completeSnapshot = new PodReportCacheSnapshot(
+            new PodUploadStatusReportDto { CreditNoteDataComplete = true },
+            DateTime.UtcNow,
+            IsFresh: true);
+        var incompleteSnapshot = new PodReportCacheSnapshot(
+            new PodUploadStatusReportDto { CreditNoteDataComplete = false },
+            DateTime.UtcNow,
+            IsFresh: true);
+        var expiredSnapshot = new PodReportCacheSnapshot(
+            new PodUploadStatusReportDto { CreditNoteDataComplete = true },
+            DateTime.UtcNow,
+            IsFresh: false);
+
+        Assert.True(GetPodUploadStatusHandler.CanServeCachedSnapshot(completeSnapshot));
+        Assert.False(GetPodUploadStatusHandler.CanServeCachedSnapshot(incompleteSnapshot));
+        Assert.False(GetPodUploadStatusHandler.CanServeCachedSnapshot(expiredSnapshot));
+        Assert.False(GetPodUploadStatusHandler.CanServeCachedSnapshot(null));
     }
 
     [Fact]

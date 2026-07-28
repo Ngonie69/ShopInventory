@@ -19,6 +19,9 @@ public class SAPCreditNote
     [JsonPropertyName("DocDueDate")]
     public string? DocDueDate { get; set; }
 
+    [JsonPropertyName("UpdateDate")]
+    public string? UpdateDate { get; set; }
+
     [JsonPropertyName("CardCode")]
     public string? CardCode { get; set; }
 

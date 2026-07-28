@@ -14,6 +14,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +25,7 @@ public sealed class GetPodUploadStatusHandler(
     IDocumentService documentService,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
+    IOptions<CreditNoteSyncSettings> creditNoteSyncSettings,
     IPodReportCacheStore reportCache,
     ILogger<GetPodUploadStatusHandler> logger
 ) : IRequestHandler<GetPodUploadStatusQuery, ErrorOr<PodUploadStatusReportDto>>
@@ -95,15 +97,24 @@ public sealed class GetPodUploadStatusHandler(
                     cacheScopeKey,
                     cancellationToken);
 
-                if (cachedSnapshot?.IsFresh == true)
+                if (CanServeCachedSnapshot(cachedSnapshot))
                 {
+                    var freshSnapshot = cachedSnapshot!;
                     logger.LogInformation(
                         "Serving POD report for {FromDate} to {ToDate} from the local database cache refreshed at {RefreshedAtUtc}",
                         request.FromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                         request.ToDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                        cachedSnapshot.RefreshedAtUtc);
+                        freshSnapshot.RefreshedAtUtc);
 
-                    return await RefreshCachedPodStatusesAsync(cachedSnapshot.Report, cancellationToken);
+                    return await RefreshCachedPodStatusesAsync(freshSnapshot.Report, cancellationToken);
+                }
+
+                if (cachedSnapshot?.IsFresh == true)
+                {
+                    logger.LogInformation(
+                        "Refreshing POD report for {FromDate} to {ToDate} because the fresh cache has incomplete credit-note data",
+                        request.FromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                        request.ToDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
                 }
             }
 
@@ -126,10 +137,20 @@ public sealed class GetPodUploadStatusHandler(
                 PodExclusions.ExcludedCardCodes.ToList(),
                 includeDocumentLines: isPodOperator,
                 cancellationToken);
-            var creditNoteActivity = await GetCreditNoteActivityInvoiceLinksAsync(
-                request.FromDate,
-                request.ToDate,
-                cancellationToken);
+            var useCreditNoteProjection =
+                creditNoteSyncSettings.Value.Enabled &&
+                creditNoteSyncSettings.Value.UseForPodReports;
+            var creditNoteActivity = useCreditNoteProjection
+                ? request.IncludeCreditNoteActivity
+                    ? await GetCreditNoteActivityInvoiceLinksFromProjectionAsync(
+                        request.FromDate,
+                        request.ToDate,
+                        cancellationToken)
+                    : new CreditNoteActivityInvoiceLinks([], [], [])
+                : await GetCreditNoteActivityInvoiceLinksAsync(
+                    request.FromDate,
+                    request.ToDate,
+                    cancellationToken);
             if (request.IncludeCreditNoteActivity)
             {
                 invoices = await IncludeCreditNoteActivityInvoicesAsync(
@@ -158,12 +179,14 @@ public sealed class GetPodUploadStatusHandler(
                     cancellationToken);
             }
 
-            var creditNoteLookupResult = await GetCreditNoteLookupWithTimeoutAsync(
-                invoices,
-                request.FromDate,
-                request.ToDate,
-                creditNoteActivity.CreditNoteLines,
-                cancellationToken);
+            var creditNoteLookupResult = useCreditNoteProjection
+                ? await GetCreditNoteLookupFromProjectionAsync(invoices, cancellationToken)
+                : await GetCreditNoteLookupWithTimeoutAsync(
+                    invoices,
+                    request.FromDate,
+                    request.ToDate,
+                    creditNoteActivity.CreditNoteLines,
+                    cancellationToken);
             var creditNoteLookup = creditNoteLookupResult.Lookup;
 
             if (request.IncludeCreditNoteActivity)
@@ -254,7 +277,7 @@ public sealed class GetPodUploadStatusHandler(
                 Items = items
             };
 
-            if (cacheScopeKey is not null)
+            if (cacheScopeKey is not null && result.CreditNoteDataComplete)
             {
                 await reportCache.SaveAsync(
                     request.FromDate,
@@ -331,6 +354,9 @@ public sealed class GetPodUploadStatusHandler(
         return $"driver-{Convert.ToHexString(hash)}";
     }
 
+    internal static bool CanServeCachedSnapshot(PodReportCacheSnapshot? snapshot) =>
+        snapshot?.IsFresh == true && snapshot.Report.CreditNoteDataComplete;
+
     private async Task<PodUploadStatusReportDto> RefreshCachedPodStatusesAsync(
         PodUploadStatusReportDto report,
         CancellationToken cancellationToken)
@@ -376,6 +402,31 @@ public sealed class GetPodUploadStatusHandler(
             item.PodCount = combinedPodInfo?.Count ?? 0;
             item.ProductPodCount = podTypeInfo.ProductPodCount;
             item.CratePodCount = podTypeInfo.CratePodCount;
+        }
+
+        if (creditNoteSyncSettings.Value.Enabled &&
+            creditNoteSyncSettings.Value.UseForPodReports)
+        {
+            var invoiceTotals = report.Items
+                .Where(item => item.DocEntry > 0)
+                .GroupBy(item => item.DocEntry)
+                .ToDictionary(
+                    group => group.Key,
+                    group => Math.Abs(group.First().DocTotal));
+            var creditNoteResult = await GetCreditNoteLookupFromProjectionAsync(
+                invoiceTotals,
+                cancellationToken);
+
+            foreach (var item in report.Items)
+            {
+                creditNoteResult.Lookup.TryGetValue(item.DocEntry, out var creditNoteInfo);
+                item.IsFullyCredited = creditNoteInfo?.IsFullyCredited == true;
+                item.CreditNoteNumber = creditNoteInfo?.CreditNoteNumbers;
+                item.CreditNoteReason = creditNoteInfo?.Reasons;
+            }
+
+            report.CreditNoteDataComplete = creditNoteResult.IsComplete;
+            report.CreditNoteDataWarning = creditNoteResult.Warning;
         }
 
         report.TotalInvoices = report.Items.Count;
@@ -507,6 +558,35 @@ public sealed class GetPodUploadStatusHandler(
         HashSet<int> DocEntries,
         HashSet<int> DocNums,
         List<CreditNoteLineInfo> CreditNoteLines);
+
+    private async Task<CreditNoteActivityInvoiceLinks> GetCreditNoteActivityInvoiceLinksFromProjectionAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var from = fromDate.Date;
+        var through = toDate.Date;
+        var lines = await context.SapCreditNoteLineSnapshots
+            .AsNoTracking()
+            .Where(line =>
+                line.BaseType == 13 &&
+                line.BaseEntry.HasValue &&
+                !line.CreditNote.IsCancelled &&
+                line.CreditNote.DocDate >= from &&
+                line.CreditNote.DocDate <= through)
+            .Select(line => new CreditNoteLineInfo(
+                line.BaseEntry!.Value,
+                line.CreditNoteDocEntry,
+                line.CreditNote.SapDocNum,
+                Math.Abs(line.LineTotal + line.VatSum),
+                line.CreditReason))
+            .ToListAsync(cancellationToken);
+
+        return new CreditNoteActivityInvoiceLinks(
+            lines.Select(line => line.InvoiceDocEntry).ToHashSet(),
+            [],
+            lines);
+    }
 
     private async Task<CreditNoteActivityInvoiceLinks> GetCreditNoteActivityInvoiceLinksAsync(
         DateTime fromDate,
@@ -792,6 +872,90 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
                 $"Credit-note enrichment exceeded {CreditNoteEnrichmentTimeout.TotalSeconds:0} seconds. " +
                 "Credit notes outside the selected date range may be missing from this report.");
         }
+    }
+
+    private async Task<CreditNoteLookupResult> GetCreditNoteLookupFromProjectionAsync(
+        IReadOnlyList<Invoice> invoices,
+        CancellationToken cancellationToken)
+    {
+        var invoiceTotals = invoices
+            .Where(invoice => invoice.DocEntry > 0)
+            .GroupBy(invoice => invoice.DocEntry)
+            .ToDictionary(
+                group => group.Key,
+                group => GetInvoiceCreditableTotal(group.First()));
+
+        return await GetCreditNoteLookupFromProjectionAsync(invoiceTotals, cancellationToken);
+    }
+
+    private async Task<CreditNoteLookupResult> GetCreditNoteLookupFromProjectionAsync(
+        IReadOnlyDictionary<int, decimal> invoiceTotalsByDocEntry,
+        CancellationToken cancellationToken)
+    {
+        if (invoiceTotalsByDocEntry.Count == 0)
+        {
+            return new CreditNoteLookupResult([], true, null);
+        }
+
+        var invoiceDocEntries = invoiceTotalsByDocEntry.Keys.ToList();
+        var creditNoteLines = await context.SapCreditNoteLineSnapshots
+            .AsNoTracking()
+            .Where(line =>
+                line.BaseType == 13 &&
+                line.BaseEntry.HasValue &&
+                invoiceDocEntries.Contains(line.BaseEntry.Value) &&
+                !line.CreditNote.IsCancelled)
+            .Select(line => new CreditNoteLineInfo(
+                line.BaseEntry!.Value,
+                line.CreditNoteDocEntry,
+                line.CreditNote.SapDocNum,
+                Math.Abs(line.LineTotal + line.VatSum),
+                line.CreditReason))
+            .ToListAsync(cancellationToken);
+
+        var lookup = BuildCreditNoteInfoLookup(
+            creditNoteLines,
+            invoiceTotalsByDocEntry);
+        var syncState = await context.CacheSyncStates
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                state => state.CacheKey == CreditNoteProjectionSyncService.CacheKey,
+                cancellationToken);
+        var now = DateTime.UtcNow;
+        var isFresh = IsCreditNoteProjectionFresh(
+            syncState,
+            creditNoteSyncSettings.Value,
+            now);
+
+        if (isFresh)
+        {
+            return new CreditNoteLookupResult(lookup, true, null);
+        }
+
+        var warning = syncState?.LastSyncedAt is { } staleAt
+            ? $"Credit-note synchronization was last completed at {staleAt:yyyy-MM-dd HH:mm} UTC. " +
+              "Some credit-note statuses are not yet verified."
+            : "Credit-note synchronization is still preparing its initial local projection. " +
+              "Some credit-note statuses are not yet verified.";
+
+        return new CreditNoteLookupResult(lookup, false, warning);
+    }
+
+    internal static bool IsCreditNoteProjectionFresh(
+        CacheSyncStateEntity? syncState,
+        CreditNoteSyncSettings settings,
+        DateTime nowUtc)
+    {
+        if (syncState?.LastSyncedAt is not { } lastSyncedAt)
+        {
+            return false;
+        }
+
+        var hasCurrentError = syncState.LastErrorAt.HasValue &&
+            syncState.LastErrorAt.Value >= lastSyncedAt;
+        return !hasCurrentError &&
+            nowUtc - lastSyncedAt <= TimeSpan.FromMinutes(
+                Math.Max(1, settings.StaleAfterMinutes));
     }
 
     private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupFromCreditNotesApiAsync(

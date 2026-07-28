@@ -343,6 +343,8 @@ public interface ISAPServiceLayerClient
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(DateTime fromUpdateDate, DateTime toUpdateDate, CancellationToken cancellationToken = default);
+    Task<DateTime?> GetEarliestCreditNoteDateAsync(CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default);
     Task<int> GetCreditNotesCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 

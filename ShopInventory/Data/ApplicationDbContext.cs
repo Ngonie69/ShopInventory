@@ -126,6 +126,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Credit Note tables
   public DbSet<CreditNoteEntity> CreditNotes { get; set; }
   public DbSet<CreditNoteLineEntity> CreditNoteLines { get; set; }
+  public DbSet<SapCreditNoteSnapshotEntity> SapCreditNoteSnapshots { get; set; }
+  public DbSet<SapCreditNoteLineSnapshotEntity> SapCreditNoteLineSnapshots { get; set; }
 
   // Quotation tables
   public DbSet<QuotationEntity> Quotations { get; set; }
@@ -1198,6 +1200,36 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithMany()
             .HasForeignKey(e => e.ProductId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    modelBuilder.Entity<SapCreditNoteSnapshotEntity>(entity =>
+    {
+      entity.ToTable("SapCreditNoteSnapshots");
+      entity.HasKey(e => e.SapDocEntry);
+
+      // DocEntry is globally unique for the object type. DocNum can repeat across SAP series.
+      entity.HasIndex(e => e.SapDocNum);
+      entity.HasIndex(e => e.DocDate);
+      entity.HasIndex(e => e.SapUpdateDate);
+      entity.HasIndex(e => e.SyncedAtUtc);
+      entity.HasIndex(e => new { e.IsCancelled, e.DocDate });
+
+      entity.Property(e => e.DocDate).HasColumnType("date");
+      entity.Property(e => e.SapUpdateDate).HasColumnType("date");
+    });
+
+    modelBuilder.Entity<SapCreditNoteLineSnapshotEntity>(entity =>
+    {
+      entity.ToTable("SapCreditNoteLineSnapshots");
+      entity.HasKey(e => new { e.CreditNoteDocEntry, e.LineNum });
+
+      entity.HasIndex(e => new { e.BaseType, e.BaseEntry });
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.CreditNote)
+            .WithMany(e => e.Lines)
+            .HasForeignKey(e => e.CreditNoteDocEntry)
+            .OnDelete(DeleteBehavior.Cascade);
     });
 
     // Quotation configuration

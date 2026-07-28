@@ -12,6 +12,7 @@ namespace ShopInventory.Features.CreditNotes.Commands.BulkCancelCreditNotes;
 public sealed class BulkCancelCreditNotesHandler(
     ISAPServiceLayerClient sapClient,
     ApplicationDbContext dbContext,
+    ICreditNoteProjectionSyncService projectionSyncService,
     IAuditService auditService,
     ILogger<BulkCancelCreditNotesHandler> logger
 ) : IRequestHandler<BulkCancelCreditNotesCommand, ErrorOr<BulkCancelCreditNotesResult>>
@@ -71,6 +72,7 @@ public sealed class BulkCancelCreditNotesHandler(
             if (IsCancelled(creditNote))
             {
                 await MarkLocalCreditNoteCancelledAsync(docEntry, cancellationToken);
+                await TryProjectAsync(creditNote, cancellationToken);
                 return new BulkCancelCreditNoteResultItem(
                     docEntry,
                     creditNote.DocNum,
@@ -82,6 +84,7 @@ public sealed class BulkCancelCreditNotesHandler(
 
             await sapClient.CancelCreditNoteAsync(docEntry, cancellationToken);
             await MarkLocalCreditNoteCancelledAsync(docEntry, cancellationToken);
+            await TryRefreshProjectionAsync(docEntry, cancellationToken);
 
             await TryAuditAsync(userId, creditNote, reason, cancellationToken);
 
@@ -103,6 +106,40 @@ public sealed class BulkCancelCreditNotesHandler(
                 false,
                 "Failed",
                 "SAP rejected the cancellation request.");
+        }
+    }
+
+    private async Task TryProjectAsync(
+        SAPCreditNote creditNote,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await projectionSyncService.UpsertAsync([creditNote], cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to update the local credit-note projection for {DocEntry}",
+                creditNote.DocEntry);
+        }
+    }
+
+    private async Task TryRefreshProjectionAsync(
+        int docEntry,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await projectionSyncService.RefreshDocumentAsync(docEntry, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Failed to refresh the local credit-note projection after cancelling {DocEntry}",
+                docEntry);
         }
     }
 

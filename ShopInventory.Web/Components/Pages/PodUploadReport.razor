@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
 <PageTitle>Product and Crate POD Upload Report - Shop Inventory</PageTitle>
 
@@ -182,13 +183,6 @@
     @* Summary Stats *@
     @if (report != null)
     {
-        @if (!report.CreditNoteDataComplete)
-        {
-            <MudAlert Severity="Severity.Warning" Class="mb-3">
-                @(report.CreditNoteDataWarning ?? "Credit-note information is incomplete for this report.")
-            </MudAlert>
-        }
-
         <div class="row g-3 mb-4">
             <div class="col-md-4">
                 <div class="podr-stat-card podr-stat-total">
@@ -272,6 +266,29 @@
 
         @* Data Table *@
         <div class="podr-table-card">
+            @if (!report.CreditNoteDataComplete)
+            {
+                <div class="podr-credit-status" role="status" aria-live="polite">
+                    <div class="podr-credit-status-copy">
+                        @if (isRefreshingCreditNotes)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                            <span>Credit-note status is updating. The report remains available.</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            <span>Credit-note synchronization is catching up automatically. Some statuses are not yet verified.</span>
+                        }
+                    </div>
+                    @if (!isRefreshingCreditNotes)
+                    {
+                        <button type="button" class="btn btn-sm podr-credit-retry" @onclick="RetryCreditNoteDataAsync">
+                            <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Retry
+                        </button>
+                    }
+                </div>
+            }
             <div class="table-responsive">
                 <table class="table table-hover mb-0 align-middle podr-table mobile-card-table">
                     <thead>
@@ -315,6 +332,12 @@
                                             {
                                                 <div class="small text-muted mt-1">Fully credited</div>
                                             }
+                                        }
+                                        else if (!report.CreditNoteDataComplete)
+                                        {
+                                            <span class="podr-credit-unverified">
+                                                <i class="bi bi-question-circle me-1" aria-hidden="true"></i>Not verified
+                                            </span>
                                         }
                                         else
                                         {
@@ -652,6 +675,45 @@
             overflow: hidden;
         }
 
+        .podr-credit-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.55rem 1rem;
+            border-bottom: 1px solid var(--border-color, #e2e8f0);
+            background: var(--card-header-bg, #f8f9fa);
+            color: var(--text-muted, #6c757d);
+            font-size: 0.8rem;
+        }
+
+        .podr-credit-status-copy {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        .podr-credit-retry {
+            border-color: var(--border-color, #cbd5e1);
+            color: var(--text-secondary, #475569);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .podr-credit-retry:hover {
+            border-color: #3949ab;
+            color: #3949ab;
+        }
+
+        .podr-credit-unverified {
+            display: inline-flex;
+            align-items: center;
+            color: var(--text-muted, #64748b);
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
         .podr-table thead th {
             background: var(--card-header-bg, #f8f9fa);
             font-size: 0.75rem;
@@ -804,6 +866,10 @@
                 align-items: stretch;
             }
 
+            .podr-credit-status {
+                align-items: flex-start;
+            }
+
             .podr-pagination-controls {
                 justify-content: center;
                 flex-wrap: wrap;
@@ -859,7 +925,8 @@
         }
 
         .dark-theme .podr-filter-header,
-        .dark-theme .podr-table thead th {
+        .dark-theme .podr-table thead th,
+        .dark-theme .podr-credit-status {
             background: var(--card-header-bg, #1e293b);
         }
 
@@ -903,7 +970,10 @@
     private PodUploadStatusReport? report;
     private bool isLoading;
     private bool isExporting;
+    private bool isRefreshingCreditNotes;
+    private bool isDisposed;
     private string? errorMessage;
+    private CancellationTokenSource? creditNoteRefreshCts;
     private const int DefaultQuickRangeDays = 30;
     private DateTime? fromDate = InclusiveRangeStart(DateTime.Today, DefaultQuickRangeDays);
     private DateTime? toDate = DateTime.Today;
@@ -1066,6 +1136,7 @@
             return;
         }
 
+        CancelCreditNoteRefresh();
         isLoading = true;
         errorMessage = null;
         report = null;
@@ -1090,6 +1161,73 @@
         {
             isLoading = false;
         }
+
+    }
+
+    private Task RetryCreditNoteDataAsync() => RefreshCreditNoteDataAsync();
+
+    private async Task RefreshCreditNoteDataAsync()
+    {
+        if (report is null ||
+            report.CreditNoteDataComplete ||
+            isRefreshingCreditNotes ||
+            !fromDate.HasValue ||
+            !toDate.HasValue)
+        {
+            return;
+        }
+
+        var refreshFromDate = fromDate.Value;
+        var refreshToDate = toDate.Value;
+        var refreshCts = new CancellationTokenSource();
+        creditNoteRefreshCts = refreshCts;
+        isRefreshingCreditNotes = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var refreshedReport = await PodService.GetPodUploadStatusAsync(
+                refreshFromDate,
+                refreshToDate,
+                includeCreditNoteActivity: false,
+                refreshCts.Token);
+
+            if (!refreshCts.IsCancellationRequested &&
+                refreshedReport is not null &&
+                fromDate == refreshFromDate &&
+                toDate == refreshToDate)
+            {
+                report = refreshedReport;
+                NormalizeDynamicFilters();
+                currentPage = EffectiveCurrentPage;
+            }
+        }
+        catch (OperationCanceledException) when (refreshCts.IsCancellationRequested)
+        {
+            // A new report load or component disposal superseded this refresh.
+        }
+        finally
+        {
+            if (ReferenceEquals(creditNoteRefreshCts, refreshCts))
+            {
+                creditNoteRefreshCts = null;
+                isRefreshingCreditNotes = false;
+            }
+
+            refreshCts.Dispose();
+            if (!isDisposed)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void CancelCreditNoteRefresh()
+    {
+        var refreshCts = creditNoteRefreshCts;
+        creditNoteRefreshCts = null;
+        isRefreshingCreditNotes = false;
+        refreshCts?.Cancel();
     }
 
     private void SetFilter(string mode)
@@ -1339,6 +1477,7 @@ StringComparison.OrdinalIgnoreCase))
                 TotalInvoices = exportItems.Count,
                 UploadedCount = exportItems.Count(i => i.HasPod),
                 PendingCount = exportItems.Count(i => !i.HasPod),
+                CreditNoteDataComplete = report.CreditNoteDataComplete,
                 Items = exportItems
             };
 
@@ -1355,5 +1494,12 @@ StringComparison.OrdinalIgnoreCase))
             isExporting = false;
             StateHasChanged();
         }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        isDisposed = true;
+        CancelCreditNoteRefresh();
+        return ValueTask.CompletedTask;
     }
 }

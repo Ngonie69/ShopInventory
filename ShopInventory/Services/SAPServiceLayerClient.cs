@@ -227,7 +227,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     // No BaseEntry or BaseType: on an A/R credit memo those live on the line, not the header, and
     // SAP rejects them here. ResolveOriginalInvoiceDocEntry already reads the header field with a
     // fallback to the lines, and the fallback was always what actually answered.
-    private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
+    private const string CreditNoteSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,UpdateDate,CardCode,CardName,NumAtCard,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,DocumentLines";
     private const string QuotationSelect = "$select=DocEntry,DocNum,DocDate,DocDueDate,CardCode,CardName,NumAtCard,ContactPersonCode,Comments,DocTotal,DocTotalFc,VatSum,DocCurrency,U_OrderNumber,SalesPersonCode,DocumentStatus,Cancelled,DiscountPercent,TotalDiscount,Address,Address2,ShipToCode,PayToCode,DocumentLines";
     // The quotation list shows header fields only, so it asks for no DocumentLines. On a company with
     // ~1,500 quotations the nested lines were the bulk of the payload and none of it was rendered;
@@ -12480,11 +12480,88 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
+        return await GetCreditNotesByFilterAsync(
+            $"DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'",
+            $"document date {fromDateStr} to {toDateStr}",
+            cancellationToken);
+    }
+
+    public async Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(
+        DateTime fromUpdateDate,
+        DateTime toUpdateDate,
+        CancellationToken cancellationToken = default)
+    {
+        var fromDateStr = fromUpdateDate.ToString("yyyy-MM-dd");
+        var toDateStr = toUpdateDate.ToString("yyyy-MM-dd");
+        return await GetCreditNotesByFilterAsync(
+            $"UpdateDate ge '{fromDateStr}' and UpdateDate le '{toDateStr}'",
+            $"update date {fromDateStr} to {toDateStr}",
+            cancellationToken);
+    }
+
+    public async Task<DateTime?> GetEarliestCreditNoteDateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+        const string url = "CreditNotes?$select=DocDate&$orderby=DocDate asc&$top=1";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            using var retryRequest = new HttpRequestMessage(HttpMethod.Get, url);
+            retryRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            retryRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            using var retryResponse = await _httpClient.SendAsync(retryRequest, cancellationToken);
+            return await ReadEarliestCreditNoteDateAsync(retryResponse, cancellationToken);
+        }
+
+        return await ReadEarliestCreditNoteDateAsync(response, cancellationToken);
+    }
+
+    private static async Task<DateTime?> ReadEarliestCreditNoteDateAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new Exception(
+                $"Failed to determine the earliest credit-note date: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var document = JsonDocument.Parse(content);
+        var value = document.RootElement.GetProperty("value");
+        if (value.GetArrayLength() == 0 ||
+            !value[0].TryGetProperty("DocDate", out var docDateElement) ||
+            !DateTime.TryParse(
+                docDateElement.GetString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces,
+                out var docDate))
+        {
+            return null;
+        }
+
+        return DateTime.SpecifyKind(docDate.Date, DateTimeKind.Utc);
+    }
+
+    private async Task<List<SAPCreditNote>> GetCreditNotesByFilterAsync(
+        string filter,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
         var allCreditNotes = new List<SAPCreditNote>();
         int skip = 0;
         const int pageSize = 500;
@@ -12492,7 +12569,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         while (hasMore)
         {
-            var url = $"CreditNotes?$filter=DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&{CreditNoteSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
+            var url = $"CreditNotes?$filter={filter}&{CreditNoteSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
@@ -12513,8 +12590,12 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to get credit notes by date range: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                throw new Exception($"Failed to get credit notes by date range: {response.StatusCode} - {errorContent}");
+                _logger.LogError(
+                    "Failed to get credit notes by {Description}: {StatusCode} - {Error}",
+                    description,
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to get credit notes by {description}: {response.StatusCode} - {errorContent}");
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -12536,7 +12617,10 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             }
         }
 
-        _logger.LogInformation("Retrieved {Count} credit notes for date range {From} to {To}", allCreditNotes.Count, fromDateStr, toDateStr);
+        _logger.LogInformation(
+            "Retrieved {Count} credit notes by {Description}",
+            allCreditNotes.Count,
+            description);
         return allCreditNotes;
     }
 

@@ -23,6 +23,8 @@ public static class QuartzConfiguration
         string connectionString)
     {
         var sap = configuration.GetSection("SAP").Get<SAPSettings>() ?? new SAPSettings();
+        var creditNoteSync = configuration.GetSection(CreditNoteSyncSettings.SectionName)
+            .Get<CreditNoteSyncSettings>() ?? new CreditNoteSyncSettings();
         var dailyStock = configuration.GetSection("DailyStock").Get<DailyStockSettings>() ?? new DailyStockSettings();
         var healthAlert = configuration.GetSection("SystemHealthAlert").Get<SystemHealthAlertSettings>() ?? new SystemHealthAlertSettings();
 
@@ -50,6 +52,15 @@ public static class QuartzConfiguration
             AddIntervalJob<IncomingPaymentPostingJob>(q, "incoming-payment-posting", TimeSpan.FromSeconds(10));
             AddIntervalJob<ReservationCleanupJob>(q, "reservation-cleanup", TimeSpan.FromMinutes(1), startDelay: TimeSpan.FromSeconds(30));
             AddIntervalJob<SalesOrderReconciliationJob>(q, "sales-order-reconciliation", TimeSpan.FromMinutes(2), startDelay: TimeSpan.FromMinutes(1));
+
+            if (sap.Enabled && creditNoteSync.Enabled)
+            {
+                AddIntervalJob<CreditNoteProjectionSyncJob>(
+                    q,
+                    "credit-note-projection-sync",
+                    TimeSpan.FromMinutes(Math.Max(1, creditNoteSync.PollIntervalMinutes)),
+                    startDelay: TimeSpan.FromSeconds(45));
+            }
 
             if (sap.AutoSyncEnabled)
             {
