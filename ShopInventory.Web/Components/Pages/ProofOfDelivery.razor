@@ -1323,9 +1323,11 @@
                                                             }
 
                                                             /* ── Modals (Viewer & Delete) ─────────────────── */
+                                                            /* Centres below the app bar, not the viewport: the page container is a stacking
+                                                               context, so the bar paints over anything centred against the full viewport. */
                                                             .pod-viewer-overlay {
                                                                 position: fixed;
-                                                                top: 0;
+                                                                top: var(--kf-topbar-h, 74px);
                                                                 left: 0;
                                                                 right: 0;
                                                                 bottom: 0;
@@ -1342,7 +1344,7 @@
                                                                 background: #fff;
                                                                 border-radius: 16px;
                                                                 max-width: 90vw;
-                                                                max-height: 90vh;
+                                                                max-height: calc(90vh - var(--kf-topbar-h, 74px));
                                                                 width: 100%;
                                                                 display: flex;
                                                                 flex-direction: column;
@@ -1366,7 +1368,7 @@
                                                                 align-items: flex-start;
                                                                 justify-content: center;
                                                                 min-height: 300px;
-                                                                max-height: calc(90vh - 70px);
+                                                                max-height: calc(90vh - var(--kf-topbar-h, 74px) - 70px);
                                                                 background: #f8fafc;
                                                             }
 
@@ -1378,7 +1380,7 @@
 
                                                             .pod-viewer-pdf {
                                                                 width: 100%;
-                                                                height: calc(90vh - 70px);
+                                                                height: calc(90vh - var(--kf-topbar-h, 74px) - 70px);
                                                                 border: none;
                                                             }
 
@@ -1462,7 +1464,7 @@
 
                                                                 .pod-viewer-container {
                                                                     max-width: 100%;
-                                                                    max-height: calc(100vh - 1.5rem);
+                                                                    max-height: calc(100vh - var(--kf-topbar-h, 74px) - 1.5rem);
                                                                     border-radius: 14px;
                                                                 }
 
@@ -1472,11 +1474,11 @@
                                                                 }
 
                                                                 .pod-viewer-body {
-                                                                    max-height: calc(100vh - 110px);
+                                                                    max-height: calc(100vh - var(--kf-topbar-h, 74px) - 110px);
                                                                 }
 
                                                                 .pod-viewer-pdf {
-                                                                    height: calc(100vh - 110px);
+                                                                    height: calc(100vh - var(--kf-topbar-h, 74px) - 110px);
                                                                 }
                                                             }
 

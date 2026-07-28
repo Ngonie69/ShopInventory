@@ -80,6 +80,7 @@
 
     <div class="kf-topbar__actions">
         <button class="kf-icon-button kf-notification-button" type="button" @onclick="OnNotificationsClick"
+                @ref="_notificationButton"
                 aria-label="@NotificationLabel" aria-expanded="@NotificationsOpen">
             <MudIcon Icon="@Icons.Material.Outlined.Notifications" />
             @if (UnreadCount > 0)
@@ -140,6 +141,7 @@
     [Parameter] public EventCallback OnNotificationsClick { get; set; }
     [Parameter] public EventCallback OnLogout { get; set; }
 
+    private ElementReference _notificationButton;
     private string _searchQuery = string.Empty;
     private bool _searchOpen;
     private int _selectedSearchIndex;
@@ -219,6 +221,19 @@
             // Search shortcuts and click-away handling are progressive enhancements. A stale
             // browser-cached app.js must not terminate the entire Blazor circuit.
             Logger.LogWarning(ex, "Could not initialize topbar JavaScript enhancements");
+        }
+    }
+
+    /// Returns focus to the bell after the notification panel closes.
+    public async ValueTask FocusNotificationButtonAsync()
+    {
+        try
+        {
+            await _notificationButton.FocusAsync();
+        }
+        catch (JSException)
+        {
+            // Focus restoration is cosmetic; a torn-down circuit must not throw here.
         }
     }
 

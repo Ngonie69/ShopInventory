@@ -693,9 +693,11 @@
         color: var(--mud-palette-text-secondary);
     }
 
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
     .ftr-modal-backdrop {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         z-index: 1400;
         display: flex;
         align-items: center;
@@ -707,7 +709,7 @@
 
     .ftr-modal {
         width: min(960px, 100%);
-        max-height: min(88vh, 920px);
+        max-height: min(calc(88vh - var(--kf-topbar-h, 74px)), 920px);
         overflow: auto;
         box-shadow: 0 24px 56px rgba(15, 23, 42, 0.28);
     }
@@ -776,7 +778,7 @@
 
         .ftr-modal {
             width: 100%;
-            max-height: 92vh;
+            max-height: calc(92vh - var(--kf-topbar-h, 74px));
         }
 
         .ftr-actions-column,

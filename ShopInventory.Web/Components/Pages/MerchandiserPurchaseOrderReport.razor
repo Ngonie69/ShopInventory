@@ -76,19 +76,21 @@
         font-size: .82rem;
         text-align: center;
     }
+    /* Offset below the app bar: the page container is a stacking context, so a drawer
+       cannot paint over the topbar however high its z-index. */
     .mpor-modal-backdrop {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .45);
         z-index: 1098;
         animation: mporFadeIn .2s ease;
     }
     .mpor-detail-drawer {
         position: fixed;
-        top: 0;
+        top: var(--kf-topbar-h, 74px);
         right: 0;
         width: min(640px, 95vw);
-        height: 100vh;
+        height: calc(100vh - var(--kf-topbar-h, 74px));
         background: #fff;
         z-index: 1099;
         box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
@@ -137,9 +139,11 @@
         flex-shrink: 0;
         background: #fff;
     }
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
     .mpor-viewer-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(15, 23, 42, 0.65);
         backdrop-filter: blur(4px);
         z-index: 1100;
@@ -152,7 +156,7 @@
         background: #fff;
         border-radius: 16px;
         width: min(1100px, 92vw);
-        max-height: 92vh;
+        max-height: calc(92vh - var(--kf-topbar-h, 74px));
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -180,7 +184,7 @@
         background: #f8fafc;
         overflow: auto;
         min-height: 320px;
-        max-height: calc(92vh - 78px);
+        max-height: calc(92vh - var(--kf-topbar-h, 74px) - 78px);
     }
     .mpor-viewer-image {
         max-width: 100%;
@@ -189,7 +193,7 @@
     }
     .mpor-viewer-pdf {
         width: 100%;
-        height: calc(92vh - 78px);
+        height: calc(92vh - var(--kf-topbar-h, 74px) - 78px);
         border: none;
         background: #fff;
     }
@@ -218,7 +222,7 @@
     @@keyframes mporFadeIn { from { opacity: 0; } to { opacity: 1; } }
     @@keyframes mporSlideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
     @@media (max-width: 1180px) { .mpor-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @@media (max-width: 720px) { .mpor-page { padding: 1rem; } .mpor-filters { grid-template-columns: 1fr; } .mpor-detail-grid { grid-template-columns: 1fr; } .mpor-attachment-top { flex-direction: column; align-items: stretch; } .mpor-attachment-actions { justify-content: stretch; } .mpor-attachment-actions .btn { width: 100%; } .mpor-detail-drawer { width: 100%; } .mpor-drawer-body { padding: 1rem; } .mpor-drawer-footer { padding: 1rem; } .mpor-viewer-overlay { padding: .75rem; } .mpor-viewer-header { padding: .85rem 1rem; align-items: flex-start; } .mpor-viewer-container { width: 100%; max-height: 94vh; } }
+    @@media (max-width: 720px) { .mpor-page { padding: 1rem; } .mpor-filters { grid-template-columns: 1fr; } .mpor-detail-grid { grid-template-columns: 1fr; } .mpor-attachment-top { flex-direction: column; align-items: stretch; } .mpor-attachment-actions { justify-content: stretch; } .mpor-attachment-actions .btn { width: 100%; } .mpor-detail-drawer { width: 100%; } .mpor-drawer-body { padding: 1rem; } .mpor-drawer-footer { padding: 1rem; } .mpor-viewer-overlay { padding: .75rem; } .mpor-viewer-header { padding: .85rem 1rem; align-items: flex-start; } .mpor-viewer-container { width: 100%; max-height: calc(94vh - var(--kf-topbar-h, 74px)); } }
 </style>
 
 <div class="mpor-page">
