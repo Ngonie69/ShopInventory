@@ -524,12 +524,21 @@ and per table, and no static check can settle them.
 
 Two consequences worth carrying:
 
-- **The test company cannot run the integration tests.** `KEFALOS_TEST_3` lacks the UDFs, so the
-  suite currently only passes against `KEFALOS_USD_NEW2`. Adding the UDFs to the test company is the
-  fix worth making; pointing a read-only suite at production is a workaround, not an answer.
-- **Beware the default page.** The `UserFieldsMD` query used to settle the UDF question returned
-  exactly 20 rows, ORDR absent, and very nearly produced the wrong conclusion — silently truncated
-  by the same missing `$top` this audit fixes in §7.
+- **The test company could not run the integration tests, and now can.** `KEFALOS_TEST_3` was
+  missing `U_OrderNumber` and `U_Van_saleorder` on all 32 marketing-document tables, so the suite
+  only passed against production. They have been added, mirroring the production definitions
+  (`db_Alpha`, size 100, not mandatory). Two `POST /UserFieldsMD` calls were enough for all 64:
+  B1 propagates a UDF added to one marketing-document table across the whole family, so `ORDR` and
+  `OINV` carried the rest. The middle call returned `400 No records`, which is what SAP says when
+  the cascade has already created the field. The suite now passes against `KEFALOS_TEST_3` with no
+  override.
+- **Beware the default page.** This caught three separate ad-hoc queries during the audit. The
+  `UserFieldsMD` query used to settle whether the UDF existed in production returned exactly 20
+  rows with ORDR absent, and very nearly produced the wrong conclusion. Verifying the UDF creation
+  afterwards did it again — `$top=500` alone is not enough, because `$top` bounds the result while
+  `Prefer: odata.maxpagesize` governs the page, and without the header SAP still answers 20 with a
+  nextLink. It is the same defect §7 fixes in the client, and it keeps recurring in throwaway
+  diagnostics precisely because those do not go through the code that now handles it.
 
 ## 8. What is already good
 

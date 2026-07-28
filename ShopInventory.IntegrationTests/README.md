@@ -33,6 +33,23 @@ To point at a different instance without touching secrets:
 SAP__ServiceLayerUrl=https://host:50000/b1s/v1/ SAP__CompanyDB=DB SAP__Username=user SAP__Password=pass dotnet test ShopInventory.IntegrationTests
 ```
 
+## Pointing them at a new company
+
+A company must define the UDFs this application reads, or the tests will fail on queries that are
+perfectly correct. `KEFALOS_TEST_3` was missing `U_OrderNumber` and `U_Van_saleorder` and reported
+them as `Property 'U_OrderNumber' of 'Document' is invalid`, which reads exactly like a bad
+`$select` and is not one.
+
+Check before blaming the code:
+
+```bash
+curl -sk -H "Cookie: B1SESSION=$SID" -H "Prefer: odata.maxpagesize=500" "https://host:50000/b1s/v1/UserFieldsMD?\$filter=Name%20eq%20'OrderNumber'&\$select=TableName&\$top=500"
+```
+
+The `Prefer` header is not optional. `$top` bounds the result, `odata.maxpagesize` governs the page,
+and without the header SAP answers 20 rows with a nextLink — which has produced a wrong conclusion
+about these very fields more than once.
+
 ## What they will and will not tell you
 
 A failure carries SAP's own error text, which names the offending field or filter directly:
