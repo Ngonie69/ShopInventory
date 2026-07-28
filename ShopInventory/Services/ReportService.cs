@@ -765,24 +765,38 @@ public class ReportService : IReportService
             var warehouses = await GetCachedWarehousesAsync(cancellationToken);
             var activeWhs = warehouses.Where(w => w.IsActive).Select(w => w.WarehouseCode!).ToList();
 
-            transfers = new List<InventoryTransfer>();
-            var seen = new HashSet<int>();
-            foreach (var wh in activeWhs.Take(10)) // Limit to avoid too many SAP calls
-            {
-                try
+            var transfersByDocEntry = new ConcurrentDictionary<int, InventoryTransfer>();
+            await Parallel.ForEachAsync(
+                activeWhs,
+                new ParallelOptions
                 {
-                    var whTransfers = await GetCachedInventoryTransfersByDateRangeAsync(wh, fromDate, toDate, cancellationToken);
-                    foreach (var t in whTransfers)
+                    MaxDegreeOfParallelism = 3,
+                    CancellationToken = cancellationToken
+                },
+                async (wh, token) =>
+                {
+                    try
                     {
-                        if (seen.Add(t.DocEntry))
-                            transfers.Add(t);
+                        var warehouseTransfers = await GetCachedInventoryTransfersByDateRangeAsync(
+                            wh,
+                            fromDate,
+                            toDate,
+                            token);
+                        foreach (var transfer in warehouseTransfers)
+                        {
+                            transfersByDocEntry.TryAdd(transfer.DocEntry, transfer);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to get transfers for warehouse {Wh}", wh);
-                }
-            }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get transfers for warehouse {Wh}", wh);
+                    }
+                });
+            transfers = transfersByDocEntry.Values.ToList();
         }
 
         var movements = transfers

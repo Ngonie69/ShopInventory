@@ -88,6 +88,12 @@ public interface IStockReservationService
         string batchNumber,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Gets a summary of reserved stock for an item/warehouse.
     /// </summary>
@@ -308,6 +314,14 @@ public class StockReservationService : IStockReservationService
                     // Auto-allocate using FEFO
                     var availableBatches = await _batchValidation.GetAvailableBatchesAsync(
                         lineRequest.ItemCode, lineRequest.WarehouseCode, BatchAllocationStrategy.FEFO, cancellationToken);
+                    var reservedByBatch = await GetReservedBatchQuantitiesAsync(
+                        lineRequest.ItemCode,
+                        lineRequest.WarehouseCode,
+                        availableBatches
+                            .Select(batch => batch.BatchNumber)
+                            .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
+                            .Select(batchNumber => batchNumber!),
+                        cancellationToken);
 
                     // Get already reserved quantities for each batch
                     var remainingQty = inventoryQuantity;
@@ -320,8 +334,7 @@ public class StockReservationService : IStockReservationService
                             lineRequest.WarehouseCode,
                             batch.BatchNumber ?? "");
 
-                        var reservedInBatch = await GetReservedBatchQuantityAsync(
-                            lineRequest.ItemCode, lineRequest.WarehouseCode, batch.BatchNumber ?? "", cancellationToken);
+                        var reservedInBatch = reservedByBatch.GetValueOrDefault(batch.BatchNumber ?? "");
                         reservedInBatch += explicitBatchQuantitiesInRequest.GetValueOrDefault(batchKey);
                         reservedInBatch += autoBatchQuantitiesInRequest.GetValueOrDefault(batchKey);
 
@@ -848,6 +861,42 @@ public class StockReservationService : IStockReservationService
                 && b.ReservationLine.Reservation.Status == ReservationStatus.Pending
                 && b.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
             .SumAsync(b => b.ReservedQuantity, cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedBatchNumbers = batchNumbers
+            .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
+            .Select(batchNumber => batchNumber.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (normalizedBatchNumbers.Count == 0)
+        {
+            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var reservedByBatch = await _dbContext.StockReservationBatches
+            .Where(batch => batch.ItemCode == itemCode
+                && batch.WarehouseCode == warehouseCode
+                && normalizedBatchNumbers.Contains(batch.BatchNumber)
+                && batch.ReservationLine.Reservation.Status == ReservationStatus.Pending
+                && batch.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
+            .GroupBy(batch => batch.BatchNumber)
+            .Select(group => new
+            {
+                BatchNumber = group.Key,
+                Quantity = group.Sum(batch => batch.ReservedQuantity)
+            })
+            .ToListAsync(cancellationToken);
+
+        return reservedByBatch.ToDictionary(
+            entry => entry.BatchNumber,
+            entry => entry.Quantity,
+            StringComparer.OrdinalIgnoreCase);
     }
 
     /// <inheritdoc/>

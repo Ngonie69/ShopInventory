@@ -61,4 +61,17 @@ public class ReservedQuantityProvider : IReservedQuantityProvider
     {
         return _reservationService.GetReservedBatchQuantityAsync(itemCode, warehouseCode, batchNumber, cancellationToken);
     }
+
+    public Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default)
+    {
+        return _reservationService.GetReservedBatchQuantitiesAsync(
+            itemCode,
+            warehouseCode,
+            batchNumbers,
+            cancellationToken);
+    }
 }

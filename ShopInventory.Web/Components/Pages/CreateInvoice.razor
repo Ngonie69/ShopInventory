@@ -2109,14 +2109,16 @@
             // 1. Warehouses - usually fast
             await LoadWithTimeoutAsync(
             "Warehouses",
-            async () => cachedWarehouses = await CacheService.GetWarehousesAsync(),
+            async cancellationToken => cachedWarehouses = await CacheService.GetWarehousesAsync(
+                cancellationToken: cancellationToken),
             timeout
             );
 
             // 2. Cost Centres - usually fast and rarely change
             await LoadWithTimeoutAsync(
             "Cost Centres",
-            async () => cachedCostCentres = await CacheService.GetCostCentresAsync(),
+            async cancellationToken => cachedCostCentres = await CacheService.GetCostCentresAsync(
+                cancellationToken: cancellationToken),
             timeout
             );
 
@@ -2127,9 +2129,10 @@
             // 3. Business Partners - can be slow
             await LoadWithTimeoutAsync(
             "Business Partners",
-            async () =>
+            async cancellationToken =>
             {
-                allBusinessPartners = await CacheService.GetBusinessPartnersAsync();
+                allBusinessPartners = await CacheService.GetBusinessPartnersAsync(
+                    cancellationToken: cancellationToken);
                 isLoadingBPs = false;
                 await InvokeAsync(StateHasChanged);
             },
@@ -2139,9 +2142,9 @@
             // 4. Products - can be slow
             await LoadWithTimeoutAsync(
             "Products",
-            async () =>
+            async cancellationToken =>
             {
-                cachedProducts = await CacheService.GetProductsAsync();
+                cachedProducts = await CacheService.GetProductsAsync(cancellationToken: cancellationToken);
                 isLoadingMasterData = false;
                 await InvokeAsync(StateHasChanged);
             },
@@ -2179,31 +2182,23 @@
         }
     }
 
-    private async Task LoadWithTimeoutAsync(string dataName, Func<Task> loadAction, TimeSpan timeout)
+    private async Task LoadWithTimeoutAsync(
+        string dataName,
+        Func<CancellationToken, Task> loadAction,
+        TimeSpan timeout)
     {
         try
         {
             using var cts = new CancellationTokenSource(timeout);
-            var loadTask = loadAction();
-            var completedTask = await Task.WhenAny(loadTask, Task.Delay(timeout, cts.Token));
-
-            if (completedTask == loadTask)
-            {
-                // Task completed, cancel the delay
-                await cts.CancelAsync();
-                await loadTask; // Propagate any exceptions
-                Logger.LogDebug("{DataName} loaded successfully", dataName);
-            }
-            else
-            {
-                // Timeout occurred
-                Logger.LogWarning("{DataName} load timed out after {Timeout}s - will continue with cached data", dataName,
-                timeout.TotalSeconds);
-            }
+            await loadAction(cts.Token);
+            Logger.LogDebug("{DataName} loaded successfully", dataName);
         }
         catch (OperationCanceledException)
         {
-            // This is expected when we cancel the delay task
+            Logger.LogWarning(
+                "{DataName} load timed out after {Timeout}s - will continue with cached data",
+                dataName,
+                timeout.TotalSeconds);
         }
         catch (Exception ex)
         {

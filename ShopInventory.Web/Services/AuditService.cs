@@ -59,6 +59,13 @@ public interface IAuditService
     Task<ActivityLogResult> GetActivityLogsAsync(DateTime startDate, DateTime endDate, string? username = null, string? action = null, int page = 1, int pageSize = 50);
     Task<List<string>> GetUniqueUsersAsync(DateTime startDate, DateTime endDate);
     Task<List<string>> GetUniqueActionsAsync(DateTime startDate, DateTime endDate);
+    Task<ActivityDashboardResult> GetActivityDashboardAsync(
+        DateTime startDate,
+        DateTime endDate,
+        string? username = null,
+        string? action = null,
+        int page = 1,
+        int pageSize = 50);
 }
 
 public class ActivityStats
@@ -74,6 +81,17 @@ public class ActivityLogResult
     public List<ActivityLog> Items { get; set; } = new();
     public int TotalCount { get; set; }
     public int TotalPages { get; set; }
+}
+
+public sealed class ActivityDashboardResult
+{
+    public ActivityStats Stats { get; init; } = new();
+    public List<UserActivitySummary> MostActiveUsers { get; init; } = [];
+    public List<ActionCount> ActionBreakdown { get; init; } = [];
+    public List<HourlyCount> HourlyActivity { get; init; } = [];
+    public ActivityLogResult Activities { get; init; } = new();
+    public List<string> Users { get; init; } = [];
+    public List<string> Actions { get; init; } = [];
 }
 
 public class AuditLogPageResult
@@ -423,6 +441,108 @@ public class AuditService : IAuditService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(a => a)
             .ToList();
+    }
+
+    public async Task<ActivityDashboardResult> GetActivityDashboardAsync(
+        DateTime startDate,
+        DateTime endDate,
+        string? username = null,
+        string? action = null,
+        int page = 1,
+        int pageSize = 50)
+    {
+        var logs = await GetMergedAuditLogsAsync(startDate, endDate);
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Max(1, pageSize);
+
+        var stats = new ActivityStats
+        {
+            ActiveUsers = logs
+                .Select(log => log.Username)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count(),
+            TotalActions = logs.Count,
+            LoginCount = logs.Count(log => log.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)),
+            FailedActions = logs.Count(log => !log.IsSuccess)
+        };
+
+        var mostActiveUsers = logs
+            .Where(log => !string.IsNullOrWhiteSpace(log.Username))
+            .GroupBy(log => log.Username, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new UserActivitySummary
+            {
+                Username = group.Key,
+                ActionCount = group.Count(),
+                LastActivityAt = group.Max(log => log.Timestamp)
+            })
+            .OrderByDescending(summary => summary.ActionCount)
+            .Take(10)
+            .ToList();
+
+        var actionBreakdown = logs
+            .Where(log => !string.IsNullOrWhiteSpace(log.Action))
+            .GroupBy(log => log.Action)
+            .Select(group => new ActionCount
+            {
+                Action = group.Key,
+                Count = group.Count()
+            })
+            .OrderByDescending(summary => summary.Count)
+            .ToList();
+
+        var hourlyCounts = logs
+            .GroupBy(log => log.Timestamp.Hour)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var hourlyActivity = Enumerable.Range(0, 24)
+            .Select(hour => new HourlyCount
+            {
+                Hour = hour,
+                Count = hourlyCounts.GetValueOrDefault(hour)
+            })
+            .ToList();
+
+        var users = logs
+            .Select(log => log.Username)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+        var actions = logs
+            .Select(log => log.Action)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+
+        var filteredLogs = logs
+            .Where(log => string.IsNullOrWhiteSpace(username) ||
+                          string.Equals(log.Username, username, StringComparison.OrdinalIgnoreCase))
+            .Where(log => string.IsNullOrWhiteSpace(action) ||
+                          string.Equals(log.Action, action, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var totalCount = filteredLogs.Count;
+        var activities = new ActivityLogResult
+        {
+            Items = filteredLogs
+                .Skip((safePage - 1) * safePageSize)
+                .Take(safePageSize)
+                .Select(MapToActivityLog)
+                .ToList(),
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)safePageSize)
+        };
+
+        return new ActivityDashboardResult
+        {
+            Stats = stats,
+            MostActiveUsers = mostActiveUsers,
+            ActionBreakdown = actionBreakdown,
+            HourlyActivity = hourlyActivity,
+            Activities = activities,
+            Users = users,
+            Actions = actions
+        };
     }
 
     private async Task<List<AuditLog>> GetMergedAuditLogsAsync(DateTime? startDate = null, DateTime? endDate = null)

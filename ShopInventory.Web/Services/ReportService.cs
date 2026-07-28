@@ -9,18 +9,18 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface IReportService
 {
-    Task<SalesSummaryReport?> GetSalesSummaryAsync(DateTime? fromDate, DateTime? toDate);
-    Task<TopProductsReport?> GetTopProductsAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10);
-    Task<StockSummaryReport?> GetStockSummaryAsync(string? warehouseCode = null);
-    Task<LowStockAlertReport?> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? threshold = null);
-    Task<PaymentSummaryReport?> GetPaymentSummaryAsync(DateTime? fromDate, DateTime? toDate);
-    Task<TopCustomersReport?> GetTopCustomersAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10);
-    Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate);
-    Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate);
-    Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate);
-    Task<ReceivablesAgingReport?> GetReceivablesAgingAsync();
-    Task<ProfitOverviewReport?> GetProfitOverviewAsync(DateTime? fromDate, DateTime? toDate);
-    Task<SlowMovingProductsReport?> GetSlowMovingProductsAsync(DateTime? fromDate, DateTime? toDate, int daysThreshold = 30);
+    Task<SalesSummaryReport?> GetSalesSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<TopProductsReport?> GetTopProductsAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10, CancellationToken cancellationToken = default);
+    Task<StockSummaryReport?> GetStockSummaryAsync(string? warehouseCode = null, CancellationToken cancellationToken = default);
+    Task<LowStockAlertReport?> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? threshold = null, CancellationToken cancellationToken = default);
+    Task<PaymentSummaryReport?> GetPaymentSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<TopCustomersReport?> GetTopCustomersAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10, CancellationToken cancellationToken = default);
+    Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<ReceivablesAgingReport?> GetReceivablesAgingAsync(CancellationToken cancellationToken = default);
+    Task<ProfitOverviewReport?> GetProfitOverviewAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default);
+    Task<SlowMovingProductsReport?> GetSlowMovingProductsAsync(DateTime? fromDate, DateTime? toDate, int daysThreshold = 30, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -40,7 +40,7 @@ public class ReportService : IReportService
         _cache = cache;
     }
 
-    public async Task<SalesSummaryReport?> GetSalesSummaryAsync(DateTime? fromDate, DateTime? toDate)
+    public async Task<SalesSummaryReport?> GetSalesSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -48,9 +48,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out SalesSummaryReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/sales-summary?fromDate={from}&toDate={to}");
+            var response = await _httpClient.GetAsync($"api/report/sales-summary?fromDate={from}&toDate={to}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<SalesSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<SalesSummaryReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -61,7 +61,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<TopProductsReport?> GetTopProductsAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10)
+    public async Task<TopProductsReport?> GetTopProductsAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -69,9 +69,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out TopProductsReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/top-products?fromDate={from}&toDate={to}&topCount={topCount}");
+            var response = await _httpClient.GetAsync($"api/report/top-products?fromDate={from}&toDate={to}&topCount={topCount}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<TopProductsReport>();
+            var result = await response.Content.ReadFromJsonAsync<TopProductsReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -82,7 +82,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<StockSummaryReport?> GetStockSummaryAsync(string? warehouseCode = null)
+    public async Task<StockSummaryReport?> GetStockSummaryAsync(string? warehouseCode = null, CancellationToken cancellationToken = default)
     {
         var url = "api/report/stock-summary";
         if (!string.IsNullOrEmpty(warehouseCode))
@@ -91,9 +91,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out StockSummaryReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync(url);
+            var response = await _httpClient.GetAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<StockSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<StockSummaryReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -104,7 +104,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<LowStockAlertReport?> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? threshold = null)
+    public async Task<LowStockAlertReport?> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? threshold = null, CancellationToken cancellationToken = default)
     {
         var url = "api/report/low-stock-alerts";
         var parameters = new List<string>();
@@ -118,9 +118,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out LowStockAlertReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync(url);
+            var response = await _httpClient.GetAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<LowStockAlertReport>();
+            var result = await response.Content.ReadFromJsonAsync<LowStockAlertReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -131,7 +131,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<PaymentSummaryReport?> GetPaymentSummaryAsync(DateTime? fromDate, DateTime? toDate)
+    public async Task<PaymentSummaryReport?> GetPaymentSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -139,9 +139,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out PaymentSummaryReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/payment-summary?fromDate={from}&toDate={to}");
+            var response = await _httpClient.GetAsync($"api/report/payment-summary?fromDate={from}&toDate={to}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<PaymentSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<PaymentSummaryReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -152,7 +152,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<TopCustomersReport?> GetTopCustomersAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10)
+    public async Task<TopCustomersReport?> GetTopCustomersAsync(DateTime? fromDate, DateTime? toDate, int topCount = 10, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -160,9 +160,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out TopCustomersReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/top-customers?fromDate={from}&toDate={to}&topCount={topCount}");
+            var response = await _httpClient.GetAsync($"api/report/top-customers?fromDate={from}&toDate={to}&topCount={topCount}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<TopCustomersReport>();
+            var result = await response.Content.ReadFromJsonAsync<TopCustomersReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -173,7 +173,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate)
+    public async Task<OrderFulfillmentReport?> GetOrderFulfillmentAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -181,9 +181,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out OrderFulfillmentReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/order-fulfillment?fromDate={from}&toDate={to}");
+            var response = await _httpClient.GetAsync($"api/report/order-fulfillment?fromDate={from}&toDate={to}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<OrderFulfillmentReport>();
+            var result = await response.Content.ReadFromJsonAsync<OrderFulfillmentReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -194,7 +194,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate)
+    public async Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -202,9 +202,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out CreditNoteSummaryReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/credit-notes?fromDate={from}&toDate={to}");
+            var response = await _httpClient.GetAsync($"api/report/credit-notes?fromDate={from}&toDate={to}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<CreditNoteSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<CreditNoteSummaryReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -215,7 +215,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate)
+    public async Task<PurchaseOrderSummaryReport?> GetPurchaseOrderSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -223,9 +223,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out PurchaseOrderSummaryReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/purchase-orders?fromDate={from}&toDate={to}");
+            var response = await _httpClient.GetAsync($"api/report/purchase-orders?fromDate={from}&toDate={to}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<PurchaseOrderSummaryReport>();
+            var result = await response.Content.ReadFromJsonAsync<PurchaseOrderSummaryReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -236,15 +236,15 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<ReceivablesAgingReport?> GetReceivablesAgingAsync()
+    public async Task<ReceivablesAgingReport?> GetReceivablesAgingAsync(CancellationToken cancellationToken = default)
     {
         var cacheKey = "report:aging";
         if (_cache.TryGetValue(cacheKey, out ReceivablesAgingReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync("api/report/receivables-aging");
+            var response = await _httpClient.GetAsync("api/report/receivables-aging", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<ReceivablesAgingReport>();
+            var result = await response.Content.ReadFromJsonAsync<ReceivablesAgingReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -255,7 +255,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<ProfitOverviewReport?> GetProfitOverviewAsync(DateTime? fromDate, DateTime? toDate)
+    public async Task<ProfitOverviewReport?> GetProfitOverviewAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -263,9 +263,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out ProfitOverviewReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/profit-overview?fromDate={from}&toDate={to}");
+            var response = await _httpClient.GetAsync($"api/report/profit-overview?fromDate={from}&toDate={to}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<ProfitOverviewReport>();
+            var result = await response.Content.ReadFromJsonAsync<ProfitOverviewReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }
@@ -276,7 +276,7 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<SlowMovingProductsReport?> GetSlowMovingProductsAsync(DateTime? fromDate, DateTime? toDate, int daysThreshold = 30)
+    public async Task<SlowMovingProductsReport?> GetSlowMovingProductsAsync(DateTime? fromDate, DateTime? toDate, int daysThreshold = 30, CancellationToken cancellationToken = default)
     {
         var from = fromDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.AddDays(-90).ToString("yyyy-MM-dd");
         var to = toDate?.ToString("yyyy-MM-dd") ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
@@ -284,9 +284,9 @@ public class ReportService : IReportService
         if (_cache.TryGetValue(cacheKey, out SlowMovingProductsReport? cached)) return cached;
         try
         {
-            var response = await _httpClient.GetAsync($"api/report/slow-moving-products?fromDate={from}&toDate={to}&daysThreshold={daysThreshold}");
+            var response = await _httpClient.GetAsync($"api/report/slow-moving-products?fromDate={from}&toDate={to}&daysThreshold={daysThreshold}", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<SlowMovingProductsReport>();
+            var result = await response.Content.ReadFromJsonAsync<SlowMovingProductsReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
         }

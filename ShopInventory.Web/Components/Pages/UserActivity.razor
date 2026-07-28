@@ -1344,15 +1344,25 @@
         StateHasChanged();
         try
         {
-            // Run independent data loads in parallel for performance
-            await Task.WhenAll(
-            LoadStats(),
-            LoadMostActiveUsers(),
-            LoadActionBreakdown(),
-            LoadHourlyActivity(),
-            LoadActivities(),
-            LoadFilters()
-            );
+            var dashboard = await AuditService.GetActivityDashboardAsync(
+                startDate,
+                endDate,
+                userFilter,
+                actionFilter,
+                currentPage,
+                pageSize);
+
+            activeUsersCount = dashboard.Stats.ActiveUsers;
+            totalActionsCount = dashboard.Stats.TotalActions;
+            loginCount = dashboard.Stats.LoginCount;
+            failedActionsCount = dashboard.Stats.FailedActions;
+            mostActiveUsers = dashboard.MostActiveUsers;
+            actionBreakdown = dashboard.ActionBreakdown;
+            hourlyActivity = dashboard.HourlyActivity;
+            recentActivities = dashboard.Activities.Items;
+            totalPages = dashboard.Activities.TotalPages > 0 ? dashboard.Activities.TotalPages : 1;
+            uniqueUsers = dashboard.Users;
+            uniqueActions = dashboard.Actions;
         }
         catch (Exception ex)
         {

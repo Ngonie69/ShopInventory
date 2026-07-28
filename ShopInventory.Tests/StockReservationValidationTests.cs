@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
 namespace ShopInventory.Tests;
@@ -116,10 +117,33 @@ public sealed class StockReservationValidationTests : IDisposable
         Assert.Single(_sap.ScopedReads);
     }
 
+    [Fact]
+    public async Task Bulk_batch_totals_include_only_pending_unexpired_reservations()
+    {
+        AddBatchReservation("ACTIVE-1", ReservationStatus.Pending, DateTime.UtcNow.AddMinutes(30), "BATCH-1", 2m);
+        AddBatchReservation("ACTIVE-2", ReservationStatus.Pending, DateTime.UtcNow.AddMinutes(30), "BATCH-1", 3m);
+        AddBatchReservation("EXPIRED", ReservationStatus.Pending, DateTime.UtcNow.AddMinutes(-1), "BATCH-1", 7m);
+        AddBatchReservation("CONFIRMED", ReservationStatus.Confirmed, DateTime.UtcNow.AddMinutes(30), "BATCH-2", 11m);
+        await _context.SaveChangesAsync();
+
+        var totals = await CreateService().GetReservedBatchQuantitiesAsync(
+            "ITEM-A",
+            Warehouse,
+            ["BATCH-1", "BATCH-2", "NOT-REQUESTED"]);
+
+        Assert.Equal(5m, totals["BATCH-1"]);
+        Assert.False(totals.ContainsKey("BATCH-2"));
+        Assert.False(totals.ContainsKey("NOT-REQUESTED"));
+    }
+
     private async Task<(bool IsValid, List<StockReservationErrorDto> Errors)> ValidateAsync(
         params CreateStockReservationLineRequest[] lines)
     {
-        var service = new StockReservationService(
+        return await CreateService().ValidateStockAvailabilityAsync([.. lines]);
+    }
+
+    private StockReservationService CreateService() =>
+        new(
             _context,
             _sap.AsClient(),
             StubProxy.For<IBatchInventoryValidationService>((method, _) => method.Name switch
@@ -133,7 +157,42 @@ public sealed class StockReservationValidationTests : IDisposable
             StubProxy.Unused<INotificationService>(),
             NullLogger<StockReservationService>.Instance);
 
-        return await service.ValidateStockAvailabilityAsync([.. lines]);
+    private void AddBatchReservation(
+        string externalReference,
+        string status,
+        DateTime expiresAt,
+        string batchNumber,
+        decimal quantity)
+    {
+        _context.StockReservations.Add(new StockReservationEntity
+        {
+            ExternalReferenceId = externalReference,
+            SourceSystem = "TEST",
+            CardCode = "C001",
+            Status = status,
+            ExpiresAt = expiresAt,
+            Lines =
+            [
+                new StockReservationLineEntity
+                {
+                    LineNum = 0,
+                    ItemCode = "ITEM-A",
+                    WarehouseCode = Warehouse,
+                    ReservedQuantity = quantity,
+                    OriginalQuantity = quantity,
+                    BatchAllocations =
+                    [
+                        new StockReservationBatchEntity
+                        {
+                            ItemCode = "ITEM-A",
+                            WarehouseCode = Warehouse,
+                            BatchNumber = batchNumber,
+                            ReservedQuantity = quantity
+                        }
+                    ]
+                }
+            ]
+        });
     }
 
     private static CreateStockReservationLineRequest Line(

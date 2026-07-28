@@ -421,14 +421,29 @@ public class CustomerStatementService : ICustomerStatementService
         {
             var allCardCodes = await _linkedAccountService.GetAllCardCodesAsync(cardCode);
             var itemMap = new Dictionary<string, ItemCodeSummary>(StringComparer.OrdinalIgnoreCase);
+            var accountDataTasks = allCardCodes.Select(async accountCardCode =>
+            {
+                var invoiceTask = _invoiceService.GetInvoicesByCustomerAsync(
+                    accountCardCode,
+                    fromDate,
+                    toDate);
+                var creditNoteTask = _creditNoteService.GetCreditNotesAsync(
+                    page: 1,
+                    pageSize: 1000,
+                    cardCode: accountCardCode,
+                    fromDate: fromDate,
+                    toDate: toDate);
+                await Task.WhenAll(invoiceTask, creditNoteTask);
+                return (
+                    Invoices: invoiceTask.Result?.Invoices ?? [],
+                    CreditNotes: creditNoteTask.Result?.CreditNotes ?? []);
+            });
+            var accountData = await Task.WhenAll(accountDataTasks);
 
             // Aggregate invoice line items across all accounts (main + sub)
-            foreach (var acctCardCode in allCardCodes)
+            foreach (var data in accountData)
             {
-                var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(acctCardCode, fromDate, toDate);
-                var invoices = invoiceResponse?.Invoices ?? new List<InvoiceDto>();
-
-                foreach (var invoice in invoices)
+                foreach (var invoice in data.Invoices)
                 {
                     if (invoice.Lines == null) continue;
 
@@ -461,11 +476,7 @@ public class CustomerStatementService : ICustomerStatementService
                 }
 
                 // Aggregate credit note line items for the same account
-                var creditNotesResponse = await _creditNoteService.GetCreditNotesAsync(
-                    page: 1, pageSize: 1000, cardCode: acctCardCode, fromDate: fromDate, toDate: toDate);
-                var creditNotes = creditNotesResponse?.CreditNotes ?? new List<CreditNoteDto>();
-
-                foreach (var cn in creditNotes)
+                foreach (var cn in data.CreditNotes)
                 {
                     // Only count non-cancelled/voided credit notes
                     if (cn.Status == CreditNoteStatus.Cancelled || cn.Status == CreditNoteStatus.Voided)

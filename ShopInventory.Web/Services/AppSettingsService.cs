@@ -92,11 +92,14 @@ public class AppSettingsService : IAppSettingsService
     public async Task SaveSettingsAsync(Dictionary<string, string> settings, string? modifiedBy = null)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var keys = settings.Keys.ToList();
+        var existingSettings = await db.AppSettings
+            .Where(setting => keys.Contains(setting.Key))
+            .ToDictionaryAsync(setting => setting.Key);
 
         foreach (var (key, value) in settings)
         {
-            var setting = await db.AppSettings.FirstOrDefaultAsync(s => s.Key == key);
-            if (setting != null && setting.IsEditable)
+            if (existingSettings.TryGetValue(key, out var setting) && setting.IsEditable)
             {
                 setting.Value = value;
                 setting.LastModifiedAt = DateTime.UtcNow;

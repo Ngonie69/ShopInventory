@@ -20,6 +20,12 @@ public interface IReservedQuantityProvider
     /// Gets the reserved quantity for a specific batch.
     /// </summary>
     Task<decimal> GetReservedBatchQuantityAsync(string itemCode, string warehouseCode, string batchNumber, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -143,6 +149,25 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             return 0;
 
         return await _reservedQuantityProvider.GetReservedBatchQuantityAsync(itemCode, warehouseCode, batchNumber, cancellationToken);
+    }
+
+    private Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesInternalAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken)
+    {
+        if (_reservedQuantityProvider == null)
+        {
+            return Task.FromResult<IReadOnlyDictionary<string, decimal>>(
+                new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        return _reservedQuantityProvider.GetReservedBatchQuantitiesAsync(
+            itemCode,
+            warehouseCode,
+            batchNumbers,
+            cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -502,6 +527,14 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 warehouseCode,
                 strategy,
                 cancellationToken);
+            var reservedQuantities = await GetReservedBatchQuantitiesInternalAsync(
+                itemCode,
+                warehouseCode,
+                availableBatches
+                    .Select(batch => batch.BatchNumber)
+                    .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
+                    .Select(batchNumber => batchNumber!),
+                cancellationToken);
 
             var availabilityStates = new List<BatchAvailabilityState>();
             var availabilityByBatch = new Dictionary<string, BatchAvailabilityState>(StringComparer.OrdinalIgnoreCase);
@@ -511,11 +544,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 if (string.IsNullOrWhiteSpace(batch.BatchNumber))
                     continue;
 
-                var reservedQuantity = await GetReservedBatchQuantityInternalAsync(
-                    itemCode,
-                    warehouseCode,
-                    batch.BatchNumber,
-                    cancellationToken);
+                var reservedQuantity = reservedQuantities.GetValueOrDefault(batch.BatchNumber);
                 var effectiveAvailable = Math.Max(0, batch.AvailableQuantity - reservedQuantity);
                 var state = new BatchAvailabilityState
                 {

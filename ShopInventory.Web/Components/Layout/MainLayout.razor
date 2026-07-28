@@ -319,7 +319,7 @@
 
     private async void PollNotifications(object? state)
     {
-        if (_isPolling) return;
+        if (_isPolling || NotificationHub.IsConnected) return;
         _isPolling = true;
 
         try
@@ -380,14 +380,10 @@
     {
         try
         {
-            var countTask = NotificationClient.GetUnreadCountAsync();
-            var listTask = NotificationClient.GetNotificationsAsync(1, 5, false);
-            await Task.WhenAll(countTask, listTask);
-
-            _unreadCount = countTask.Result;
-            var response = listTask.Result;
+            var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
             if (response != null)
             {
+                _unreadCount = response.UnreadCount;
                 _recentNotifications = response.Notifications.Take(5).ToList();
             }
         }
@@ -406,11 +402,7 @@
     {
         try
         {
-            var countTask = NotificationClient.GetUnreadCountAsync();
-            var listTask = NotificationClient.GetNotificationsAsync(1, 5, false);
-            await Task.WhenAll(countTask, listTask);
-
-            var response = listTask.Result;
+            var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
             var visibleNotification = response?.Notifications.FirstOrDefault(n => n.Id == notification.Id && !n.IsRead);
             if (response == null || visibleNotification == null)
             {
@@ -419,7 +411,7 @@
 
             await InvokeAsync(() =>
             {
-                _unreadCount = countTask.Result;
+                _unreadCount = response.UnreadCount;
                 _recentNotifications = response.Notifications.Take(5).ToList();
 
                 Snackbar.Add(
