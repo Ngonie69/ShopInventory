@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
@@ -16,13 +17,38 @@ public sealed class ApproveSalesOrderHandler(
     ILogger<ApproveSalesOrderHandler> logger
 ) : IRequestHandler<ApproveSalesOrderCommand, ErrorOr<SalesOrderDto>>
 {
+    private static readonly TimeSpan SlowApprovalThreshold = TimeSpan.FromSeconds(30);
+
     public async Task<ErrorOr<SalesOrderDto>> Handle(
         ApproveSalesOrderCommand command,
         CancellationToken cancellationToken)
     {
+        var approvalTimer = Stopwatch.StartNew();
+
         try
         {
             var order = await salesOrderService.ApproveAsync(command.Id, command.UserId, cancellationToken);
+            approvalTimer.Stop();
+
+            if (approvalTimer.Elapsed >= SlowApprovalThreshold)
+            {
+                logger.LogWarning(
+                    "Slow sales order approval completed for order {OrderId} ({OrderNumber}) in {ApprovalDurationMs} ms. SAPDocNum={SAPDocNum}",
+                    command.Id,
+                    order.OrderNumber,
+                    approvalTimer.ElapsedMilliseconds,
+                    order.SAPDocNum);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Sales order approval completed for order {OrderId} ({OrderNumber}) in {ApprovalDurationMs} ms. SAPDocNum={SAPDocNum}",
+                    command.Id,
+                    order.OrderNumber,
+                    approvalTimer.ElapsedMilliseconds,
+                    order.SAPDocNum);
+            }
+
             if (order.Source == SalesOrderSource.Mobile)
             {
                 // Approval and SAP posting are committed before notifications begin. A browser
@@ -102,22 +128,36 @@ public sealed class ApproveSalesOrderHandler(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            approvalTimer.Stop();
             // The caller went away (client disconnect or request timeout), not a failure.
             // Any SAP post / local approval already committed inside ApproveAsync stands;
             // don't log it as an unexpected error or report a false approval failure.
             logger.LogInformation(
-                "Approval request for sales order {OrderId} was canceled by the caller before completing.",
-                command.Id);
+                "Approval request for sales order {OrderId} was canceled by the caller after {ApprovalDurationMs} ms.",
+                command.Id,
+                approvalTimer.ElapsedMilliseconds);
             throw;
         }
         catch (InvalidOperationException ex)
         {
-            logger.LogWarning(ex, "Failed to approve sales order {OrderId} for user {UserId}", command.Id, command.UserId);
+            approvalTimer.Stop();
+            logger.LogWarning(
+                ex,
+                "Failed to approve sales order {OrderId} for user {UserId} after {ApprovalDurationMs} ms",
+                command.Id,
+                command.UserId,
+                approvalTimer.ElapsedMilliseconds);
             return Errors.SalesOrder.InvalidOperation(ex.Message);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error approving sales order {OrderId} for user {UserId}", command.Id, command.UserId);
+            approvalTimer.Stop();
+            logger.LogError(
+                ex,
+                "Unexpected error approving sales order {OrderId} for user {UserId} after {ApprovalDurationMs} ms",
+                command.Id,
+                command.UserId,
+                approvalTimer.ElapsedMilliseconds);
 
             SalesOrderDto? order = null;
             try

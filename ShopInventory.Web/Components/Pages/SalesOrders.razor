@@ -1,4 +1,5 @@
 @page "/sales-orders"
+@using System.Diagnostics
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier,SalesRep")]
@@ -816,6 +817,151 @@
         background: #f9fafb;
     }
 
+    .approval-modal {
+        width: min(560px, 95vw);
+    }
+
+    .approval-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .75rem;
+        margin-bottom: 1rem;
+    }
+
+    .approval-summary-item {
+        min-width: 0;
+        padding: .75rem .85rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f8fafc;
+    }
+
+    .approval-summary-item.customer {
+        grid-column: 1 / -1;
+    }
+
+    .approval-summary-label {
+        color: #6b7280;
+        font-size: .7rem;
+        font-weight: 700;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+    }
+
+    .approval-summary-value {
+        overflow: hidden;
+        margin-top: .2rem;
+        color: #111827;
+        font-size: .92rem;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .approval-impact {
+        display: flex;
+        gap: .7rem;
+        padding: .85rem;
+        border: 1px solid #a7f3d0;
+        border-radius: 10px;
+        background: #ecfdf5;
+        color: #065f46;
+        font-size: .84rem;
+        line-height: 1.45;
+    }
+
+    .approval-impact i {
+        flex: 0 0 auto;
+        margin-top: .05rem;
+        font-size: 1.05rem;
+    }
+
+    .approval-processing {
+        padding: .35rem 0 .15rem;
+        text-align: center;
+    }
+
+    .approval-processing-icon {
+        display: inline-flex;
+        width: 54px;
+        height: 54px;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: .8rem;
+        border-radius: 50%;
+        background: #ecfdf5;
+        color: #059669;
+        font-size: 1.45rem;
+    }
+
+    .approval-processing h6 {
+        margin-bottom: .35rem;
+        color: #111827;
+        font-weight: 700;
+    }
+
+    .approval-processing p {
+        max-width: 430px;
+        margin: 0 auto;
+        color: #6b7280;
+        font-size: .86rem;
+        line-height: 1.5;
+    }
+
+    .approval-progress-bar {
+        height: 5px;
+        margin: 1rem auto .8rem;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #d1fae5;
+    }
+
+    .approval-progress-bar span {
+        display: block;
+        width: 45%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #10b981, #047857);
+        animation: approvalProgress 1.25s ease-in-out infinite;
+    }
+
+    .approval-includes {
+        margin-top: .85rem;
+        color: #6b7280;
+        font-size: .76rem;
+        text-align: center;
+    }
+
+    .btn-approve-order {
+        background: linear-gradient(135deg, #059669, #047857);
+    }
+
+    .btn-approve-order:hover {
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .28);
+    }
+
+    .dark-theme .approval-summary-item {
+        border-color: #374151;
+        background: #172033;
+    }
+
+    .dark-theme .approval-summary-label,
+    .dark-theme .approval-processing p,
+    .dark-theme .approval-includes {
+        color: #a7b0c0;
+    }
+
+    .dark-theme .approval-summary-value,
+    .dark-theme .approval-processing h6 {
+        color: #f3f4f6;
+    }
+
+    .dark-theme .approval-impact {
+        border-color: #065f46;
+        background: rgba(6, 95, 70, .2);
+        color: #a7f3d0;
+    }
+
     /* ── Empty / Loading ─────────────────────────────── */
     .empty-state {
         text-align: center;
@@ -920,6 +1066,16 @@
         }
     }
 
+    @@keyframes approvalProgress {
+        from {
+            transform: translateX(-110%);
+        }
+
+        to {
+            transform: translateX(245%);
+        }
+    }
+
     @@media (max-width:768px) {
         .so-header {
             flex-direction: column;
@@ -964,12 +1120,17 @@
         }
 
         .detail-grid,
-        .form-grid {
+        .form-grid,
+        .approval-summary {
             grid-template-columns: 1fr;
         }
 
         .form-field.full {
             grid-column: span 1;
+        }
+
+        .approval-summary-item.customer {
+            grid-column: auto;
         }
     }
 </style>
@@ -1190,7 +1351,7 @@
                                                                 <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
                                                                                Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
                                                                                Disabled="@IsOrderActionBusy(context.Id)"
-                                                                               OnClick="() => ApproveOrder(context.Id)" />
+                                                                               OnClick="() => OpenApprovalModal(context)" />
                                                             }
                                                         }
                                                             @if (CanRejectOrder(context))
@@ -1392,6 +1553,16 @@
                                         }
                                     </MudButton>
                                 }
+                                @if (selectedOrder.Status == SalesOrderStatus.Pending && !selectedOrder.IsSynced)
+                                {
+                                    <MudButton Class="btn-so-gradient"
+                                               Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
+                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                               OnClick="() => OpenApprovalModal(selectedOrder)">
+                                        <i class="bi bi-check-circle me-1"></i>
+                                        <span>Review &amp; Approve</span>
+                                    </MudButton>
+                                }
                                 @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
                                 {
                                     <MudButton Class="btn-so-gradient"
@@ -1414,6 +1585,108 @@
                                     <i class="bi bi-printer me-1"></i> Print
                                 </MudButton>
                                 <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
+                            </div>
+                        </div>
+                    }
+
+                    @if (approvalOrder != null)
+                    {
+                        <div class="create-modal-overlay" @onclick="CloseApprovalModal">
+                            <div class="create-modal approval-modal"
+                                 role="dialog"
+                                 aria-modal="true"
+                                 aria-labelledby="approval-dialog-title"
+                                 @onclick:stopPropagation="true">
+                                <div class="create-modal-header">
+                                    <h5 id="approval-dialog-title">
+                                        <i class="bi bi-check-circle text-success"></i>
+                                        Approve Sales Order
+                                    </h5>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                                   Class="btn-close-modal"
+                                                   OnClick="CloseApprovalModal"
+                                                   Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)" />
+                                </div>
+                                <div class="create-modal-body">
+                                    @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                                    {
+                                        <div class="approval-processing" aria-live="polite">
+                                            <div class="approval-processing-icon">
+                                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                            </div>
+                                            <h6>Approving and posting to SAP</h6>
+                                            <p>
+                                                Current SAP pricing is being validated, duplicate safeguards are being checked,
+                                                and the order is being posted. Please keep this window open.
+                                            </p>
+                                            <div class="approval-progress-bar" aria-hidden="true"><span></span></div>
+                                            <div class="approval-includes">
+                                                Order @approvalOrder.OrderNumber · retries are protected
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="approval-summary">
+                                            <div class="approval-summary-item customer">
+                                                <div class="approval-summary-label">Customer</div>
+                                                <div class="approval-summary-value" title="@approvalOrder.CardName">
+                                                    @approvalOrder.CardCode — @approvalOrder.CardName
+                                                </div>
+                                            </div>
+                                            <div class="approval-summary-item">
+                                                <div class="approval-summary-label">Order</div>
+                                                <div class="approval-summary-value">@approvalOrder.OrderNumber</div>
+                                            </div>
+                                            <div class="approval-summary-item">
+                                                <div class="approval-summary-label">Amount</div>
+                                                <div class="approval-summary-value">
+                                                    @approvalOrder.Currency @approvalOrder.DocTotal.ToString("N2")
+                                                </div>
+                                            </div>
+                                            @if (approvalOrder.Lines?.Count > 0)
+                                            {
+                                                <div class="approval-summary-item">
+                                                    <div class="approval-summary-label">Lines</div>
+                                                    <div class="approval-summary-value">@approvalOrder.Lines.Count</div>
+                                                </div>
+                                            }
+                                            <div class="approval-summary-item">
+                                                <div class="approval-summary-label">Created by</div>
+                                                <div class="approval-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
+                                            </div>
+                                        </div>
+                                        <div class="approval-impact">
+                                            <i class="bi bi-info-circle-fill"></i>
+                                            <div>
+                                                <strong>This action also posts the order to SAP.</strong>
+                                                Prices will be refreshed from SAP before posting, so the final amount may reflect
+                                                the customer's current pricing.
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="create-modal-footer">
+                                    <MudButton Class="btn-secondary-action"
+                                               OnClick="CloseApprovalModal"
+                                               Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                                        Cancel
+                                    </MudButton>
+                                    <MudButton Class="btn-create btn-approve-order"
+                                               OnClick="ConfirmApproval"
+                                               Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                                        @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                                        {
+                                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                            <span>Approving…</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-cloud-check"></i>
+                                            <span>Approve &amp; Post to SAP</span>
+                                        }
+                                    </MudButton>
+                                </div>
                             </div>
                         </div>
                     }
@@ -1842,6 +2115,7 @@
 @code {
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
+    private SalesOrderDto? approvalOrder;
     private bool isLoading = true;
     private bool isPdfLoading = false;
     private bool isCreating = false;
@@ -2154,18 +2428,46 @@
     private bool IsOrderActionBusy(int id, OrderActionType action)
         => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
 
-    private async Task ApproveOrder(int id)
+    private void OpenApprovalModal(SalesOrderDto order)
     {
-        if (!TryBeginOrderAction(id, OrderActionType.Approve))
+        if (IsOrderActionBusy(order.Id))
             return;
 
+        approvalOrder = order;
+    }
+
+    private void CloseApprovalModal()
+    {
+        if (approvalOrder != null && IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+            return;
+
+        approvalOrder = null;
+    }
+
+    private async Task ConfirmApproval()
+    {
+        if (approvalOrder == null)
+            return;
+
+        var approved = await ApproveOrder(approvalOrder.Id);
+        if (approved)
+            approvalOrder = null;
+    }
+
+    private async Task<bool> ApproveOrder(int id)
+    {
+        if (!TryBeginOrderAction(id, OrderActionType.Approve))
+            return false;
+
         StateHasChanged();
+        var approvalTimer = Stopwatch.StartNew();
 
         try
         {
             var result = await SalesOrderService.ApproveAsync(id);
             if (result != null)
             {
+                approvalTimer.Stop();
                 selectedOrder = result;
                 var approvalMessage = result.IsSynced
                     ? result.SAPDocNum.HasValue
@@ -2173,27 +2475,47 @@
                         : $"Order {result.OrderNumber} approved and posted to SAP successfully."
                     : $"Order {result.OrderNumber} approved successfully.";
                 Snackbar.Add(approvalMessage, Severity.Success);
+                Logger.LogInformation(
+                    "Sales order {OrderId} approval completed in {ApprovalDurationMs} ms. SAPDocNum={SAPDocNum}",
+                    id,
+                    approvalTimer.ElapsedMilliseconds,
+                    result.SAPDocNum);
                 var auditMessage = result.IsSynced && result.SAPDocNum.HasValue
                     ? $"Approved and posted to SAP as Doc #{result.SAPDocNum}"
                     : "Approved";
                 await AuditService.LogAsync(AuditActions.ApproveSalesOrder, "SalesOrder", id.ToString(), auditMessage, true);
                 await LoadOrders();
+                return true;
             }
-            else
-            {
-                Snackbar.Add("Failed to approve order. Please try again.", Severity.Error);
-            }
+
+            Snackbar.Add("Failed to approve order. Please try again.", Severity.Error);
+            return false;
         }
         catch (HttpRequestException ex)
         {
+            approvalTimer.Stop();
+            Logger.LogWarning(
+                ex,
+                "Sales order {OrderId} approval failed after {ApprovalDurationMs} ms",
+                id,
+                approvalTimer.ElapsedMilliseconds);
             Snackbar.Add(ex.Message, Severity.Error);
+            return false;
         }
         catch (Exception ex)
         {
+            approvalTimer.Stop();
+            Logger.LogError(
+                ex,
+                "Sales order {OrderId} approval failed after {ApprovalDurationMs} ms",
+                id,
+                approvalTimer.ElapsedMilliseconds);
             Snackbar.Add($"Error approving order: {ex.Message}", Severity.Error);
+            return false;
         }
         finally
         {
+            approvalTimer.Stop();
             EndOrderAction(id);
             StateHasChanged();
         }
