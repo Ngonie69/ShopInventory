@@ -158,9 +158,8 @@ public sealed class InventoryTransferApprovalService(
         await EnsureDefaultsAsync(document.DocumentType, cancellationToken);
         var documentType = document.DocumentType;
         var documentKey = document.DocumentKey;
-        // Tracked: callers record decisions and move the request's status on the entity returned
-        // here. The context defaults to no-tracking, under which those writes are silently lost —
-        // an approval would complete and post to SAP while the database still showed it pending.
+        // Tracked explicitly: callers record decisions and move the request's status on the entity
+        // returned here, and a no-tracking load would drop those writes without erroring.
         var existing = await context.ApprovalRequests
             .AsTracking()
             .Include(request => request.Decisions)

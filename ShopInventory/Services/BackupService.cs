@@ -122,70 +122,70 @@ public class BackupService : IBackupService
 
             // Export each table to JSON
             // Users
-            var users = await _context.Users.ToListAsync(cancellationToken);
+            var users = await _context.Users.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "users.json"),
                 JsonSerializer.Serialize(users, jsonOptions),
                 cancellationToken);
 
             // Refresh Tokens
-            var refreshTokens = await _context.RefreshTokens.ToListAsync(cancellationToken);
+            var refreshTokens = await _context.RefreshTokens.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "refresh_tokens.json"),
                 JsonSerializer.Serialize(refreshTokens, jsonOptions),
                 cancellationToken);
 
             // Webhooks
-            var webhooks = await _context.Webhooks.ToListAsync(cancellationToken);
+            var webhooks = await _context.Webhooks.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "webhooks.json"),
                 JsonSerializer.Serialize(webhooks, jsonOptions),
                 cancellationToken);
 
             // Webhook Deliveries
-            var webhookDeliveries = await _context.WebhookDeliveries.ToListAsync(cancellationToken);
+            var webhookDeliveries = await _context.WebhookDeliveries.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "webhook_deliveries.json"),
                 JsonSerializer.Serialize(webhookDeliveries, jsonOptions),
                 cancellationToken);
 
             // Notifications
-            var notifications = await _context.Notifications.ToListAsync(cancellationToken);
+            var notifications = await _context.Notifications.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "notifications.json"),
                 JsonSerializer.Serialize(notifications, jsonOptions),
                 cancellationToken);
 
             // Audit Logs
-            var auditLogs = await _context.AuditLogs.ToListAsync(cancellationToken);
+            var auditLogs = await _context.AuditLogs.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "audit_logs.json"),
                 JsonSerializer.Serialize(auditLogs, jsonOptions),
                 cancellationToken);
 
             // System Configs
-            var systemConfigs = await _context.SystemConfigs.ToListAsync(cancellationToken);
+            var systemConfigs = await _context.SystemConfigs.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "system_configs.json"),
                 JsonSerializer.Serialize(systemConfigs, jsonOptions),
                 cancellationToken);
 
             // Exchange Rates
-            var exchangeRates = await _context.ExchangeRates.ToListAsync(cancellationToken);
+            var exchangeRates = await _context.ExchangeRates.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "exchange_rates.json"),
                 JsonSerializer.Serialize(exchangeRates, jsonOptions),
                 cancellationToken);
 
             // Document Templates
-            var documentTemplates = await _context.DocumentTemplates.ToListAsync(cancellationToken);
+            var documentTemplates = await _context.DocumentTemplates.AsNoTracking().ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "document_templates.json"),
                 JsonSerializer.Serialize(documentTemplates, jsonOptions),
                 cancellationToken);
 
             // Backups (metadata only, exclude this backup)
-            var backupsToExport = await _context.Backups.Where(b => b.Status == "Completed").ToListAsync(cancellationToken);
+            var backupsToExport = await _context.Backups.AsNoTracking().Where(b => b.Status == "Completed").ToListAsync(cancellationToken);
             await File.WriteAllTextAsync(
                 Path.Combine(tempDir, "backups.json"),
                 JsonSerializer.Serialize(backupsToExport, jsonOptions),

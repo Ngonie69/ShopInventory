@@ -31,13 +31,12 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
 
-        // Production registers the context with NoTracking as the default, so a write path that
-        // forgets to opt into tracking loses its changes silently. Matching that here is what
-        // makes these tests able to see it.
+        // Tracking is left at the EF default here because that is how the API registers the
+        // context. Anything that changes there has to change here too, or these tests stop
+        // describing the app they are testing.
         _context = new ApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseSqlite(_connection)
-                .UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking)
                 .Options);
         _context.Database.EnsureCreated();
     }
@@ -149,7 +148,6 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         await ApprovalService().GetTemplatesAsync(default);
         _context.ApprovalTemplateDefinitions.RemoveRange(
             await _context.ApprovalTemplateDefinitions
-                .AsTracking()
                 .Where(template => template.DocumentType == ApprovalDocumentTypes.InventoryTransfer)
                 .ToListAsync());
         await _context.SaveChangesAsync();
@@ -381,7 +379,6 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         var service = ApprovalService();
         await service.GetTemplatesAsync(default);
         foreach (var template in await _context.ApprovalTemplateDefinitions
-                     .AsTracking()
                      .Where(item => item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
                      .ToListAsync())
             template.IsActive = false;
@@ -551,7 +548,6 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         await service.GetTemplatesAsync(default);
         _context.ApprovalTemplateDefinitions.RemoveRange(
             await _context.ApprovalTemplateDefinitions
-                .AsTracking()
                 .Where(template => template.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
                 .ToListAsync());
         await _context.SaveChangesAsync();
@@ -570,7 +566,6 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         var service = ApprovalService();
         await service.GetTemplatesAsync(default);
         var fallback = await _context.ApprovalTemplateDefinitions
-            .AsTracking()
             .SingleAsync(template => template.Name == "General Transfer Review");
         fallback.IsActive = false;
         fallback.Priority = 7;

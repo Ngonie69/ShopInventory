@@ -209,9 +209,14 @@ try
     // Configure PostgreSQL Database
     builder.Services.AddDbContext<ApplicationDbContext>(options =>
     {
+        // Tracking is left at the EF default deliberately. This used to default to NoTracking for
+        // read-heavy workloads, on the understanding that writes would opt back in — but a handler
+        // that loads an entity, changes it and saves gets no error when it forgets, it just writes
+        // nothing at all. That silently lost inventory transfer approvals (posted to SAP, still
+        // shown awaiting approval) and daily stock snapshot adjustments, among others. Reads carry
+        // AsNoTracking explicitly in the places it pays for itself, which is where the decision
+        // belongs; the Web app has always run this way.
         options.UseNpgsql(defaultConnectionString);
-        // Default to NoTracking for read-heavy workloads — opt-in to tracking only when writes are needed
-        options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
     });
     builder.Services.AddDataProtection()
         .PersistKeysToDbContext<ApplicationDbContext>()
