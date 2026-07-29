@@ -6,6 +6,10 @@ namespace ShopInventory.DTOs;
 public class PendingInventoryTransferDto
 {
     public Guid Id { get; set; }
+
+    /// <summary>Reference for the draft while it has no SAP document number, e.g. DT-2026-00007.</summary>
+    public string? DraftNumber { get; set; }
+
     public string? FromWarehouse { get; set; }
     public string? ToWarehouse { get; set; }
 

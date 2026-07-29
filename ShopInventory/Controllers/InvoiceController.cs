@@ -60,7 +60,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("{itemCode}/batches/{warehouseCode}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAvailableBatches(
@@ -92,7 +92,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("{docEntry:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocEntry(
@@ -104,7 +104,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("by-docnum/{docNum:int}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator,Operator,ApiUser")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager,Driver,PodOperator,Operator,ApiUser")]
     [ProducesResponseType(typeof(InvoiceDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetInvoiceByDocNum(
@@ -153,7 +153,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("{docEntry:int}/pdf")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DownloadInvoicePdf(
@@ -168,7 +168,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("customer/{cardCode}")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager,Driver,PodOperator")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager,Driver,PodOperator")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetInvoicesByCustomer(
@@ -360,7 +360,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("date-range")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetInvoicesByDateRange(
@@ -377,7 +377,7 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
     }
 
     [HttpGet("paged")]
-    [Authorize(Roles = "Admin,Cashier,StockController,DepotController,Manager")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager")]
     [ProducesResponseType(typeof(InvoiceListResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetPagedInvoices(

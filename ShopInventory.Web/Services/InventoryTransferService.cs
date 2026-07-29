@@ -25,6 +25,21 @@ public interface IInventoryTransferService
     Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RetryPendingTransferPostAsync(Guid id);
     Task<(bool Success, string Message)> CancelPendingTransferAsync(Guid id);
 
+    /// <summary>
+    /// Changes an open transfer request's lines. Callers assigned the source warehouse update
+    /// SAP directly; for anyone else the change comes back held for approval.
+    /// </summary>
+    Task<(bool Success, string Message, TransferRequestEditResponse? Result)> EditTransferRequestAsync(
+        int docEntry, EditTransferRequestRequest request);
+
+    Task<PendingTransferRequestEditListResponse?> GetPendingRequestEditsAsync(
+        string? status = null, int? requestDocEntry = null, int pageSize = 50);
+
+    Task<(bool Success, string Message)> DecidePendingRequestEditAsync(
+        Guid id, string decision, Guid? stageId = null, string? remarks = null);
+
+    Task<(bool Success, string Message)> CancelPendingRequestEditAsync(Guid id);
+
     // Transfer Request operations
     Task<(bool Success, string Message, InventoryTransferRequestDto? TransferRequest)> CreateTransferRequestAsync(CreateTransferRequestDto request);
     Task<TransferRequestListResponse?> GetTransferRequestsAsync(int page = 1, int pageSize = 20);
@@ -384,6 +399,110 @@ public class InventoryTransferService : IInventoryTransferService
             null,
             "We couldn't withdraw this transfer right now. Please try again.");
         return (success, message);
+    }
+
+    public async Task<(bool Success, string Message, TransferRequestEditResponse? Result)> EditTransferRequestAsync(
+        int docEntry, EditTransferRequestRequest request)
+    {
+        try
+        {
+            var response = await _httpClient.PatchAsJsonAsync($"api/inventorytransfer/request/{docEntry}", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<TransferRequestEditResponse>();
+                return (true, result?.Message ?? "Transfer request updated.", result);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Editing transfer request {DocEntry} failed. Status: {StatusCode}, Response: {Error}",
+                docEntry, response.StatusCode, errorContent);
+            return (false, ExtractErrorMessage(errorContent)
+                ?? ApiErrorResponse.GetFriendlyMessage(response.StatusCode, errorContent,
+                    "We couldn't save that change right now. Please try again."), null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error editing transfer request {DocEntry}", docEntry);
+            return (false, "We couldn't save that change right now. Please try again.", null);
+        }
+    }
+
+    public async Task<PendingTransferRequestEditListResponse?> GetPendingRequestEditsAsync(
+        string? status = null, int? requestDocEntry = null, int pageSize = 50)
+    {
+        try
+        {
+            var query = new List<string> { $"pageSize={pageSize}" };
+            if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+            if (requestDocEntry.HasValue) query.Add($"requestDocEntry={requestDocEntry.Value}");
+
+            return await _httpClient.GetFromJsonAsync<PendingTransferRequestEditListResponse>(
+                $"api/inventorytransfer/request-edits?{string.Join("&", query)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting held transfer request changes");
+            return null;
+        }
+    }
+
+    public Task<(bool Success, string Message)> DecidePendingRequestEditAsync(
+        Guid id, string decision, Guid? stageId = null, string? remarks = null)
+        => SendRequestEditActionAsync(
+            $"api/inventorytransfer/request-edits/{id}/decision",
+            JsonContent.Create(new SubmitPendingTransferDecisionRequest { Decision = decision, StageId = stageId, Remarks = remarks }),
+            "We couldn't record that decision right now. Please try again.");
+
+    public Task<(bool Success, string Message)> CancelPendingRequestEditAsync(Guid id)
+        => SendRequestEditActionAsync(
+            $"api/inventorytransfer/request-edits/{id}/cancel",
+            null,
+            "We couldn't withdraw that change right now. Please try again.");
+
+    private async Task<(bool Success, string Message)> SendRequestEditActionAsync(
+        string url,
+        HttpContent? content,
+        string fallbackMessage)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<PendingTransferRequestEditDecisionResponse>();
+                return (true, result?.Message ?? "Done.");
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Transfer request change action {Url} failed. Status: {StatusCode}, Response: {Error}",
+                url, response.StatusCode, errorContent);
+            return (false, ExtractErrorMessage(errorContent)
+                ?? ApiErrorResponse.GetFriendlyMessage(response.StatusCode, errorContent, fallbackMessage));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calling {Url}", url);
+            return (false, fallbackMessage);
+        }
+    }
+
+    private static string? ExtractErrorMessage(string errorContent)
+    {
+        try
+        {
+            var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var message = errorResponse?.Errors?.Any() == true
+                ? string.Join("; ", errorResponse.Errors)
+                : errorResponse?.Message;
+            return string.IsNullOrWhiteSpace(message) ? null : message;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task<(bool Success, string Message, InventoryTransferDto? Transfer)> SendPendingTransferActionAsync(

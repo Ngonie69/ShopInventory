@@ -23,6 +23,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
 using ShopInventory.Features.InventoryTransfers;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
@@ -473,6 +474,8 @@ try
     builder.Services.AddScoped<ITransferWarehouseAuthorizer, TransferWarehouseAuthorizer>();
     builder.Services.AddScoped<IPendingInventoryTransferPoster, PendingInventoryTransferPoster>();
     builder.Services.AddScoped<IPendingInventoryTransferEnricher, PendingInventoryTransferEnricher>();
+    builder.Services.AddScoped<IPendingTransferRequestEditApplier, PendingTransferRequestEditApplier>();
+    builder.Services.AddScoped<IPendingTransferRequestEditEnricher, PendingTransferRequestEditEnricher>();
     builder.Services.AddScoped<VanSalesAuditFilter>();
     builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 

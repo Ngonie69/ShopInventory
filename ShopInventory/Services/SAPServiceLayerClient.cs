@@ -9174,6 +9174,77 @@ ORDER BY T0.""ItemCode""";
         _logger.LogInformation("Inventory transfer request {DocEntry} closed successfully", docEntry);
     }
 
+    /// <summary>
+    /// Rewrites the lines of an open inventory transfer request via
+    /// PATCH InventoryTransferRequests({docEntry}).
+    /// </summary>
+    /// <remarks>
+    /// The Service Layer treats a document's line collection as a whole on PATCH: lines are
+    /// matched by LineNum and any existing line not present in the payload is deleted. That is
+    /// how a line is removed, and it is also why the caller has to send every line it keeps.
+    /// </remarks>
+    public async Task<InventoryTransferRequest> UpdateInventoryTransferRequestLinesAsync(
+        int docEntry,
+        IReadOnlyList<(int LineNum, decimal Quantity)> lines,
+        CancellationToken cancellationToken = default)
+    {
+        if (lines.Count == 0)
+            throw new InvalidOperationException("A transfer request must keep at least one line.");
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var payload = new Dictionary<string, object>
+        {
+            ["StockTransferLines"] = lines
+                .Select(line => new Dictionary<string, object>
+                {
+                    ["LineNum"] = line.LineNum,
+                    ["Quantity"] = line.Quantity
+                })
+                .ToList()
+        };
+
+        var jsonPayload = JsonSerializer.Serialize(payload);
+        _logger.LogInformation(
+            "Updating inventory transfer request {DocEntry} to {LineCount} line(s)", docEntry, lines.Count);
+
+        var url = $"InventoryTransferRequests({docEntry})";
+
+        HttpRequestMessage BuildRequest() => new(HttpMethod.Patch, url)
+        {
+            Content = new StringContent(jsonPayload, Encoding.UTF8, "application/json")
+        };
+
+        var request = BuildRequest();
+        request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+
+            request = BuildRequest();
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Failed to update transfer request {DocEntry}: {StatusCode} - {Error}",
+                docEntry, response.StatusCode, errorContent);
+            throw new Exception($"Failed to update transfer request {docEntry}: {response.StatusCode} - {errorContent}");
+        }
+
+        // PATCH answers 204 No Content, so read the document back for the caller.
+        var updated = await GetInventoryTransferRequestByDocEntryAsync(docEntry, cancellationToken);
+        return updated ?? throw new Exception($"Transfer request {docEntry} could not be read back after the update.");
+    }
+
     #endregion
 
     /// <summary>

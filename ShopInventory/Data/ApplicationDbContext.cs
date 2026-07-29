@@ -147,6 +147,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<ApprovalRequestEntity> ApprovalRequests { get; set; }
   public DbSet<ApprovalDecisionEntity> ApprovalDecisions { get; set; }
   public DbSet<PendingInventoryTransferEntity> PendingInventoryTransfers { get; set; }
+  public DbSet<PendingTransferRequestEditEntity> PendingTransferRequestEdits { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -334,6 +335,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.ToTable("PendingInventoryTransfers");
       entity.HasIndex(e => e.ClientRequestId).IsUnique().HasFilter("\"ClientRequestId\" IS NOT NULL");
+      entity.HasIndex(e => e.DraftNumber).IsUnique().HasFilter("\"DraftNumber\" IS NOT NULL");
+      entity.Property(e => e.DraftNumber).HasMaxLength(30);
       entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
       entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
       entity.Property(e => e.PayloadJson).IsRequired().HasColumnType("text");
@@ -342,6 +345,20 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(e => e.CreatedByRole).HasMaxLength(50);
       entity.Property(e => e.ClientRequestId).HasMaxLength(200);
       entity.Property(e => e.Comments).HasMaxLength(500);
+      entity.Property(e => e.LastError).HasMaxLength(2000);
+    });
+
+    modelBuilder.Entity<PendingTransferRequestEditEntity>(entity =>
+    {
+      entity.ToTable("PendingTransferRequestEdits");
+      entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ProposedLinesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.OriginalLinesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.CreatedByName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.CreatedByRole).HasMaxLength(50);
+      entity.Property(e => e.Reason).HasMaxLength(500);
       entity.Property(e => e.LastError).HasMaxLength(2000);
     });
 

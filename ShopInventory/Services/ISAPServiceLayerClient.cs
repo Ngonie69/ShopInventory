@@ -60,6 +60,16 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task CloseInventoryTransferRequestAsync(int docEntry, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Rewrites the lines of an open inventory transfer request. The collection passed is the
+    /// complete set the request should be left with — any existing line missing from it is
+    /// removed — so callers must send every line they intend to keep.
+    /// </summary>
+    Task<InventoryTransferRequest> UpdateInventoryTransferRequestLinesAsync(
+        int docEntry,
+        IReadOnlyList<(int LineNum, decimal Quantity)> lines,
+        CancellationToken cancellationToken = default);
+
     // Invoice Operations
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);

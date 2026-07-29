@@ -170,7 +170,7 @@ public sealed class CreateInventoryTransferHandler(
         };
 
         context.PendingInventoryTransfers.Add(pending);
-        await context.SaveChangesAsync(cancellationToken);
+        await SaveWithDraftNumberAsync(pending, cancellationToken);
 
         try
         {
@@ -201,6 +201,34 @@ public sealed class CreateInventoryTransferHandler(
         catch { }
 
         return BuildSubmittedResponse(pending, replayed: false);
+    }
+
+    /// <summary>
+    /// Persists the held transfer, allocating its draft number. Two submissions arriving together
+    /// can read the same highest number, so a unique-index violation is retried with a freshly
+    /// read number rather than failing a submission that is otherwise valid.
+    /// </summary>
+    private async Task SaveWithDraftNumberAsync(
+        PendingInventoryTransferEntity pending,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            pending.DraftNumber = await PendingTransferDraftNumbers.NextAsync(
+                context, pending.CreatedAtUtc, cancellationToken);
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+                return;
+            }
+            catch (DbUpdateException) when (attempt < maxAttempts)
+            {
+                logger.LogWarning(
+                    "Draft number {DraftNumber} was taken while submitting a transfer; retrying (attempt {Attempt})",
+                    pending.DraftNumber, attempt);
+            }
+        }
     }
 
     private static InventoryTransferCreatedResponseDto BuildSubmittedResponse(

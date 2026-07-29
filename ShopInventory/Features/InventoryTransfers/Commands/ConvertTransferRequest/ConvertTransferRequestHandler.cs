@@ -32,10 +32,20 @@ public sealed class ConvertTransferRequestHandler(
             var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
             if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
 
-            // Converting issues the goods, so the caller must control the source warehouse.
+            // Someone who runs the source warehouse is issuing their own stock, so they convert
+            // the request outright. Everyone else goes through the approval process below.
             var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
                 command.UserId, document.FromWarehouse, cancellationToken);
-            if (scopeCheck.IsError) return scopeCheck.Errors;
+            if (!scopeCheck.IsError && command.GenerateDocument &&
+                await warehouseAuthorizer.GetSourceScopeAsync(command.UserId, cancellationToken) is not null)
+            {
+                return await ConvertWithoutApprovalAsync(command, document, cancellationToken);
+            }
+
+            // Warehouse-scoped callers may take part in the approval of a request that is not
+            // theirs, but generating the document off the back of it stays out of reach.
+            if (scopeCheck.IsError && command.GenerateDocument)
+                return scopeCheck.Errors;
 
             var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:approve:{command.GenerateDocument}";
             var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestConvertedResponseDto>(
@@ -93,6 +103,7 @@ public sealed class ConvertTransferRequestHandler(
         {
             return Errors.InventoryTransfer.InvalidOperation(ex.Message);
         }
+
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
@@ -108,6 +119,67 @@ public sealed class ConvertTransferRequestHandler(
             {
                 try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
                 catch (Exception ex) { logger.LogWarning(ex, "Failed to release transfer approval decision lock"); }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Converts a request the caller is authorised to issue stock for, without routing it
+    /// through the approval stages. The approval request is still closed off as generated so
+    /// the document's history reads the same either way.
+    /// </summary>
+    private async Task<ErrorOr<TransferRequestConvertedResponseDto>> ConvertWithoutApprovalAsync(
+        ConvertTransferRequestCommand command,
+        InventoryTransferRequest document,
+        CancellationToken cancellationToken)
+    {
+        long? idempotencyRequestId = null;
+        var release = false;
+        try
+        {
+            var key = $"{command.DocEntry}:direct:{command.UserId}";
+            var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestConvertedResponseDto>(
+                "inventory-transfer-request-direct-convert", key,
+                new { command.DocEntry, command.UserId }, cancellationToken);
+            switch (acquired.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null: return acquired.Response;
+                case IdempotencyAcquireOutcome.InProgress: return Errors.InventoryTransfer.ApprovalInProgress;
+                case IdempotencyAcquireOutcome.RequestMismatch: return Errors.Idempotency.RequestMismatch("transfer request conversion");
+                case IdempotencyAcquireOutcome.Acquired: idempotencyRequestId = acquired.RequestId; release = true; break;
+            }
+
+            var transfer = await sapClient.ConvertTransferRequestToTransferAsync(command.DocEntry, cancellationToken);
+            await approvalService.MarkGeneratedAsync(
+                command.DocEntry, transfer.DocEntry, transfer.DocNum, command.UserId, true, cancellationToken);
+
+            try
+            {
+                await auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", command.DocEntry.ToString(),
+                    $"Generated transfer {transfer.DocEntry} directly from request #{document.DocNum} " +
+                    $"(source warehouse {document.FromWarehouse} is assigned to the user)", true);
+            }
+            catch { }
+
+            var response = new TransferRequestConvertedResponseDto
+            {
+                Message = $"Inventory Transfer #{transfer.DocNum} generated from request #{document.DocNum}.",
+                RequestDocEntry = command.DocEntry,
+                Transfer = transfer.ToDto()
+            };
+            if (idempotencyRequestId.HasValue)
+            {
+                await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                release = false;
+            }
+            return response;
+        }
+        finally
+        {
+            if (release && idempotencyRequestId.HasValue)
+            {
+                try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
+                catch (Exception ex) { logger.LogWarning(ex, "Failed to release the direct conversion lock"); }
             }
         }
     }

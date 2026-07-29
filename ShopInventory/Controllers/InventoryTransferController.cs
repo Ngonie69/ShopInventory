@@ -10,7 +10,10 @@ using ShopInventory.Features.InventoryTransfers.Commands.CloseTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Commands.ConvertTransferRequest;
 using ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer;
 using ShopInventory.Features.InventoryTransfers.Commands.CreateTransferRequest;
+using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingRequestEdit;
 using ShopInventory.Features.InventoryTransfers.Commands.DecidePendingTransfer;
+using ShopInventory.Features.InventoryTransfers.Commands.EditTransferRequest;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
 using ShopInventory.Features.InventoryTransfers.Commands.RetryPendingTransferPost;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransferById;
 using ShopInventory.Features.InventoryTransfers.Queries.GetPendingTransfers;
@@ -259,6 +262,107 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         var result = await mediator.Send(new CloseTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
+
+    /// <summary>
+    /// Changes the lines of an open transfer request: quantities may be adjusted and lines
+    /// dropped. Callers assigned the source warehouse write straight to SAP; anyone else has
+    /// the change held for approval, so this can answer 202 Accepted.
+    /// </summary>
+    [HttpPatch("request/{docEntry:int}")]
+    [Authorize(Roles = "Admin,StockController,DepotController,Manager")]
+    [ProducesResponseType(typeof(TransferRequestEditResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(TransferRequestEditResponseDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> EditTransferRequest(
+        int docEntry,
+        [FromBody] EditTransferRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new EditTransferRequestCommand(docEntry, request, userId.Value), cancellationToken);
+        return result.Match(
+            value => value.RequiresApproval ? Accepted(value) : Ok(value),
+            errors => Problem(errors));
+    }
+
+    #region Held Transfer Request Changes
+
+    /// <summary>
+    /// Lists changes to transfer requests that are held for approval. Defaults to those still
+    /// awaiting a decision.
+    /// </summary>
+    [HttpGet("request-edits")]
+    [ProducesResponseType(typeof(PendingTransferRequestEditListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetPendingRequestEdits(
+        [FromQuery] string? status = null,
+        [FromQuery] int? requestDocEntry = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new GetPendingRequestEditsQuery(userId.Value, status, requestDocEntry, page, pageSize), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("request-edits/{id:guid}")]
+    [ProducesResponseType(typeof(PendingTransferRequestEditDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPendingRequestEdit(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new GetPendingRequestEditByIdQuery(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Approves or rejects a held change. Approving the final stage writes it to SAP.
+    /// </summary>
+    [HttpPost("request-edits/{id:guid}/decision")]
+    [Authorize(Roles = "Admin,StockController,DepotController,Manager")]
+    [ProducesResponseType(typeof(PendingTransferRequestEditDecisionResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> DecidePendingRequestEdit(
+        Guid id,
+        [FromBody] SubmitPendingTransferDecisionDto request,
+        CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(
+            new DecidePendingRequestEditCommand(id, userId.Value, request.Decision, request.StageId, request.Remarks),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Withdraws a change the caller proposed, before any decision has been recorded.
+    /// </summary>
+    [HttpPost("request-edits/{id:guid}/cancel")]
+    [ProducesResponseType(typeof(PendingTransferRequestEditDecisionResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CancelPendingRequestEdit(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new CancelPendingRequestEditCommand(id, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    #endregion
 
     [HttpGet("request/{docEntry:int}")]
     [ProducesResponseType(typeof(InventoryTransferRequestDto), StatusCodes.Status200OK)]
