@@ -158,6 +158,20 @@ public sealed class GetPodUploadStatusHandler(
                     cancellationToken);
             }
 
+            // Card-code exclusions are applied by SAP; the name-based ones have to be applied here,
+            // and after the credit-note merge so linked invoices are covered too.
+            var staffLoanInvoiceCount = invoices.Count(invoice => PodExclusions.IsExcludedCardName(invoice.CardName));
+            if (staffLoanInvoiceCount > 0)
+            {
+                logger.LogInformation(
+                    "Excluded {Count} invoice(s) from the POD report because the business partner name matches an excluded fragment",
+                    staffLoanInvoiceCount);
+
+                invoices = invoices
+                    .Where(invoice => !PodExclusions.IsExcludedCardName(invoice.CardName))
+                    .ToList();
+            }
+
             if (assignedCustomerCodes is not null)
             {
                 invoices = invoices
@@ -347,6 +361,9 @@ public sealed class GetPodUploadStatusHandler(
         PodUploadStatusReportDto report,
         CancellationToken cancellationToken)
     {
+        // Snapshots cached before an exclusion was added still hold the excluded invoices.
+        report.Items.RemoveAll(item => PodExclusions.IsExcludedCardName(item.CardName));
+
         var docEntries = report.Items
             .Select(item => item.DocEntry)
             .Where(docEntry => docEntry > 0)

@@ -137,10 +137,10 @@ public sealed class ValidateBulkPodsHandler(
 
         foreach (var result in resultsByDocNum.Values)
         {
-            if (result.Found && PodExclusions.IsExcludedCardCode(result.CardCode))
+            if (result.Found && PodExclusions.IsExcluded(result.CardCode, result.CardName))
             {
                 result.Found = false;
-                result.ErrorMessage = $"Excluded BP ({result.CardCode})";
+                result.ErrorMessage = $"Excluded BP ({PodExclusions.DescribeExclusion(result.CardCode, result.CardName)})";
                 continue;
             }
 
@@ -333,7 +333,7 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
             }
 
             var firstLink = links[0];
-            if (PodExclusions.IsExcludedCardCode(firstLink.CustomerCode))
+            if (PodExclusions.IsExcluded(firstLink.CustomerCode, firstLink.CustomerName))
             {
                 return new BulkPodValidationResultDto
                 {
@@ -343,7 +343,7 @@ ORDER BY so.""DocNum"", inv.""DocDate"", inv.""DocNum""";
                     CardName = firstLink.CustomerName,
                     LinkedInvoiceCount = links.Count,
                     Found = false,
-                    ErrorMessage = $"Excluded BP ({firstLink.CustomerCode})"
+                    ErrorMessage = $"Excluded BP ({PodExclusions.DescribeExclusion(firstLink.CustomerCode, firstLink.CustomerName)})"
                 };
             }
 

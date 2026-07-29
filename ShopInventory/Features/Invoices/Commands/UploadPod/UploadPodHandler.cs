@@ -35,7 +35,7 @@ public sealed class UploadPodHandler(
             logger.LogWarning(ex, "Could not fetch invoice info for DocEntry {DocEntry} during POD upload", command.DocEntry);
         }
 
-        if (invoiceInfo != null && PodExclusions.IsExcludedCardCode(invoiceInfo.CardCode))
+        if (invoiceInfo != null && PodExclusions.IsExcluded(invoiceInfo.CardCode, invoiceInfo.CardName))
             return Errors.Invoice.PodExcluded(invoiceInfo.CardName ?? "", invoiceInfo.CardCode ?? "");
 
         var accessResult = await attachmentAccessService.AuthorizeEntityAccessAsync(
