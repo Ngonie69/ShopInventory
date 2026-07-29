@@ -233,6 +233,24 @@ public interface ISAPServiceLayerClient
     Task<List<BusinessPartnerDto>> SearchBusinessPartnersAsync(string searchTerm, CancellationToken cancellationToken = default);
     Task<BusinessPartnerDto?> GetBusinessPartnerByCodeAsync(string cardCode, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads one business partner's credit limit, balance and consolidating parent, live from SAP.
+    /// Returns null when the card code does not exist.
+    /// </summary>
+    Task<BusinessPartnerCreditProfileDto?> GetBusinessPartnerCreditProfileAsync(string cardCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the credit profiles of a consolidating parent and every account that names it as its
+    /// FatherCard, so exposure can be totalled across the whole group.
+    /// </summary>
+    Task<List<BusinessPartnerCreditProfileDto>> GetConsolidatedCreditProfilesAsync(string parentCardCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the credit profile of every customer in one sweep, for the nightly credit review.
+    /// Expensive — for the review job, never for an order path.
+    /// </summary>
+    Task<List<BusinessPartnerCreditProfileDto>> GetCustomerCreditProfilesAsync(CancellationToken cancellationToken = default);
+
     // Payment Terms Operations
     Task<PaymentTermsDto?> GetPaymentTermsByCodeAsync(int groupNumber, CancellationToken cancellationToken = default);
 

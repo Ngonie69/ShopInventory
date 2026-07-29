@@ -35,6 +35,7 @@ public class SalesOrderService : ISalesOrderService
     private readonly IBusinessPartnerService _businessPartnerService;
     private readonly ILocalPriceCatalogService _localPriceCatalogService;
     private readonly IIdempotencyRequestStore _idempotencyRequestStore;
+    private readonly ICreditLimitService _creditLimitService;
     private readonly decimal _defaultMobileTaxPercent;
     private readonly string _connectionString;
 
@@ -46,6 +47,7 @@ public class SalesOrderService : ISalesOrderService
         IBusinessPartnerService businessPartnerService,
         ILocalPriceCatalogService localPriceCatalogService,
         IIdempotencyRequestStore idempotencyRequestStore,
+        ICreditLimitService creditLimitService,
         IOptions<RevmaxSettings> revmaxSettings)
     {
         _context = context;
@@ -55,6 +57,7 @@ public class SalesOrderService : ISalesOrderService
         _businessPartnerService = businessPartnerService;
         _localPriceCatalogService = localPriceCatalogService;
         _idempotencyRequestStore = idempotencyRequestStore;
+        _creditLimitService = creditLimitService;
         _defaultMobileTaxPercent = NormalizeTaxPercent(revmaxSettings.Value.VatRate);
         _connectionString = context.Database.GetConnectionString()
             ?? throw new InvalidOperationException("DefaultConnection is not configured.");
@@ -455,6 +458,14 @@ public class SalesOrderService : ISalesOrderService
 
         await ValidateAndNormalizeSalesOrderRequestAsync(request, cancellationToken);
 
+        // Refuse an over-limit order before anything is written. Posting is also gated, but a web
+        // order that fails there is only left as a Draft with a sync error, which the rep never
+        // sees — the refusal has to reach them here, while they are still holding the order.
+        await EnsureWithinCreditLimitAsync(
+            request.CardCode,
+            CalculateSalesOrderTotals(request.Lines, request.DiscountPercent, request.Source).DocTotal,
+            cancellationToken);
+
         // If no warehouse specified, fall back to the user's assigned warehouse
         if (string.IsNullOrEmpty(request.WarehouseCode))
         {
@@ -511,16 +522,10 @@ public class SalesOrderService : ISalesOrderService
                         Longitude = request.Longitude
                     };
 
-                    decimal subTotal = 0;
-                    decimal taxAmount = 0;
                     int lineNum = 0;
 
                     foreach (var lineRequest in request.Lines)
                     {
-                        var taxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent, request.Source);
-                        var lineTotal = lineRequest.Quantity * lineRequest.UnitPrice * (1 - lineRequest.DiscountPercent / 100);
-                        var lineTax = lineTotal * taxPercent / 100;
-
                         var line = new SalesOrderLineEntity
                         {
                             LineNum = lineNum++,
@@ -529,8 +534,8 @@ public class SalesOrderService : ISalesOrderService
                             Quantity = lineRequest.Quantity,
                             UnitPrice = lineRequest.UnitPrice,
                             DiscountPercent = lineRequest.DiscountPercent,
-                            TaxPercent = taxPercent,
-                            LineTotal = lineTotal,
+                            TaxPercent = ResolveLineTaxPercent(lineRequest.TaxPercent, request.Source),
+                            LineTotal = CalculateLineTotal(lineRequest.Quantity, lineRequest.UnitPrice, lineRequest.DiscountPercent),
                             WarehouseCode = !string.IsNullOrEmpty(lineRequest.WarehouseCode) ? lineRequest.WarehouseCode : request.WarehouseCode,
                             UoMCode = lineRequest.UoMCode,
                             BatchNumber = lineRequest.BatchNumber,
@@ -538,14 +543,15 @@ public class SalesOrderService : ISalesOrderService
                         };
 
                         order.Lines.Add(line);
-                        subTotal += lineTotal;
-                        taxAmount += lineTax;
                     }
 
-                    order.SubTotal = subTotal;
-                    order.TaxAmount = taxAmount;
-                    order.DiscountAmount = subTotal * request.DiscountPercent / 100;
-                    order.DocTotal = subTotal - order.DiscountAmount + taxAmount;
+                    // Same helper the credit check above ran on, so the total this order is refused
+                    // or accepted on is the total it is stored with.
+                    var totals = CalculateSalesOrderTotals(request.Lines, request.DiscountPercent, request.Source);
+                    order.SubTotal = totals.SubTotal;
+                    order.TaxAmount = totals.TaxAmount;
+                    order.DiscountAmount = totals.DiscountAmount;
+                    order.DocTotal = totals.DocTotal;
 
                     _context.SalesOrders.Add(order);
                     await _context.SaveChangesAsync(cancellationToken);
@@ -1578,6 +1584,12 @@ public class SalesOrderService : ISalesOrderService
             return;
         }
 
+        // The authoritative gate: every route into SAP passes here, and by this point the order
+        // carries its real prices — a mobile order is priced after capture, so this is the first
+        // moment its true value is known. It sits after the already-linked check on purpose, so
+        // reconciling an order SAP has already accepted cannot be refused on credit.
+        await EnsureWithinCreditLimitAsync(order.CardCode, order.DocTotal, cancellationToken);
+
         var sapPostingMarkerRequest = new { orderNumber = order.OrderNumber };
         long? idempotencyRequestId = null;
         var releaseIdempotencyRequest = false;
@@ -2538,6 +2550,51 @@ public class SalesOrderService : ISalesOrderService
             throw new InvalidOperationException($"Sales order validation failed: {string.Join("; ", validationErrors)}");
 
         request.CardName = await ResolveCardNameAsync(request.CardCode, request.CardName, cancellationToken);
+    }
+
+    /// <summary>
+    /// Refuses the order when it would put the customer — or the parent account it draws its limit
+    /// from — over the credit limit set in SAP.
+    /// </summary>
+    private async Task EnsureWithinCreditLimitAsync(
+        string? cardCode,
+        decimal docTotal,
+        CancellationToken cancellationToken)
+    {
+        var result = await _creditLimitService.CheckSalesOrderAsync(cardCode, docTotal, cancellationToken);
+
+        if (!result.IsWithinLimit)
+        {
+            throw new CreditLimitExceededException(
+                result.Message ?? "This order would exceed the customer's credit limit.");
+        }
+    }
+
+    /// <summary>Line total net of the line discount, before tax.</summary>
+    private static decimal CalculateLineTotal(decimal quantity, decimal unitPrice, decimal discountPercent) =>
+        quantity * unitPrice * (1 - discountPercent / 100);
+
+    /// <summary>
+    /// The totals an order built from this request will carry. Single source for the document
+    /// total so the credit check and the persisted order cannot drift apart.
+    /// </summary>
+    private (decimal SubTotal, decimal TaxAmount, decimal DiscountAmount, decimal DocTotal) CalculateSalesOrderTotals(
+        IEnumerable<CreateSalesOrderLineRequest> lines,
+        decimal headerDiscountPercent,
+        SalesOrderSource source)
+    {
+        decimal subTotal = 0;
+        decimal taxAmount = 0;
+
+        foreach (var line in lines)
+        {
+            var lineTotal = CalculateLineTotal(line.Quantity, line.UnitPrice, line.DiscountPercent);
+            subTotal += lineTotal;
+            taxAmount += lineTotal * ResolveLineTaxPercent(line.TaxPercent, source) / 100;
+        }
+
+        var discountAmount = subTotal * headerDiscountPercent / 100;
+        return (subTotal, taxAmount, discountAmount, subTotal - discountAmount + taxAmount);
     }
 
     private async Task<string?> ResolveCardNameAsync(string? cardCode, string? currentCardName, CancellationToken cancellationToken)

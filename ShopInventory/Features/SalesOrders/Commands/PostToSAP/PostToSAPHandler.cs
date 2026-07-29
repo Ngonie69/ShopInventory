@@ -24,6 +24,11 @@ public sealed class PostToSAPHandler(
             try { await auditService.LogAsync(AuditActions.PostSalesOrderToSAP, "SalesOrder", command.Id.ToString(), $"Sales order {command.Id} posted to SAP", true); } catch { }
             return order;
         }
+        catch (CreditLimitExceededException ex)
+        {
+            logger.LogWarning("Refused posting sales order {Id} to SAP on credit: {Reason}", command.Id, ex.Message);
+            return Errors.SalesOrder.CreditLimitExceeded(ex.Message);
+        }
         catch (InvalidOperationException ex)
         {
             return Errors.SalesOrder.InvalidOperation(ex.Message);

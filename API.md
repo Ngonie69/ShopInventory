@@ -836,6 +836,87 @@ Change the current user's password.
 }
 ```
 
+**Credit limit check**
+
+An order is refused when it would take the customer past the credit limit set on the SAP business
+partner. The check runs twice: when the order is created, and again immediately before it is posted
+to SAP — a mobile order is priced after capture, so the post is the first point its real value is
+known.
+
+Exposure is `OCRD.Balance + open sales orders + this order`, measured against `OCRD.CreditLine`.
+Where the account names a consolidating parent (`OCRD.FatherCard`), the parent's limit is measured
+against the whole group's combined exposure; an account's own limit still applies alongside it.
+Accounts with no limit set are not restricted.
+
+Refusals come back as `400` with code `SalesOrder.CreditLimitExceeded` and a message naming the
+account, the limit, the balance and the amount over — safe to show to the user as-is:
+
+```json
+{
+  "status": 400,
+  "code": "SalesOrder.CreditLimitExceeded",
+  "errors": {
+    "SalesOrder.CreditLimitExceeded": [
+      "This order would take PinTail Trading (SAI034) over its credit limit. Credit limit USD 30,000.00, current balance USD 35,759.10, open orders USD 0.00, this order USD 1,200.00 — USD 6,959.10 over. Take a payment against the account or reduce the order before submitting it again."
+    ]
+  }
+}
+```
+
+If SAP cannot be reached the order is allowed through and a warning is logged, so a SAP outage does
+not stop order capture.
+
+**Evening credit review**
+
+A Quartz job (`credit-limit-review`) sweeps every customer once at 19:15 CAT — after the day's
+invoicing and payments are in — and raises a notification naming the accounts and groups already
+sitting over their limit, whose orders will be refused at capture the next day. The worst ten are
+named in the notification; the full list goes to the log at Warning. It is silent when nothing is
+over. The notification reaches Admin, Cashier and SalesRep users.
+
+**Credit control endpoint**
+
+| Method | Endpoint | Permission | Description |
+|--------|----------|-----------|-------------|
+| GET | `/api/credit-control/over-limit` | `customers.view` | Accounts and groups currently over their credit limit |
+
+Same finding as the evening review, on demand and in full. Served from a 10-minute cache; pass
+`?refresh=true` to re-read SAP, which is what to do after taking a payment. Concurrent callers
+share one sweep rather than each triggering their own.
+
+```json
+{
+  "generatedAt": "2026-07-29T09:15:04Z",
+  "fromCache": false,
+  "customersRead": 1840,
+  "limitsMeasured": 612,
+  "breachCount": 2,
+  "totalOver": 9959.10,
+  "breaches": [
+    {
+      "cardCode": "SAI034",
+      "cardName": "PinTail Trading (Pvt) Ltd T/A Sai Mart",
+      "currency": "USD",
+      "isGroup": false,
+      "accountCount": 1,
+      "creditLimit": 30000.00,
+      "balance": 35759.10,
+      "openOrders": 0.00,
+      "exposure": 35759.10,
+      "amountOver": 5759.10
+    }
+  ]
+}
+```
+
+`isGroup: true` means the row is a consolidated group: `cardCode` is the parent and the figures
+cover all `accountCount` accounts under it. A breached group is reported once, not once per member.
+`generatedAt` is when the SAP sweep ran, not when the request was served — a cached answer can be
+several minutes old, which is worth knowing before chasing an account.
+
+Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenOrders`,
+`EveningReviewEnabled`, `ReviewTimeCAT`, `ReviewNotificationAccountLimit`, `ReviewCacheMinutes`.
+
 ---
 
 ### 13. Quotations

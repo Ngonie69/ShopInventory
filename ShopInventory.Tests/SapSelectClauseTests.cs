@@ -45,6 +45,7 @@ public class SapSelectClauseTests
         { "InventoryTransferRequestSelect", "StockTransfer" },
         { "IncomingPaymentSelect", "Payment" },
         { "BusinessPartnerSelectFields", "BusinessPartner" },
+        { "BusinessPartnerCreditSelect", "BusinessPartner" },
         { "ItemSelect", "Item" },
     };
 
