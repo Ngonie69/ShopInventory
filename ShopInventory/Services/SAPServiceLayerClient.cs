@@ -8170,6 +8170,173 @@ ORDER BY T0.""ItemCode""";
         stock.InStock - stock.Committed;
 
     /// <summary>
+    /// Reads only the item-management flags needed while building an inventory transfer.
+    /// Kept separate from the general item cache because these are deliberately partial models.
+    /// </summary>
+    private async Task<Dictionary<string, Item?>> GetInventoryTransferItemMetadataAsync(
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken)
+    {
+        var codes = itemCodes
+            .Select(UomQuantityValidation.NormalizeItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var itemsByCode = codes.ToDictionary(
+            code => code,
+            _ => (Item?)null,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var chunk in codes.Chunk(40))
+        {
+            try
+            {
+                var safeItemCodes = chunk.Select(SanitizeODataValue).ToList();
+                var itemFilter = string.Join(
+                    " or ",
+                    safeItemCodes.Select(code => $"ItemCode eq '{code}'"));
+                var endpoint =
+                    "Items?$select=ItemCode,ManageBatchNumbers,ManageSerialNumbers" +
+                    $"&$filter=({itemFilter})&$top={chunk.Length}";
+
+                var requestSession = _sessionId;
+
+                HttpRequestMessage CreateRequest(string? sessionId)
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                    request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    return request;
+                }
+
+                var response = await _httpClient.SendAsync(CreateRequest(requestSession), cancellationToken);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await HandleAuthFailureAsync(requestSession, cancellationToken);
+                    response = await _httpClient.SendAsync(CreateRequest(_sessionId), cancellationToken);
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogWarning(
+                        "Failed to bulk-fetch inventory-transfer item metadata: {StatusCode} - {Error}",
+                        response.StatusCode,
+                        errorContent);
+                    continue;
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var result = JsonSerializer.Deserialize<SAPResponse<Item>>(content);
+                foreach (var item in result?.Value ?? [])
+                {
+                    if (!string.IsNullOrWhiteSpace(item.ItemCode))
+                    {
+                        itemsByCode[item.ItemCode] = item;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Preserve the existing best-effort allocation behaviour. SAP will provide the
+                // authoritative error if management metadata could not be loaded.
+                _logger.LogWarning(
+                    ex,
+                    "Failed to bulk-fetch inventory-transfer item metadata for {Count} items",
+                    chunk.Length);
+            }
+        }
+
+        _logger.LogInformation(
+            "Resolved inventory-transfer management metadata for {ResolvedCount} of {RequestedCount} items in {RequestCount} requests",
+            itemsByCode.Values.Count(item => item is not null),
+            codes.Count,
+            (codes.Count + 39) / 40);
+
+        return itemsByCode;
+    }
+
+    /// <summary>
+    /// Reads serial allocations for all requested transfer items in one warehouse query.
+    /// </summary>
+    private async Task<List<SerialNumber>> GetInventoryTransferSerialNumbersAsync(
+        IEnumerable<string> itemCodes,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var codes = itemCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var serials = new List<SerialNumber>();
+        foreach (var chunk in codes.Chunk(100))
+        {
+            var safeItemCodes = string.Join(
+                ", ",
+                chunk.Select(code => $"'{SanitizeSqlValue(code)}'"));
+            var safeWarehouse = SanitizeSqlValue(warehouseCode);
+            var sqlText = $@"SELECT T0.""ItemCode"", T0.""DistNumber"", T1.""Quantity"", T1.""WhsCode"",
+T0.""AbsEntry"" as ""SystemNumber"", T0.""IntrSerial"" as ""InternalSerialNumber"",
+T0.""MnfSerial"" as ""ManufacturerSerialNumber""
+FROM OSRN T0 INNER JOIN OSRQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
+WHERE T0.""ItemCode"" IN ({safeItemCodes})
+  AND T1.""WhsCode"" = '{safeWarehouse}'
+  AND T1.""Quantity"" > 0
+ORDER BY T0.""ItemCode"", T0.""DistNumber""";
+
+            var rows = await ExecuteScopedRawSqlQueryAsync(
+                "TRF_SERIALS",
+                $"Transfer serials in {warehouseCode}",
+                sqlText,
+                cancellationToken);
+
+            foreach (var row in rows)
+            {
+                serials.Add(new SerialNumber
+                {
+                    ItemCode = GetSapSqlString(row, "ItemCode"),
+                    DistNumber = GetSapSqlString(row, "DistNumber"),
+                    Quantity = GetSapSqlDecimal(row, "Quantity"),
+                    WhsCode = GetSapSqlString(row, "WhsCode") ?? warehouseCode,
+                    SystemNumber = GetSapSqlInt32(row, "SystemNumber"),
+                    InternalSerialNumber = GetSapSqlString(row, "InternalSerialNumber"),
+                    ManufacturerSerialNumber = GetSapSqlString(row, "ManufacturerSerialNumber")
+                });
+            }
+        }
+
+        return serials;
+    }
+
+    private static string? GetSapSqlString(
+        IReadOnlyDictionary<string, object?> row,
+        string fieldName) =>
+        row.TryGetValue(fieldName, out var value) ? Convert.ToString(value, CultureInfo.InvariantCulture) : null;
+
+    private static decimal GetSapSqlDecimal(
+        IReadOnlyDictionary<string, object?> row,
+        string fieldName) =>
+        row.TryGetValue(fieldName, out var value) && value is not null
+            ? Convert.ToDecimal(value, CultureInfo.InvariantCulture)
+            : 0;
+
+    private static int GetSapSqlInt32(
+        IReadOnlyDictionary<string, object?> row,
+        string fieldName) =>
+        row.TryGetValue(fieldName, out var value) && value is not null
+            ? Convert.ToInt32(value, CultureInfo.InvariantCulture)
+            : 0;
+
+    /// <summary>
     /// Creates a new inventory transfer in SAP Business One.
     /// CRITICAL: Stock availability should be validated before calling this method.
     /// </summary>
@@ -8195,36 +8362,19 @@ ORDER BY T0.""ItemCode""";
         // Validate the request
         ValidateInventoryTransferRequest(request);
 
-        // Pre-fetch all unique item metadata in parallel to avoid sequential SAP calls per line
-        var itemMetadataCache = new Dictionary<string, Item?>(StringComparer.OrdinalIgnoreCase);
+        // Load the transfer-specific management flags in bulk. A request per item was fast only
+        // when viewed in isolation: it occupied the shared SAP request slots and made posting time
+        // grow sharply once a transfer contained more lines than the concurrency limit.
         var uniqueItemCodes = request.Lines!
-            .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.BatchNumbers == null && l.SerialNumbers == null)
+            .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
+                        l.BatchNumbers is not { Count: > 0 } &&
+                        l.SerialNumbers is not { Count: > 0 })
             .Select(l => l.ItemCode!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        if (uniqueItemCodes.Count > 0)
-        {
-            _logger.LogInformation("Pre-fetching metadata for {Count} unique items in parallel", uniqueItemCodes.Count);
-            var metadataTasks = uniqueItemCodes.Select(async code =>
-            {
-                try
-                {
-                    var item = await GetItemByCodeAsync(code, cancellationToken);
-                    return (code, item);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to pre-fetch metadata for item {ItemCode}", code);
-                    return (code, (Item?)null);
-                }
-            });
-            var results = await Task.WhenAll(metadataTasks);
-            foreach (var (code, item) in results)
-            {
-                itemMetadataCache[code] = item;
-            }
-        }
+        var itemMetadataCache = await GetInventoryTransferItemMetadataAsync(
+            uniqueItemCodes,
+            cancellationToken);
 
         // Pre-fetch batch numbers in parallel for all batch-managed items
         var batchCache = new Dictionary<string, List<BatchNumber>>(StringComparer.OrdinalIgnoreCase);
@@ -8236,64 +8386,90 @@ ORDER BY T0.""ItemCode""";
         if (batchManagedItems.Count > 0)
         {
             var batchItemsByWarehouse = request.Lines!
-                .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.BatchNumbers == null && l.SerialNumbers == null
+                .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
+                    l.BatchNumbers is not { Count: > 0 } &&
+                    l.SerialNumbers is not { Count: > 0 }
                     && batchManagedItems.Contains(l.ItemCode!, StringComparer.OrdinalIgnoreCase))
-                .Select(l => new { ItemCode = l.ItemCode!, Warehouse = l.FromWarehouseCode ?? request.FromWarehouse ?? "01" })
-                .Distinct()
-                .ToList();
+                .GroupBy(
+                    l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01",
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(l => l.ItemCode!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    StringComparer.OrdinalIgnoreCase);
 
             // Try to populate from pre-fetched validation data first
-            var itemsNeedingFetch = new List<(string ItemCode, string Warehouse)>();
-            foreach (var x in batchItemsByWarehouse)
+            var warehousesNeedingFetch = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (warehouse, itemCodes) in batchItemsByWarehouse)
             {
-                var cacheKey = $"{x.ItemCode}|{x.Warehouse}";
                 if (preFetchedData?.WarehouseBatches != null &&
-                    preFetchedData.WarehouseBatches.TryGetValue(x.Warehouse, out var warehouseBatches) &&
+                    preFetchedData.WarehouseBatches.TryGetValue(warehouse, out var warehouseBatches) &&
                     warehouseBatches != null)
                 {
-                    // Filter pre-fetched warehouse batches to this specific item
-                    var itemBatches = warehouseBatches
-                        .Where(b => string.Equals(b.ItemCode, x.ItemCode, StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-                    batchCache[cacheKey] = itemBatches;
+                    foreach (var itemCode in itemCodes)
+                    {
+                        batchCache[$"{itemCode}|{warehouse}"] = warehouseBatches
+                            .Where(b => string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                    }
                 }
                 else
                 {
-                    itemsNeedingFetch.Add((x.ItemCode, x.Warehouse));
+                    warehousesNeedingFetch[warehouse] = itemCodes;
                 }
             }
 
-            if (itemsNeedingFetch.Count > 0)
+            if (warehousesNeedingFetch.Count > 0)
             {
-                _logger.LogInformation("Pre-fetching batches for {Count} batch-managed items in parallel (skipped {Skipped} from validation cache)",
-                    itemsNeedingFetch.Count, batchItemsByWarehouse.Count - itemsNeedingFetch.Count);
-                var batchTasks = itemsNeedingFetch.Select(async x =>
+                _logger.LogInformation(
+                    "Bulk-fetching batches for {ItemCount} batch-managed transfer items across {WarehouseCount} warehouses",
+                    warehousesNeedingFetch.Values.Sum(codes => codes.Count),
+                    warehousesNeedingFetch.Count);
+                var batchTasks = warehousesNeedingFetch.Select(async entry =>
                 {
-                    var cacheKey = $"{x.ItemCode}|{x.Warehouse}";
                     try
                     {
-                        var batches = await GetBatchNumbersForItemInWarehouseAsync(x.ItemCode, x.Warehouse, cancellationToken);
-                        return (cacheKey, batches);
+                        var batches = await GetBatchNumbersForItemsInWarehouseAsync(
+                            entry.Value,
+                            entry.Key,
+                            cancellationToken);
+                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: batches);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to pre-fetch batches for {ItemCode} in {Warehouse}", x.ItemCode, x.Warehouse);
-                        return (cacheKey, new List<BatchNumber>());
+                        _logger.LogWarning(
+                            ex,
+                            "Failed to bulk-fetch transfer batches in {Warehouse}",
+                            entry.Key);
+                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Batches: new List<BatchNumber>());
                     }
                 });
                 var batchResults = await Task.WhenAll(batchTasks);
-                foreach (var (key, batches) in batchResults)
+                foreach (var result in batchResults)
                 {
-                    batchCache[key] = batches;
+                    foreach (var itemCode in result.ItemCodes)
+                    {
+                        batchCache[$"{itemCode}|{result.Warehouse}"] = result.Batches
+                            .Where(b => string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                            .ToList();
+                    }
                 }
             }
             else
             {
-                _logger.LogInformation("All {Count} batch-managed items resolved from validation cache", batchItemsByWarehouse.Count);
+                _logger.LogInformation(
+                    "All {Count} batch-managed transfer items resolved from validation cache",
+                    batchItemsByWarehouse.Values.Sum(codes => codes.Count));
             }
         }
 
-        // Pre-fetch serial numbers in parallel for serial-managed items
+        // Pre-fetch serial numbers once per warehouse rather than once per item.
         var serialCache = new Dictionary<string, List<SerialNumber>>(StringComparer.OrdinalIgnoreCase);
         var serialManagedItems = itemMetadataCache
             .Where(kvp => kvp.Value?.ManageSerialNumbers == "tYES")
@@ -8303,31 +8479,56 @@ ORDER BY T0.""ItemCode""";
         if (serialManagedItems.Count > 0)
         {
             var serialItemsByWarehouse = request.Lines!
-                .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.BatchNumbers == null && l.SerialNumbers == null
+                .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
+                    l.BatchNumbers is not { Count: > 0 } &&
+                    l.SerialNumbers is not { Count: > 0 }
                     && serialManagedItems.Contains(l.ItemCode!, StringComparer.OrdinalIgnoreCase))
-                .Select(l => new { ItemCode = l.ItemCode!, Warehouse = l.FromWarehouseCode ?? request.FromWarehouse ?? "01" })
-                .Distinct()
-                .ToList();
+                .GroupBy(
+                    l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01",
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.Select(l => l.ItemCode!)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    StringComparer.OrdinalIgnoreCase);
 
-            _logger.LogInformation("Pre-fetching serials for {Count} serial-managed items in parallel", serialItemsByWarehouse.Count);
-            var serialTasks = serialItemsByWarehouse.Select(async x =>
+            _logger.LogInformation(
+                "Bulk-fetching serials for {ItemCount} serial-managed transfer items across {WarehouseCount} warehouses",
+                serialItemsByWarehouse.Values.Sum(codes => codes.Count),
+                serialItemsByWarehouse.Count);
+            var serialTasks = serialItemsByWarehouse.Select(async entry =>
             {
-                var cacheKey = $"{x.ItemCode}|{x.Warehouse}";
                 try
+                    {
+                        var serials = await GetInventoryTransferSerialNumbersAsync(
+                            entry.Value,
+                            entry.Key,
+                            cancellationToken);
+                        return (Warehouse: entry.Key, ItemCodes: entry.Value, Serials: serials);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
                 {
-                    var serials = await GetSerialNumbersForItemInWarehouseAsync(x.ItemCode, x.Warehouse, cancellationToken);
-                    return (cacheKey, serials);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to pre-fetch serials for {ItemCode} in {Warehouse}", x.ItemCode, x.Warehouse);
-                    return (cacheKey, new List<SerialNumber>());
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to bulk-fetch transfer serials in {Warehouse}",
+                        entry.Key);
+                    return (Warehouse: entry.Key, ItemCodes: entry.Value, Serials: new List<SerialNumber>());
                 }
             });
             var serialResults = await Task.WhenAll(serialTasks);
-            foreach (var (key, serials) in serialResults)
+            foreach (var result in serialResults)
             {
-                serialCache[key] = serials;
+                foreach (var itemCode in result.ItemCodes)
+                {
+                    serialCache[$"{itemCode}|{result.Warehouse}"] = result.Serials
+                        .Where(s => string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
             }
         }
 
@@ -8927,11 +9128,104 @@ ORDER BY T0.""ItemCode""";
         }
 
         // Build the transfer lines from the request with batch allocation
-        // Cache item metadata across lines to avoid repeated SAP lookups
-        var itemMetadataCache = new Dictionary<string, Item?>(StringComparer.OrdinalIgnoreCase);
         var transferLines = new List<CreateInventoryTransferLineRequest>();
         if (transferRequest.StockTransferLines != null)
         {
+            var itemMetadataCache = await GetInventoryTransferItemMetadataAsync(
+                transferRequest.StockTransferLines
+                    .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode))
+                    .Select(line => line.ItemCode!),
+                cancellationToken);
+            var batchCache = new Dictionary<string, List<BatchNumber>>(StringComparer.OrdinalIgnoreCase);
+            var serialCache = new Dictionary<string, List<SerialNumber>>(StringComparer.OrdinalIgnoreCase);
+
+            var managedItemsByWarehouse = transferRequest.StockTransferLines
+                .Where(line => !string.IsNullOrWhiteSpace(line.ItemCode))
+                .GroupBy(
+                    line => line.FromWarehouseCode ?? transferRequest.FromWarehouse ?? "01",
+                    StringComparer.OrdinalIgnoreCase);
+
+            foreach (var warehouseGroup in managedItemsByWarehouse)
+            {
+                var batchItemCodes = warehouseGroup
+                    .Select(line => line.ItemCode!)
+                    .Where(code => itemMetadataCache.TryGetValue(code, out var item) &&
+                                   item?.ManageBatchNumbers == "tYES")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (batchItemCodes.Count > 0)
+                {
+                    try
+                    {
+                        var batches = await GetBatchNumbersForItemsInWarehouseAsync(
+                            batchItemCodes,
+                            warehouseGroup.Key,
+                            cancellationToken);
+                        foreach (var itemCode in batchItemCodes)
+                        {
+                            batchCache[$"{itemCode}|{warehouseGroup.Key}"] = batches
+                                .Where(batch => string.Equals(
+                                    batch.ItemCode,
+                                    itemCode,
+                                    StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Failed to bulk-fetch batches while converting transfer request {DocEntry} in {Warehouse}",
+                            requestDocEntry,
+                            warehouseGroup.Key);
+                    }
+                }
+
+                var serialItemCodes = warehouseGroup
+                    .Select(line => line.ItemCode!)
+                    .Where(code => itemMetadataCache.TryGetValue(code, out var item) &&
+                                   item?.ManageSerialNumbers == "tYES")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (serialItemCodes.Count > 0)
+                {
+                    try
+                    {
+                        var serials = await GetInventoryTransferSerialNumbersAsync(
+                            serialItemCodes,
+                            warehouseGroup.Key,
+                            cancellationToken);
+                        foreach (var itemCode in serialItemCodes)
+                        {
+                            serialCache[$"{itemCode}|{warehouseGroup.Key}"] = serials
+                                .Where(serial => string.Equals(
+                                    serial.ItemCode,
+                                    itemCode,
+                                    StringComparison.OrdinalIgnoreCase))
+                                .ToList();
+                        }
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Failed to bulk-fetch serials while converting transfer request {DocEntry} in {Warehouse}",
+                            requestDocEntry,
+                            warehouseGroup.Key);
+                    }
+                }
+            }
+
             foreach (var requestLine in transferRequest.StockTransferLines)
             {
                 var fromWarehouse = requestLine.FromWarehouseCode ?? transferRequest.FromWarehouse ?? "01";
@@ -8963,7 +9257,14 @@ ORDER BY T0.""ItemCode""";
 
                         if (item != null && item.ManageBatchNumbers == "tYES")
                         {
-                            var batches = await GetBatchNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, allocationToken);
+                            var allocationCacheKey = $"{requestLine.ItemCode}|{fromWarehouse}";
+                            if (!batchCache.TryGetValue(allocationCacheKey, out var batches))
+                            {
+                                batches = await GetBatchNumbersForItemInWarehouseAsync(
+                                    requestLine.ItemCode,
+                                    fromWarehouse,
+                                    allocationToken);
+                            }
                             if (batches.Any())
                             {
                                 _logger.LogInformation("Found {BatchCount} batches for item {ItemCode} in warehouse {Warehouse}",
@@ -9016,7 +9317,14 @@ ORDER BY T0.""ItemCode""";
                         }
                         else if (item != null && item.ManageSerialNumbers == "tYES")
                         {
-                            var serials = await GetSerialNumbersForItemInWarehouseAsync(requestLine.ItemCode, fromWarehouse, allocationToken);
+                            var allocationCacheKey = $"{requestLine.ItemCode}|{fromWarehouse}";
+                            if (!serialCache.TryGetValue(allocationCacheKey, out var serials))
+                            {
+                                serials = await GetSerialNumbersForItemInWarehouseAsync(
+                                    requestLine.ItemCode,
+                                    fromWarehouse,
+                                    allocationToken);
+                            }
                             if (serials.Any())
                             {
                                 _logger.LogInformation("Found {SerialCount} serial numbers for item {ItemCode} in warehouse {Warehouse}",

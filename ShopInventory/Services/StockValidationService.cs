@@ -583,11 +583,20 @@ public class StockValidationService : IStockValidationService
                     .ToList(),
                 StringComparer.OrdinalIgnoreCase);
 
+        var warehouseBatchItemCodes = request.Lines
+            .Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) &&
+                        l.BatchNumbers is { Count: > 0 })
+            .GroupBy(l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(l => l.ItemCode!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
         // Pre-fetch stock and batch data for all unique source warehouses in parallel.
         // Stock validation only needs the requested item codes; loading a full warehouse can time out on large SAP datasets.
         var uniqueWarehouses = warehouseItemCodes.Keys.ToList();
-
-        var hasBatchLines = request.Lines.Any(l => l.BatchNumbers != null && l.BatchNumbers.Count > 0);
 
         var prefetchTasks = uniqueWarehouses.Select(async wh =>
         {
@@ -605,13 +614,17 @@ public class StockValidationService : IStockValidationService
                 _logger.LogWarning(ex, "Failed to get stock quantities for warehouse {Warehouse}", wh);
             }
 
-            // Fetch all batch numbers for this warehouse if any lines use batches
+            // Fetch only the batches referenced by this transfer. Loading every batch in a large
+            // warehouse made posting latency depend on unrelated warehouse inventory.
             List<BatchNumber>? batches = null;
-            if (hasBatchLines)
+            if (warehouseBatchItemCodes.TryGetValue(wh, out var batchItemCodes))
             {
                 try
                 {
-                    batches = await _sapClient.GetAllBatchNumbersInWarehouseAsync(wh, cancellationToken);
+                    batches = await _sapClient.GetBatchNumbersForItemsInWarehouseAsync(
+                        batchItemCodes,
+                        wh,
+                        cancellationToken);
                 }
                 catch (Exception ex)
                 {
