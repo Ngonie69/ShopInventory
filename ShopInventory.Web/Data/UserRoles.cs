@@ -21,7 +21,7 @@ public static class UserRoles
     public const string StockController = "StockController";
 
     /// <summary>
-    /// Depot Controller with access to incoming payments and inventory transfers
+    /// Depot Controller with access to inventory transfers and local stock only
     /// </summary>
     public const string DepotController = "DepotController";
 
@@ -63,12 +63,12 @@ public static class UserRoles
     /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
-    public const string DashboardRoles = "Admin,Cashier,StockController,DepotController,Manager,SalesRep";
-    public const string CatalogueRoles = "Admin,Cashier,StockController,DepotController,Manager";
-    public const string InsightsRoles = "Admin,Cashier,StockController,DepotController,Manager";
-    public const string SystemRoles = "Admin,Cashier,StockController,DepotController,Manager";
+    public const string DashboardRoles = "Admin,Cashier,StockController,Manager,SalesRep";
+    public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
+    public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
+    public const string SystemRoles = "Admin,Cashier,StockController,Manager";
     public const string InvoicingRoles = "Admin,Cashier";
-    public const string PaymentRoles = "Admin,Cashier,DepotController";
+    public const string PaymentRoles = "Admin,Cashier";
     public const string InventoryTransferRoles = "Admin,Manager,StockController,DepotController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
@@ -100,16 +100,14 @@ public static class UserRoles
     /// </summary>
     public static bool CanViewPayments(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can create payments
     /// </summary>
     public static bool CanCreatePayments(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can view/create sales orders

@@ -84,5 +84,21 @@ public static partial class Errors
             Error.Forbidden(
                 "InventoryTransfer.NoAssignedWarehouses",
                 "Your account has no assigned warehouses. Ask an administrator to assign one before actioning transfers.");
+
+        public static Error PendingEditNotFound(Guid id) =>
+            Error.NotFound("InventoryTransfer.PendingEditNotFound", $"Pending transfer request change {id} was not found.");
+
+        public static Error PendingEditNotActionable(string status) =>
+            Error.Conflict("InventoryTransfer.PendingEditNotActionable", $"This change is {status} and can no longer be actioned.");
+
+        public static readonly Error TransferRequestNotEditable =
+            Error.Conflict(
+                "InventoryTransfer.TransferRequestNotEditable",
+                "This transfer request is closed and can no longer be changed.");
+
+        public static Error TransferRequestEditInFlight(int docEntry) =>
+            Error.Conflict(
+                "InventoryTransfer.TransferRequestEditInFlight",
+                $"A change to transfer request {docEntry} is already waiting for approval.");
     }
 }

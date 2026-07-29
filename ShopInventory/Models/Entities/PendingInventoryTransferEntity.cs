@@ -22,6 +22,14 @@ public sealed class PendingInventoryTransferEntity
     [MaxLength(200)]
     public string? ClientRequestId { get; set; }
 
+    /// <summary>
+    /// Human-readable reference for the held draft, assigned at submission — the transfer has
+    /// no SAP DocNum until it posts, so this is the only number anyone can quote for it.
+    /// Null only on records created before draft numbering existed.
+    /// </summary>
+    [MaxLength(30)]
+    public string? DraftNumber { get; set; }
+
     [Required]
     [MaxLength(50)]
     public string FromWarehouse { get; set; } = string.Empty;

@@ -229,7 +229,7 @@
     <AuthorizeView>
         <Authorized>
             @* ── Overview ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager,SalesRep"
+            <AuthorizeView Roles="@UserRoles.DashboardRoles"
                            Context="dashboardCtx">
                 <Authorized>
                     <div class="nav-section-label">Overview</div>
@@ -396,6 +396,20 @@
                 </Authorized>
             </AuthorizeView>
 
+            @* Depot controllers only see Transfers and Local Stock, so their account
+               self-service link lives here rather than in the System section. *@
+            <AuthorizeView Roles="DepotController" Context="depotAccountCtx">
+                <Authorized>
+                    <div class="nav-section-label">Account</div>
+                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Security" />
+                        </span>
+                        <span class="snav-text">Security</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+
             @* ── Purchasing ── *@
             <AuthorizeView Roles="Admin,Manager" Context="purchasingCtx">
                 <Authorized>
@@ -464,7 +478,7 @@
             </AuthorizeView>
 
             @* ── Payments ── *@
-            <AuthorizeView Roles="Admin,Cashier,DepotController" Context="paymentCtx">
+            <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="paymentCtx">
                 <Authorized>
                     <div class="nav-section-label">Payments</div>
                     <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
@@ -483,7 +497,7 @@
             </AuthorizeView>
 
             @* ── Catalogue ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="catalogueCtx">
+            <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="catalogueCtx">
                 <Authorized>
                     <div class="nav-section-label">Catalogue</div>
                     <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
@@ -542,7 +556,7 @@
             </AuthorizeView>
 
             @* ── Insights ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsCtx">
+            <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="insightsCtx">
                 <Authorized>
                     <div class="nav-section-label">Insights</div>
                     <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
@@ -594,7 +608,7 @@
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="accountSalesPaymentsCtx">
+            <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="accountSalesPaymentsCtx">
                 <Authorized>
                     <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
@@ -735,7 +749,7 @@
             </AuthorizeView>
 
             @* ── System ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="systemCtx">
+            <AuthorizeView Roles="@UserRoles.SystemRoles" Context="systemCtx">
                 <Authorized>
                     <div class="nav-section-label">System</div>
                     <NavLink class="snav-link" href="/exception-center" Match="NavLinkMatch.Prefix">

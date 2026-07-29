@@ -1,7 +1,7 @@
 @page "/payments"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,DepotController")]
+@attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IPaymentService PaymentService
 @inject ILogger<Payments> Logger
 @inject IAppSettingsProvider AppSettings

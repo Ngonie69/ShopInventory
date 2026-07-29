@@ -83,7 +83,14 @@ public static class ApprovalDocumentTypes
     /// <summary>A direct inventory transfer, held locally until fully approved.</summary>
     public const string InventoryTransfer = "InventoryTransfer";
 
-    public static readonly IReadOnlyList<string> All = [InventoryTransferRequest, InventoryTransfer];
+    /// <summary>
+    /// A change to an existing SAP transfer request, held locally until approved. Raised when
+    /// the editor is scoped to warehouses that do not include the request's source.
+    /// </summary>
+    public const string InventoryTransferRequestEdit = "InventoryTransferRequestEdit";
+
+    public static readonly IReadOnlyList<string> All =
+        [InventoryTransferRequest, InventoryTransfer, InventoryTransferRequestEdit];
 
     public static bool IsKnown(string? documentType) =>
         All.Contains(documentType, StringComparer.OrdinalIgnoreCase);

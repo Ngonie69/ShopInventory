@@ -10,6 +10,10 @@ public class PendingInventoryTransferDto
     [JsonPropertyName("id")]
     public Guid Id { get; set; }
 
+    /// <summary>Reference for the draft while it has no SAP document number, e.g. DT-2026-00007.</summary>
+    [JsonPropertyName("draftNumber")]
+    public string? DraftNumber { get; set; }
+
     [JsonPropertyName("fromWarehouse")]
     public string? FromWarehouse { get; set; }
 

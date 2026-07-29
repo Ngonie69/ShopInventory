@@ -428,9 +428,12 @@
                                Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-0"
                                SelectedValuesChanged="@(_ => LoadPendingTransfersAsync())">
                         <MudSelectItem T="string" Value="@PendingTransferStatuses.AwaitingApproval">Awaiting approval</MudSelectItem>
+                        <MudSelectItem T="string" Value="@PendingTransferStatuses.Approved">Approved — posting</MudSelectItem>
+                        <MudSelectItem T="string" Value="@PendingTransferStatuses.Posted">Posted to SAP</MudSelectItem>
                         <MudSelectItem T="string" Value="@PendingTransferStatuses.PostFailed">Failed to post</MudSelectItem>
                         <MudSelectItem T="string" Value="@PendingTransferStatuses.Rejected">Rejected</MudSelectItem>
-                        <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+                        <MudSelectItem T="string" Value="@PendingTransferStatuses.Cancelled">Withdrawn</MudSelectItem>
+                        <MudSelectItem T="string" Value="@AllStatusFilter">All</MudSelectItem>
                     </MudSelect>
                 </div>
                 <button type="button" class="itx-btn itx-btn-sm" @onclick="LoadPendingTransfersAsync" disabled="@isLoadingPending">
@@ -452,6 +455,7 @@
                     <MudTable Items="@pendingTransfers" RowsPerPage="@_pageSize" Hover="true" Dense="true"
                               Breakpoint="Breakpoint.Sm" Elevation="0">
                         <HeaderContent>
+                            <MudTh>Draft #</MudTh>
                             <MudTh>Submitted</MudTh>
                             <MudTh>Route</MudTh>
                             <MudTh>Requested by</MudTh>
@@ -461,6 +465,7 @@
                             <MudTh Style="width:150px;text-align:center;">Actions</MudTh>
                         </HeaderContent>
                         <RowTemplate>
+                            <MudTd DataLabel="Draft #"><span class="itx-wh count">@DraftReference(context)</span></MudTd>
                             <MudTd DataLabel="Submitted">@context.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudTd>
                             <MudTd DataLabel="Route">
                                 <span class="itx-route">
@@ -524,7 +529,7 @@
     <div class="itx-scrim" @onclick="ClosePendingTransfer"></div>
     <div class="itx-drawer">
         <div class="itx-drawer-head">
-            <h5><i class="bi bi-hourglass-split me-2"></i>Transfer awaiting approval</h5>
+            <h5><i class="bi bi-hourglass-split me-2"></i>Draft @DraftReference(selectedPendingTransfer)</h5>
             <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="ClosePendingTransfer" />
         </div>
         <div class="itx-drawer-body">
@@ -541,6 +546,8 @@
             </div>
 
             <dl class="row small mt-3">
+                <dt class="col-5">Draft number</dt>
+                <dd class="col-7">@DraftReference(selectedPendingTransfer)</dd>
                 <dt class="col-5">Submitted by</dt>
                 <dd class="col-7">@selectedPendingTransfer.CreatedByName (@selectedPendingTransfer.CreatedByRole)</dd>
                 <dt class="col-5">Submitted</dt>
@@ -587,21 +594,43 @@
             </ul>
 
             <h6 class="mt-3">Lines</h6>
-            <table class="table table-sm small">
-                <thead>
-                    <tr><th>Item</th><th class="text-end">Qty</th><th>UoM</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var line in selectedPendingTransfer.Lines)
-                    {
+            @if (isLoadingPendingDetail)
+            {
+                <div class="text-muted small py-2">
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading lines…
+                </div>
+            }
+            else if (selectedPendingTransfer.Lines.Count == 0)
+            {
+                <p class="text-muted small mb-0">No line items could be read for this draft.</p>
+            }
+            else
+            {
+                <table class="table table-sm small">
+                    <thead>
+                        <tr><th>Item</th><th>From</th><th>To</th><th class="text-end">Qty</th><th>UoM</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in selectedPendingTransfer.Lines)
+                        {
+                            <tr>
+                                <td>@line.ItemCode</td>
+                                <td>@(line.FromWarehouseCode ?? selectedPendingTransfer.FromWarehouse)</td>
+                                <td>@(line.ToWarehouseCode ?? selectedPendingTransfer.ToWarehouse)</td>
+                                <td class="text-end">@line.Quantity.ToString("N2")</td>
+                                <td>@(line.UoMCode ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
                         <tr>
-                            <td>@line.ItemCode</td>
-                            <td class="text-end">@line.Quantity.ToString("N2")</td>
-                            <td>@(line.UoMCode ?? "—")</td>
+                            <td colspan="3" class="text-end fw-bold">Total</td>
+                            <td class="text-end fw-bold">@selectedPendingTransfer.Lines.Sum(l => l.Quantity).ToString("N2")</td>
+                            <td></td>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </tfoot>
+                </table>
+            }
 
             @if (selectedPendingTransfer.CanCurrentUserDecide)
             {
@@ -618,6 +647,14 @@
                     </button>
                 </div>
             }
+        </div>
+        <div class="itx-drawer-foot">
+            <button type="button" class="itx-btn itx-btn-primary"
+                    disabled="@(isPrinting || isLoadingPendingDetail)"
+                    @onclick="() => PrintPendingTransferDraft(selectedPendingTransfer)">
+                <i class="bi bi-printer"></i> Print Draft
+            </button>
+            <button type="button" class="itx-btn" @onclick="ClosePendingTransfer">Close</button>
         </div>
     </div>
 }
@@ -878,48 +915,222 @@
                 }
             }
 
-            @if (selectedTransferRequest.Lines?.Any() == true)
+            @if (heldEditForSelectedRequest != null)
             {
                 <div class="itx-section">
-                    <i class="bi bi-list-check"></i> Request Lines (@selectedTransferRequest.Lines.Count)
+                    <i class="bi bi-hourglass-split"></i> Change awaiting approval
+                </div>
+                <div class="itx-alert warn">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <div class="itx-alert-body">
+                        <strong>@heldEditForSelectedRequest.CreatedByName</strong> proposed a change on
+                        @heldEditForSelectedRequest.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm").
+                        It is not in SAP yet.
+                        @if (!string.IsNullOrWhiteSpace(heldEditForSelectedRequest.Reason))
+                        {
+                            <div class="fst-italic mt-1">@heldEditForSelectedRequest.Reason</div>
+                        }
+                    </div>
                 </div>
                 <div class="itx-lines-wrap">
                     <table class="itx-lines">
                         <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Item</th>
-                                <th>From</th>
-                                <th>To</th>
-                                <th class="num">Qty</th>
-                                <th>UoM</th>
-                            </tr>
+                            <tr><th>#</th><th>Item</th><th class="num">Current</th><th class="num">Proposed</th></tr>
                         </thead>
                         <tbody>
-                            @foreach (var line in selectedTransferRequest.Lines)
+                            @foreach (var line in heldEditForSelectedRequest.OriginalLines)
                             {
+                                var proposed = heldEditForSelectedRequest.ProposedLines
+                                    .FirstOrDefault(item => item.LineNum == line.LineNum);
                                 <tr>
                                     <td>@line.LineNum</td>
-                                    <td>
-                                        <div class="fw-semibold">@line.ItemCode</div>
-                                        <div class="muted">@line.ItemDescription</div>
-                                    </td>
-                                    <td><span class="itx-wh src">@line.FromWarehouseCode</span></td>
-                                    <td><span class="itx-wh dst">@line.ToWarehouseCode</span></td>
+                                    <td><div class="fw-semibold">@line.ItemCode</div></td>
                                     <td class="num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                    <td class="muted">@line.UoMCode</td>
+                                    <td class="num">
+                                        @if (proposed == null)
+                                        {
+                                            <span class="itx-status rejected">Removed</span>
+                                        }
+                                        else if (proposed.Quantity != line.Quantity)
+                                        {
+                                            <strong>@QuantityDisplay.Format(proposed.Quantity, line.UoMCode)</strong>
+                                        }
+                                        else
+                                        {
+                                            <span class="muted">unchanged</span>
+                                        }
+                                    </td>
                                 </tr>
                             }
                         </tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="4" class="num">Total</td>
-                                <td class="num">@QuantityDisplay.Format(selectedTransferRequest.Lines.Sum(l => l.Quantity))</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
                     </table>
                 </div>
+                @if (heldEditForSelectedRequest.CanCurrentUserDecide)
+                {
+                    <div class="mt-3">
+                        <label class="form-label small fw-semibold">Remarks</label>
+                        <textarea class="form-control form-control-sm" rows="2"
+                                  placeholder="Optional approval or rejection remarks"
+                                  value="@requestEditDecisionRemarks"
+                                  @oninput="e => requestEditDecisionRemarks = e.Value?.ToString()"></textarea>
+                        <div class="d-flex gap-2 mt-2">
+                            <button type="button" class="itx-btn itx-btn-sm itx-btn-primary" disabled="@isDecidingRequestEdit"
+                                    @onclick="() => DecideRequestEditAsync(ApprovedDecision)">
+                                <i class="bi bi-check-circle"></i> Approve change
+                            </button>
+                            <button type="button" class="itx-btn itx-btn-sm itx-btn-danger" disabled="@isDecidingRequestEdit"
+                                    @onclick="() => DecideRequestEditAsync(RejectedDecision)">
+                                <i class="bi bi-x-circle"></i> Reject change
+                            </button>
+                        </div>
+                    </div>
+                }
+                else if (heldEditForSelectedRequest.CreatedByUserId == currentUserId)
+                {
+                    <div class="mt-2">
+                        <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingRequestEdit"
+                                @onclick="WithdrawRequestEditAsync">
+                            <i class="bi bi-arrow-counterclockwise"></i> Withdraw change
+                        </button>
+                    </div>
+                }
+            }
+
+            @if (selectedTransferRequest.Lines?.Any() == true)
+            {
+                <div class="itx-section d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-list-check"></i> Request Lines (@selectedTransferRequest.Lines.Count)</span>
+                    @if (!isEditingRequestLines && CanEditRequestLines(selectedTransferRequest))
+                    {
+                        <button type="button" class="itx-btn itx-btn-sm" @onclick="BeginEditRequestLines">
+                            <i class="bi bi-pencil"></i> Edit lines
+                        </button>
+                    }
+                </div>
+
+                @if (isEditingRequestLines)
+                {
+                    <div class="itx-lines-wrap">
+                        <table class="itx-lines">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Item</th>
+                                    <th class="num">Original</th>
+                                    <th class="num">Quantity</th>
+                                    <th style="width:60px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in requestEditLines)
+                                {
+                                    <tr class="@(line.Removed ? "opacity-50" : null)">
+                                        <td>@line.LineNum</td>
+                                        <td>
+                                            <div class="fw-semibold">@line.ItemCode</div>
+                                            <div class="muted">@line.ItemDescription</div>
+                                        </td>
+                                        <td class="num muted">@QuantityDisplay.Format(line.OriginalQuantity, line.UoMCode)</td>
+                                        <td class="num">
+                                            @if (line.Removed)
+                                            {
+                                                <span class="itx-status rejected">Removed</span>
+                                            }
+                                            else
+                                            {
+                                                <input type="number" step="any" min="0" class="form-control form-control-sm text-end"
+                                                       style="max-width:120px;margin-left:auto;"
+                                                       value="@line.Quantity"
+                                                       @oninput="e => SetRequestEditQuantity(line, e.Value?.ToString())" />
+                                            }
+                                        </td>
+                                        <td class="text-center">
+                                            <MudIconButton Size="Size.Small"
+                                                           Icon="@(line.Removed ? Icons.Material.Filled.Undo : Icons.Material.Filled.Delete)"
+                                                           Color="@(line.Removed ? Color.Default : Color.Error)"
+                                                           title="@(line.Removed ? "Keep this line" : "Remove this line")"
+                                                           OnClick="() => ToggleRequestEditLineRemoval(line)" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="3" class="num">Total</td>
+                                    <td class="num">@QuantityDisplay.Format(requestEditLines.Where(l => !l.Removed).Sum(l => l.Quantity))</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    @if (!CanActOnRequestSource(selectedTransferRequest))
+                    {
+                        <div class="itx-alert warn mt-2">
+                            <i class="bi bi-info-circle-fill"></i>
+                            <div class="itx-alert-body">
+                                @selectedTransferRequest.FromWarehouse is not one of your assigned warehouses,
+                                so this change will be sent for approval rather than written to SAP.
+                            </div>
+                        </div>
+                        <label class="form-label small fw-semibold mt-2">Reason for the change</label>
+                        <textarea class="form-control form-control-sm" rows="2"
+                                  placeholder="Tell the approver why these lines should change"
+                                  value="@requestEditReason"
+                                  @oninput="e => requestEditReason = e.Value?.ToString()"></textarea>
+                    }
+
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="itx-btn itx-btn-primary" disabled="@isSavingRequestEdit"
+                                @onclick="SaveRequestEditAsync">
+                            <i class="bi bi-save"></i> @(CanActOnRequestSource(selectedTransferRequest) ? "Save changes" : "Send for approval")
+                        </button>
+                        <button type="button" class="itx-btn" disabled="@isSavingRequestEdit"
+                                @onclick="CancelEditRequestLines">
+                            Cancel
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="itx-lines-wrap">
+                        <table class="itx-lines">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Item</th>
+                                    <th>From</th>
+                                    <th>To</th>
+                                    <th class="num">Qty</th>
+                                    <th>UoM</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in selectedTransferRequest.Lines)
+                                {
+                                    <tr>
+                                        <td>@line.LineNum</td>
+                                        <td>
+                                            <div class="fw-semibold">@line.ItemCode</div>
+                                            <div class="muted">@line.ItemDescription</div>
+                                        </td>
+                                        <td><span class="itx-wh src">@line.FromWarehouseCode</span></td>
+                                        <td><span class="itx-wh dst">@line.ToWarehouseCode</span></td>
+                                        <td class="num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                        <td class="muted">@line.UoMCode</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="4" class="num">Total</td>
+                                    <td class="num">@QuantityDisplay.Format(selectedTransferRequest.Lines.Sum(l => l.Quantity))</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
             }
         </div>
         <div class="itx-drawer-foot">
@@ -980,13 +1191,26 @@
     private List<PendingInventoryTransferDto>? pendingTransfers;
     private PendingInventoryTransferDto? selectedPendingTransfer;
     private bool isLoadingPending = false;
+    private bool isLoadingPendingDetail = false;
     private bool isDecidingPending = false;
     private int pendingTransferCount = 0;
     private string pendingStatusFilter = PendingTransferStatuses.AwaitingApproval;
     private string? pendingDecisionRemarks;
     private const string ApprovedDecision = "Approved";
     private const string RejectedDecision = "NotApproved";
+
+    // ── Editing a transfer request ──────────────────────
+    private static readonly string[] RequestEditorRoles =
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.DepotController, UserRoles.Manager];
+    private bool isEditingRequestLines = false;
+    private bool isSavingRequestEdit = false;
+    private bool isDecidingRequestEdit = false;
+    private List<RequestEditLineModel> requestEditLines = [];
+    private string? requestEditReason;
+    private string? requestEditDecisionRemarks;
+    private PendingTransferRequestEditDto? heldEditForSelectedRequest;
     private const string PendingStageStatus = "Pending";
+    private const string AllStatusFilter = "all";
 
     // ── Warehouse search ────────────────────────────────
     private bool isLoadingWarehouses = true;
@@ -1216,9 +1440,15 @@
         {
             var response = await TransferService.GetPendingTransfersAsync(pendingStatusFilter, pageSize: 200);
             pendingTransfers = response?.Items ?? [];
-            pendingTransferCount = pendingStatusFilter == PendingTransferStatuses.AwaitingApproval
-                ? pendingTransfers.Count
-                : pendingTransfers.Count(item => item.Status == PendingTransferStatuses.AwaitingApproval);
+
+            // The tab badge counts what is still awaiting approval. Only a result set that could
+            // contain those rows can update it — filtering to, say, Posted says nothing about how
+            // many are still waiting, so the last known count stands.
+            if (pendingStatusFilter is PendingTransferStatuses.AwaitingApproval or AllStatusFilter)
+            {
+                pendingTransferCount = pendingTransfers.Count(
+                    item => item.Status == PendingTransferStatuses.AwaitingApproval);
+            }
         }
         catch (Exception ex)
         {
@@ -1233,10 +1463,40 @@
         }
     }
 
-    private void ViewPendingTransfer(PendingInventoryTransferDto pending)
+    /// <summary>
+    /// Opens the drawer on the list row, then replaces it with the full record. The list is
+    /// served without line items, so the detail call is what populates the Lines table.
+    /// </summary>
+    private async Task ViewPendingTransfer(PendingInventoryTransferDto pending)
     {
         selectedPendingTransfer = pending;
         pendingDecisionRemarks = null;
+        await RefreshSelectedPendingTransferAsync();
+    }
+
+    private async Task RefreshSelectedPendingTransferAsync()
+    {
+        var id = selectedPendingTransfer?.Id;
+        if (id is null) return;
+
+        isLoadingPendingDetail = true;
+        StateHasChanged();
+        try
+        {
+            var detail = await TransferService.GetPendingTransferAsync(id.Value);
+            // The drawer may have been closed or switched while the call was in flight.
+            if (detail != null && selectedPendingTransfer?.Id == id)
+                selectedPendingTransfer = detail;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load pending transfer {PendingId}", id);
+        }
+        finally
+        {
+            isLoadingPendingDetail = false;
+            StateHasChanged();
+        }
     }
 
     private void ClosePendingTransfer()
@@ -1244,6 +1504,9 @@
         selectedPendingTransfer = null;
         pendingDecisionRemarks = null;
     }
+
+    private static string DraftReference(PendingInventoryTransferDto pending) =>
+        string.IsNullOrWhiteSpace(pending.DraftNumber) ? "—" : pending.DraftNumber;
 
     private async Task DecidePendingTransferAsync(PendingInventoryTransferDto pending, string decision)
     {
@@ -1261,18 +1524,31 @@
             {
                 successMessage = message;
                 ClosePendingTransfer();
-                await LoadPendingTransfersAsync();
             }
             else
             {
                 errorMessage = message;
             }
+
+            // A decision that is recorded but fails to post to SAP comes back as an error, and
+            // the draft has still moved on to Approved or Failed to post. Refresh either way so
+            // what is on screen is the stored status rather than the one we submitted against.
+            await ReloadAfterPendingActionAsync();
         }
         finally
         {
             isDecidingPending = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// Reloads the queue and, when the drawer is still open, the record it is showing.
+    /// </summary>
+    private async Task ReloadAfterPendingActionAsync()
+    {
+        await LoadPendingTransfersAsync();
+        await RefreshSelectedPendingTransferAsync();
     }
 
     private async Task RetryPendingTransferAsync(PendingInventoryTransferDto pending)
@@ -1290,12 +1566,13 @@
             {
                 successMessage = message;
                 ClosePendingTransfer();
-                await LoadPendingTransfersAsync();
             }
             else
             {
                 errorMessage = message;
             }
+
+            await ReloadAfterPendingActionAsync();
         }
         finally
         {
@@ -1319,12 +1596,13 @@
             {
                 successMessage = message;
                 ClosePendingTransfer();
-                await LoadPendingTransfersAsync();
             }
             else
             {
                 errorMessage = message;
             }
+
+            await ReloadAfterPendingActionAsync();
         }
         finally
         {
@@ -1339,6 +1617,7 @@
         PendingTransferStatuses.Approved => "Approved — posting",
         PendingTransferStatuses.PostFailed => "Failed to post",
         PendingTransferStatuses.Posted => $"Posted (#{pending.SapDocNum})",
+        PendingTransferStatuses.Cancelled => "Withdrawn",
         _ => pending.Status
     };
 
@@ -1576,6 +1855,200 @@ pageSize) : 1);
             """;
     }
 
+    private async Task PrintPendingTransferDraft(PendingInventoryTransferDto? pending)
+    {
+        if (pending == null || isPrinting) return;
+
+        isPrinting = true;
+        errorMessage = null;
+
+        try
+        {
+            await JS.InvokeVoidAsync("printReportHtml", BuildPendingTransferDraftHtml(pending));
+            await AuditService.LogAsync(AuditActions.ViewTransfers, "PendingInventoryTransfer", pending.Id.ToString());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to print draft transfer {PendingId}", pending.Id);
+            errorMessage = "Failed to print the draft.";
+        }
+        finally
+        {
+            isPrinting = false;
+        }
+    }
+
+    /// <summary>
+    /// Print sheet for a held transfer. It carries a DRAFT watermark because the stock has not
+    /// moved: nothing posts to SAP until every approval stage signs off.
+    /// </summary>
+    private string BuildPendingTransferDraftHtml(PendingInventoryTransferDto pending)
+    {
+        var lines = pending.Lines;
+        var rows = new StringBuilder();
+        var lineNumber = 1;
+
+        foreach (var line in lines)
+        {
+            rows.Append($"<tr><td>{lineNumber++}</td>")
+                .Append($"<td><strong>{Html(line.ItemCode)}</strong></td>")
+                .Append($"<td>{Html(line.FromWarehouseCode ?? pending.FromWarehouse)}</td>")
+                .Append($"<td>{Html(line.ToWarehouseCode ?? pending.ToWarehouse)}</td>")
+                .Append($"<td class='num'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td>")
+                .Append($"<td>{Html(line.UoMCode)}</td></tr>");
+        }
+
+        if (lines.Count == 0)
+            rows.Append("<tr><td colspan='6' class='muted'>No line items recorded.</td></tr>");
+
+        var stages = new StringBuilder();
+        foreach (var stage in pending.ApprovalStages)
+        {
+            stages.Append($"<tr><td>{Html(stage.StageName)}</td>")
+                  .Append($"<td>{Html(string.Join(", ", stage.AuthorizerRoles))}</td>")
+                  .Append($"<td>{Html(stage.Status)} ({stage.ApprovalCount}/{stage.ApprovalsRequired})</td></tr>");
+        }
+
+        if (pending.ApprovalStages.Count == 0)
+            stages.Append("<tr><td colspan='3' class='muted'>No approval stages recorded.</td></tr>");
+
+        var totalQty = Html(QuantityDisplay.Format(lines.Sum(l => l.Quantity)));
+        var comments = string.IsNullOrWhiteSpace(pending.Comments)
+            ? string.Empty
+            : $"<div class='comments'><span class='k'>Comments</span>{Html(pending.Comments)}</div>";
+        var printedAt = IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMM yyyy HH:mm");
+        var submitted = pending.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm");
+        var draftNumber = Html(DraftReference(pending));
+        var logoDataUri = GetBrandLogoDataUri();
+        var logo = logoDataUri == null
+            ? string.Empty
+            : $"<img class='logo' src='{logoDataUri}' alt='{Html(AppSettings.CompanyName)}' />";
+
+        return $$"""
+            <!doctype html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Draft Inventory Transfer {{draftNumber}}</title>
+                <style>
+                    @page { size: A4; margin: 14mm; }
+                    body { font-family: Arial, Helvetica, sans-serif; color: #111827; font-size: 12px; margin: 0;
+                           position: relative; }
+                    h1 { font-size: 20px; margin: 0 0 2px; }
+                    h2 { font-size: 13px; margin: 18px 0 6px; text-transform: uppercase; letter-spacing: .5px; }
+                    .head { display: flex; justify-content: space-between; align-items: flex-start;
+                            border-bottom: 2px solid #111827; padding-bottom: 10px; margin-bottom: 16px; }
+                    .brand { display: flex; align-items: center; gap: 12px; }
+                    .logo { height: 46px; width: auto; }
+                    .company { font-size: 15px; font-weight: 700; }
+                    .doc-no { font-size: 18px; font-weight: 700; text-align: right; }
+                    .badge { display: inline-block; border: 1px solid #b45309; color: #b45309; border-radius: 3px;
+                             padding: 2px 8px; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
+                    .route { display: flex; align-items: center; gap: 16px; border: 1px solid #d1d5db;
+                             padding: 12px; margin-bottom: 16px; }
+                    .route .leg { flex: 1; text-align: center; }
+                    .route .leg .code { font-size: 16px; font-weight: 700; }
+                    .grid { display: flex; flex-wrap: wrap; gap: 10px 32px; margin-bottom: 16px; }
+                    .k { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+                    th { background: #f3f4f6; border-bottom: 1px solid #9ca3af; font-size: 11px;
+                         text-transform: uppercase; letter-spacing: .4px; }
+                    .num { text-align: right; }
+                    tfoot td { font-weight: 700; border-top: 2px solid #111827; border-bottom: none; }
+                    .muted { color: #6b7280; }
+                    .comments { border: 1px solid #d1d5db; padding: 10px; margin-bottom: 16px; }
+                    .sigs { display: flex; gap: 32px; margin-top: 40px; }
+                    .sig { flex: 1; border-top: 1px solid #111827; padding-top: 6px; font-size: 11px; }
+                    .notice { border: 1px solid #b45309; background: #fffbeb; color: #92400e; padding: 10px;
+                              margin-top: 18px; font-size: 11px; }
+                    .foot { margin-top: 24px; font-size: 10px; color: #6b7280; text-align: center; }
+
+                    /* Sits behind the content on every printed page. print-color-adjust keeps the
+                       mark visible in browsers that drop background colour when printing. */
+                    .watermark { position: fixed; top: 50%; left: 50%; z-index: -1;
+                                 transform: translate(-50%, -50%) rotate(-35deg);
+                                 font-size: 120px; font-weight: 800; letter-spacing: 12px;
+                                 color: #ef4444; opacity: .14; white-space: nowrap;
+                                 -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                </style>
+            </head>
+            <body>
+                <div class="watermark">DRAFT</div>
+
+                <div class="head">
+                    <div class="brand">
+                        {{logo}}
+                        <div>
+                            <div class="company">{{Html(AppSettings.CompanyName)}}</div>
+                            <h1>Inventory Transfer &mdash; Draft</h1>
+                            <span class="badge">NOT POSTED TO SAP</span>
+                        </div>
+                    </div>
+                    <div class="doc-no">
+                        {{draftNumber}}
+                        <div class="muted" style="font-weight:400;font-size:11px;">
+                            {{Html(FormatPendingStatus(pending))}}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="route">
+                    <div class="leg">
+                        <span class="k">Source</span>
+                        <span class="code">{{Html(pending.FromWarehouse)}}</span>
+                    </div>
+                    <div style="font-size:18px;">&rarr;</div>
+                    <div class="leg">
+                        <span class="k">Destination</span>
+                        <span class="code">{{Html(pending.ToWarehouse)}}</span>
+                    </div>
+                </div>
+
+                <div class="grid">
+                    <div><span class="k">Submitted by</span>{{Html(pending.CreatedByName)}}</div>
+                    <div><span class="k">Submitted</span>{{Html(submitted)}}</div>
+                    <div><span class="k">Approval process</span>{{Html(pending.ApprovalTemplateName ?? "—")}}</div>
+                    <div><span class="k">Total Lines</span>{{lines.Count}}</div>
+                </div>
+
+                {{comments}}
+
+                <h2>Lines</h2>
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Item</th><th>From</th><th>To</th><th class="num">Qty</th><th>UoM</th></tr>
+                    </thead>
+                    <tbody>{{rows}}</tbody>
+                    <tfoot>
+                        <tr><td colspan="4" class="num">Total</td><td class="num">{{totalQty}}</td><td></td></tr>
+                    </tfoot>
+                </table>
+
+                <h2>Approval stages</h2>
+                <table>
+                    <thead>
+                        <tr><th>Stage</th><th>Authorizers</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>{{stages}}</tbody>
+                </table>
+
+                <div class="sigs">
+                    <div class="sig">Issued by (name / signature / date)</div>
+                    <div class="sig">Received by (name / signature / date)</div>
+                </div>
+
+                <div class="notice">
+                    This is a draft. No stock has moved and no document exists in SAP. It becomes an
+                    inventory transfer only once every approval stage above has been approved.
+                </div>
+
+                <div class="foot">Printed {{printedAt}} CAT</div>
+            </body>
+            </html>
+            """;
+    }
+
     private static string Html(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
 
     // The print sheet is written into a blank iframe and printed ~300ms later, so a
@@ -1650,8 +2123,230 @@ pageSize) : 1);
         }
     }
 
-    private void ViewTransferRequest(InventoryTransferRequestDto request) => selectedTransferRequest = request;
-    private void CloseRequestModal() => selectedTransferRequest = null;
+    private async Task ViewTransferRequest(InventoryTransferRequestDto request)
+    {
+        selectedTransferRequest = request;
+        CancelEditRequestLines();
+        await LoadHeldEditAsync(request.DocEntry);
+    }
+
+    private void CloseRequestModal()
+    {
+        selectedTransferRequest = null;
+        heldEditForSelectedRequest = null;
+        CancelEditRequestLines();
+    }
+
+    // ── Editing a transfer request's lines ──────────────
+
+    /// <summary>
+    /// Whether the caller may write to SAP for this request's source warehouse. Mirrors the
+    /// server-side scope check so the UI can say up front whether a change will be applied or
+    /// sent for approval; the server decides either way.
+    /// </summary>
+    private bool CanActOnRequestSource(InventoryTransferRequestDto? request)
+    {
+        if (request == null) return false;
+        if (!IsWarehouseScopedRole(currentUserRole)) return true;
+        return !string.IsNullOrWhiteSpace(request.FromWarehouse) &&
+               assignedWarehouseCodes.Contains(request.FromWarehouse);
+    }
+
+    private static bool IsWarehouseScopedRole(string? role) =>
+        string.Equals(role, UserRoles.DepotController, StringComparison.OrdinalIgnoreCase);
+
+    private bool CanEditRequestLines(InventoryTransferRequestDto? request)
+        => request != null &&
+           IsRequestConvertible(request) &&
+           request.Lines?.Any() == true &&
+           heldEditForSelectedRequest == null &&
+           currentUserRole is not null &&
+           RequestEditorRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
+
+    private void BeginEditRequestLines()
+    {
+        requestEditLines = (selectedTransferRequest?.Lines ?? [])
+            .Select(line => new RequestEditLineModel
+            {
+                LineNum = line.LineNum,
+                ItemCode = line.ItemCode,
+                ItemDescription = line.ItemDescription,
+                UoMCode = line.UoMCode,
+                OriginalQuantity = line.Quantity,
+                Quantity = line.Quantity
+            })
+            .ToList();
+        requestEditReason = null;
+        isEditingRequestLines = true;
+    }
+
+    private void CancelEditRequestLines()
+    {
+        isEditingRequestLines = false;
+        requestEditLines = [];
+        requestEditReason = null;
+    }
+
+    private void SetRequestEditQuantity(RequestEditLineModel line, string? value)
+    {
+        line.Quantity = decimal.TryParse(value, out var quantity) ? quantity : 0m;
+    }
+
+    private void ToggleRequestEditLineRemoval(RequestEditLineModel line)
+    {
+        line.Removed = !line.Removed;
+        if (!line.Removed && line.Quantity <= 0)
+            line.Quantity = line.OriginalQuantity;
+    }
+
+    private async Task SaveRequestEditAsync()
+    {
+        if (selectedTransferRequest == null || isSavingRequestEdit) return;
+
+        var kept = requestEditLines.Where(line => !line.Removed).ToList();
+        if (kept.Count == 0)
+        {
+            errorMessage = "A transfer request must keep at least one line. Close the request instead.";
+            return;
+        }
+
+        var invalid = kept.FirstOrDefault(line => line.Quantity <= 0);
+        if (invalid != null)
+        {
+            errorMessage = $"Line {invalid.LineNum} must keep a quantity greater than zero. Remove the line instead.";
+            return;
+        }
+
+        if (kept.Count == requestEditLines.Count && kept.All(line => line.Quantity == line.OriginalQuantity))
+        {
+            errorMessage = "Nothing has changed on this request.";
+            return;
+        }
+
+        isSavingRequestEdit = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+        try
+        {
+            var docEntry = selectedTransferRequest.DocEntry;
+            var (success, message, result) = await TransferService.EditTransferRequestAsync(docEntry,
+                new EditTransferRequestRequest
+                {
+                    Lines = kept
+                        .Select(line => new EditTransferRequestLineRequest { LineNum = line.LineNum, Quantity = line.Quantity })
+                        .ToList(),
+                    Reason = requestEditReason
+                });
+
+            if (!success)
+            {
+                errorMessage = message;
+                return;
+            }
+
+            successMessage = message;
+            CancelEditRequestLines();
+
+            if (result?.RequiresApproval == true)
+            {
+                heldEditForSelectedRequest = result.PendingEdit;
+            }
+            else
+            {
+                // The lines came back from SAP, so refresh the list the drawer was opened from.
+                await LoadTransferRequestsAsync();
+                selectedTransferRequest = transferRequests?.FirstOrDefault(item => item.DocEntry == docEntry)
+                                          ?? selectedTransferRequest;
+                await LoadHeldEditAsync(docEntry);
+            }
+        }
+        finally
+        {
+            isSavingRequestEdit = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Held changes awaiting approval ──────────────────
+
+    private async Task LoadHeldEditAsync(int docEntry)
+    {
+        heldEditForSelectedRequest = null;
+        requestEditDecisionRemarks = null;
+        try
+        {
+            var response = await TransferService.GetPendingRequestEditsAsync(
+                PendingRequestEditStatuses.AwaitingApproval, docEntry);
+            heldEditForSelectedRequest = response?.Items.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load held changes for transfer request {DocEntry}", docEntry);
+        }
+    }
+
+    private async Task DecideRequestEditAsync(string decision)
+    {
+        var edit = heldEditForSelectedRequest;
+        if (edit == null || isDecidingRequestEdit) return;
+
+        isDecidingRequestEdit = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+        try
+        {
+            var (success, message) = await TransferService.DecidePendingRequestEditAsync(
+                edit.Id, decision, remarks: requestEditDecisionRemarks);
+            if (success) successMessage = message; else errorMessage = message;
+
+            // An approval that reaches SAP rewrites the request's lines, so reload either way:
+            // the stored state is what should be on screen, not what we acted against.
+            await LoadTransferRequestsAsync();
+            selectedTransferRequest = transferRequests?.FirstOrDefault(item => item.DocEntry == edit.RequestDocEntry)
+                                      ?? selectedTransferRequest;
+            await LoadHeldEditAsync(edit.RequestDocEntry);
+        }
+        finally
+        {
+            isDecidingRequestEdit = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task WithdrawRequestEditAsync()
+    {
+        var edit = heldEditForSelectedRequest;
+        if (edit == null || isDecidingRequestEdit) return;
+
+        isDecidingRequestEdit = true;
+        errorMessage = null;
+        successMessage = null;
+        StateHasChanged();
+        try
+        {
+            var (success, message) = await TransferService.CancelPendingRequestEditAsync(edit.Id);
+            if (success) successMessage = message; else errorMessage = message;
+            await LoadHeldEditAsync(edit.RequestDocEntry);
+        }
+        finally
+        {
+            isDecidingRequestEdit = false;
+            StateHasChanged();
+        }
+    }
+
+    private sealed class RequestEditLineModel
+    {
+        public int LineNum { get; set; }
+        public string? ItemCode { get; set; }
+        public string? ItemDescription { get; set; }
+        public string? UoMCode { get; set; }
+        public decimal OriginalQuantity { get; set; }
+        public decimal Quantity { get; set; }
+        public bool Removed { get; set; }
+    }
 
     private async Task RefreshTransferRequests() => await LoadTransferRequestsAsync();
 
@@ -1670,9 +2365,9 @@ pageSize) : 1);
     {
         "open" or "bost_open" => "open",
         "closed" or "bost_close" => "closed",
-        "approved" or "generated" or "generatedbyauthorizer" => "approved",
-        "rejected" or "notapproved" or "cancelled" => "rejected",
-        "pending" => "pending",
+        "approved" or "generated" or "generatedbyauthorizer" or "posted" => "approved",
+        "rejected" or "notapproved" or "cancelled" or "postfailed" => "rejected",
+        "pending" or "awaitingapproval" => "pending",
         _ => "open"
     };
 

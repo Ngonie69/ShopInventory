@@ -43,6 +43,7 @@ public static class PendingInventoryTransferMapper
         var dto = new PendingInventoryTransferDto
         {
             Id = pending.Id,
+            DraftNumber = pending.DraftNumber,
             FromWarehouse = pending.FromWarehouse,
             ToWarehouse = pending.ToWarehouse,
             Status = pending.Status,

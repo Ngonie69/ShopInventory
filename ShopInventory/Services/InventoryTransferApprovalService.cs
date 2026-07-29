@@ -40,11 +40,21 @@ public sealed record ApprovalDocumentContext(
     public static ApprovalDocumentContext ForPendingTransfer(PendingInventoryTransferEntity pending) => new(
         ApprovalDocumentTypes.InventoryTransfer,
         pending.Id.ToString(),
-        pending.SapDocNum?.ToString(),
+        // The draft number is what an authorizer can quote until the transfer posts to SAP.
+        pending.SapDocNum?.ToString() ?? pending.DraftNumber,
         pending.FromWarehouse,
         pending.ToWarehouse,
         AlreadyClosed: false,
         OriginatorUserId: pending.CreatedByUserId);
+
+    public static ApprovalDocumentContext ForRequestEdit(PendingTransferRequestEditEntity edit) => new(
+        ApprovalDocumentTypes.InventoryTransferRequestEdit,
+        edit.Id.ToString(),
+        edit.RequestDocNum.ToString(),
+        edit.FromWarehouse,
+        edit.ToWarehouse,
+        AlreadyClosed: false,
+        OriginatorUserId: edit.CreatedByUserId);
 
     private static bool IsClosedStatus(string? status) =>
         string.Equals(status, "bost_Close", StringComparison.OrdinalIgnoreCase) ||
@@ -102,6 +112,8 @@ public sealed class InventoryTransferApprovalService(
     private static readonly Guid FallbackTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000003");
     private static readonly Guid DirectDepotTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000012");
     private static readonly Guid DirectFallbackTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000013");
+    private static readonly Guid EditDepotTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000022");
+    private static readonly Guid EditFallbackTemplateId = Guid.Parse("22000000-0000-0000-0000-000000000023");
 
     public async Task<ApprovalRequestEntity> EnsureRequestAsync(
         InventoryTransferRequest document,
@@ -501,6 +513,13 @@ public sealed class InventoryTransferApprovalService(
             [
                 NewTemplate(DirectDepotTemplateId, "Depot Controller Direct Transfers", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
                 NewTemplate(DirectFallbackTemplateId, "General Direct Transfer Review", documentType, -100, [], [AdminStageId])
+            ],
+            // A held edit is raised precisely because the editor does not run the source
+            // warehouse, so it must never route back to the depot-controller stage.
+            ApprovalDocumentTypes.InventoryTransferRequestEdit =>
+            [
+                NewTemplate(EditDepotTemplateId, "Depot Controller Request Edits", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
+                NewTemplate(EditFallbackTemplateId, "General Request Edit Review", documentType, -100, [], [AdminStageId])
             ],
             _ =>
             (ApprovalTemplateDefinitionEntity[])
