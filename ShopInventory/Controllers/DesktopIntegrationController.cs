@@ -58,6 +58,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
 using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Middleware;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalizedSalesReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
@@ -71,6 +72,7 @@ using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
 using System.Security.Claims;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Controllers;
 
@@ -334,6 +336,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpPost("fiscal-transactions/backfill")]
+    [SapBackgroundWork]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<IActionResult> BackfillFiscalTransactions(
         [FromBody] BackfillFiscalTransactionsRequest? request,
@@ -469,6 +472,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Direct Stock Transfers
 
     [HttpPost("transfers")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateTransferDirect(
         [FromBody] CreateDesktopTransferRequest request,
         CancellationToken cancellationToken)
@@ -589,18 +593,28 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpPost("transfer-requests/{docEntry:int}/convert")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> ConvertTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetTransfer), new { docEntry = value.Transfer?.DocEntry }, value),
             errors => Problem(errors));
     }
 
     [HttpPost("transfer-requests/{docEntry:int}/close")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
@@ -609,6 +623,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Queued Inventory Transfers
 
     [HttpPost("transfers/queued")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateQueuedTransfer(
         [FromBody] CreateDesktopTransferRequest request,
         CancellationToken cancellationToken)
@@ -692,12 +707,18 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Runs in background — returns 202 Accepted immediately.
     /// </summary>
     [HttpPost("stock/fetch-daily")]
+    [SapBackgroundWork]
     public IActionResult FetchDailyStock([FromBody] FetchDailyStockCommand? command)
     {
         var cmd = command ?? new FetchDailyStockCommand();
 
         _ = Task.Run(async () =>
         {
+            // The request returns 202 immediately, so nobody is waiting on what follows. SAP
+            // priority is an AsyncLocal and would otherwise flow in from the request that started
+            // this; dropping it here means the endpoint's annotation is not the only thing
+            // standing between a whole-warehouse stock fetch and the interactive reservation.
+            using var background = SapRequestPriority.SuppressInteractive();
             using var scope = scopeFactory.CreateScope();
             var scopedMediator = scope.ServiceProvider.GetRequiredService<IMediator>();
             try

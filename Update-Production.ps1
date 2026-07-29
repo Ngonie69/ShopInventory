@@ -16,10 +16,22 @@ param(
     [string]$DeployTarget = "Both",
     [switch]$SkipBackup,
     [switch]$IncludeRuntimeDataInBackup,
+    [switch]$SkipDatabaseMigrations,
     [switch]$RestartOnly,
+    [switch]$SkipGitCheck,
     [switch]$FirstTimeSetup,
     [string]$ApiDbConnectionString,
     [string]$WebDbConnectionString,
+    [string]$WebEmailSmtpHost = "mail.kefaloscheese.com",
+    [int]$WebEmailSmtpPort = 587,
+    [string]$WebEmailSmtpUsername = "alerts@kefaloscheese.com",
+    [string]$WebEmailSmtpPassword = $env:SHOPINVENTORY_WEB_SMTP_PASSWORD,
+    [string]$WebEmailFromEmail = "alerts@kefaloscheese.com",
+    [string]$WebEmailFromName = "Kefalos Cheese - POD Reports",
+    [string]$WebEmailApplicationUrl = "https://sis.kefaloscheese.com",
+    [int]$WebEmailSmtpConnectTimeoutSeconds = 30,
+    [int]$WebEmailSmtpOperationTimeoutSeconds = 300,
+    [string]$ApiKeyExpiresAt,
     [switch]$SuppressExitPrompt,
     [PSCredential]$Credential,
     [string]$SerializedCredentialPath
@@ -105,6 +117,140 @@ function Get-AdditionalCredentialPathByServer {
     }
 
     return $credentialPathByServer
+}
+
+function Assert-SourceUpToDate {
+    # This script publishes whatever is in the local working copy. Merging a PR on the
+    # remote does not update that copy, so a stale checkout deploys pre-fix code while
+    # looking like a clean, successful deployment. Fail loudly instead.
+    param(
+        [switch]$Skip
+    )
+
+    if ($Skip) {
+        Write-Host "Git safety check skipped (-SkipGitCheck)." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    Write-Host "Verifying source is up to date..." -ForegroundColor Cyan
+
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitCommand) {
+        Write-Host "  WARNING: git not found on PATH - cannot verify the source revision." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    # Expected to fail when the script lives outside a repo; capture stderr so git's
+    # raw "fatal:" text does not surface as an alarming console message.
+    $repoRoot = & git -C $PSScriptRoot rev-parse --show-toplevel 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: not a git repository - cannot verify the source revision." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    # Uncommitted changes mean the published output will not match any known commit.
+    $dirty = & git -C $repoRoot status --porcelain
+    if ($LASTEXITCODE -eq 0 -and $dirty) {
+        Write-Host ""
+        Write-Host "ERROR: the working copy has uncommitted changes." -ForegroundColor Red
+        Write-Host "Deploying now would publish code that matches no commit in history." -ForegroundColor Red
+        Write-Host ""
+        Write-Host ($dirty | Select-Object -First 20 | Out-String).TrimEnd() -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Commit or stash the changes, or re-run with -SkipGitCheck to override." -ForegroundColor White
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    $branch = & git -C $repoRoot rev-parse --abbrev-ref HEAD
+
+    # main is the release line, and comparing HEAD against its own upstream says nothing
+    # about that: a feature branch can sit perfectly in sync with origin/<itself> while
+    # missing everything merged since it forked. That publishes pre-merge code with every
+    # check reporting green. Containment of origin/main is what catches it, so it runs
+    # ahead of the per-branch comparison below and covers a detached HEAD too.
+    & git -C $repoRoot fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: could not fetch origin/main - deploying without verifying against the release line." -ForegroundColor Yellow
+    }
+    else {
+        & git -C $repoRoot merge-base --is-ancestor origin/main HEAD
+        if ($LASTEXITCODE -ne 0) {
+            $missing = @(& git -C $repoRoot log --oneline origin/main "^HEAD")
+            Write-Host ""
+            Write-Host "ERROR: this checkout is missing $($missing.Count) commit(s) already on origin/main." -ForegroundColor Red
+            Write-Host "Deploying it would publish pre-merge code and take live work back off production." -ForegroundColor Red
+            Write-Host ""
+            Write-Host "  Checked out: $branch" -ForegroundColor Yellow
+            Write-Host ($missing | Select-Object -First 20 | Out-String).TrimEnd() -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  Run: git switch main" -ForegroundColor White
+            Write-Host "       git pull --ff-only" -ForegroundColor White
+            Write-Host "  Or re-run with -SkipGitCheck to deploy this revision anyway." -ForegroundColor White
+            Wait-ForExitPrompt
+            exit 1
+        }
+
+        # Contains main but is not main. Legitimate for a hotfix, worth saying out loud
+        # because the extra commits have not been through the release line.
+        if ($branch -ne 'main' -and $branch -ne 'HEAD') {
+            $unmerged = @(& git -C $repoRoot log --oneline HEAD "^origin/main")
+            Write-Host "  WARNING: deploying '$branch', not main." -ForegroundColor Yellow
+            if ($unmerged.Count -gt 0) {
+                Write-Host "  It carries $($unmerged.Count) commit(s) that are not on main:" -ForegroundColor Yellow
+                Write-Host ($unmerged | Select-Object -First 10 | Out-String).TrimEnd() -ForegroundColor Yellow
+            }
+        }
+    }
+
+    if ($branch -eq 'HEAD') {
+        Write-Host "  WARNING: detached HEAD - skipping the remote comparison." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    # A failed fetch (offline, VPN down) should not block a deploy outright.
+    & git -C $repoRoot fetch --quiet origin $branch 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: could not reach origin - deploying without verifying against the remote." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    $counts = & git -C $repoRoot rev-list --left-right --count "origin/$branch...HEAD"
+    if ($LASTEXITCODE -ne 0 -or -not $counts) {
+        Write-Host "  WARNING: no origin/$branch to compare against." -ForegroundColor Yellow
+        Write-Host ""
+        return
+    }
+
+    $parts = $counts -split '\s+'
+    $behind = [int]$parts[0]
+    $ahead = [int]$parts[1]
+
+    if ($behind -gt 0) {
+        Write-Host ""
+        Write-Host "ERROR: this checkout is $behind commit(s) behind origin/$branch." -ForegroundColor Red
+        Write-Host "Deploying now would publish stale code and silently discard merged work." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  Run: git pull --ff-only origin $branch" -ForegroundColor White
+        Write-Host "  Or re-run with -SkipGitCheck to deploy this revision anyway." -ForegroundColor White
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    if ($ahead -gt 0) {
+        Write-Host "  WARNING: $ahead local commit(s) not pushed to origin/$branch." -ForegroundColor Yellow
+        Write-Host "  Production will run code that exists only on this machine." -ForegroundColor Yellow
+    }
+
+    $revision = & git -C $repoRoot log -1 --format='%h %s'
+    Write-Host "  Branch:   $branch (up to date with origin)" -ForegroundColor Green
+    Write-Host "  Deploying: $revision" -ForegroundColor Green
+    Write-Host ""
 }
 
 function Wait-ForExitPrompt {
@@ -194,6 +340,56 @@ function Get-SelectedDeploymentDefinitions {
     }
 }
 
+function Resolve-ApiKeyExpiry {
+    param(
+        [string]$ConfiguredExpiry,
+        [string]$AppSettingsPath
+    )
+
+    $expiryText = $ConfiguredExpiry
+    if ([string]::IsNullOrWhiteSpace($expiryText)) {
+        if (-not (Test-Path -LiteralPath $AppSettingsPath)) {
+            throw "API key expiry was not supplied and appsettings.json was not found at $AppSettingsPath."
+        }
+
+        try {
+            $settings = Get-Content -LiteralPath $AppSettingsPath -Raw | ConvertFrom-Json
+            $mainIntegration = @($settings.Security.ApiKeys) |
+                Where-Object { $_.Name -eq 'MainIntegration' } |
+                Select-Object -First 1
+            $expiryText = if ($null -ne $mainIntegration) { [string]$mainIntegration.ExpiresAt } else { $null }
+        }
+        catch {
+            throw "Could not read MainIntegration ExpiresAt from $AppSettingsPath. $($_.Exception.Message)"
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($expiryText)) {
+        throw "MainIntegration ExpiresAt is missing. Set it in appsettings.json or pass -ApiKeyExpiresAt."
+    }
+
+    try {
+        $expiry = [DateTimeOffset]::Parse($expiryText).ToUniversalTime()
+    }
+    catch {
+        throw "ApiKeyExpiresAt '$expiryText' is not a valid date/time. Use an ISO-8601 value such as 2026-10-11T23:59:59Z."
+    }
+
+    if ($expiry -le [DateTimeOffset]::UtcNow) {
+        throw "MainIntegration ExpiresAt '$($expiry.ToString('O'))' is not in the future. Renew the key expiry before deploying."
+    }
+
+    return $expiry.ToString('yyyy-MM-ddTHH:mm:ssZ')
+}
+
+if ([string]::IsNullOrWhiteSpace($WebEmailSmtpPassword) -and -not [string]::IsNullOrWhiteSpace($env:Email__SmtpPassword)) {
+    $WebEmailSmtpPassword = $env:Email__SmtpPassword
+}
+
+if (-not [string]::IsNullOrWhiteSpace($WebEmailSmtpPassword)) {
+    $env:SHOPINVENTORY_WEB_SMTP_PASSWORD = $WebEmailSmtpPassword
+}
+
 $targetServers = Get-TargetProductionServers -PrimaryServer $ProductionServer -AdditionalServers $AdditionalProductionServers
 $additionalCredentialPathByServer = Get-AdditionalCredentialPathByServer -AdditionalServers $AdditionalProductionServers -CredentialPaths $AdditionalSerializedCredentialPaths
 
@@ -214,6 +410,11 @@ else {
 }
 Write-Host "Target: $DeployTarget" -ForegroundColor White
 Write-Host ""
+
+# -RestartOnly recycles the app pools without publishing, so the local source is irrelevant.
+if (-not $RestartOnly) {
+    Assert-SourceUpToDate -Skip:$SkipGitCheck
+}
 
 if (-not $Credential -and $SerializedCredentialPath) {
     $Credential = Import-SerializedCredential -Path $SerializedCredentialPath
@@ -293,13 +494,25 @@ if ($targetServers.Count -gt 1) {
 
             if ($SkipBackup) { $argumentList += '-SkipBackup' }
             if ($IncludeRuntimeDataInBackup) { $argumentList += '-IncludeRuntimeDataInBackup' }
+            if ($SkipDatabaseMigrations) { $argumentList += '-SkipDatabaseMigrations' }
             if ($RestartOnly) { $argumentList += '-RestartOnly' }
+            # The parent already verified the revision; re-checking per server adds nothing.
+            $argumentList += '-SkipGitCheck'
             if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) {
                 $argumentList += @('-ApiDbConnectionString', $ApiDbConnectionString)
             }
             if (-not [string]::IsNullOrWhiteSpace($WebDbConnectionString)) {
                 $argumentList += @('-WebDbConnectionString', $WebDbConnectionString)
             }
+            if ($WebEmailSmtpHost -ne "mail.kefaloscheese.com") { $argumentList += @('-WebEmailSmtpHost', $WebEmailSmtpHost) }
+            if ($WebEmailSmtpPort -ne 587) { $argumentList += @('-WebEmailSmtpPort', $WebEmailSmtpPort) }
+            if ($WebEmailSmtpUsername -ne "alerts@kefaloscheese.com") { $argumentList += @('-WebEmailSmtpUsername', $WebEmailSmtpUsername) }
+            if ($WebEmailFromEmail -ne "alerts@kefaloscheese.com") { $argumentList += @('-WebEmailFromEmail', $WebEmailFromEmail) }
+            if ($WebEmailFromName -ne "Kefalos Cheese - POD Reports") { $argumentList += @('-WebEmailFromName', $WebEmailFromName) }
+            if ($WebEmailApplicationUrl -ne "https://sis.kefaloscheese.com") { $argumentList += @('-WebEmailApplicationUrl', $WebEmailApplicationUrl) }
+            if ($WebEmailSmtpConnectTimeoutSeconds -ne 30) { $argumentList += @('-WebEmailSmtpConnectTimeoutSeconds', $WebEmailSmtpConnectTimeoutSeconds) }
+            if ($WebEmailSmtpOperationTimeoutSeconds -ne 300) { $argumentList += @('-WebEmailSmtpOperationTimeoutSeconds', $WebEmailSmtpOperationTimeoutSeconds) }
+            if (-not [string]::IsNullOrWhiteSpace($ApiKeyExpiresAt)) { $argumentList += @('-ApiKeyExpiresAt', $ApiKeyExpiresAt) }
 
             & powershell.exe @argumentList
             $childExitCode = $LASTEXITCODE
@@ -343,10 +556,21 @@ if ($FirstTimeSetup -and -not $isAdmin) {
     if ($DeployTarget -ne "Both") { $argList += " -DeployTarget `"$DeployTarget`"" }
     if ($SkipBackup) { $argList += " -SkipBackup" }
     if ($IncludeRuntimeDataInBackup) { $argList += " -IncludeRuntimeDataInBackup" }
+    if ($SkipDatabaseMigrations) { $argList += " -SkipDatabaseMigrations" }
     if ($RestartOnly) { $argList += " -RestartOnly" }
+    if ($SkipGitCheck) { $argList += " -SkipGitCheck" }
     if ($FirstTimeSetup) { $argList += " -FirstTimeSetup" }
     if (-not [string]::IsNullOrWhiteSpace($ApiDbConnectionString)) { $argList += " -ApiDbConnectionString `"$ApiDbConnectionString`"" }
     if (-not [string]::IsNullOrWhiteSpace($WebDbConnectionString)) { $argList += " -WebDbConnectionString `"$WebDbConnectionString`"" }
+    if ($WebEmailSmtpHost -ne "mail.kefaloscheese.com") { $argList += " -WebEmailSmtpHost `"$WebEmailSmtpHost`"" }
+    if ($WebEmailSmtpPort -ne 587) { $argList += " -WebEmailSmtpPort $WebEmailSmtpPort" }
+    if ($WebEmailSmtpUsername -ne "alerts@kefaloscheese.com") { $argList += " -WebEmailSmtpUsername `"$WebEmailSmtpUsername`"" }
+    if ($WebEmailFromEmail -ne "alerts@kefaloscheese.com") { $argList += " -WebEmailFromEmail `"$WebEmailFromEmail`"" }
+    if ($WebEmailFromName -ne "Kefalos Cheese - POD Reports") { $argList += " -WebEmailFromName `"$WebEmailFromName`"" }
+    if ($WebEmailApplicationUrl -ne "https://sis.kefaloscheese.com") { $argList += " -WebEmailApplicationUrl `"$WebEmailApplicationUrl`"" }
+    if ($WebEmailSmtpConnectTimeoutSeconds -ne 30) { $argList += " -WebEmailSmtpConnectTimeoutSeconds $WebEmailSmtpConnectTimeoutSeconds" }
+    if ($WebEmailSmtpOperationTimeoutSeconds -ne 300) { $argList += " -WebEmailSmtpOperationTimeoutSeconds $WebEmailSmtpOperationTimeoutSeconds" }
+    if (-not [string]::IsNullOrWhiteSpace($ApiKeyExpiresAt)) { $argList += " -ApiKeyExpiresAt `"$ApiKeyExpiresAt`"" }
 
     $credentialPath = $null
     try {
@@ -392,6 +616,24 @@ $deploymentDefinitions = Get-SelectedDeploymentDefinitions -Definitions (Get-Blu
 $databaseConnectionOverrides = @{
     API = $ApiDbConnectionString
     Web = $WebDbConnectionString
+}
+
+$webEmailConfigOverrides = @{
+    Email__Enabled = "true"
+    Email__SmtpHost = $WebEmailSmtpHost
+    Email__SmtpPort = [string]$WebEmailSmtpPort
+    Email__SmtpUsername = $WebEmailSmtpUsername
+    Email__FromEmail = $WebEmailFromEmail
+    Email__FromName = $WebEmailFromName
+    Email__EnableSsl = "true"
+    Email__SmtpSecurityMode = "StartTls"
+    Email__SmtpConnectTimeoutSeconds = [string]$WebEmailSmtpConnectTimeoutSeconds
+    Email__SmtpOperationTimeoutSeconds = [string]$WebEmailSmtpOperationTimeoutSeconds
+    Email__ApplicationUrl = $WebEmailApplicationUrl
+}
+
+if (-not [string]::IsNullOrWhiteSpace($WebEmailSmtpPassword)) {
+    $webEmailConfigOverrides['Email__SmtpPassword'] = $WebEmailSmtpPassword
 }
 
 # Test connection to production server
@@ -607,6 +849,51 @@ $RootDir = $PSScriptRoot
 $ApiProjectPath = Join-Path $RootDir "ShopInventory\ShopInventory.csproj"
 $WebProjectPath = Join-Path $RootDir "ShopInventory.Web\ShopInventory.Web.csproj"
 $PublishPath = Join-Path $RootDir "publish"
+$MigrationBundlePath = Join-Path $PublishPath "migrations"
+$apiKeyExpiryToDeploy = Resolve-ApiKeyExpiry `
+    -ConfiguredExpiry $ApiKeyExpiresAt `
+    -AppSettingsPath (Join-Path $RootDir "ShopInventory\appsettings.json")
+Write-Host "MainIntegration expiry to apply to API slots: $apiKeyExpiryToDeploy" -ForegroundColor Gray
+
+# API and Web own separate Postgres databases, each with its own EF migration history.
+$migrationBundleDefinitions = @{
+    API = [pscustomobject]@{ ProjectPath = $ApiProjectPath; ContextName = 'ApplicationDbContext' }
+    Web = [pscustomobject]@{ ProjectPath = $WebProjectPath; ContextName = 'WebAppDbContext' }
+}
+
+# Self-contained migration executables ("efbundle"). They carry the migrations plus EF Core, so the
+# production server needs neither the .NET SDK nor dotnet-ef - only the ASP.NET Core runtime it
+# already has to host the apps.
+function New-MigrationBundle {
+    param(
+        [string]$AppName,
+        [string]$ProjectPath,
+        [string]$ContextName,
+        [string]$OutputDirectory
+    )
+
+    $bundlePath = Join-Path $OutputDirectory "$AppName-migrate.exe"
+
+    Write-Host "Building $AppName migration bundle..." -ForegroundColor White
+
+    # Out-Host, not bare invocation: dotnet's build chatter would otherwise land on this function's
+    # output stream and be returned to the caller alongside $bundlePath.
+    dotnet ef migrations bundle `
+        --project $ProjectPath `
+        --context $ContextName `
+        --configuration Release `
+        --output $bundlePath `
+        --force | Out-Host
+
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $bundlePath)) {
+        throw "Failed to build the $AppName migration bundle. Ensure dotnet-ef is installed: dotnet tool install --global dotnet-ef"
+    }
+
+    $bundleSize = [math]::Round((Get-Item $bundlePath).Length / 1MB, 2)
+    Write-Host "  $AppName migration bundle built - $bundleSize MB" -ForegroundColor Green
+
+    return $bundlePath
+}
 
 # Step 1: Publish the applications locally
 Write-Host "Step 1: Publishing applications..." -ForegroundColor Cyan
@@ -678,6 +965,31 @@ if ($DeployTarget -eq "Both" -or $DeployTarget -eq "Web") {
     }
     Write-Host "  Web app published successfully!" -ForegroundColor Green
     $publishedApps += "Web"
+}
+
+$migrationBundles = @{}
+
+if (-not $SkipDatabaseMigrations) {
+    New-Item -Path $MigrationBundlePath -ItemType Directory -Force | Out-Null
+
+    try {
+        foreach ($app in $publishedApps) {
+            $bundleDefinition = $migrationBundleDefinitions[$app]
+            $migrationBundles[$app] = New-MigrationBundle `
+                -AppName $app `
+                -ProjectPath $bundleDefinition.ProjectPath `
+                -ContextName $bundleDefinition.ContextName `
+                -OutputDirectory $MigrationBundlePath
+        }
+    }
+    catch {
+        Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+        Wait-ForExitPrompt
+        exit 1
+    }
+}
+else {
+    Write-Host "Skipping migration bundle build (SkipDatabaseMigrations flag set)." -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -969,8 +1281,170 @@ else {
     Write-Host ""
 }
 
-# Step 4: Package, deploy to inactive slot, warm, and cut over
-Write-Host "Step 4: Deploying to the inactive slot and cutting over on readiness..." -ForegroundColor Cyan
+# Step 4: Apply pending EF Core migrations
+#
+# This must run before the new slot boots: the schema health check is tagged "deploy-ready", so a
+# slot with pending migrations never warms up and the cutover aborts. Migrations are applied against
+# the live database, so between here and cutover the *old* build is running against the *new* schema.
+# Keep migrations backward-compatible with the currently deployed build where you can; where a
+# migration is destructive (dropping or renaming a column), expect errors on the affected pages for
+# the couple of minutes the deploy takes.
+if (-not $SkipDatabaseMigrations -and $publishedApps.Count -gt 0) {
+    Write-Host "Step 4: Applying database migrations..." -ForegroundColor Cyan
+    Write-Host "----------------------------------------" -ForegroundColor Gray
+
+    $remoteMigrationDirectory = "C:\inetpub\ShopInventory-migrations"
+
+    try {
+        foreach ($app in $publishedApps) {
+            $deploymentPlan = $deploymentPlans | Where-Object Name -eq $app | Select-Object -First 1
+            if ($null -eq $deploymentPlan) {
+                throw "No deployment plan was generated for $app."
+            }
+
+            $bundlePath = $migrationBundles[$app]
+            $remoteBundlePath = Join-Path $remoteMigrationDirectory "$app-migrate.exe"
+
+            Write-Host "Migrating $app database..." -ForegroundColor White
+            Write-Host "  Uploading migration bundle..." -ForegroundColor Gray
+
+            $migrationSession = $null
+            try {
+                $migrationSession = New-PSSession -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ErrorAction Stop
+
+                Invoke-Command -Session $migrationSession -ScriptBlock {
+                    param($Directory)
+                    if (-not (Test-Path $Directory)) {
+                        New-Item -Path $Directory -ItemType Directory -Force | Out-Null
+                    }
+                } -ArgumentList $remoteMigrationDirectory -ErrorAction Stop
+
+                Copy-Item -Path $bundlePath -Destination $remoteBundlePath -ToSession $migrationSession -Force -ErrorAction Stop
+            }
+            finally {
+                if ($null -ne $migrationSession) {
+                    Remove-PSSession -Session $migrationSession -ErrorAction SilentlyContinue
+                }
+            }
+
+            $migrationResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
+                param($BundlePath, $AppName, $ActiveAppPath, $ConnectionStringOverride)
+
+                # Only the connection string is read from web.config. The bundle resolves its
+                # DbContext through the project's IDesignTimeDbContextFactory, so it never boots
+                # Program.Main and needs none of the app's other startup configuration.
+                function Get-ConnectionStringFromWebConfig {
+                    param([string]$WebConfigPath)
+
+                    if (-not (Test-Path $WebConfigPath)) {
+                        return $null
+                    }
+
+                    [xml]$config = Get-Content $WebConfigPath
+                    $node = $config.SelectSingleNode("/configuration/location/system.webServer/aspNetCore/environmentVariables/environmentVariable[@name='ConnectionStrings__DefaultConnection']")
+                    if ($null -eq $node) {
+                        return $null
+                    }
+
+                    return $node.GetAttribute("value")
+                }
+
+                function Get-ConnectionStringFromAppSettings {
+                    param([string]$AppPath)
+
+                    foreach ($fileName in @('appsettings.Production.json', 'appsettings.json')) {
+                        $settingsPath = Join-Path $AppPath $fileName
+                        if (-not (Test-Path $settingsPath)) {
+                            continue
+                        }
+
+                        $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+                        $connectionString = $settings.ConnectionStrings.DefaultConnection
+                        if (-not [string]::IsNullOrWhiteSpace($connectionString) -and $connectionString -notlike '*CHANGE_ME*') {
+                            return $connectionString
+                        }
+                    }
+
+                    return $null
+                }
+
+                # Prefer the explicitly passed connection string, then whatever the currently live
+                # slot is actually using - that is by definition the database this app talks to.
+                $connectionString = $ConnectionStringOverride
+                $connectionSource = 'deployment parameter'
+
+                if ([string]::IsNullOrWhiteSpace($connectionString)) {
+                    $connectionString = Get-ConnectionStringFromWebConfig -WebConfigPath (Join-Path $ActiveAppPath 'web.config')
+                    $connectionSource = 'active slot web.config'
+                }
+
+                if ([string]::IsNullOrWhiteSpace($connectionString)) {
+                    $connectionString = Get-ConnectionStringFromAppSettings -AppPath $ActiveAppPath
+                    $connectionSource = 'active slot appsettings'
+                }
+
+                if ([string]::IsNullOrWhiteSpace($connectionString)) {
+                    return [pscustomobject]@{
+                        Success = $false
+                        Output  = "Could not resolve a database connection string for $AppName. Pass -$($AppName)DbConnectionString."
+                    }
+                }
+
+                # The bundle writes progress to stdout and failures to stderr; capture both and judge
+                # success by the exit code rather than by the error stream.
+                $previousErrorAction = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                try {
+                    $output = & $BundlePath --connection $connectionString --no-color 2>&1 | ForEach-Object { $_.ToString() }
+                    $exitCode = $LASTEXITCODE
+                }
+                finally {
+                    $ErrorActionPreference = $previousErrorAction
+                    Remove-Item -LiteralPath $BundlePath -Force -ErrorAction SilentlyContinue
+                }
+
+                return [pscustomobject]@{
+                    Success          = ($exitCode -eq 0)
+                    ExitCode         = $exitCode
+                    ConnectionSource = $connectionSource
+                    Output           = ($output -join [Environment]::NewLine)
+                }
+            } -ArgumentList $remoteBundlePath, $app, $deploymentPlan.CurrentPath, $databaseConnectionOverrides[$app] -ErrorAction Stop
+
+            if (-not $migrationResult.Success) {
+                Write-Host $migrationResult.Output -ForegroundColor DarkGray
+                throw "Migration failed for $app (exit code $($migrationResult.ExitCode))."
+            }
+
+            Write-Host "  Connection resolved from $($migrationResult.ConnectionSource)" -ForegroundColor Gray
+
+            $migrationOutput = ($migrationResult.Output -split "`r?`n") | Where-Object { $_ -notmatch '^\s+at ' }
+            foreach ($line in $migrationOutput) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    Write-Host "    $line" -ForegroundColor DarkGray
+                }
+            }
+
+            Write-Host "  $app database is up to date" -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "The database was not migrated, so no new code was deployed. Public traffic is untouched." -ForegroundColor Yellow
+        Wait-ForExitPrompt
+        exit 1
+    }
+
+    Write-Host ""
+}
+else {
+    Write-Host "Step 4: Skipping database migrations (SkipDatabaseMigrations flag set)..." -ForegroundColor Yellow
+    Write-Host "  Deployment will fail warm-up if the new build has pending migrations." -ForegroundColor Yellow
+    Write-Host ""
+}
+
+# Step 5: Package, deploy to inactive slot, warm, and cut over
+Write-Host "Step 5: Deploying to the inactive slot and cutting over on readiness..." -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 $cutoverResults = @()
@@ -1012,7 +1486,7 @@ try {
 
         Write-Host "  Deploying to inactive slot and warming it up..." -ForegroundColor Gray
         $cutoverResult = Invoke-Command -ComputerName $ProductionServer -Credential $Credential -Authentication Negotiate -ScriptBlock {
-            param($ZipFile, $Plan, $DatabaseConnectionOverrides)
+            param($ZipFile, $Plan, $DatabaseConnectionOverrides, $WebEmailConfigOverrides, $ApiKeyExpiryToDeploy)
 
             Import-Module WebAdministration
 
@@ -1111,6 +1585,104 @@ try {
                 }
 
                 return $environmentVariableNode.GetAttribute("value")
+            }
+
+            function Get-WebConfigAspNetCoreArguments {
+                param([string]$WebConfigPath)
+
+                if (-not (Test-Path $WebConfigPath)) {
+                    return $null
+                }
+
+                [xml]$config = Get-Content $WebConfigPath
+                $aspNetCoreNode = $config.SelectSingleNode("/configuration/location/system.webServer/aspNetCore")
+                if ($null -eq $aspNetCoreNode) {
+                    return $null
+                }
+
+                return $aspNetCoreNode.GetAttribute("arguments")
+            }
+
+            function Test-UsableConfigValue {
+                param([string]$Value)
+
+                if ([string]::IsNullOrWhiteSpace($Value)) {
+                    return $false
+                }
+
+                $trimmed = $Value.Trim()
+                if ($trimmed.StartsWith('${') -and $trimmed.EndsWith('}')) {
+                    return $false
+                }
+
+                if ($trimmed.StartsWith('YOUR_', [StringComparison]::OrdinalIgnoreCase) -or
+                    $trimmed.StartsWith('CHANGE_ME', [StringComparison]::OrdinalIgnoreCase) -or
+                    $trimmed -eq 'smtp.your-provider.com' -or
+                    $trimmed -eq 'your-email@domain.com' -or
+                    $trimmed -eq 'noreply@your-domain.com' -or
+                    $trimmed -eq 'https://your-domain.com') {
+                    return $false
+                }
+
+                return $true
+            }
+
+            function Set-ShopInventoryWebEmailConfig {
+                param(
+                    [string]$WebConfigPath,
+                    [hashtable]$EmailConfig
+                )
+
+                if (-not (Test-Path $WebConfigPath)) {
+                    throw "web.config not found at $WebConfigPath."
+                }
+
+                $aspNetCoreArguments = Get-WebConfigAspNetCoreArguments -WebConfigPath $WebConfigPath
+                if ($aspNetCoreArguments -notlike '*ShopInventory.Web.dll*') {
+                    Write-Host "  Skipping Web SMTP config for non-Web app config at $WebConfigPath" -ForegroundColor Yellow
+                    return
+                }
+
+                $nonSecretKeys = @(
+                    'Email__Enabled',
+                    'Email__SmtpHost',
+                    'Email__SmtpPort',
+                    'Email__SmtpUsername',
+                    'Email__FromEmail',
+                    'Email__FromName',
+                    'Email__EnableSsl',
+                    'Email__SmtpSecurityMode',
+                    'Email__SmtpConnectTimeoutSeconds',
+                    'Email__SmtpOperationTimeoutSeconds',
+                    'Email__ApplicationUrl'
+                )
+
+                foreach ($key in $nonSecretKeys) {
+                    if ($EmailConfig.ContainsKey($key) -and (Test-UsableConfigValue -Value $EmailConfig[$key])) {
+                        Set-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name $key -Value $EmailConfig[$key]
+                    }
+                }
+
+                if ($EmailConfig.ContainsKey('Email__SmtpPassword') -and (Test-UsableConfigValue -Value $EmailConfig['Email__SmtpPassword'])) {
+                    Set-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__SmtpPassword' -Value $EmailConfig['Email__SmtpPassword']
+                    Write-Host "  Applied Web SMTP password from deployment input" -ForegroundColor Green
+                }
+                else {
+                    $existingPassword = Get-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__SmtpPassword'
+                    if (-not (Test-UsableConfigValue -Value $existingPassword)) {
+                        $existingPassword = Get-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__Password'
+                    }
+
+                    if (Test-UsableConfigValue -Value $existingPassword) {
+                        Set-WebConfigEnvironmentVariableValue -WebConfigPath $WebConfigPath -Name 'Email__SmtpPassword' -Value $existingPassword
+                        Write-Host "  Preserved existing Web SMTP password in Email__SmtpPassword" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "  WARNING: Web SMTP password was not configured. Set SHOPINVENTORY_WEB_SMTP_PASSWORD or pass -WebEmailSmtpPassword before deploying." -ForegroundColor Yellow
+                    }
+                }
+
+                Write-Host "  Applied Web SMTP web.config settings" -ForegroundColor Green
             }
 
             function Wait-ForHealthyEndpoint {
@@ -1335,10 +1907,32 @@ try {
 
                 Initialize-SlotWebConfig -DeploymentPlan $Plan -ExtractedWebConfigPath "$tempPath\web.config"
 
+                if ($Plan.Name -eq 'API') {
+                    $apiWebConfigPaths = @("$($Plan.TargetPath)\web.config")
+                    if (-not [string]::IsNullOrWhiteSpace($Plan.CurrentPath)) {
+                        $currentApiWebConfigPath = Join-Path $Plan.CurrentPath 'web.config'
+                        if (Test-Path $currentApiWebConfigPath) {
+                            $apiWebConfigPaths += $currentApiWebConfigPath
+                        }
+                    }
+
+                    foreach ($apiWebConfigPath in ($apiWebConfigPaths | Select-Object -Unique)) {
+                        Set-WebConfigEnvironmentVariableValue `
+                            -WebConfigPath $apiWebConfigPath `
+                            -Name 'Security__ApiKeys__0__ExpiresAt' `
+                            -Value $ApiKeyExpiryToDeploy
+                        Write-Host "  Applied MainIntegration API-key expiry to $apiWebConfigPath" -ForegroundColor Green
+                    }
+                }
+
                 $databaseConnectionString = $DatabaseConnectionOverrides[$Plan.Name]
                 if (-not [string]::IsNullOrWhiteSpace($databaseConnectionString)) {
                     Set-WebConfigEnvironmentVariableValue -WebConfigPath "$($Plan.TargetPath)\web.config" -Name 'ConnectionStrings__DefaultConnection' -Value $databaseConnectionString
                     Write-Host "  Applied database connection override for $($Plan.Name)" -ForegroundColor Green
+                }
+
+                if ($Plan.Name -eq 'Web') {
+                    Set-ShopInventoryWebEmailConfig -WebConfigPath "$($Plan.TargetPath)\web.config" -EmailConfig $WebEmailConfigOverrides
                 }
 
                 $managedEnvironmentVariablesByApp = @{
@@ -1453,7 +2047,7 @@ try {
                 Remove-Item -Path $tempPath -Recurse -Force -ErrorAction SilentlyContinue
                 Remove-Item -Path $zipFullPath -Force -ErrorAction SilentlyContinue
             }
-        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides -ErrorAction Stop
+        } -ArgumentList $zipFileName, $deploymentPlan, $databaseConnectionOverrides, $webEmailConfigOverrides, $apiKeyExpiryToDeploy -ErrorAction Stop
 
         $cutoverResults += $cutoverResult
 
@@ -1476,8 +2070,8 @@ catch {
 
 Write-Host ""
 
-# Step 5: Verify the public endpoints after cutover
-Write-Host "Step 5: Verifying public readiness endpoints..." -ForegroundColor Cyan
+# Step 6: Verify the public endpoints after cutover
+Write-Host "Step 6: Verifying public readiness endpoints..." -ForegroundColor Cyan
 Write-Host "----------------------------------------" -ForegroundColor Gray
 
 try {
@@ -1558,7 +2152,7 @@ catch {
 
 Write-Host ""
 
-# Step 6: Summary
+# Step 7: Summary
 Write-Host "========================================" -ForegroundColor Green
 Write-Host "Deployment Completed!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
@@ -1581,8 +2175,10 @@ Write-Host "  - Deploy API only: .\Update-Production.ps1 -DeployTarget API" -For
 Write-Host "  - Deploy Web only: .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
 Write-Host "  - Deploy both IIS nodes: .\Update-Production.ps1 -AdditionalProductionServers 10.10.10.58" -ForegroundColor White
 Write-Host "  - Deploy both IIS nodes with separate creds: .\Update-Production.ps1 -AdditionalProductionServers 10.10.10.58 -AdditionalSerializedCredentialPaths <10.10.10.58-cred.xml>" -ForegroundColor White
+Write-Host "  - Deploy Web SMTP config: `$env:SHOPINVENTORY_WEB_SMTP_PASSWORD='<password>'; .\Update-Production.ps1 -DeployTarget Web" -ForegroundColor White
 Write-Host "  - Skip backup: .\Update-Production.ps1 -SkipBackup" -ForegroundColor White
 Write-Host "  - Include uploads/logs in backup: .\Update-Production.ps1 -IncludeRuntimeDataInBackup" -ForegroundColor White
+Write-Host "  - Skip DB migrations (already applied): .\Update-Production.ps1 -SkipDatabaseMigrations" -ForegroundColor White
 Write-Host ""
 Write-Host "Logs location:" -ForegroundColor Yellow
 foreach ($result in $cutoverResults) {

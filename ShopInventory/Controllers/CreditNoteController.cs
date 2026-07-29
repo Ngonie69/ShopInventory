@@ -100,6 +100,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         if (userId == null)
             return Unauthorized();
 
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new CreateCreditNoteCommand(request, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value),
@@ -121,6 +126,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         var userId = GetCurrentUserId();
         if (userId == null)
             return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
 
         var result = await mediator.Send(
             new CreateCreditNoteFromInvoiceCommand(invoiceId, request, userId.Value),
@@ -231,6 +241,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
 public class CreateCreditNoteFromInvoiceApiRequest
 {
     public string? Reason { get; set; }
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Deduplicates retried submissions so a duplicate credit note is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
     public List<CreditNoteLineApiRequest>? Lines { get; set; }
 }
 

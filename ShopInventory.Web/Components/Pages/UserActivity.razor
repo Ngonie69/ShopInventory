@@ -604,9 +604,11 @@
     }
 
     /* ── Detail Drawer ───────────────────────────────── */
+    /* Offset below the app bar: the page container is a stacking context, so a drawer
+       cannot paint over the topbar however high its z-index. */
     .ua-backdrop {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .45);
         z-index: 9998;
         animation: uaFadeIn .2s ease;
@@ -614,10 +616,10 @@
 
     .ua-drawer {
         position: fixed;
-        top: 0;
+        top: var(--kf-topbar-h, 74px);
         right: 0;
         width: min(520px, 95vw);
-        height: 100vh;
+        height: calc(100vh - var(--kf-topbar-h, 74px));
         background: #fff;
         z-index: 9999;
         box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
@@ -1344,15 +1346,25 @@
         StateHasChanged();
         try
         {
-            // Run independent data loads in parallel for performance
-            await Task.WhenAll(
-            LoadStats(),
-            LoadMostActiveUsers(),
-            LoadActionBreakdown(),
-            LoadHourlyActivity(),
-            LoadActivities(),
-            LoadFilters()
-            );
+            var dashboard = await AuditService.GetActivityDashboardAsync(
+                startDate,
+                endDate,
+                userFilter,
+                actionFilter,
+                currentPage,
+                pageSize);
+
+            activeUsersCount = dashboard.Stats.ActiveUsers;
+            totalActionsCount = dashboard.Stats.TotalActions;
+            loginCount = dashboard.Stats.LoginCount;
+            failedActionsCount = dashboard.Stats.FailedActions;
+            mostActiveUsers = dashboard.MostActiveUsers;
+            actionBreakdown = dashboard.ActionBreakdown;
+            hourlyActivity = dashboard.HourlyActivity;
+            recentActivities = dashboard.Activities.Items;
+            totalPages = dashboard.Activities.TotalPages > 0 ? dashboard.Activities.TotalPages : 1;
+            uniqueUsers = dashboard.Users;
+            uniqueActions = dashboard.Actions;
         }
         catch (Exception ex)
         {

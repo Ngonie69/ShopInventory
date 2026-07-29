@@ -6,6 +6,21 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <!--
+      Pins a transitive dependency of Microsoft.AspNetCore.DataProtection, which resolves
+      System.Security.Cryptography.Xml 10.0.8 — flagged by four high-severity advisories
+      (GHSA-cvvh-rhrc-wg4q, GHSA-g8r8-53c2-pm3f, GHSA-23rf-6693-g89p, GHSA-8q5v-6pqq-x66h).
+
+      Only this project needs the pin. ShopInventory and ShopInventory.Web use the Web SDK and
+      take this assembly from the ASP.NET Core shared framework, so it is not a NuGet asset there
+      and is patched by runtime updates instead. This project is a plain console Exe without that
+      shared framework, so the dependency resolves as a real package and is audited.
+
+      Remove once Microsoft.AspNetCore.DataProtection references a patched version directly.
+    -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.10" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\ShopInventory.Web\ShopInventory.Web.csproj" />
   </ItemGroup>
 </Project>

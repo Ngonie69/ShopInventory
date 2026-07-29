@@ -10,7 +10,6 @@ namespace ShopInventory.Features.Timesheets.Queries.GetAssignedCustomers;
 
 public sealed class GetAssignedCustomersHandler(
     ApplicationDbContext db,
-    ISAPServiceLayerClient sapClient,
     IAuditService auditService,
     ILogger<GetAssignedCustomersHandler> logger
 ) : IRequestHandler<GetAssignedCustomersQuery, ErrorOr<List<AssignedCustomerDto>>>
@@ -82,27 +81,28 @@ public sealed class GetAssignedCustomersHandler(
             .Select(t => t.CustomerCode)
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Resolve customer names from SAP
-        var results = new List<AssignedCustomerDto>();
-        foreach (var code in customerCodes)
-        {
-            var name = code;
-            try
-            {
-                var bp = await sapClient.GetBusinessPartnerByCodeAsync(code, cancellationToken);
-                if (bp?.CardName is not null)
-                    name = bp.CardName;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Could not resolve customer name for {CustomerCode}, using code as fallback", code);
-            }
+        // The price-catalog sync already maintains business-partner names locally. Resolve all
+        // assigned names in one database query instead of issuing one SAP request per customer;
+        // the previous fan-out saturated the shared SAP concurrency gate during mobile polling.
+        var cachedProfiles = await db.BusinessPartnerPriceProfiles
+            .AsNoTracking()
+            .Where(profile => customerCodes.Contains(profile.CardCode))
+            .Select(profile => new { profile.CardCode, profile.CardName })
+            .ToListAsync(cancellationToken);
 
-            results.Add(new AssignedCustomerDto(
+        var cachedNames = cachedProfiles
+            .Where(profile => !string.IsNullOrWhiteSpace(profile.CardName))
+            .ToDictionary(
+                profile => profile.CardCode,
+                profile => profile.CardName!,
+                StringComparer.OrdinalIgnoreCase);
+
+        var results = customerCodes
+            .Select(code => new AssignedCustomerDto(
                 code,
-                name,
-                HasActiveCheckIn: code == activeCheckInCustomerCode));
-        }
+                cachedNames.GetValueOrDefault(code, code),
+                HasActiveCheckIn: code == activeCheckInCustomerCode))
+            .ToList();
 
         try
         {

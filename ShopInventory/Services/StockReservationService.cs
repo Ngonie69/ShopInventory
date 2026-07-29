@@ -88,6 +88,12 @@ public interface IStockReservationService
         string batchNumber,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Gets a summary of reserved stock for an item/warehouse.
     /// </summary>
@@ -308,6 +314,14 @@ public class StockReservationService : IStockReservationService
                     // Auto-allocate using FEFO
                     var availableBatches = await _batchValidation.GetAvailableBatchesAsync(
                         lineRequest.ItemCode, lineRequest.WarehouseCode, BatchAllocationStrategy.FEFO, cancellationToken);
+                    var reservedByBatch = await GetReservedBatchQuantitiesAsync(
+                        lineRequest.ItemCode,
+                        lineRequest.WarehouseCode,
+                        availableBatches
+                            .Select(batch => batch.BatchNumber)
+                            .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
+                            .Select(batchNumber => batchNumber!),
+                        cancellationToken);
 
                     // Get already reserved quantities for each batch
                     var remainingQty = inventoryQuantity;
@@ -320,8 +334,7 @@ public class StockReservationService : IStockReservationService
                             lineRequest.WarehouseCode,
                             batch.BatchNumber ?? "");
 
-                        var reservedInBatch = await GetReservedBatchQuantityAsync(
-                            lineRequest.ItemCode, lineRequest.WarehouseCode, batch.BatchNumber ?? "", cancellationToken);
+                        var reservedInBatch = reservedByBatch.GetValueOrDefault(batch.BatchNumber ?? "");
                         reservedInBatch += explicitBatchQuantitiesInRequest.GetValueOrDefault(batchKey);
                         reservedInBatch += autoBatchQuantitiesInRequest.GetValueOrDefault(batchKey);
 
@@ -850,6 +863,42 @@ public class StockReservationService : IStockReservationService
             .SumAsync(b => b.ReservedQuantity, cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedBatchNumbers = batchNumbers
+            .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
+            .Select(batchNumber => batchNumber.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (normalizedBatchNumbers.Count == 0)
+        {
+            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var reservedByBatch = await _dbContext.StockReservationBatches
+            .Where(batch => batch.ItemCode == itemCode
+                && batch.WarehouseCode == warehouseCode
+                && normalizedBatchNumbers.Contains(batch.BatchNumber)
+                && batch.ReservationLine.Reservation.Status == ReservationStatus.Pending
+                && batch.ReservationLine.Reservation.ExpiresAt > DateTime.UtcNow)
+            .GroupBy(batch => batch.BatchNumber)
+            .Select(group => new
+            {
+                BatchNumber = group.Key,
+                Quantity = group.Sum(batch => batch.ReservedQuantity)
+            })
+            .ToListAsync(cancellationToken);
+
+        return reservedByBatch.ToDictionary(
+            entry => entry.BatchNumber,
+            entry => entry.Quantity,
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <inheritdoc/>
     public async Task<ReservedStockSummaryDto> GetReservedStockSummaryAsync(
         string itemCode,
@@ -858,9 +907,11 @@ public class StockReservationService : IStockReservationService
     {
         var reservedQty = await GetReservedQuantityAsync(itemCode, warehouseCode, cancellationToken);
 
-        // Get physical stock from SAP or local cache
-        var stockItems = await _sapClient.GetStockQuantitiesInWarehouseAsync(warehouseCode, cancellationToken);
-        var stockItem = stockItems.FirstOrDefault(s => s.ItemCode == itemCode);
+        // Ask for the one item rather than scanning the warehouse to pick it out of the result.
+        var stockItems = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+            warehouseCode, [itemCode], cancellationToken);
+        var stockItem = stockItems.FirstOrDefault(s =>
+            string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));
         var physicalQty = stockItem?.InStock ?? 0;
 
         // Get batch-level reservations
@@ -946,11 +997,20 @@ public class StockReservationService : IStockReservationService
         var errors = new List<StockReservationErrorDto>();
         var aggregateLines = new List<(CreateStockReservationLineRequest Line, decimal InventoryQuantity)>();
 
+        // One stock read per warehouse, for the item codes actually asked about. This used to be a
+        // whole-warehouse read *per line*: GetStockQuantitiesInWarehouseAsync scans OITM joined to
+        // OITW for every item in the warehouse and pages it 500 rows at a time, so a twenty-line
+        // request against a five-thousand-item warehouse spent about 220 SAP round-trips answering
+        // twenty single-item questions.
+        var stockByWarehouse = await LoadRequestedStockAsync(lines, cancellationToken);
+
+        // Available batches depend only on the item and warehouse, but were re-fetched once per
+        // requested batch number, and again in the aggregate pass below.
+        var batchesByItemAndWarehouse = new Dictionary<string, List<AvailableBatchDto>>(StringComparer.Ordinal);
+
         foreach (var line in lines)
         {
-            // Get physical stock
-            var stockItems = await _sapClient.GetStockQuantitiesInWarehouseAsync(line.WarehouseCode, cancellationToken);
-            var stockItem = stockItems.FirstOrDefault(s => s.ItemCode == line.ItemCode);
+            var stockItem = FindRequestedStock(stockByWarehouse, line.WarehouseCode, line.ItemCode);
 
             if (stockItem == null)
             {
@@ -1013,10 +1073,11 @@ public class StockReservationService : IStockReservationService
             var isBatchManaged = await _batchValidation.IsBatchManagedItemAsync(line.ItemCode, cancellationToken);
             if (isBatchManaged && line.BatchNumbers != null && line.BatchNumbers.Count > 0)
             {
+                var batches = await GetAvailableBatchesOnceAsync(
+                    batchesByItemAndWarehouse, line.ItemCode, line.WarehouseCode, cancellationToken);
+
                 foreach (var batchReq in line.BatchNumbers)
                 {
-                    var batches = await _batchValidation.GetAvailableBatchesAsync(
-                        line.ItemCode, line.WarehouseCode, BatchAllocationStrategy.FEFO, cancellationToken);
                     var batch = batches.FirstOrDefault(b => b.BatchNumber == batchReq.BatchNumber);
 
                     if (batch == null)
@@ -1067,9 +1128,7 @@ public class StockReservationService : IStockReservationService
         {
             var firstLine = stockRequestGroup.First().Line;
             var requestedQuantity = stockRequestGroup.Sum(lineInfo => lineInfo.InventoryQuantity);
-            var stockItems = await _sapClient.GetStockQuantitiesInWarehouseAsync(firstLine.WarehouseCode, cancellationToken);
-            var stockItem = stockItems.FirstOrDefault(stock =>
-                string.Equals(stock.ItemCode, firstLine.ItemCode, StringComparison.OrdinalIgnoreCase));
+            var stockItem = FindRequestedStock(stockByWarehouse, firstLine.WarehouseCode, firstLine.ItemCode);
 
             if (stockItem == null)
                 continue;
@@ -1123,10 +1182,10 @@ public class StockReservationService : IStockReservationService
         {
             var firstBatchRequest = batchRequestGroup.First();
             var requestedQuantity = batchRequestGroup.Sum(batchInfo => batchInfo.Quantity);
-            var batches = await _batchValidation.GetAvailableBatchesAsync(
+            var batches = await GetAvailableBatchesOnceAsync(
+                batchesByItemAndWarehouse,
                 firstBatchRequest.Line.ItemCode,
                 firstBatchRequest.Line.WarehouseCode,
-                BatchAllocationStrategy.FEFO,
                 cancellationToken);
             var batch = batches.FirstOrDefault(availableBatch =>
                 string.Equals(availableBatch.BatchNumber, firstBatchRequest.BatchNumber, StringComparison.OrdinalIgnoreCase));
@@ -1183,6 +1242,92 @@ public class StockReservationService : IStockReservationService
 
     private static string BuildReservationStockKey(params string?[] parts) =>
         string.Join("|", parts.Select(part => (part ?? string.Empty).Trim().ToUpperInvariant()));
+
+    /// <summary>
+    /// Reads current stock for every (warehouse, item) pair the request mentions, one SAP call per
+    /// warehouse.
+    /// </summary>
+    /// <remarks>
+    /// Item codes go to SAP exactly as the caller supplied them and the result is indexed
+    /// case-insensitively — the same pairing <c>SAPServiceLayerClient.ValidateStockAvailabilityAsync</c>
+    /// uses for this query. A warehouse SAP cannot answer for is left absent rather than empty, so
+    /// its lines report "not found" as they did before.
+    /// </remarks>
+    private async Task<Dictionary<string, Dictionary<string, StockQuantityDto>>> LoadRequestedStockAsync(
+        List<CreateStockReservationLineRequest> lines,
+        CancellationToken cancellationToken)
+    {
+        var stockByWarehouse = new Dictionary<string, Dictionary<string, StockQuantityDto>>(StringComparer.OrdinalIgnoreCase);
+
+        var warehouseGroups = lines
+            .Where(line => !string.IsNullOrWhiteSpace(line.WarehouseCode)
+                && !string.IsNullOrWhiteSpace(line.ItemCode))
+            .GroupBy(line => line.WarehouseCode, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var warehouseGroup in warehouseGroups)
+        {
+            var itemCodes = warehouseGroup
+                .Select(line => line.ItemCode)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var stockItems = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                warehouseGroup.Key,
+                itemCodes,
+                cancellationToken);
+
+            var byItemCode = new Dictionary<string, StockQuantityDto>(StringComparer.OrdinalIgnoreCase);
+            foreach (var stockItem in stockItems)
+            {
+                if (!string.IsNullOrWhiteSpace(stockItem.ItemCode))
+                {
+                    byItemCode[stockItem.ItemCode] = stockItem;
+                }
+            }
+
+            stockByWarehouse[warehouseGroup.Key] = byItemCode;
+        }
+
+        return stockByWarehouse;
+    }
+
+    private static StockQuantityDto? FindRequestedStock(
+        Dictionary<string, Dictionary<string, StockQuantityDto>> stockByWarehouse,
+        string? warehouseCode,
+        string? itemCode)
+    {
+        if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
+        {
+            return null;
+        }
+
+        return stockByWarehouse.TryGetValue(warehouseCode, out var byItemCode)
+            && byItemCode.TryGetValue(itemCode, out var stockItem)
+                ? stockItem
+                : null;
+    }
+
+    /// <summary>
+    /// Returns the available batches for one item in one warehouse, reading them at most once per
+    /// validation regardless of how many batch numbers the request names.
+    /// </summary>
+    private async Task<List<AvailableBatchDto>> GetAvailableBatchesOnceAsync(
+        Dictionary<string, List<AvailableBatchDto>> cache,
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        var key = BuildReservationStockKey(itemCode, warehouseCode);
+        if (cache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var batches = await _batchValidation.GetAvailableBatchesAsync(
+            itemCode, warehouseCode, BatchAllocationStrategy.FEFO, cancellationToken);
+        cache[key] = batches;
+        return batches;
+    }
 
     private FiscalizationResult QueueFiscalization(
         InvoiceDto invoice,

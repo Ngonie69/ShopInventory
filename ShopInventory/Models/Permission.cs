@@ -297,12 +297,11 @@ public static class Permissions
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers
             },
+            // Depot controllers are limited to inventory transfers and local stock.
             ApplicationRoles.DepotController => new List<string>
             {
-                ViewDashboard, ViewProducts,
-                ViewPayments, CreatePayments,
-                ViewStock, ViewInventory, TransferStock, TransferInventory,
-                ViewCustomers
+                ViewProducts,
+                ViewStock, ViewInventory, TransferStock, TransferInventory
             },
             ApplicationRoles.ReadOnly => new List<string>
             {

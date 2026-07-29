@@ -342,6 +342,7 @@ public class PodUploadStatusItemDto
     public bool IsFullyCredited { get; set; }
     public string? CreditNoteNumber { get; set; }
     public string? CreditNoteReason { get; set; }
+    public bool IsCrateInvoice { get; set; }
     public bool HasPod { get; set; }
     public bool HasProductPod { get; set; }
     public bool HasCratePod { get; set; }
@@ -372,6 +373,8 @@ public class PodUploadStatusReportDto
     public int TotalInvoices { get; set; }
     public int UploadedCount { get; set; }
     public int PendingCount { get; set; }
+    public bool CreditNoteDataComplete { get; set; } = true;
+    public string? CreditNoteDataWarning { get; set; }
     public List<PodUploadStatusItemDto> Items { get; set; } = new();
 }
 

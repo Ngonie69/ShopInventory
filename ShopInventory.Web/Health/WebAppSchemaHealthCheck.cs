@@ -12,6 +12,7 @@ public sealed class WebAppSchemaHealthCheck(IServiceScopeFactory scopeFactory) :
         "CachedProducts",
         "AuditLogs",
         "AppSettings",
+        "PodReportEmailSchedules",
         "CustomerPortalUsers"
     ];
 

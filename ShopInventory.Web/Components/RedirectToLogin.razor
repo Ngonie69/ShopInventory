@@ -66,10 +66,14 @@
             return "/mobile-drafts";
         }
 
+        if (user.IsInRole(UserRoles.DepotController) && !user.IsInRole(UserRoles.Admin))
+        {
+            return "/inventory-transfers";
+        }
+
         if (user.IsInRole(UserRoles.Admin) ||
             user.IsInRole(UserRoles.Cashier) ||
             user.IsInRole(UserRoles.StockController) ||
-            user.IsInRole(UserRoles.DepotController) ||
             user.IsInRole(UserRoles.Manager) ||
             user.IsInRole(UserRoles.SalesRep))
         {

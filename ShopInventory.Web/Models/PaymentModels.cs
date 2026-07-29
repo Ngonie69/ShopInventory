@@ -89,6 +89,7 @@ public class CreateIncomingPaymentRequest
     public string? TransferAccount { get; set; }
     public decimal CheckSum { get; set; }
     public decimal CreditSum { get; set; }
+    public string? ClientRequestId { get; set; }
     public List<PaymentInvoiceRequest>? PaymentInvoices { get; set; }
     public List<PaymentCheckRequest>? PaymentChecks { get; set; }
     public List<PaymentCreditCardRequest>? PaymentCreditCards { get; set; }

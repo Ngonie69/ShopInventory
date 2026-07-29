@@ -319,12 +319,12 @@ public class CreateUserDetailRequest
     public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
-    /// Default G/L account code for incoming payments (for Cashier/DepotController roles)
+    /// Default G/L account code for incoming payments (for the Cashier role)
     /// </summary>
     public string? DefaultGLAccount { get; set; }
 
     /// <summary>
-    /// Allowed business partner codes for incoming payments (for Cashier/DepotController roles)
+    /// Allowed business partner codes for incoming payments (for the Cashier role)
     /// </summary>
     public List<string>? AllowedPaymentBusinessPartners { get; set; }
 
@@ -391,12 +391,12 @@ public class UpdateUserDetailRequest
     public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
-    /// Default G/L account code for incoming payments (for Cashier/DepotController roles)
+    /// Default G/L account code for incoming payments (for the Cashier role)
     /// </summary>
     public string? DefaultGLAccount { get; set; }
 
     /// <summary>
-    /// Allowed business partner codes for incoming payments (for Cashier/DepotController roles)
+    /// Allowed business partner codes for incoming payments (for the Cashier role)
     /// </summary>
     public List<string>? AllowedPaymentBusinessPartners { get; set; }
 

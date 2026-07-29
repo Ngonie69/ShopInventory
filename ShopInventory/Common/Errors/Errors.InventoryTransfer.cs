@@ -47,5 +47,58 @@ public static partial class Errors
 
         public static Error InvalidOperation(string message) =>
             Error.Validation("InventoryTransfer.InvalidOperation", message);
+
+        public static readonly Error ApproverNotAuthenticated =
+            Error.Unauthorized("InventoryTransfer.ApproverNotAuthenticated", "The approver is not authenticated.");
+
+        public static Error ApproverRoleRequired(string roleName) =>
+            Error.Forbidden("InventoryTransfer.ApproverRoleRequired", $"This transfer request must be approved by a {roleName}.");
+
+        public static readonly Error ApprovalRequiresAdminReview =
+            Error.Forbidden("InventoryTransfer.ApprovalRequiresAdminReview", "The request creator could not be verified. An administrator must review this transfer request.");
+
+        public static Error ApproverWarehouseRequired(string warehouseCode) =>
+            Error.Forbidden("InventoryTransfer.ApproverWarehouseRequired", $"You can only approve transfer requests for your assigned warehouse. Required warehouse: {warehouseCode}.");
+
+        public static readonly Error SelfApprovalNotAllowed =
+            Error.Forbidden("InventoryTransfer.SelfApprovalNotAllowed", "You cannot approve or reject your own transfer request.");
+
+        public static Error ApprovalAlreadyDecided(string status) =>
+            Error.Conflict("InventoryTransfer.ApprovalAlreadyDecided", $"This transfer request has already been {status}.");
+
+        public static readonly Error ApprovalInProgress =
+            Error.Conflict("InventoryTransfer.ApprovalInProgress", "Another approval decision is already being processed for this transfer request.");
+
+        public static Error PendingTransferNotFound(Guid id) =>
+            Error.NotFound("InventoryTransfer.PendingTransferNotFound", $"Pending inventory transfer {id} was not found.");
+
+        public static Error PendingTransferNotActionable(string status) =>
+            Error.Conflict("InventoryTransfer.PendingTransferNotActionable", $"This inventory transfer is {status} and can no longer be actioned.");
+
+        public static Error WarehouseNotAssigned(string warehouseCode) =>
+            Error.Forbidden(
+                "InventoryTransfer.WarehouseNotAssigned",
+                $"You are not assigned to source warehouse {warehouseCode}, so you cannot action this transfer.");
+
+        public static readonly Error NoAssignedWarehouses =
+            Error.Forbidden(
+                "InventoryTransfer.NoAssignedWarehouses",
+                "Your account has no assigned warehouses. Ask an administrator to assign one before actioning transfers.");
+
+        public static Error PendingEditNotFound(Guid id) =>
+            Error.NotFound("InventoryTransfer.PendingEditNotFound", $"Pending transfer request change {id} was not found.");
+
+        public static Error PendingEditNotActionable(string status) =>
+            Error.Conflict("InventoryTransfer.PendingEditNotActionable", $"This change is {status} and can no longer be actioned.");
+
+        public static readonly Error TransferRequestNotEditable =
+            Error.Conflict(
+                "InventoryTransfer.TransferRequestNotEditable",
+                "This transfer request is closed and can no longer be changed.");
+
+        public static Error TransferRequestEditInFlight(int docEntry) =>
+            Error.Conflict(
+                "InventoryTransfer.TransferRequestEditInFlight",
+                $"A change to transfer request {docEntry} is already waiting for approval.");
     }
 }

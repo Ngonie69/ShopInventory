@@ -184,6 +184,13 @@ public class CreateInvoiceRequest
     [Range(0, double.MaxValue, ErrorMessage = "Crate quantity cannot be negative")]
     public decimal? CrateQuantity { get; set; }
 
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Deduplicates retried web invoice submissions that have no U_Van_saleorder business key,
+    /// so a duplicate invoice is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
+
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
     public List<CreateInvoiceLineRequest>? Lines { get; set; }

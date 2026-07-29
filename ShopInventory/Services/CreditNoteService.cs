@@ -17,17 +17,20 @@ public class CreditNoteService : ICreditNoteService
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IFiscalizationService _fiscalizationService;
+    private readonly ICreditNoteProjectionSyncService _projectionSyncService;
     private readonly ILogger<CreditNoteService> _logger;
 
     public CreditNoteService(
         ApplicationDbContext context,
         ISAPServiceLayerClient sapClient,
         IFiscalizationService fiscalizationService,
+        ICreditNoteProjectionSyncService projectionSyncService,
         ILogger<CreditNoteService> logger)
     {
         _context = context;
         _sapClient = sapClient;
         _fiscalizationService = fiscalizationService;
+        _projectionSyncService = projectionSyncService;
         _logger = logger;
     }
 
@@ -406,6 +409,20 @@ public class CreditNoteService : ICreditNoteService
         // Save to local database only after successful SAP posting
         _context.CreditNotes.Add(creditNote);
         await _context.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            await _projectionSyncService.UpsertAsync([sapCreditNote], cancellationToken);
+        }
+        catch (Exception projectionException)
+        {
+            // SAP and the operational credit-note record are authoritative. Projection repair is
+            // best-effort here and the clustered sync job will reconcile it shortly.
+            _logger.LogWarning(
+                projectionException,
+                "Failed to write through SAP credit note {DocEntry} to the local projection",
+                sapCreditNote.DocEntry);
+        }
 
         _logger.LogInformation("Created credit note {CreditNoteNumber} for customer {CardCode} with SAP DocEntry {DocEntry}",
             creditNoteNumber, request.CardCode, creditNote.SAPDocEntry);

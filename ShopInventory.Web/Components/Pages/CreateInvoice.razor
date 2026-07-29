@@ -1382,7 +1382,7 @@
                                                                     {
                                                                         <span
                                                                             style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                                                            @customerPriceListPrices.Count items
+                                                                            @customerPricing.Count items
                                                                         </span>
                                                                     }
                                                                 </div>
@@ -1546,10 +1546,10 @@
                                                                                                      Clearable="true" Class="w-100">
                                                                                         <ItemTemplate>
                                                                                             @{
-                                                                                                var displayPrice = GetDisplayPrice(GetPriceForItem(context.ItemCode,
-                                                        context.Price));
+                                                                                                var displayPrice = GetDisplayPrice(GetPricingForItem(context.ItemCode,
+                                                        context.Price).NetPrice);
                                                                                                 var isCustomerPrice =
-                                                        customerPriceListPrices.ContainsKey(context.ItemCode ??
+                                                        customerPricing.ContainsKey(context.ItemCode ??
                                                         string.Empty);
                                                                                             }
                                                                                             <div
@@ -1652,7 +1652,22 @@
                                                                                                                     }
                                                                                                                 </div>
                                                                                                             </div>
-                                                                                                            <div class="col-6 col-md-4">
+                                                                                                            <div class="col-6 col-md-2">
+                                                                                                                <div class="field-group">
+                                                                                                                    <label class="field-label">Discount %</label>
+                                                                                                                    @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
+                                                                                                                    <input type="number" class="form-control form-control-line"
+                                                                                                                           @bind="line.DiscountPercent" min="0" max="100"
+                                                                                                                           step="0.000001" placeholder="0" />
+                                                                                                                    @if (HasSpecialPrice(line.ItemCode))
+                                                                                                                    {
+                                                                                                                        <div style="color:#059669; font-size:.72rem; margin-top:.15rem;">
+                                                                                                                            <i class="bi bi-tag-fill me-1"></i>Customer special price
+                                                                                                                        </div>
+                                                                                                                    }
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                            <div class="col-6 col-md-2">
                                                                                                                 <div class="field-group">
                                                                                                                     <label class="field-label">Batch
                                                                                                                         <span class="batch-required-badge ms-1">Auto FEFO</span>
@@ -2025,7 +2040,7 @@
     private bool isLoadingBPs = true;
 
     // Customer price list for dynamic pricing
-    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
     private int? customerPriceListNum;
     private bool isLoadingCustomerPrices = false;
     private CancellationTokenSource? businessPartnerPricingCts;
@@ -2094,14 +2109,16 @@
             // 1. Warehouses - usually fast
             await LoadWithTimeoutAsync(
             "Warehouses",
-            async () => cachedWarehouses = await CacheService.GetWarehousesAsync(),
+            async cancellationToken => cachedWarehouses = await CacheService.GetWarehousesAsync(
+                cancellationToken: cancellationToken),
             timeout
             );
 
             // 2. Cost Centres - usually fast and rarely change
             await LoadWithTimeoutAsync(
             "Cost Centres",
-            async () => cachedCostCentres = await CacheService.GetCostCentresAsync(),
+            async cancellationToken => cachedCostCentres = await CacheService.GetCostCentresAsync(
+                cancellationToken: cancellationToken),
             timeout
             );
 
@@ -2112,9 +2129,10 @@
             // 3. Business Partners - can be slow
             await LoadWithTimeoutAsync(
             "Business Partners",
-            async () =>
+            async cancellationToken =>
             {
-                allBusinessPartners = await CacheService.GetBusinessPartnersAsync();
+                allBusinessPartners = await CacheService.GetBusinessPartnersAsync(
+                    cancellationToken: cancellationToken);
                 isLoadingBPs = false;
                 await InvokeAsync(StateHasChanged);
             },
@@ -2124,9 +2142,9 @@
             // 4. Products - can be slow
             await LoadWithTimeoutAsync(
             "Products",
-            async () =>
+            async cancellationToken =>
             {
-                cachedProducts = await CacheService.GetProductsAsync();
+                cachedProducts = await CacheService.GetProductsAsync(cancellationToken: cancellationToken);
                 isLoadingMasterData = false;
                 await InvokeAsync(StateHasChanged);
             },
@@ -2164,31 +2182,23 @@
         }
     }
 
-    private async Task LoadWithTimeoutAsync(string dataName, Func<Task> loadAction, TimeSpan timeout)
+    private async Task LoadWithTimeoutAsync(
+        string dataName,
+        Func<CancellationToken, Task> loadAction,
+        TimeSpan timeout)
     {
         try
         {
             using var cts = new CancellationTokenSource(timeout);
-            var loadTask = loadAction();
-            var completedTask = await Task.WhenAny(loadTask, Task.Delay(timeout, cts.Token));
-
-            if (completedTask == loadTask)
-            {
-                // Task completed, cancel the delay
-                await cts.CancelAsync();
-                await loadTask; // Propagate any exceptions
-                Logger.LogDebug("{DataName} loaded successfully", dataName);
-            }
-            else
-            {
-                // Timeout occurred
-                Logger.LogWarning("{DataName} load timed out after {Timeout}s - will continue with cached data", dataName,
-                timeout.TotalSeconds);
-            }
+            await loadAction(cts.Token);
+            Logger.LogDebug("{DataName} loaded successfully", dataName);
         }
         catch (OperationCanceledException)
         {
-            // This is expected when we cancel the delay task
+            Logger.LogWarning(
+                "{DataName} load timed out after {Timeout}s - will continue with cached data",
+                dataName,
+                timeout.TotalSeconds);
         }
         catch (Exception ex)
         {
@@ -2636,19 +2646,19 @@ cancellationToken)
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
 
-        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
 
         if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                line.UnitPrice = await BusinessPartnerPricingService.ResolveUnitPriceAsync(
+                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
                     product.ItemCode,
                     invoice.DocCurrency,
                     product.Price,
                     invoice.CardCode,
                     customerPriceListNum,
-                    customerPriceListPrices);
+                    customerPricing));
             }
             catch (Exception ex)
             {
@@ -2707,7 +2717,7 @@ AppSettings.DefaultWarehouse);
         validationErrors.Remove("Customer");
 
         // Repaint immediately with the new BP selection while the fresh price lookup is loading.
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = bp.PriceListNum;
         isLoadingCustomerPrices = true;
         UpdateExistingLinePrices();
@@ -2733,7 +2743,7 @@ AppSettings.DefaultWarehouse);
         CancelBusinessPartnerPricingRequest();
         selectedBusinessPartner = null;
         invoice.CardCode = string.Empty;
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = null;
         isLoadingCustomerPrices = false;
         UpdateExistingLinePrices();
@@ -2748,7 +2758,7 @@ AppSettings.DefaultWarehouse);
             {
                 var product = cachedProducts.FirstOrDefault(p => p.ItemCode == line.ItemCode);
                 var defaultPrice = product?.Price ?? 0m;
-                line.UnitPrice = GetPriceForItem(line.ItemCode, defaultPrice);
+                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
 
                 if (line.UnitPrice.GetValueOrDefault() > 0)
                 {
@@ -2803,30 +2813,30 @@ AppSettings.DefaultWarehouse);
 
             if (response?.Prices != null && response.Prices.Any())
             {
-                customerPriceListPrices.Clear();
+                customerPricing.Clear();
                 foreach (var price in response.Prices)
                 {
                     if (!string.IsNullOrEmpty(price.ItemCode))
                     {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
+                        customerPricing[price.ItemCode] = ResolvedItemPrice.Flat(price.Price);
                     }
                 }
                 customerPriceListNum = priceListNum;
 
                 Logger.LogInformation("Loaded {Count} live prices from customer price list {PriceListNum}",
-                customerPriceListPrices.Count, priceListNum);
+                customerPricing.Count, priceListNum);
             }
             else
             {
                 Logger.LogWarning("No prices found for price list {PriceListNum}", priceListNum);
-                customerPriceListPrices.Clear();
+                customerPricing.Clear();
                 customerPriceListNum = null;
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
-            customerPriceListPrices.Clear();
+            customerPricing.Clear();
             customerPriceListNum = null;
         }
         finally
@@ -2853,7 +2863,7 @@ AppSettings.DefaultWarehouse);
                 return false;
             }
 
-            customerPriceListPrices = lookup.Prices;
+            customerPricing = lookup.Pricing;
             customerPriceListNum = lookup.PriceListNum;
             return true;
         }
@@ -2864,7 +2874,7 @@ AppSettings.DefaultWarehouse);
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading invoice prices for {CardCode}", bp.CardCode);
-            customerPriceListPrices.Clear();
+            customerPricing.Clear();
             customerPriceListNum = null;
             return IsCurrentBusinessPartnerPricingRequest(bp, requestVersion, cancellationToken);
         }
@@ -2912,17 +2922,17 @@ AppSettings.DefaultWarehouse);
             var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
             if (response?.Prices != null && response.Prices.Any())
             {
-                customerPriceListPrices.Clear();
+                customerPricing.Clear();
                 foreach (var price in response.Prices)
                 {
                     if (!string.IsNullOrEmpty(price.ItemCode))
                     {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
+                        customerPricing[price.ItemCode] = ResolvedItemPrice.Flat(price.Price);
                     }
                 }
                 customerPriceListNum = priceListNum;
                 Logger.LogInformation("Fallback: loaded {Count} live prices for price list {PriceListNum}",
-customerPriceListPrices.Count, priceListNum);
+customerPricing.Count, priceListNum);
             }
         }
         catch (Exception ex)
@@ -2931,20 +2941,35 @@ customerPriceListPrices.Count, priceListNum);
         }
     }
 
-    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
     {
         if (string.IsNullOrEmpty(itemCode))
-            return defaultPrice;
+            return ResolvedItemPrice.Flat(defaultPrice);
 
         // If customer has a price list with this item, use that price
-        if (customerPriceListPrices.TryGetValue(itemCode, out var customerPrice))
+        if (customerPricing.TryGetValue(itemCode, out var customerPrice))
         {
             return customerPrice;
         }
 
         // Fall back to default product price
-        return defaultPrice;
+        return ResolvedItemPrice.Flat(defaultPrice);
     }
+
+    /// <summary>
+    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
+    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// </summary>
+    private static void ApplyPricing(CreateInvoiceLineRequest line, ResolvedItemPrice pricing)
+    {
+        line.UnitPrice = pricing.UnitPrice;
+        line.DiscountPercent = pricing.DiscountPercent;
+    }
+
+    private bool HasSpecialPrice(string? itemCode)
+        => !string.IsNullOrEmpty(itemCode)
+            && customerPricing.TryGetValue(itemCode, out var pricing)
+            && pricing.DiscountPercent > 0;
 
     private decimal GetDisplayPrice(decimal amount)
     {
@@ -3025,7 +3050,12 @@ customerPriceListPrices.Count, priceListNum);
 
     private decimal CalculateLineTotal(CreateInvoiceLineRequest line)
     {
-        return line.Quantity * (line.UnitPrice ?? 0);
+        var subtotal = line.Quantity * (line.UnitPrice ?? 0);
+        var discountPercent = line.DiscountPercent ?? 0;
+
+        // Unit Price is the price before discount, so the discount has to come off here or the
+        // totals disagree with what SAP bills.
+        return discountPercent > 0 ? subtotal * (1 - discountPercent / 100) : subtotal;
     }
 
     private decimal CalculateSubtotal()

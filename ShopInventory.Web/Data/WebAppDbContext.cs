@@ -21,6 +21,7 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
     public DbSet<CacheSyncInfo> CacheSyncInfo { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<AppSetting> AppSettings { get; set; }
+    public DbSet<PodReportEmailSchedule> PodReportEmailSchedules { get; set; }
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
     // Customer Portal entities
@@ -388,6 +389,35 @@ public class WebAppDbContext : DbContext, IDataProtectionKeyContext
             // Unique index on key
             entity.HasIndex(e => e.Key).IsUnique();
             entity.HasIndex(e => e.Category);
+        });
+
+        // PodReportEmailSchedule configuration
+        modelBuilder.Entity<PodReportEmailSchedule>(entity =>
+        {
+            entity.ToTable("PodReportEmailSchedules");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Name)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(e => e.Frequency)
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.Property(e => e.ToRecipients)
+                .HasColumnType("text");
+
+            entity.Property(e => e.CcRecipients)
+                .HasColumnType("text");
+
+            entity.Property(e => e.CreatedBy)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.LastModifiedBy)
+                .HasMaxLength(100);
+
+            entity.HasIndex(e => e.Enabled);
         });
 
         // CustomerPortalUser configuration

@@ -1737,6 +1737,7 @@
             {
                 existing.LockedUntil = null;
                 existing.FailedLoginAttempts = 0;
+                existing.Status = "Active";
                 existing.UpdatedAt = DateTime.UtcNow;
 
                 await dbContext.SaveChangesAsync();

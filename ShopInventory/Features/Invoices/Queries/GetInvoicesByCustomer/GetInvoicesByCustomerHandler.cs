@@ -149,9 +149,16 @@ public sealed class GetInvoicesByCustomerHandler(
 
             return response;
         }
-        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            logger.LogError(ex, "Timeout connecting to SAP Service Layer");
+            logger.LogInformation(
+                "Invoice lookup for customer {CardCode} was canceled by the caller",
+                request.CardCode);
+            throw;
+        }
+        catch (TaskCanceledException ex)
+        {
+            logger.LogWarning(ex, "SAP invoice lookup timed out for customer {CardCode}", request.CardCode);
             return Errors.Invoice.SapTimeout;
         }
         catch (HttpRequestException ex)

@@ -1,0 +1,31 @@
+@* Kefalos identity lockup. The temple mark is inline SVG rather than an <img> so it
+   inherits the surrounding colour, which keeps it correct in both light and dark themes. *@
+
+<span class="kf-brand @Class">
+    <svg class="kf-brand__mark" viewBox="0 0 512 512" focusable="false" aria-hidden="true">
+        @* Pediment *@
+        <path d="M256 34 470 148H42Z" />
+        @* Entablature *@
+        <path d="M36 158h440v26H36zm22 34h396v16H58z" />
+        @* Four columns *@
+        <path d="M64 216h34v170H64zm48 0h34v170h-34zm254 0h34v170h-34zm48 0h34v170h-34z" />
+        @* Kefalos K, centred between the columns *@
+        <path d="M173.5 216h45v58l56-58h57l-81 79 88 91h-61l-59-65v65h-45z" />
+        @* Stepped stylobate *@
+        <path d="M58 398h396v22H58zm-20 30h436v20H38zm-18 28h472v18H20z" />
+    </svg>
+    @if (ShowWordmark)
+    {
+        <span class="kf-brand__copy">
+            <strong>Kefalos</strong>
+            <small>Quality Dairy Produce</small>
+        </span>
+    }
+</span>
+
+@code {
+    /// <summary>Hide the wordmark to render the mark on its own (narrow viewports, tight surfaces).</summary>
+    [Parameter] public bool ShowWordmark { get; set; } = true;
+
+    [Parameter] public string? Class { get; set; }
+}

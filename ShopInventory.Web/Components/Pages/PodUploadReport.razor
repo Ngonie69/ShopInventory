@@ -11,6 +11,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
 <PageTitle>Product and Crate POD Upload Report - Shop Inventory</PageTitle>
 
@@ -70,21 +71,25 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                    <MudDatePicker @bind-Date="fromDate" @bind-Date:after="OnDateRangeChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
                                    DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                    <MudDatePicker @bind-Date="toDate" @bind-Date:after="OnDateRangeChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
                                    DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
-                    <select class="form-select" @onchange="OnQuickSelectChanged" style="border-radius: 8px;">
+                    <select class="form-select" value="@selectedQuickRange" @onchange="OnQuickSelectChanged"
+                            style="border-radius: 8px;">
                         <option value="7">Last 7 Days</option>
-                        <option value="30" selected>Last 30 Days</option>
+                        <option value="30">Last 30 Days</option>
                         <option value="90">Last 90 Days</option>
                         <option value="180">Last 6 Months</option>
+                        <option value="custom">Custom Range</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -145,10 +150,10 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Generated Location</label>
-                    <select class="form-select" @bind="uploadLocationFilter" @bind:after="OnAdvancedFiltersChanged"
+                    <select class="form-select" @bind="generatedLocationFilter" @bind:after="OnAdvancedFiltersChanged"
                             style="border-radius: 8px;">
                         <option value="all">Any location</option>
-                        @foreach (var location in AvailableUploadLocations)
+                        @foreach (var location in AvailableGeneratedLocations)
                         {
                             <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
                         }
@@ -261,6 +266,29 @@
 
         @* Data Table *@
         <div class="podr-table-card">
+            @if (!report.CreditNoteDataComplete)
+            {
+                <div class="podr-credit-status" role="status" aria-live="polite">
+                    <div class="podr-credit-status-copy">
+                        @if (isRefreshingCreditNotes)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                            <span>Credit-note status is updating. The report remains available.</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            <span>Credit-note synchronization is catching up automatically. Some statuses are not yet verified.</span>
+                        }
+                    </div>
+                    @if (!isRefreshingCreditNotes)
+                    {
+                        <button type="button" class="btn btn-sm podr-credit-retry" @onclick="RetryCreditNoteDataAsync">
+                            <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Retry
+                        </button>
+                    }
+                </div>
+            }
             <div class="table-responsive">
                 <table class="table table-hover mb-0 align-middle podr-table mobile-card-table">
                     <thead>
@@ -269,6 +297,8 @@
                             <th>Customer</th>
                             <th>Date</th>
                             <th class="text-end">Amount</th>
+                            <th>Credit Note</th>
+                            <th>Credit Reason</th>
                             <th class="text-center">POD Status</th>
                             <th>Uploaded</th>
                             <th class="text-center">Files</th>
@@ -291,6 +321,38 @@
                                     <td data-label="Date">@FormatDate(item.DocDate)</td>
                                     <td data-label="Amount" class="text-end fw-semibold">
                                         @item.DocCurrency @item.DocTotal.ToString("N2")
+                                    </td>
+                                    <td data-label="Credit Note">
+                                        @if (!string.IsNullOrWhiteSpace(item.CreditNoteNumber))
+                                        {
+                                            <span class="badge rounded-pill @(item.IsFullyCredited ? "bg-danger" : "bg-secondary")">
+                                                @item.CreditNoteNumber
+                                            </span>
+                                            @if (item.IsFullyCredited)
+                                            {
+                                                <div class="small text-muted mt-1">Fully credited</div>
+                                            }
+                                        }
+                                        else if (!report.CreditNoteDataComplete)
+                                        {
+                                            <span class="podr-credit-unverified">
+                                                <i class="bi bi-question-circle me-1" aria-hidden="true"></i>Not verified
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td data-label="Credit Reason">
+                                        @if (!string.IsNullOrWhiteSpace(item.CreditNoteReason))
+                                        {
+                                            <span class="small">@item.CreditNoteReason</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
                                     </td>
                                     <td data-label="POD Status" class="text-center">
                                         @if (item.HasPod)
@@ -350,7 +412,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="8" class="text-center py-4 text-muted">
+                                <td colspan="10" class="text-center py-4 text-muted">
                                     <i class="bi bi-inbox me-2"></i>No invoices match the current filters
                                 </td>
                             </tr>
@@ -613,6 +675,45 @@
             overflow: hidden;
         }
 
+        .podr-credit-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.55rem 1rem;
+            border-bottom: 1px solid var(--border-color, #e2e8f0);
+            background: var(--card-header-bg, #f8f9fa);
+            color: var(--text-muted, #6c757d);
+            font-size: 0.8rem;
+        }
+
+        .podr-credit-status-copy {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        .podr-credit-retry {
+            border-color: var(--border-color, #cbd5e1);
+            color: var(--text-secondary, #475569);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .podr-credit-retry:hover {
+            border-color: #3949ab;
+            color: #3949ab;
+        }
+
+        .podr-credit-unverified {
+            display: inline-flex;
+            align-items: center;
+            color: var(--text-muted, #64748b);
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
         .podr-table thead th {
             background: var(--card-header-bg, #f8f9fa);
             font-size: 0.75rem;
@@ -765,6 +866,10 @@
                 align-items: stretch;
             }
 
+            .podr-credit-status {
+                align-items: flex-start;
+            }
+
             .podr-pagination-controls {
                 justify-content: center;
                 flex-wrap: wrap;
@@ -820,7 +925,8 @@
         }
 
         .dark-theme .podr-filter-header,
-        .dark-theme .podr-table thead th {
+        .dark-theme .podr-table thead th,
+        .dark-theme .podr-credit-status {
             background: var(--card-header-bg, #1e293b);
         }
 
@@ -864,15 +970,20 @@
     private PodUploadStatusReport? report;
     private bool isLoading;
     private bool isExporting;
+    private bool isRefreshingCreditNotes;
+    private bool isDisposed;
     private string? errorMessage;
-    private DateTime? fromDate = DateTime.Today.AddDays(-30);
+    private CancellationTokenSource? creditNoteRefreshCts;
+    private const int DefaultQuickRangeDays = 30;
+    private DateTime? fromDate = InclusiveRangeStart(DateTime.Today, DefaultQuickRangeDays);
     private DateTime? toDate = DateTime.Today;
+    private string selectedQuickRange = DefaultQuickRangeDays.ToString();
     private string filterMode = "all";
     private string? searchTerm;
     private string currencyFilter = "all";
     private string uploadedByFilter = "all";
     private string uploaderRoleFilter = "all";
-    private string uploadLocationFilter = "all";
+    private string generatedLocationFilter = "all";
     private decimal? minAmount;
     private decimal? maxAmount;
     private int currentPage = 1;
@@ -903,14 +1014,19 @@
         .OrderBy(role => role)
         ?? Enumerable.Empty<string>();
 
-    private IEnumerable<string> AvailableUploadLocations => AssignedSectionOptions.All;
+    private IEnumerable<string> AvailableGeneratedLocations => report?.Items?
+        .Select(item => NormalizeLocationValue(item.CreatedLocation))
+        .Where(location => !string.IsNullOrWhiteSpace(location))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(location => location)
+        ?? Enumerable.Empty<string>();
 
     private bool HasUploaderIdentityFilters =>
         !string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase) ||
         !string.Equals(uploaderRoleFilter, "all", StringComparison.OrdinalIgnoreCase);
 
     private bool HasGeneratedLocationFilter =>
-        !string.Equals(uploadLocationFilter, "all", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase);
 
     private IEnumerable<PodUploadStatusItem> BaseFilteredItems
     {
@@ -927,6 +1043,8 @@
                 items = items.Where(i =>
                     (i.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     (i.CardCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CreditNoteNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CreditNoteReason?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     i.DocNum.ToString().Contains(term));
             }
 
@@ -1005,6 +1123,12 @@
             return;
         }
 
+        if (fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "From Date cannot be later than To Date.";
+            return;
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         if (authState.User.Identity?.IsAuthenticated != true)
         {
@@ -1012,6 +1136,7 @@
             return;
         }
 
+        CancelCreditNoteRefresh();
         isLoading = true;
         errorMessage = null;
         report = null;
@@ -1019,7 +1144,10 @@
 
         try
         {
-            report = await PodService.GetPodUploadStatusAsync(fromDate.Value, toDate.Value);
+            report = await PodService.GetPodUploadStatusAsync(
+                fromDate.Value,
+                toDate.Value,
+                includeCreditNoteActivity: false);
             NormalizeDynamicFilters();
             currentPage = EffectiveCurrentPage;
             if (report == null)
@@ -1033,6 +1161,73 @@
         {
             isLoading = false;
         }
+
+    }
+
+    private Task RetryCreditNoteDataAsync() => RefreshCreditNoteDataAsync();
+
+    private async Task RefreshCreditNoteDataAsync()
+    {
+        if (report is null ||
+            report.CreditNoteDataComplete ||
+            isRefreshingCreditNotes ||
+            !fromDate.HasValue ||
+            !toDate.HasValue)
+        {
+            return;
+        }
+
+        var refreshFromDate = fromDate.Value;
+        var refreshToDate = toDate.Value;
+        var refreshCts = new CancellationTokenSource();
+        creditNoteRefreshCts = refreshCts;
+        isRefreshingCreditNotes = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var refreshedReport = await PodService.GetPodUploadStatusAsync(
+                refreshFromDate,
+                refreshToDate,
+                includeCreditNoteActivity: false,
+                refreshCts.Token);
+
+            if (!refreshCts.IsCancellationRequested &&
+                refreshedReport is not null &&
+                fromDate == refreshFromDate &&
+                toDate == refreshToDate)
+            {
+                report = refreshedReport;
+                NormalizeDynamicFilters();
+                currentPage = EffectiveCurrentPage;
+            }
+        }
+        catch (OperationCanceledException) when (refreshCts.IsCancellationRequested)
+        {
+            // A new report load or component disposal superseded this refresh.
+        }
+        finally
+        {
+            if (ReferenceEquals(creditNoteRefreshCts, refreshCts))
+            {
+                creditNoteRefreshCts = null;
+                isRefreshingCreditNotes = false;
+            }
+
+            refreshCts.Dispose();
+            if (!isDisposed)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void CancelCreditNoteRefresh()
+    {
+        var refreshCts = creditNoteRefreshCts;
+        creditNoteRefreshCts = null;
+        isRefreshingCreditNotes = false;
+        refreshCts?.Cancel();
     }
 
     private void SetFilter(string mode)
@@ -1054,11 +1249,25 @@
 
     private void OnQuickSelectChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value?.ToString(), out var days))
+        var selectedValue = e.Value?.ToString();
+        selectedQuickRange = selectedValue ?? "custom";
+
+        if (int.TryParse(selectedValue, out var days) && days > 0)
         {
-            fromDate = DateTime.Today.AddDays(-days);
-            toDate = DateTime.Today;
+            var today = DateTime.Today;
+            fromDate = InclusiveRangeStart(today, days);
+            toDate = today;
+            currentPage = 1;
         }
+    }
+
+    private static DateTime InclusiveRangeStart(DateTime endDate, int days) =>
+        endDate.Date.AddDays(-(days - 1));
+
+    private void OnDateRangeChanged()
+    {
+        selectedQuickRange = "custom";
+        currentPage = 1;
     }
 
     private void OnAdvancedFiltersChanged()
@@ -1073,7 +1282,7 @@
         currencyFilter = "all";
         uploadedByFilter = "all";
         uploaderRoleFilter = "all";
-        uploadLocationFilter = "all";
+        generatedLocationFilter = "all";
         minAmount = null;
         maxAmount = null;
         currentPage = 1;
@@ -1099,15 +1308,15 @@
             uploaderRoleFilter = "all";
         }
 
-        if (!string.Equals(uploadLocationFilter, "all", StringComparison.OrdinalIgnoreCase)
-            && !AvailableUploadLocations.Contains(uploadLocationFilter, StringComparer.OrdinalIgnoreCase))
+        if (!string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !AvailableGeneratedLocations.Contains(generatedLocationFilter, StringComparer.OrdinalIgnoreCase))
         {
-            uploadLocationFilter = "all";
+            generatedLocationFilter = "all";
         }
     }
 
     private bool MatchesGeneratedLocationFilter(PodUploadStatusItem item) =>
-        LocationMatchesFilter(item.CreatedLocation, uploadLocationFilter);
+        LocationMatchesFilter(item.CreatedLocation, generatedLocationFilter);
 
     private static bool LocationMatchesFilter(string? location, string? filterValue)
     {
@@ -1268,6 +1477,7 @@ StringComparison.OrdinalIgnoreCase))
                 TotalInvoices = exportItems.Count,
                 UploadedCount = exportItems.Count(i => i.HasPod),
                 PendingCount = exportItems.Count(i => !i.HasPod),
+                CreditNoteDataComplete = report.CreditNoteDataComplete,
                 Items = exportItems
             };
 
@@ -1284,5 +1494,12 @@ StringComparison.OrdinalIgnoreCase))
             isExporting = false;
             StateHasChanged();
         }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        isDisposed = true;
+        CancelCreditNoteRefresh();
+        return ValueTask.CompletedTask;
     }
 }

@@ -2,11 +2,22 @@ using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
 
+/// <summary>
+/// A customer's price for one item, split the way SAP splits it on a document line: a unit price
+/// plus a discount percent. <see cref="NetPrice"/> is what the customer actually pays and is carried
+/// through rather than recomputed, so a six-decimal discount cannot drift it off the special price.
+/// </summary>
+public sealed record ResolvedItemPrice(decimal UnitPrice, decimal DiscountPercent, decimal NetPrice)
+{
+    public static ResolvedItemPrice Flat(decimal price) => new(price, 0m, price);
+}
+
 public sealed class BusinessPartnerPriceLookup
 {
     public string? CardCode { get; init; }
     public int? PriceListNum { get; init; }
     public Dictionary<string, decimal> Prices { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, ResolvedItemPrice> Pricing { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public interface IBusinessPartnerPricingService
@@ -20,6 +31,15 @@ public interface IBusinessPartnerPricingService
         string? cardCode = null,
         int? priceListNum = null,
         IReadOnlyDictionary<string, decimal>? knownPrices = null,
+        CancellationToken cancellationToken = default);
+
+    Task<ResolvedItemPrice> ResolveItemPriceAsync(
+        string? itemCode,
+        string? currency,
+        decimal defaultPrice,
+        string? cardCode = null,
+        int? priceListNum = null,
+        IReadOnlyDictionary<string, ResolvedItemPrice>? knownPricing = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -61,7 +81,8 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
                 {
                     CardCode = cardCode,
                     PriceListNum = bpResponse?.PriceListNum > 0 ? bpResponse.PriceListNum : priceListNum,
-                    Prices = bpPriceMap
+                    Prices = bpPriceMap,
+                    Pricing = ToPricingMap(bpResponse?.Prices)
                 };
             }
         }
@@ -72,12 +93,13 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
 
         if (priceListNum is > 0)
         {
-            var fallbackPriceMap = await LoadPriceListMapAsync(priceListNum.Value, cancellationToken);
+            var fallbackPrices = await LoadPriceListAsync(priceListNum.Value, cancellationToken);
             return new BusinessPartnerPriceLookup
             {
                 CardCode = cardCode,
                 PriceListNum = priceListNum,
-                Prices = fallbackPriceMap
+                Prices = ToPriceMap(fallbackPrices),
+                Pricing = ToPricingMap(fallbackPrices)
             };
         }
 
@@ -97,13 +119,39 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
         IReadOnlyDictionary<string, decimal>? knownPrices = null,
         CancellationToken cancellationToken = default)
     {
+        var knownPricing = knownPrices?.ToDictionary(
+            entry => entry.Key,
+            entry => ResolvedItemPrice.Flat(entry.Value),
+            StringComparer.OrdinalIgnoreCase);
+
+        var resolved = await ResolveItemPriceAsync(
+            itemCode,
+            currency,
+            defaultPrice,
+            cardCode,
+            priceListNum,
+            knownPricing,
+            cancellationToken);
+
+        return resolved.NetPrice;
+    }
+
+    public async Task<ResolvedItemPrice> ResolveItemPriceAsync(
+        string? itemCode,
+        string? currency,
+        decimal defaultPrice,
+        string? cardCode = null,
+        int? priceListNum = null,
+        IReadOnlyDictionary<string, ResolvedItemPrice>? knownPricing = null,
+        CancellationToken cancellationToken = default)
+    {
         var normalizedItemCode = itemCode?.Trim();
         if (string.IsNullOrWhiteSpace(normalizedItemCode))
         {
-            return defaultPrice;
+            return ResolvedItemPrice.Flat(defaultPrice);
         }
 
-        if (TryGetKnownPrice(knownPrices, normalizedItemCode, out var knownPrice))
+        if (knownPricing is not null && knownPricing.TryGetValue(normalizedItemCode, out var knownPrice))
         {
             return knownPrice;
         }
@@ -115,9 +163,9 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
             {
                 var bpResponse = await _priceService.GetPricesByBusinessPartnerAsync(normalizedCardCode, [normalizedItemCode]);
                 var bpPrice = FindItemPrice(bpResponse?.Prices, normalizedItemCode);
-                if (bpPrice.HasValue)
+                if (bpPrice is not null)
                 {
-                    return bpPrice.Value;
+                    return ToResolvedPrice(bpPrice);
                 }
 
                 if (priceListNum is null && bpResponse?.PriceListNum > 0)
@@ -133,10 +181,11 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
 
         if (priceListNum is > 0)
         {
-            var priceListPrices = await LoadPriceListMapAsync(priceListNum.Value, cancellationToken);
-            if (priceListPrices.TryGetValue(normalizedItemCode, out var priceListPrice))
+            var priceListPrices = await LoadPriceListAsync(priceListNum.Value, cancellationToken);
+            var priceListPrice = FindItemPrice(priceListPrices, normalizedItemCode);
+            if (priceListPrice is not null)
             {
-                return priceListPrice;
+                return ToResolvedPrice(priceListPrice);
             }
         }
 
@@ -146,7 +195,7 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
             var fallbackPrice = GetCurrencyPrice(groupedPrice, currency);
             if (fallbackPrice.HasValue)
             {
-                return fallbackPrice.Value;
+                return ResolvedItemPrice.Flat(fallbackPrice.Value);
             }
         }
         catch (Exception ex)
@@ -154,15 +203,15 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
             _logger.LogWarning(ex, "Failed grouped price lookup for {ItemCode}", normalizedItemCode);
         }
 
-        return defaultPrice;
+        return ResolvedItemPrice.Flat(defaultPrice);
     }
 
-    private async Task<Dictionary<string, decimal>> LoadPriceListMapAsync(int priceListNum, CancellationToken cancellationToken)
+    private async Task<List<ItemPriceByListDto>> LoadPriceListAsync(int priceListNum, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var response = await _priceService.GetPricesByPriceListAsync(priceListNum);
-        return ToPriceMap(response?.Prices);
+        return response?.Prices ?? [];
     }
 
     private static Dictionary<string, decimal> ToPriceMap(IEnumerable<ItemPriceByListDto>? prices)
@@ -184,22 +233,36 @@ public sealed class BusinessPartnerPricingService : IBusinessPartnerPricingServi
         return result;
     }
 
-    private static decimal? FindItemPrice(IEnumerable<ItemPriceByListDto>? prices, string itemCode)
+    private static Dictionary<string, ResolvedItemPrice> ToPricingMap(IEnumerable<ItemPriceByListDto>? prices)
     {
-        return prices?
-            .FirstOrDefault(price => itemCode.Equals(price.ItemCode, StringComparison.OrdinalIgnoreCase))?
-            .Price;
-    }
-
-    private static bool TryGetKnownPrice(IReadOnlyDictionary<string, decimal>? prices, string itemCode, out decimal price)
-    {
-        if (prices is not null && prices.TryGetValue(itemCode, out price))
+        var result = new Dictionary<string, ResolvedItemPrice>(StringComparer.OrdinalIgnoreCase);
+        if (prices is null)
         {
-            return true;
+            return result;
         }
 
-        price = 0;
-        return false;
+        foreach (var price in prices)
+        {
+            if (!string.IsNullOrWhiteSpace(price.ItemCode))
+            {
+                result[price.ItemCode.Trim()] = ToResolvedPrice(price);
+            }
+        }
+
+        return result;
+    }
+
+    private static ResolvedItemPrice ToResolvedPrice(ItemPriceByListDto price)
+    {
+        return price.DiscountPercent is > 0 && price.PriceBeforeDiscount is > 0
+            ? new ResolvedItemPrice(price.PriceBeforeDiscount.Value, price.DiscountPercent.Value, price.Price)
+            : ResolvedItemPrice.Flat(price.Price);
+    }
+
+    private static ItemPriceByListDto? FindItemPrice(IEnumerable<ItemPriceByListDto>? prices, string itemCode)
+    {
+        return prices?
+            .FirstOrDefault(price => itemCode.Equals(price.ItemCode?.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     private static decimal? GetCurrencyPrice(ItemPriceGroupedDto? priceInfo, string? currency)

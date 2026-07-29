@@ -1,0 +1,114 @@
+@using ShopInventory.Web.Models
+
+<section class="kf-activity-card" aria-labelledby="@HeadingId">
+    <header class="kf-activity-card__header">
+        <div class="kf-activity-card__title">
+            <span class="kf-panel-icon" aria-hidden="true">
+                <MudIcon Icon="@TableIcon" />
+            </span>
+            <h2 id="@HeadingId">@Title</h2>
+        </div>
+        <a href="@ViewAllHref">View all <span aria-hidden="true">›</span></a>
+    </header>
+
+    @if (IsLoading)
+    {
+        <div class="kf-table-state" role="status">
+            <span class="kf-spinner" aria-hidden="true"></span>
+            Loading @Title.ToLowerInvariant()…
+        </div>
+    }
+    else if (Kind == ActivityKind.Invoices && Invoices?.Any() == true)
+    {
+        <div class="kf-table-scroll">
+            <table class="kf-activity-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Doc #</th>
+                        <th scope="col">Customer</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Total</th>
+                        <th scope="col">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invoice in Invoices.Take(5))
+                    {
+                        <tr>
+                            <td><span class="kf-doc-chip kf-doc-chip--gold">INV-@invoice.DocNum</span></td>
+                            @* Long trading names are ellipsised, so keep the full value reachable. *@
+                            <td class="kf-customer-cell" title="@invoice.CardName">@invoice.CardName</td>
+                            <td>@FormatDate(invoice.DocDate)</td>
+                            <td class="kf-money">@invoice.DocCurrency @invoice.DocTotal.ToString("N2")</td>
+                            <td><StatusBadge Text="@InvoiceStatus(invoice)" Tone="@InvoiceTone(invoice)" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else if (Kind == ActivityKind.Payments && Payments?.Any() == true)
+    {
+        <div class="kf-table-scroll">
+            <table class="kf-activity-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Doc #</th>
+                        <th scope="col">Customer</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Method</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var payment in Payments.Take(5))
+                    {
+                        <tr>
+                            <td><span class="kf-doc-chip kf-doc-chip--teal">PAY-@payment.DocNum</span></td>
+                            <td class="kf-customer-cell" title="@payment.CardName">@payment.CardName</td>
+                            <td>@FormatDate(payment.DocDate)</td>
+                            <td class="kf-money">@payment.DocCurrency @payment.DocTotal.ToString("N2")</td>
+                            <td><StatusBadge Text="@PaymentMethod(payment)" Tone="neutral" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <div class="kf-table-state">No recent @Title.ToLowerInvariant()</div>
+    }
+</section>
+
+@code {
+    public enum ActivityKind { Invoices, Payments }
+
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string ViewAllHref { get; set; } = string.Empty;
+    [Parameter] public ActivityKind Kind { get; set; }
+    [Parameter] public IReadOnlyList<InvoiceDto>? Invoices { get; set; }
+    [Parameter] public IReadOnlyList<IncomingPaymentDto>? Payments { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+
+    private string HeadingId => $"activity-{Kind.ToString().ToLowerInvariant()}";
+    private string TableIcon => Kind == ActivityKind.Invoices
+        ? Icons.Material.Outlined.ReceiptLong
+        : Icons.Material.Outlined.Payments;
+
+    private static string FormatDate(string? value) =>
+        DateTime.TryParse(value, out var date) ? date.ToString("dd MMM yyyy") : value ?? "—";
+
+    private static string InvoiceStatus(InvoiceDto invoice) =>
+        invoice.DocTotal > 0 && invoice.PaidToDate >= invoice.DocTotal ? "Paid" :
+        string.Equals(invoice.DocStatus, "C", StringComparison.OrdinalIgnoreCase) ? "Closed" : "Open";
+
+    private static string InvoiceTone(InvoiceDto invoice) =>
+        InvoiceStatus(invoice) == "Paid" ? "success" : "neutral";
+
+    private static string PaymentMethod(IncomingPaymentDto payment) =>
+        payment.CashSum > 0 ? "Cash" :
+        payment.TransferSum > 0 ? "POS" :
+        payment.CreditSum > 0 ? "Card" :
+        payment.CheckSum > 0 ? "Cheque" : "Other";
+}

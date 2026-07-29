@@ -34,17 +34,17 @@ public sealed class ConfirmVanSalesTransferRequestHandler(
 
         return command.Request.Status switch
         {
-            2 => await ConvertAsync(command.Request.Id, cancellationToken),
-            3 => await CloseAsync(command.Request.Id, cancellationToken),
+            2 => await ConvertAsync(command.Request.Id, command.UserId, cancellationToken),
+            3 => await CloseAsync(command.Request.Id, command.UserId, cancellationToken),
             _ => Error.Validation(
                 "VanSalesCompatibility.InvalidTransferStatus",
                 "Only approve (2) and reject (3) transfer request actions are supported.")
         };
     }
 
-    private async Task<ErrorOr<string>> ConvertAsync(int docEntry, CancellationToken cancellationToken)
+    private async Task<ErrorOr<string>> ConvertAsync(int docEntry, Guid userId, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry), cancellationToken);
+        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry, userId), cancellationToken);
         if (result.IsError)
         {
             return result.Errors;
@@ -56,9 +56,9 @@ public sealed class ConfirmVanSalesTransferRequestHandler(
             : "Transfer request approved successfully.";
     }
 
-    private async Task<ErrorOr<string>> CloseAsync(int docEntry, CancellationToken cancellationToken)
+    private async Task<ErrorOr<string>> CloseAsync(int docEntry, Guid userId, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry), cancellationToken);
+        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry, userId), cancellationToken);
         if (result.IsError)
         {
             return result.Errors;

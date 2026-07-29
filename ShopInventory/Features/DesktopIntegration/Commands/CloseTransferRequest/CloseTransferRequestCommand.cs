@@ -4,5 +4,6 @@ using MediatR;
 namespace ShopInventory.Features.DesktopIntegration.Commands.CloseTransferRequest;
 
 public sealed record CloseTransferRequestCommand(
-    int DocEntry
+    int DocEntry,
+    Guid UserId
 ) : IRequest<ErrorOr<Deleted>>;

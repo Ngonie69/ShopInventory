@@ -9,7 +9,6 @@ namespace ShopInventory.Features.Statements.Queries.GetCustomerStatement;
 
 public sealed class GetCustomerStatementHandler(
     IBusinessPartnerService businessPartnerService,
-    IInvoiceService invoiceService,
     ISAPServiceLayerClient sapClient,
     ILogger<GetCustomerStatementHandler> logger
 ) : IRequestHandler<GetCustomerStatementQuery, ErrorOr<CustomerStatementResponseDto>>
@@ -116,8 +115,8 @@ INNER JOIN JDT1 T1
 WHERE T1.""ShortName"" IN ({inClause})
   AND T0.""RefDate"" < '{fromDate:yyyy-MM-dd}'";
 
-        var rows = await sapClient.ExecuteRawSqlQueryAsync(
-            CreateQueryCode("StmtOpen"),
+        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+            "StmtOpen",
             "Statement Opening Balance",
             sqlText,
             cancellationToken);
@@ -160,10 +159,10 @@ INNER JOIN JDT1 T1
 WHERE T1.""ShortName"" IN ({inClause})
   AND T0.""RefDate"" >= '{fromDate:yyyy-MM-dd}'
   AND T0.""RefDate"" <= '{toDate:yyyy-MM-dd}'
-    ORDER BY T0.""RefDate"", T0.""Number"", T1.""Line_ID"";";
+    ORDER BY T0.""RefDate"", T0.""Number"", T1.""Line_ID""";
 
-        var rows = await sapClient.ExecuteRawSqlQueryAsync(
-            CreateQueryCode("StmtRows"),
+        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
+            "StmtRows",
             "Statement Ledger Rows",
             sqlText,
             cancellationToken);
@@ -197,12 +196,13 @@ WHERE T1.""ShortName"" IN ({inClause})
             : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
         var bucketSize = paymentTermsDays > 0 ? paymentTermsDays : 30;
 
-        var invoiceTasks = cardCodes.Select(invoiceService.GetInvoicesByCustomerAsync).ToArray();
-        await Task.WhenAll(invoiceTasks);
+        // Aging only ever uses invoices that are still open, so SAP filters them rather than this
+        // handler. It used to fan out per customer into the unbounded "every invoice ever" overload
+        // and discard almost all of it: an old account's whole trading history, paged 500 at a time,
+        // to age the handful of documents still carrying a balance.
+        var invoices = await sapClient.GetOpenInvoicesByCustomersAsync(cardCodes, cancellationToken);
 
-        var openInvoices = invoiceTasks
-            .SelectMany(task => task.Result)
-            .Where(invoice => !string.Equals(invoice.DocStatus, "X", StringComparison.OrdinalIgnoreCase))
+        var openInvoices = invoices
             .Select(invoice => new OpenInvoiceRow(
                 DocDate: ParseDate(invoice.DocDate),
                 DueDate: ParseNullableDate(invoice.DocDueDate),
@@ -310,9 +310,6 @@ WHERE T1.""ShortName"" IN ({inClause})
 
     private static string BuildInClause(IEnumerable<string> cardCodes) =>
         string.Join(", ", cardCodes.Select(cardCode => $"'{cardCode.Replace("'", "''")}'"));
-
-    private static string CreateQueryCode(string prefix) =>
-        ($"{prefix}{Guid.NewGuid():N}")[..20];
 
     private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
         row.TryGetValue(key, out var value) ? value?.ToString() : null;

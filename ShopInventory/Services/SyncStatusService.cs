@@ -304,6 +304,7 @@ public class SyncStatusService : ISyncStatusService
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly SAPSettings _sapSettings;
+    private readonly CreditNoteSyncSettings _creditNoteSyncSettings;
     private readonly ILogger<SyncStatusService> _logger;
     private readonly ILoggerFactory _loggerFactory;
 
@@ -311,12 +312,14 @@ public class SyncStatusService : ISyncStatusService
         ApplicationDbContext context,
         ISAPServiceLayerClient sapClient,
         IOptions<SAPSettings> sapSettings,
+        IOptions<CreditNoteSyncSettings> creditNoteSyncSettings,
         ILogger<SyncStatusService> logger,
         ILoggerFactory loggerFactory)
     {
         _context = context;
         _sapClient = sapClient;
         _sapSettings = sapSettings.Value;
+        _creditNoteSyncSettings = creditNoteSyncSettings.Value;
         _logger = logger;
         _loggerFactory = loggerFactory;
     }
@@ -339,7 +342,8 @@ public class SyncStatusService : ISyncStatusService
             await GetCacheSyncStatusAsync("Prices", cancellationToken),
             await GetCacheSyncStatusAsync("BusinessPartners", cancellationToken),
             await GetCacheSyncStatusAsync("Warehouses", cancellationToken),
-            await GetCacheSyncStatusAsync("GLAccounts", cancellationToken)
+            await GetCacheSyncStatusAsync("GLAccounts", cancellationToken),
+            await GetCacheSyncStatusAsync(CacheStatusKeys.CreditNotes, cancellationToken)
         };
 
         return new SyncStatusDashboardDto
@@ -504,12 +508,20 @@ public class SyncStatusService : ISyncStatusService
                 case CacheStatusKeys.BusinessPartners:
                 case CacheStatusKeys.Warehouses:
                 case CacheStatusKeys.GLAccounts:
+                case CacheStatusKeys.CreditNotes:
                     {
                         var trackedState = await _context.CacheSyncStates
                             .AsNoTracking()
                             .SingleOrDefaultAsync(entry => entry.CacheKey == cacheKey, cancellationToken);
 
-                        return BuildCacheStatus(cacheKey, cacheKey, trackedState);
+                        var staleAfterMinutes = cacheKey == CacheStatusKeys.CreditNotes
+                            ? Math.Max(1, _creditNoteSyncSettings.StaleAfterMinutes)
+                            : 120;
+                        return BuildCacheStatus(
+                            cacheKey,
+                            cacheKey,
+                            trackedState,
+                            staleAfterMinutes);
                     }
             }
         }
@@ -557,12 +569,14 @@ public class SyncStatusService : ISyncStatusService
     private static CacheSyncStatusDto BuildCacheStatus(
         string cacheKey,
         string displayName,
-        CacheSyncStateEntity? trackedState)
+        CacheSyncStateEntity? trackedState,
+        int staleAfterMinutes = 120)
     {
         var lastSyncedAt = trackedState?.LastSyncedAt;
         var hasError = trackedState?.LastErrorAt.HasValue == true &&
             (!lastSyncedAt.HasValue || trackedState.LastErrorAt >= lastSyncedAt.Value);
-        var isStale = lastSyncedAt.HasValue && (DateTime.UtcNow - lastSyncedAt.Value).TotalHours > 2;
+        var isStale = lastSyncedAt.HasValue &&
+            (DateTime.UtcNow - lastSyncedAt.Value).TotalMinutes > staleAfterMinutes;
         var staleMinutes = lastSyncedAt.HasValue ? (int)(DateTime.UtcNow - lastSyncedAt.Value).TotalMinutes : 0;
 
         var status = hasError

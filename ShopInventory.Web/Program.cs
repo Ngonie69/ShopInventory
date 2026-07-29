@@ -63,12 +63,13 @@ try
     var customerPortalJwtSecret = builder.Configuration["CustomerPortal:JwtSecret"];
     if (string.IsNullOrWhiteSpace(customerPortalJwtSecret) ||
         customerPortalJwtSecret.StartsWith("${", StringComparison.Ordinal) ||
+        customerPortalJwtSecret.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase) ||
         customerPortalJwtSecret.Length < 32)
     {
         throw new InvalidOperationException(
             "CustomerPortal:JwtSecret is missing, a placeholder, or shorter than 32 characters. " +
             "This secret MUST be configured independently from Jwt:SecretKey. " +
-            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CUSTOMER_PORTAL_JWT_SECRET environment variable.");
+            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CustomerPortal__JwtSecret environment variable.");
     }
 
     // Warn if customer portal secret is identical to staff JWT secret (compare hashes)
@@ -164,6 +165,7 @@ try
         .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready", "deploy-ready"])
         .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<WebQuartzWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<ApiDependencyHealthCheck>("api", tags: ["dependencies"]);
 
     // Add Cascading Authentication State (for Blazor component-level auth)
@@ -257,6 +259,7 @@ try
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
     builder.Services.AddScoped<IInventoryTransferCacheService, InventoryTransferCacheService>();
     builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
+    builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IWarehouseStockCacheService, WarehouseStockCacheService>();
@@ -283,6 +286,7 @@ try
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();
     builder.Services.AddScoped<IReportExportService, ReportExportService>();
+    builder.Services.AddScoped<IGlobalSearchService, GlobalSearchService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
     builder.Services.AddScoped<IPushNotificationClientService, PushNotificationClientService>();
@@ -335,10 +339,13 @@ try
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IPodReportEmailScheduleService, PodReportEmailScheduleService>();
     builder.Services.AddScoped<IPodReportEmailService, PodReportEmailService>();
-    builder.Services.AddHostedService<PodReportEmailScheduler>();
     builder.Services.Configure<StatementEmailSettings>(builder.Configuration.GetSection("StatementEmails"));
-    builder.Services.AddHostedService<StatementEmailScheduler>();
+
+    // Scheduled statement + POD report emails run on the clustered Quartz scheduler
+    // (StatementEmailJob, PodReportEmailJob) instead of per-instance BackgroundService timers.
+    builder.Services.AddShopInventoryWebQuartz(defaultConnectionString);
 
     // Add Theme, Localization, and Search services
     builder.Services.AddScoped<IThemeService, ThemeService>();
@@ -373,11 +380,22 @@ try
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 
+    // Topbar is rendered on every authenticated page. Resolve its application-level dependency
+    // during startup so a missing registration fails the deployment warm-up instead of returning
+    // a blank Blazor shell on every route.
+    using (var topbarDependencyScope = app.Services.CreateScope())
+    {
+        _ = topbarDependencyScope.ServiceProvider.GetRequiredService<IGlobalSearchService>();
+    }
+
     // Apply database migrations and seed default data
     try
     {
         using var scope = app.Services.CreateScope();
         await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
+
+        // Provision the Quartz job-store tables before the scheduler starts.
+        await ShopInventory.Web.Services.QuartzSchema.EnsureAsync(defaultConnectionString, "ShopInventoryWeb");
     }
     catch (Exception ex)
     {

@@ -6,6 +6,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Prices;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -15,9 +16,12 @@ public sealed class SyncPriceCatalogHandler(
     ISAPServiceLayerClient sapClient,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
+    BackgroundWorkerLeaderElector leaderElector,
     ILogger<SyncPriceCatalogHandler> logger
 ) : IRequestHandler<SyncPriceCatalogCommand, ErrorOr<object>>
 {
+    private const int SpecialPriceSaveBatchSize = 250;
+
     public async Task<ErrorOr<object>> Handle(
         SyncPriceCatalogCommand command,
         CancellationToken cancellationToken)
@@ -25,9 +29,24 @@ public sealed class SyncPriceCatalogHandler(
         if (!settings.Value.Enabled)
             return Errors.Price.SapDisabled;
 
+        using var syncLease = await PriceCatalogSyncGate.TryEnterAsync(cancellationToken);
+        if (syncLease is null)
+        {
+            logger.LogWarning("Skipped full price catalog sync because another SAP price sync is already running");
+            return Errors.Price.SyncAlreadyRunning;
+        }
+
+        await using var clusterLease = await leaderElector.TryAcquireAsync(PriceCatalogSyncGate.ClusterLockName, cancellationToken);
+        if (clusterLease is null)
+        {
+            logger.LogWarning("Skipped full price catalog sync because another API instance is already running SAP price sync");
+            return Errors.Price.SyncAlreadyRunning;
+        }
+
         try
         {
             logger.LogInformation("Starting full price catalog sync from SAP");
+            using var priceResolutionScope = sapClient.BeginPriceListResolutionScope();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             var syncTime = DateTime.UtcNow;
 
@@ -49,8 +68,10 @@ public sealed class SyncPriceCatalogHandler(
                 if (sapPrices.Count == 0 && priceList.IsActive)
                 {
                     logger.LogWarning(
-                        "No item prices returned from SAP for active price list {PriceListNum}; retaining existing cached prices for this list",
-                        priceList.ListNum);
+                        "No item prices returned from SAP for active price list {PriceListNum} (base {BasePriceList}, factor {Factor}); retaining existing cached prices for this list",
+                        priceList.ListNum,
+                        priceList.BasePriceList,
+                        priceList.Factor);
                     continue;
                 }
 
@@ -305,14 +326,19 @@ public sealed class SyncPriceCatalogHandler(
                 StringComparer.OrdinalIgnoreCase,
                 cancellationToken);
 
+        var pendingChanges = 0;
+        var persistedBatchCount = 0;
+
         foreach (var sapPrice in sapSpecialPrices)
         {
             var key = $"{sapPrice.CardCode}::{sapPrice.ItemCode}";
+            var validFromUtc = NormalizeUtcDate(sapPrice.ValidFrom);
+            var validToUtc = NormalizeUtcDate(sapPrice.ValidTo);
             if (existingSpecialPrices.TryGetValue(key, out var existing))
             {
                 existing.Price = sapPrice.Price;
-                existing.ValidFrom = sapPrice.ValidFrom;
-                existing.ValidTo = sapPrice.ValidTo;
+                existing.ValidFrom = validFromUtc;
+                existing.ValidTo = validToUtc;
                 existing.IsActive = sapPrice.IsActive;
                 existing.LastSyncedAt = syncTime;
                 existing.UpdatedAt = syncTime;
@@ -324,14 +350,28 @@ public sealed class SyncPriceCatalogHandler(
                     CardCode = sapPrice.CardCode,
                     ItemCode = sapPrice.ItemCode,
                     Price = sapPrice.Price,
-                    ValidFrom = sapPrice.ValidFrom,
-                    ValidTo = sapPrice.ValidTo,
+                    ValidFrom = validFromUtc,
+                    ValidTo = validToUtc,
                     IsActive = sapPrice.IsActive,
                     SyncedFromSAP = true,
                     CreatedAt = syncTime,
                     LastSyncedAt = syncTime
                 });
             }
+
+            pendingChanges++;
+            if (pendingChanges >= SpecialPriceSaveBatchSize)
+            {
+                await context.SaveChangesAsync(cancellationToken);
+                pendingChanges = 0;
+                persistedBatchCount++;
+            }
+        }
+
+        if (pendingChanges > 0)
+        {
+            await context.SaveChangesAsync(cancellationToken);
+            persistedBatchCount++;
         }
 
         var sapKeys = sapSpecialPrices
@@ -342,12 +382,36 @@ public sealed class SyncPriceCatalogHandler(
             .Where(price => !sapKeys.Contains($"{price.CardCode}::{price.ItemCode}"))
             .ToList();
 
-        if (toRemove.Count > 0)
+        foreach (var removalBatch in toRemove.Chunk(SpecialPriceSaveBatchSize))
         {
-            context.BusinessPartnerSpecialPrices.RemoveRange(toRemove);
+            context.BusinessPartnerSpecialPrices.RemoveRange(removalBatch);
+            await context.SaveChangesAsync(cancellationToken);
+            persistedBatchCount++;
         }
 
-        await context.SaveChangesAsync(cancellationToken);
         context.ChangeTracker.Clear();
+
+        logger.LogInformation(
+            "Persisted {SpecialPriceCount} SAP special prices in {BatchCount} bounded database batches; removed {RemovedCount} stale records",
+            sapSpecialPrices.Count,
+            persistedBatchCount,
+            toRemove.Count);
+    }
+
+    private static DateTime? NormalizeUtcDate(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        var utcValue = value.Value.Kind switch
+        {
+            DateTimeKind.Utc => value.Value,
+            DateTimeKind.Local => value.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+        };
+
+        return DateTime.SpecifyKind(utcValue.Date, DateTimeKind.Utc);
     }
 }

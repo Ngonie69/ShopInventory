@@ -11,6 +11,7 @@ using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 
 namespace ShopInventory.Features.InventoryTransfers.Commands.CreateTransferRequest;
 
@@ -18,6 +19,7 @@ public sealed class CreateTransferRequestHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IAuditService auditService,
+    IInventoryTransferApprovalService approvalService,
     INotificationService notificationService,
     IOptions<SAPSettings> settings,
     ILogger<CreateTransferRequestHandler> logger
@@ -31,6 +33,18 @@ public sealed class CreateTransferRequestHandler(
             return Errors.InventoryTransfer.SapDisabled;
 
         var request = command.Request;
+
+        var requestingUser = await context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(user => user.Id == command.UserId && user.IsActive, cancellationToken);
+        if (requestingUser is null)
+            return Errors.InventoryTransfer.ApproverNotAuthenticated;
+
+        request.RequesterName = string.Join(' ', new[] { requestingUser.FirstName, requestingUser.LastName }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+        if (string.IsNullOrWhiteSpace(request.RequesterName))
+            request.RequesterName = requestingUser.Username;
+        request.RequesterEmail = requestingUser.Email;
 
         // Validate positive quantities
         var quantityErrors = await ValidateTransferRequestQuantitiesAsync(request, cancellationToken);
@@ -91,6 +105,7 @@ public sealed class CreateTransferRequestHandler(
                 request.Lines?.Count ?? 0, request.FromWarehouse, request.ToWarehouse);
 
             var transferRequest = await sapClient.CreateInventoryTransferRequestAsync(request, cancellationToken);
+            await approvalService.EnsureRequestAsync(transferRequest, requestingUser.Id, cancellationToken);
 
             logger.LogInformation("Transfer request created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
                 transferRequest.DocEntry, transferRequest.DocNum, request.FromWarehouse, request.ToWarehouse);

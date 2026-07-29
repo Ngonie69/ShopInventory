@@ -14,6 +14,7 @@ using ShopInventory.Features.Crates.Queries.GetCratePods;
 using ShopInventory.Features.Crates.Queries.GetCrateTransactions;
 using ShopInventory.Features.Crates.Queries.ValidateBulkCratePods;
 using System.Security.Claims;
+using ShopInventory.Middleware;
 
 namespace ShopInventory.Controllers;
 
@@ -137,7 +138,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
 
     [HttpPost("opening-balances")]
     [Authorize(Roles = "Admin")]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CrateTransactionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CreateOpeningBalance(
         [FromForm] string shopCardCode,
@@ -170,7 +171,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
 
     [HttpPut("opening-balances/{crateTransactionId:int}")]
     [Authorize(Roles = "Admin")]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CrateTransactionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UpdateOpeningBalance(
         int crateTransactionId,
@@ -219,7 +220,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
 
     [HttpPost("transactions/{crateTransactionId:int}/pods")]
     [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver")]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CratePodSubmissionDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> UploadCratePod(
         int crateTransactionId,
@@ -271,7 +272,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
 
     [HttpPost("transactions/{crateTransactionId:int}/grvs")]
     [Authorize(Roles = "Admin,Manager,Merchandiser")]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     [ProducesResponseType(typeof(CrateGrvDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> CreateGrv(
         int crateTransactionId,

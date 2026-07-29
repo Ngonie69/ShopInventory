@@ -126,6 +126,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Credit Note tables
   public DbSet<CreditNoteEntity> CreditNotes { get; set; }
   public DbSet<CreditNoteLineEntity> CreditNoteLines { get; set; }
+  public DbSet<SapCreditNoteSnapshotEntity> SapCreditNoteSnapshots { get; set; }
+  public DbSet<SapCreditNoteLineSnapshotEntity> SapCreditNoteLineSnapshots { get; set; }
 
   // Quotation tables
   public DbSet<QuotationEntity> Quotations { get; set; }
@@ -140,6 +142,12 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<RoleEntity> Roles { get; set; }
   public DbSet<RolePermissionEntity> RolePermissions { get; set; }
   public DbSet<IdempotencyRequestEntity> IdempotencyRequests { get; set; }
+  public DbSet<ApprovalStageDefinitionEntity> ApprovalStageDefinitions { get; set; }
+  public DbSet<ApprovalTemplateDefinitionEntity> ApprovalTemplateDefinitions { get; set; }
+  public DbSet<ApprovalRequestEntity> ApprovalRequests { get; set; }
+  public DbSet<ApprovalDecisionEntity> ApprovalDecisions { get; set; }
+  public DbSet<PendingInventoryTransferEntity> PendingInventoryTransfers { get; set; }
+  public DbSet<PendingTransferRequestEditEntity> PendingTransferRequestEdits { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -185,6 +193,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
   public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
+  public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
+  public DbSet<PodReportCacheEntryEntity> PodReportCacheEntries { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -223,6 +233,133 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       entity.Property(e => e.ResponsePayload)
             .HasColumnType("text");
+    });
+
+    modelBuilder.Entity<SapItemUomMappingEntity>(entity =>
+    {
+      entity.ToTable("SapItemUomMappings");
+      entity.HasKey(e => e.Id);
+
+      // Approvals read this by the exact pair, and the upsert relies on the uniqueness to let
+      // two nodes resolving the same item concurrently collapse onto one row.
+      entity.HasIndex(e => new { e.ItemCode, e.RequestedUomCode })
+            .IsUnique();
+
+      entity.Property(e => e.ItemCode)
+            .IsRequired()
+            .HasMaxLength(100);
+
+      entity.Property(e => e.RequestedUomCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+      entity.Property(e => e.UoMCode)
+            .HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<PodReportCacheEntryEntity>(entity =>
+    {
+      entity.ToTable("PodReportCacheEntries");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.CacheKey)
+            .IsUnique();
+      entity.HasIndex(e => e.ExpiresAtUtc);
+
+      entity.Property(e => e.FromDate)
+            .HasColumnType("date");
+      entity.Property(e => e.ToDate)
+            .HasColumnType("date");
+      entity.Property(e => e.PayloadJson)
+            .HasColumnType("jsonb");
+    });
+
+    modelBuilder.Entity<ApprovalStageDefinitionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalStageDefinitions");
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.AuthorizerUserIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.AuthorizerRolesJson).IsRequired().HasColumnType("text");
+    });
+
+    modelBuilder.Entity<ApprovalTemplateDefinitionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalTemplateDefinitions");
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.HasIndex(e => new { e.DocumentType, e.IsActive, e.Priority });
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(80);
+      entity.Property(e => e.OriginatorUserIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.OriginatorRolesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.StageIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<ApprovalRequestEntity>(entity =>
+    {
+      entity.ToTable("ApprovalRequests");
+      entity.HasIndex(e => new { e.DocumentType, e.DocumentKey }).IsUnique();
+      entity.HasIndex(e => new { e.Status, e.CreatedAtUtc });
+      entity.Property(e => e.TemplateName).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(80);
+      entity.Property(e => e.DocumentKey).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.DocumentNumber).HasMaxLength(120);
+      entity.Property(e => e.OriginatorName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.OriginatorRole).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+      entity.Property(e => e.StageSnapshotsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(40);
+      entity.HasMany(e => e.Decisions)
+        .WithOne(e => e.ApprovalRequest)
+        .HasForeignKey(e => e.ApprovalRequestId)
+        .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<ApprovalDecisionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalDecisions");
+      entity.HasIndex(e => new { e.ApprovalRequestId, e.StageId, e.AuthorizerUserId }).IsUnique();
+      entity.Property(e => e.StageName).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.AuthorizerName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.AuthorizerRole).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.Decision).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.Remarks).HasMaxLength(1000);
+    });
+
+    modelBuilder.Entity<PendingInventoryTransferEntity>(entity =>
+    {
+      entity.ToTable("PendingInventoryTransfers");
+      entity.HasIndex(e => e.ClientRequestId).IsUnique().HasFilter("\"ClientRequestId\" IS NOT NULL");
+      entity.HasIndex(e => e.DraftNumber).IsUnique().HasFilter("\"DraftNumber\" IS NOT NULL");
+      entity.Property(e => e.DraftNumber).HasMaxLength(30);
+      entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.PayloadJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.CreatedByName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.CreatedByRole).HasMaxLength(50);
+      entity.Property(e => e.ClientRequestId).HasMaxLength(200);
+      entity.Property(e => e.Comments).HasMaxLength(500);
+      entity.Property(e => e.LastError).HasMaxLength(2000);
+    });
+
+    modelBuilder.Entity<PendingTransferRequestEditEntity>(entity =>
+    {
+      entity.ToTable("PendingTransferRequestEdits");
+      entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ProposedLinesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.OriginalLinesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.CreatedByName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.CreatedByRole).HasMaxLength(50);
+      entity.Property(e => e.Reason).HasMaxLength(500);
+      entity.Property(e => e.LastError).HasMaxLength(2000);
     });
 
     // User configuration
@@ -1080,6 +1217,36 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithMany()
             .HasForeignKey(e => e.ProductId)
             .OnDelete(DeleteBehavior.SetNull);
+    });
+
+    modelBuilder.Entity<SapCreditNoteSnapshotEntity>(entity =>
+    {
+      entity.ToTable("SapCreditNoteSnapshots");
+      entity.HasKey(e => e.SapDocEntry);
+
+      // DocEntry is globally unique for the object type. DocNum can repeat across SAP series.
+      entity.HasIndex(e => e.SapDocNum);
+      entity.HasIndex(e => e.DocDate);
+      entity.HasIndex(e => e.SapUpdateDate);
+      entity.HasIndex(e => e.SyncedAtUtc);
+      entity.HasIndex(e => new { e.IsCancelled, e.DocDate });
+
+      entity.Property(e => e.DocDate).HasColumnType("date");
+      entity.Property(e => e.SapUpdateDate).HasColumnType("date");
+    });
+
+    modelBuilder.Entity<SapCreditNoteLineSnapshotEntity>(entity =>
+    {
+      entity.ToTable("SapCreditNoteLineSnapshots");
+      entity.HasKey(e => new { e.CreditNoteDocEntry, e.LineNum });
+
+      entity.HasIndex(e => new { e.BaseType, e.BaseEntry });
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.CreditNote)
+            .WithMany(e => e.Lines)
+            .HasForeignKey(e => e.CreditNoteDocEntry)
+            .OnDelete(DeleteBehavior.Cascade);
     });
 
     // Quotation configuration

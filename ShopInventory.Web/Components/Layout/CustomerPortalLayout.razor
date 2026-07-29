@@ -34,10 +34,20 @@
                            Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")"
                            Class="customer-theme-button" />
 
-            <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
-                       OnClick="@Logout" Size="Size.Small" Class="customer-auth-button">
-                <span class="customer-auth-label">Logout</span>
-            </MudButton>
+            @if (!string.IsNullOrEmpty(customerCode))
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
+                           OnClick="@Logout" Size="Size.Small" Class="customer-auth-button">
+                    <span class="customer-auth-label">Logout</span>
+                </MudButton>
+            }
+            else
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Login"
+                           Href="/customer-portal/login" Size="Size.Small" Class="customer-auth-button">
+                    <span class="customer-auth-label">Login</span>
+                </MudButton>
+            }
         </MudAppBar>
 
         <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Responsive"
@@ -140,6 +150,13 @@
             _isDarkMode = ThemeService.IsDarkMode;
             try { await JSRuntime.InvokeVoidAsync("themeManager.setTheme", theme, false); } catch { }
             await LoadCustomerInfo();
+
+            if (string.IsNullOrEmpty(customerCode) && RequiresAuthenticatedSession())
+            {
+                NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true, replace: true);
+                return;
+            }
+
             StateHasChanged();
         }
     }
@@ -184,9 +201,17 @@
 
     private async Task Logout()
     {
-        await CustomerSession.ClearSessionAsync();
+        await CustomerSession.LogoutAsync();
 
         NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true);
+    }
+
+    private bool RequiresAuthenticatedSession()
+    {
+        var path = new Uri(NavigationManager.Uri).AbsolutePath.TrimEnd('/');
+        return path is not "/customer-portal/support"
+            and not "/customer-portal/privacy"
+            and not "/customer-portal/terms";
     }
 
     public void Dispose()

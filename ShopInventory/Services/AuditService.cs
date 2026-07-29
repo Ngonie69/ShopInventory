@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
@@ -179,9 +180,62 @@ public class AuditService : IAuditService
 
     private static string? GetClientIpAddress(HttpContext? httpContext)
     {
-        if (httpContext == null) return null;
-        return httpContext.Connection.RemoteIpAddress?.ToString();
+        if (httpContext is null)
+        {
+            return null;
+        }
+
+        var remoteAddress = NormalizeAddress(httpContext.Connection.RemoteIpAddress);
+        if (remoteAddress is null)
+        {
+            return null;
+        }
+
+        if (!IPAddress.IsLoopback(remoteAddress))
+        {
+            return remoteAddress.ToString();
+        }
+
+        // Web-to-API calls originate from loopback in the production IIS deployment.
+        // Trust the forwarded chain only for that local peer so external callers cannot
+        // spoof the address stored in the audit trail.
+        foreach (var value in httpContext.Request.Headers["X-Forwarded-For"].ToString()
+                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (TryParseAddress(value, out var forwardedAddress) && !IPAddress.IsLoopback(forwardedAddress))
+            {
+                return forwardedAddress.ToString();
+            }
+        }
+
+        return remoteAddress.ToString();
     }
+
+    private static bool TryParseAddress(string value, out IPAddress address)
+    {
+        address = IPAddress.None;
+        var candidate = value.Trim().Trim('"');
+
+        if (candidate.StartsWith('[') && candidate.IndexOf(']') is var closingBracket && closingBracket > 0)
+        {
+            candidate = candidate[1..closingBracket];
+        }
+        else if (!IPAddress.TryParse(candidate, out _) && candidate.Count(character => character == ':') == 1)
+        {
+            candidate = candidate[..candidate.LastIndexOf(':')];
+        }
+
+        if (!IPAddress.TryParse(candidate, out var parsedAddress))
+        {
+            return false;
+        }
+
+        address = NormalizeAddress(parsedAddress)!;
+        return true;
+    }
+
+    private static IPAddress? NormalizeAddress(IPAddress? address)
+        => address?.IsIPv4MappedToIPv6 == true ? address.MapToIPv4() : address;
 
     private static TimeZoneInfo ResolveCatTimeZone()
     {

@@ -156,6 +156,7 @@ public class RequestValidationMiddleware
         return path.Contains("/login", StringComparison.OrdinalIgnoreCase) ||
                path.Contains("/customer-login", StringComparison.OrdinalIgnoreCase) ||
                path.Contains("/forgot-password", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/reset-password", StringComparison.OrdinalIgnoreCase) ||
                path.Contains("/register", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -213,7 +214,8 @@ public class SimpleRateLimitMiddleware
         CleanupOldEntries();
 
         var isAuthPath = path.Contains("/login") || path.Contains("/customer-login") ||
-                         path.Contains("/forgot-password") || path.Contains("/register");
+                         path.Contains("/forgot-password") || path.Contains("/reset-password") ||
+                         path.Contains("/register");
         var maxRequests = isAuthPath ? MaxAuthRequestsPerMinute : MaxRequestsPerMinute;
         var key = isAuthPath ? $"auth:{ip}" : ip;
 

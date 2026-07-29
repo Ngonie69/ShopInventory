@@ -75,6 +75,15 @@ public class InventoryTransferCreatedResponseDto
     public string? QueueExternalReference { get; set; }
     public int? EstimatedProcessingSeconds { get; set; }
     public string? StatusUrl { get; set; }
+
+    /// <summary>
+    /// True when the transfer was parked for approval rather than posted. <see cref="Transfer"/>
+    /// stays null until every approval stage signs off.
+    /// </summary>
+    public bool RequiresApproval { get; set; }
+
+    /// <summary>The held transfer, when <see cref="RequiresApproval"/> is true.</summary>
+    public PendingInventoryTransferDto? PendingTransfer { get; set; }
 }
 
 #region Transfer Request DTOs
@@ -96,6 +105,15 @@ public class InventoryTransferRequestDto
     public string? RequesterName { get; set; }
     public int? RequesterBranch { get; set; }
     public int? RequesterDepartment { get; set; }
+    public string? RequestedByRole { get; set; }
+    public string? RequiredApproverRole { get; set; }
+    public string? ApprovalStatus { get; set; }
+    public string? DecisionBy { get; set; }
+    public string? DecisionByRole { get; set; }
+    public DateTime? DecisionAtUtc { get; set; }
+    public Guid? ApprovalRequestId { get; set; }
+    public string? ApprovalTemplateName { get; set; }
+    public List<ApprovalStageProgressDto> ApprovalStages { get; set; } = [];
     public List<InventoryTransferRequestLineDto>? Lines { get; set; }
 }
 
@@ -236,6 +254,13 @@ public class TransferRequestConvertedResponseDto
     public string Message { get; set; } = "Transfer request converted successfully";
     public int RequestDocEntry { get; set; }
     public InventoryTransferDto? Transfer { get; set; }
+}
+
+public class TransferRequestDecisionResponseDto
+{
+    public string Message { get; set; } = string.Empty;
+    public int RequestDocEntry { get; set; }
+    public string Decision { get; set; } = string.Empty;
 }
 
 #endregion

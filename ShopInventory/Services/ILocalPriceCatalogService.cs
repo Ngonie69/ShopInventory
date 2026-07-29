@@ -17,6 +17,19 @@ public interface ILocalPriceCatalogService
         int priceListNum,
         string itemCode,
         CancellationToken cancellationToken = default);
+    /// <summary>
+    /// The business partner's special prices that apply today, from the locally synced catalog.
+    /// </summary>
+    /// <remarks>
+    /// Special prices are negotiated for long validity windows and change rarely, so the synced
+    /// copy is a sound answer when SAP cannot be reached — and a far better one than falling back
+    /// to list price, which overcharges the customer.
+    /// </remarks>
+    Task<Dictionary<string, decimal>> GetActiveSpecialPricesAsync(
+        string cardCode,
+        IReadOnlyCollection<string>? itemCodes = null,
+        CancellationToken cancellationToken = default);
+
     Task<LocalBusinessPartnerPricingResult?> GetBusinessPartnerPricingAsync(
         string cardCode,
         IReadOnlyCollection<string>? itemCodes = null,

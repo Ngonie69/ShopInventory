@@ -12,7 +12,11 @@ public interface IWarehouseStockCacheService
     /// Gets cached stock for a warehouse. Returns cached data immediately if available,
     /// and triggers background sync if cache is stale.
     /// </summary>
-    Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(string warehouseCode, int page = 1, int pageSize = 20);
+    Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(
+        string warehouseCode,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets ALL cached stock for a warehouse without pagination.
@@ -68,18 +72,22 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         _logger = logger;
     }
 
-    public async Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(string warehouseCode, int page = 1, int pageSize = 20)
+    public async Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(
+        string warehouseCode,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("GetCachedStockAsync called for warehouse {WarehouseCode}, page {Page}, pageSize {PageSize}", warehouseCode, page, pageSize);
 
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         _logger.LogDebug("DbContext created successfully");
 
         var cacheKey = $"WarehouseStock_{warehouseCode}";
 
         try
         {
-            var syncInfo = await dbContext.CacheSyncInfo.FindAsync(cacheKey);
+            var syncInfo = await dbContext.CacheSyncInfo.FindAsync([cacheKey], cancellationToken);
             _logger.LogDebug("CacheSyncInfo lookup completed. Found: {Found}", syncInfo != null);
 
             var isCacheStale = syncInfo == null ||
@@ -90,7 +98,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             _logger.LogDebug("Attempting to query CachedWarehouseStocks table for warehouse {WarehouseCode}", warehouseCode);
             var cachedCount = await dbContext.CachedWarehouseStocks
                 .Where(s => s.WarehouseCode == warehouseCode)
-                .CountAsync();
+                .CountAsync(cancellationToken);
             _logger.LogDebug("CachedWarehouseStocks count query completed. Count: {Count}", cachedCount);
 
             if (cachedCount > 0)
@@ -103,7 +111,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                     .OrderBy(s => s.ItemCode)
                     .Skip(skip)
                     .Take(pageSize)
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
 
                 var response = new WarehouseProductsPagedResponse
                 {
@@ -154,7 +162,11 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         try
         {
             // Fetch first page immediately
-            var apiResponse = await FetchStockFromApiAsync(warehouseCode, page, pageSize);
+            var apiResponse = await FetchStockFromApiAsync(
+                warehouseCode,
+                page,
+                pageSize,
+                cancellationToken);
             if (apiResponse != null && apiResponse.Items?.Any() == true)
             {
                 // Save first page to cache
@@ -486,14 +498,23 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         }
     }
 
-    private async Task<StockPagedApiResponse?> FetchStockFromApiAsync(string warehouseCode, int page, int pageSize)
+    private async Task<StockPagedApiResponse?> FetchStockFromApiAsync(
+        string warehouseCode,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             // Use a 60-second timeout for individual stock fetch requests
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(60));
             return await _httpClient.GetFromJsonAsync<StockPagedApiResponse>(
                 $"api/stock/warehouse/{warehouseCode}/paged?page={page}&pageSize={pageSize}", _jsonOptions, cts.Token);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (OperationCanceledException)
         {
@@ -543,13 +564,21 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var now = DateTime.UtcNow;
+        var distinctItems = items
+            .Where(item => !string.IsNullOrWhiteSpace(item.ItemCode))
+            .GroupBy(item => item.ItemCode!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .ToList();
+        var itemCodes = distinctItems.Select(item => item.ItemCode!).ToList();
+        var existingByItemCode = (await dbContext.CachedWarehouseStocks
+                .Where(stock => stock.WarehouseCode == warehouseCode && itemCodes.Contains(stock.ItemCode))
+                .ToListAsync())
+            .GroupBy(stock => stock.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
-        foreach (var item in items)
+        foreach (var item in distinctItems)
         {
-            var existing = await dbContext.CachedWarehouseStocks
-                .FirstOrDefaultAsync(s => s.WarehouseCode == warehouseCode && s.ItemCode == item.ItemCode);
-
-            if (existing != null)
+            if (existingByItemCode.TryGetValue(item.ItemCode!, out var existing))
             {
                 existing.ItemName = item.ItemName;
                 existing.BarCode = item.BarCode;

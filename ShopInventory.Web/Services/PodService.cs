@@ -16,7 +16,11 @@ public interface IPodService
     Task<(bool Success, string Message, DocumentAttachmentDto? Attachment)> UploadPodAsync(int docEntry, Stream fileStream, string fileName, string contentType, string? description = null, string? uploadedByUsername = null);
     Task<byte[]?> DownloadPodAsync(int docEntry, int attachmentId);
     Task<bool> DeletePodAsync(int attachmentId);
-    Task<PodUploadStatusReport?> GetPodUploadStatusAsync(DateTime fromDate, DateTime toDate);
+    Task<PodUploadStatusReport?> GetPodUploadStatusAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        bool includeCreditNoteActivity = false,
+        CancellationToken cancellationToken = default);
     Task<PodDashboardModel?> GetPodDashboardAsync();
 }
 
@@ -243,7 +247,12 @@ public class PodService : IPodService
                 content.Add(new StringContent(uploadedByUsername), "uploadedByUsername");
             }
 
-            var response = await _httpClient.PostAsync($"api/invoice/{docEntry}/pod", content);
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/invoice/{docEntry}/pod")
+            {
+                Content = content
+            };
+            request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+            using var response = await _httpClient.SendAsync(request);
 
             if (response.IsSuccessStatusCode)
             {
@@ -299,15 +308,25 @@ public class PodService : IPodService
         }
     }
 
-    public async Task<PodUploadStatusReport?> GetPodUploadStatusAsync(DateTime fromDate, DateTime toDate)
+    public async Task<PodUploadStatusReport?> GetPodUploadStatusAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        bool includeCreditNoteActivity = false,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            await EnsureAuthenticationAsync();
+            await EnsureAuthenticationAsync(cancellationToken);
             var from = fromDate.ToString("yyyy-MM-dd");
             var to = toDate.ToString("yyyy-MM-dd");
+            var includeCreditNoteActivityText = includeCreditNoteActivity ? "true" : "false";
             return await GetAuthenticatedJsonAsync<PodUploadStatusReport>(
-                $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}");
+                $"api/invoice/pod-upload-status?fromDate={from}&toDate={to}&includeCreditNoteActivity={includeCreditNoteActivityText}",
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

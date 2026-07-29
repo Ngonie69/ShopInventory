@@ -19,10 +19,18 @@ public sealed class OperationalSyncHealthCheck(IServiceScopeFactory scopeFactory
             ["recommendations"] = healthSummary.Recommendations.ToArray()
         };
 
+        var issueSummary = healthSummary.Issues.Count > 0
+            ? string.Join("; ", healthSummary.Issues)
+            : "no detailed issues were reported";
+
         return healthSummary.OverallHealth switch
         {
-            "Critical" => HealthCheckResult.Unhealthy("Operational sync health is critical.", data: data),
-            "Warning" => HealthCheckResult.Degraded("Operational sync health is degraded.", data: data),
+            "Critical" => HealthCheckResult.Unhealthy(
+                $"Operational sync health is critical (score {healthSummary.HealthScore}): {issueSummary}.",
+                data: data),
+            "Warning" => HealthCheckResult.Degraded(
+                $"Operational sync health is degraded (score {healthSummary.HealthScore}): {issueSummary}.",
+                data: data),
             _ => HealthCheckResult.Healthy("Operational sync health is healthy.", data)
         };
     }

@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Pricing;
 using ShopInventory.DTOs;
 using ShopInventory.Services;
 
@@ -130,13 +131,22 @@ public sealed class GetPricesByBusinessPartnerHandler(
     {
         var mergedPrices = livePrices
             .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
-            .ToDictionary(price => price.ItemCode!.Trim(), price => price, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(price => price.ItemCode!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.FirstOrDefault(price => price.Price > 0) ?? group.First(),
+                StringComparer.OrdinalIgnoreCase);
 
         foreach (var specialPrice in specialPrices)
         {
             if (mergedPrices.TryGetValue(specialPrice.Key, out var existingPrice))
             {
+                // Keep the price list price alongside the discount so callers can show the line the
+                // way SAP does, instead of a net price with an empty Discount % column.
+                var listPrice = existingPrice.Price;
                 existingPrice.Price = specialPrice.Value;
+                existingPrice.DiscountPercent = SpecialPriceDiscount.CalculatePercent(listPrice, specialPrice.Value);
+                existingPrice.PriceBeforeDiscount = existingPrice.DiscountPercent.HasValue ? listPrice : null;
                 continue;
             }
 

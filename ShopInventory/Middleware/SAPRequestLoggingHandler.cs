@@ -1,19 +1,20 @@
 using System.Diagnostics;
-using Microsoft.EntityFrameworkCore;
-using ShopInventory.Data;
 using ShopInventory.Models;
+using ShopInventory.Services;
 
 namespace ShopInventory.Middleware;
 
 /// <summary>
 /// DelegatingHandler that records actual SAP Service Layer requests for the sync history UI.
 /// </summary>
-public class SAPRequestLoggingHandler(
-    IServiceScopeFactory scopeFactory,
-    ILogger<SAPRequestLoggingHandler> logger
-) : DelegatingHandler
+/// <remarks>
+/// Recording is a hand-off to <see cref="SapRequestLogQueue"/> and nothing more. This handler is
+/// registered innermost, so anything it does runs while the caller still holds a SAP concurrency
+/// slot and a pooled connection; the database work therefore belongs to
+/// <see cref="SapRequestLogWriter"/>, not here.
+/// </remarks>
+public class SAPRequestLoggingHandler(SapRequestLogQueue logQueue) : DelegatingHandler
 {
-    private const int MaxLogEntries = 100;
     private const int MaxEndpointLength = 200;
     private const int MaxErrorLength = 1000;
     private const string ServiceLayerPrefix = "/b1s/v1/";
@@ -39,11 +40,11 @@ public class SAPRequestLoggingHandler(
         finally
         {
             stopwatch.Stop();
-            await TryPersistLogAsync(request, response, failure, stopwatch.Elapsed.TotalMilliseconds);
+            Record(request, response, failure, stopwatch.Elapsed.TotalMilliseconds);
         }
     }
 
-    private async Task TryPersistLogAsync(
+    private void Record(
         HttpRequestMessage request,
         HttpResponseMessage? response,
         Exception? failure,
@@ -55,39 +56,14 @@ public class SAPRequestLoggingHandler(
             return;
         }
 
-        try
+        logQueue.TryEnqueue(new SapConnectionLog
         {
-            using var scope = scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-            context.SapConnectionLogs.Add(new SapConnectionLog
-            {
-                IsSuccess = failure is null && response?.IsSuccessStatusCode == true,
-                ResponseTimeMs = responseTimeMs,
-                ErrorMessage = Truncate(FormatError(response, failure), MaxErrorLength),
-                Endpoint = Truncate(endpoint, MaxEndpointLength),
-                CheckedAt = DateTime.UtcNow
-            });
-
-            await context.SaveChangesAsync();
-
-            var oldLogIds = await context.SapConnectionLogs
-                .OrderByDescending(log => log.CheckedAt)
-                .Skip(MaxLogEntries)
-                .Select(log => log.Id)
-                .ToListAsync();
-
-            if (oldLogIds.Count > 0)
-            {
-                await context.SapConnectionLogs
-                    .Where(log => oldLogIds.Contains(log.Id))
-                    .ExecuteDeleteAsync();
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Failed to persist SAP request log for {Endpoint}", endpoint);
-        }
+            IsSuccess = failure is null && response?.IsSuccessStatusCode == true,
+            ResponseTimeMs = responseTimeMs,
+            ErrorMessage = Truncate(FormatError(response, failure), MaxErrorLength),
+            Endpoint = Truncate(endpoint, MaxEndpointLength),
+            CheckedAt = DateTime.UtcNow
+        });
     }
 
     private static string FormatEndpoint(HttpRequestMessage request)

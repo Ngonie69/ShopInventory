@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Pricing;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -234,6 +235,63 @@ public sealed class LocalPriceCatalogService(
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<Dictionary<string, decimal>> GetActiveSpecialPricesAsync(
+        string cardCode,
+        IReadOnlyCollection<string>? itemCodes = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedCardCode = cardCode?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedCardCode))
+        {
+            return new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var rows = await BuildCurrentSpecialPriceQuery(
+                normalizedCardCode,
+                NormalizeItemCodes(itemCodes),
+                DateTime.UtcNow.Date)
+            .Select(price => new { price.ItemCode, price.Price })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.ItemCode))
+            .GroupBy(row => row.ItemCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().Price, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The single definition of "a special price that applies today" — synced from SAP, active,
+    /// priced above zero, and inside its validity window. Shared so the pricing merge and the
+    /// standalone lookup cannot drift apart on what counts as current.
+    /// </summary>
+    /// <remarks>
+    /// A zero (or negative) row means the price never made it across from SAP, not that the
+    /// customer gets the goods free, so it is excluded here rather than at each call site —
+    /// applying one would put the document line through at 0.00.
+    /// </remarks>
+    private IQueryable<BusinessPartnerSpecialPriceEntity> BuildCurrentSpecialPriceQuery(
+        string normalizedCardCode,
+        IReadOnlyCollection<string> normalizedItemCodes,
+        DateTime todayUtc)
+    {
+        var query = context.BusinessPartnerSpecialPrices
+            .AsNoTracking()
+            .Where(price =>
+                price.SyncedFromSAP &&
+                price.IsActive &&
+                price.Price > 0 &&
+                price.CardCode == normalizedCardCode &&
+                (!price.ValidFrom.HasValue || price.ValidFrom <= todayUtc) &&
+                (!price.ValidTo.HasValue || price.ValidTo >= todayUtc));
+
+        if (normalizedItemCodes.Count > 0)
+        {
+            query = query.Where(price => normalizedItemCodes.Contains(price.ItemCode));
+        }
+
+        return query.OrderBy(price => price.ItemCode);
+    }
+
     public async Task<LocalBusinessPartnerPricingResult?> GetBusinessPartnerPricingAsync(
         string cardCode,
         IReadOnlyCollection<string>? itemCodes = null,
@@ -262,22 +320,9 @@ public sealed class LocalPriceCatalogService(
         var priceListPrices = await GetPricesByPriceListAsync(priceListNum, normalizedItemCodes, cancellationToken);
         var todayUtc = DateTime.UtcNow.Date;
 
-        var specialPriceQuery = context.BusinessPartnerSpecialPrices
-            .AsNoTracking()
-            .Where(price =>
-                price.SyncedFromSAP &&
-                price.IsActive &&
-                price.CardCode == normalizedCardCode &&
-                (!price.ValidFrom.HasValue || price.ValidFrom <= todayUtc) &&
-                (!price.ValidTo.HasValue || price.ValidTo >= todayUtc));
-
-        if (normalizedItemCodes.Count > 0)
-        {
-            specialPriceQuery = specialPriceQuery.Where(price => normalizedItemCodes.Contains(price.ItemCode));
-        }
+        var specialPriceQuery = BuildCurrentSpecialPriceQuery(normalizedCardCode, normalizedItemCodes, todayUtc);
 
         var specialPrices = await specialPriceQuery
-            .OrderBy(price => price.ItemCode)
             .Select(price => new
             {
                 price.ItemCode,
@@ -298,7 +343,12 @@ public sealed class LocalPriceCatalogService(
 
             if (mergedPrices.TryGetValue(specialPrice.ItemCode, out var existingPrice))
             {
+                // Same as the live SAP path: keep the price list price and the discount that gets us
+                // to the special price, so the document line can be shown the way SAP shows it.
+                var listPrice = existingPrice.Price;
                 existingPrice.Price = specialPrice.Price;
+                existingPrice.DiscountPercent = SpecialPriceDiscount.CalculatePercent(listPrice, specialPrice.Price);
+                existingPrice.PriceBeforeDiscount = existingPrice.DiscountPercent.HasValue ? listPrice : null;
                 continue;
             }
 

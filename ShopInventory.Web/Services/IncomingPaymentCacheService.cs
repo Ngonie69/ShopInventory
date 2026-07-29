@@ -400,12 +400,21 @@ public class IncomingPaymentCacheService : IIncomingPaymentCacheService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var now = DateTime.UtcNow;
+        var distinctPayments = payments
+            .GroupBy(payment => payment.DocEntry)
+            .Select(group => group.Last())
+            .ToList();
+        var docEntries = distinctPayments.Select(payment => payment.DocEntry).ToList();
+        var existingByDocEntry = (await dbContext.CachedIncomingPayments
+                .Where(payment => docEntries.Contains(payment.DocEntry))
+                .OrderBy(payment => payment.Id)
+                .ToListAsync())
+            .GroupBy(payment => payment.DocEntry)
+            .ToDictionary(group => group.Key, group => group.First());
 
-        foreach (var payment in payments)
+        foreach (var payment in distinctPayments)
         {
-            var existing = await dbContext.CachedIncomingPayments
-                .OrderBy(p => p.Id)
-                .FirstOrDefaultAsync(p => p.DocEntry == payment.DocEntry);
+            existingByDocEntry.TryGetValue(payment.DocEntry, out var existing);
 
             var cached = existing ?? new CachedIncomingPayment();
             MapDtoToCached(payment, cached);

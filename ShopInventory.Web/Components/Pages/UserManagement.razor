@@ -308,7 +308,7 @@
                                     }
                                     else if (role == "DepotController")
                                     {
-                                        <text>Access to payments and inventory transfers</text>
+                                        <text>Access to inventory transfers and local stock only</text>
                                     }
                                     else if (role == "PodOperator")
                                     {
@@ -636,8 +636,8 @@
                                                             </div>
                                                         }
 
-                                                        <!-- Allowed Payment Methods (hidden for Admin, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer, Lab) -->
-                                                        @if (userModel.Role != "Admin" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer" && userModel.Role != "Lab")
+                                                        <!-- Allowed Payment Methods (hidden for Admin, DepotController, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer, Lab) -->
+                                                        @if (userModel.Role != "Admin" && userModel.Role != "DepotController" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer" && userModel.Role != "Lab")
                                                         {
                                                             <div class="um-form-field um-form-full">
                                                                 <label>Allowed Payment Methods</label>
@@ -684,8 +684,8 @@
                                                             </div>
                                                         }
 
-                                                        <!-- Incoming Payment Settings (Cashier & DepotController only) -->
-                                                        @if (userModel.Role == "Cashier" || userModel.Role == "DepotController")
+                                                        <!-- Incoming Payment Settings (Cashier only) -->
+                                                        @if (userModel.Role == "Cashier")
                                                         {
                                                             <div class="um-form-field um-form-full" style="margin-top: 0.5rem;">
                                                                 <div style="border-top: 1px solid #e5e7eb; padding-top: 1rem; margin-bottom: 0.5rem;">
@@ -1778,9 +1778,11 @@
                                         }
 
                                         /* ── Modal ────────────────────────────── */
+                                        /* Centres below the app bar, not the viewport: the page container is a stacking
+                                           context, so the bar paints over anything centred against the full viewport. */
                                         .um-overlay {
                                             position: fixed;
-                                            inset: 0;
+                                            inset: var(--kf-topbar-h, 74px) 0 0;
                                             background: rgba(0, 0, 0, .4);
                                             backdrop-filter: blur(4px);
                                             display: flex;
@@ -1795,7 +1797,7 @@
                                             border-radius: 16px;
                                             width: 100%;
                                             max-width: 600px;
-                                            max-height: calc(100vh - 2rem);
+                                            max-height: calc(100vh - var(--kf-topbar-h, 74px) - 2rem);
                                             box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
                                             overflow: hidden;
                                             display: flex;
@@ -2218,7 +2220,7 @@
                                             }
 
                                             .um-modal {
-                                                max-height: calc(100vh - 1rem);
+                                                max-height: calc(100vh - var(--kf-topbar-h, 74px) - 1rem);
                                             }
 
                                             .um-modal-header,
@@ -3319,7 +3321,7 @@
     };
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
-    // Payment settings data (for Cashier/DepotController roles)
+    // Payment settings data (for the Cashier role)
     private List<GLAccountDto> availableGLAccounts = new();
     private bool isLoadingGLAccounts = false;
     private string glAccountSearchTerm = string.Empty;
@@ -3442,18 +3444,29 @@ List<string>(AdminAvailableRoles);
             activeTab = "users";
             await LoadUsers();
 
+            // Paint the user list as soon as it's loaded. The supporting lookups
+            // below (permissions, security stats and SAP-backed master data) only
+            // feed the other tabs and the create/edit modal, and some hit SAP
+            // Service Layer endpoints that can be slow or unavailable. Awaiting
+            // them here previously kept the whole component from re-rendering, so
+            // an unhealthy SAP backend left the page stuck on "Loading users..."
+            // even though the users had already loaded successfully.
+            StateHasChanged();
+
             if (!isPodOperatorView)
             {
-                await LoadPermissions();
-                await LoadSecurityStats();
-                await LoadWarehouses();
-                await LoadCustomers();
-                await LoadCostCentres();
-                await LoadGLAccounts();
-                await LoadPaymentBPs();
+                _ = InvokeAsync(async () =>
+                {
+                    await LoadPermissions();
+                    await LoadSecurityStats();
+                    await LoadWarehouses();
+                    await LoadCustomers();
+                    await LoadCostCentres();
+                    await LoadGLAccounts();
+                    await LoadPaymentBPs();
+                    StateHasChanged();
+                });
             }
-
-            StateHasChanged();
         }
     }
 

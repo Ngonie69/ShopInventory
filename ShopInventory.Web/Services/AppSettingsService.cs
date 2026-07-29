@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Web.Data;
 
@@ -91,11 +92,14 @@ public class AppSettingsService : IAppSettingsService
     public async Task SaveSettingsAsync(Dictionary<string, string> settings, string? modifiedBy = null)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync();
+        var keys = settings.Keys.ToList();
+        var existingSettings = await db.AppSettings
+            .Where(setting => keys.Contains(setting.Key))
+            .ToDictionaryAsync(setting => setting.Key);
 
         foreach (var (key, value) in settings)
         {
-            var setting = await db.AppSettings.FirstOrDefaultAsync(s => s.Key == key);
-            if (setting != null && setting.IsEditable)
+            if (existingSettings.TryGetValue(key, out var setting) && setting.IsEditable)
             {
                 setting.Value = value;
                 setting.LastModifiedAt = DateTime.UtcNow;
@@ -444,5 +448,120 @@ public class AppSettingsService : IAppSettingsService
 
         await db.SaveChangesAsync();
         _logger.LogInformation("Initialized default application settings");
+
+        await BackfillPodReportEmailSchedulesAsync(db);
+    }
+
+    /// <summary>
+    /// One-time migration of the legacy single weekly/monthly POD report email config into the
+    /// multi-schedule table. Runs only when no schedules exist yet and a recipient list was configured,
+    /// preserving the previously configured recipients and last-sent timestamps.
+    /// </summary>
+    private async Task BackfillPodReportEmailSchedulesAsync(WebAppDbContext db)
+    {
+        if (await db.PodReportEmailSchedules.AnyAsync())
+        {
+            return;
+        }
+
+        var podKeys = new[]
+        {
+            SettingKeys.PodReportEmailsTo,
+            SettingKeys.PodReportEmailsCc,
+            SettingKeys.PodReportEmailsWeeklyDayOfWeek,
+            SettingKeys.PodReportEmailsWeeklySendHourUtc,
+            SettingKeys.PodReportEmailsMonthlyDayOfMonth,
+            SettingKeys.PodReportEmailsMonthlySendHourUtc,
+            SettingKeys.PodReportEmailsLastWeeklySentUtc,
+            SettingKeys.PodReportEmailsLastMonthlySentUtc
+        };
+
+        var values = await db.AppSettings
+            .Where(s => podKeys.Contains(s.Key))
+            .ToDictionaryAsync(s => s.Key, s => s.Value);
+
+        var to = GetValueOrEmpty(values, SettingKeys.PodReportEmailsTo);
+        if (string.IsNullOrWhiteSpace(to))
+        {
+            // Nothing was configured previously; leave the table empty and let the user add schedules.
+            return;
+        }
+
+        var cc = GetValueOrEmpty(values, SettingKeys.PodReportEmailsCc);
+        var nowUtc = DateTime.UtcNow;
+
+        var weekly = new PodReportEmailSchedule
+        {
+            Name = "Weekly POD report",
+            Enabled = true,
+            Frequency = nameof(PodReportEmailFrequency.Weekly),
+            DayOfWeek = ParseDayOfWeek(GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklyDayOfWeek)),
+            SendMinuteOfDay = LegacyUtcHourToLocalMinuteOfDay(
+                GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklySendHourUtc)),
+            ToRecipients = to,
+            CcRecipients = cc,
+            LastSentUtc = ParseUtc(GetValueOrEmpty(values, SettingKeys.PodReportEmailsLastWeeklySentUtc)),
+            AnchorDateUtc = nowUtc,
+            CreatedAtUtc = nowUtc,
+            CreatedBy = "System (migrated)",
+            LastModifiedAtUtc = nowUtc,
+            LastModifiedBy = "System (migrated)"
+        };
+
+        var monthly = new PodReportEmailSchedule
+        {
+            Name = "Monthly POD report",
+            Enabled = true,
+            Frequency = nameof(PodReportEmailFrequency.Monthly),
+            DayOfMonth = ParseInt(GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlyDayOfMonth), 1),
+            SendMinuteOfDay = LegacyUtcHourToLocalMinuteOfDay(
+                GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlySendHourUtc)),
+            ToRecipients = to,
+            CcRecipients = cc,
+            LastSentUtc = ParseUtc(GetValueOrEmpty(values, SettingKeys.PodReportEmailsLastMonthlySentUtc)),
+            AnchorDateUtc = nowUtc,
+            CreatedAtUtc = nowUtc,
+            CreatedBy = "System (migrated)",
+            LastModifiedAtUtc = nowUtc,
+            LastModifiedBy = "System (migrated)"
+        };
+
+        db.PodReportEmailSchedules.AddRange(weekly, monthly);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Back-filled POD report email schedules from legacy configuration (weekly + monthly).");
+    }
+
+    private static string GetValueOrEmpty(Dictionary<string, string> values, string key) =>
+        values.TryGetValue(key, out var value) ? value ?? string.Empty : string.Empty;
+
+    /// <summary>
+    /// The legacy settings stored a whole UTC hour; schedules now store a local (CAT) minute-of-day.
+    /// </summary>
+    private static int LegacyUtcHourToLocalMinuteOfDay(string? utcHourValue)
+    {
+        var hourUtc = Math.Clamp(ParseInt(utcHourValue, 6), 0, 23);
+        var localHour = PodScheduleTime.ToLocal(new DateTime(2000, 1, 1, hourUtc, 0, 0, DateTimeKind.Utc)).Hour;
+        return localHour * 60;
+    }
+
+    private static int ParseDayOfWeek(string? value) =>
+        Enum.TryParse<DayOfWeek>(value, ignoreCase: true, out var parsed) ? (int)parsed : (int)DayOfWeek.Monday;
+
+    private static int ParseInt(string? value, int fallback) =>
+        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
+
+    private static DateTime? ParseUtc(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+        {
+            return parsed.Kind == DateTimeKind.Utc ? parsed : DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+        }
+
+        return null;
     }
 }
