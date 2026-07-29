@@ -138,6 +138,15 @@ public sealed class ApproveSalesOrderHandler(
                 approvalTimer.ElapsedMilliseconds);
             throw;
         }
+        catch (CreditLimitExceededException ex)
+        {
+            approvalTimer.Stop();
+            logger.LogWarning(
+                "Refused approval of sales order {OrderId} on credit: {Reason}",
+                command.Id,
+                ex.Message);
+            return Errors.SalesOrder.CreditLimitExceeded(ex.Message);
+        }
         catch (InvalidOperationException ex)
         {
             approvalTimer.Stop();

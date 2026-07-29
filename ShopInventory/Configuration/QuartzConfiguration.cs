@@ -26,6 +26,8 @@ public static class QuartzConfiguration
         var creditNoteSync = configuration.GetSection(CreditNoteSyncSettings.SectionName)
             .Get<CreditNoteSyncSettings>() ?? new CreditNoteSyncSettings();
         var dailyStock = configuration.GetSection("DailyStock").Get<DailyStockSettings>() ?? new DailyStockSettings();
+        var creditLimit = configuration.GetSection(CreditLimitSettings.SectionName)
+            .Get<CreditLimitSettings>() ?? new CreditLimitSettings();
         var healthAlert = configuration.GetSection("SystemHealthAlert").Get<SystemHealthAlertSettings>() ?? new SystemHealthAlertSettings();
 
         services.AddQuartz(q =>
@@ -90,6 +92,13 @@ public static class QuartzConfiguration
             if (dailyStock.EnableAutoConsolidation)
             {
                 AddCronJob<EndOfDayConsolidationJob>(q, "end-of-day-consolidation", BuildDailyCron(dailyStock.EndOfDayTimeCAT, "18:00"));
+            }
+
+            // After the day's invoicing and payments are in, so the balances it reports are the
+            // ones tomorrow's orders will actually be measured against.
+            if (sap.Enabled && creditLimit.Enabled && creditLimit.EveningReviewEnabled)
+            {
+                AddCronJob<CreditLimitReviewJob>(q, "credit-limit-review", BuildDailyCron(creditLimit.ReviewTimeCAT, "19:15"));
             }
         });
 

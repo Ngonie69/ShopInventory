@@ -93,6 +93,31 @@ public sealed class SubmitMobileOrderHandler(
                 command.UserId, order.OrderNumber, command.Request.CardCode, command.Request.Items.Count);
             return order;
         }
+        catch (CreditLimitExceededException ex)
+        {
+            // Reported as a validation failure rather than through AssignmentFailed: a 500 has its
+            // detail replaced with a generic message, and the rep in the field would be told the
+            // order failed without being told the account is over its limit.
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.CreateMobileSalesOrder,
+                    "SalesOrder",
+                    null,
+                    $"Refused mobile order for {command.Request.CardCode} on credit.",
+                    false,
+                    ex.Message);
+            }
+            catch
+            {
+            }
+
+            logger.LogWarning(
+                "Refused a merchandiser mobile order for {CardCode} on credit: {Reason}",
+                command.Request.CardCode,
+                ex.Message);
+            return Errors.SalesOrder.CreditLimitExceeded(ex.Message);
+        }
         catch (Exception ex)
         {
             try

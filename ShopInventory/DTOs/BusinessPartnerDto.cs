@@ -27,6 +27,39 @@ public class BusinessPartnerDto
 }
 
 /// <summary>
+/// The credit-control view of a business partner: the limit, what is already owed against it, and
+/// the consolidating parent whose limit the account draws on, if it has one.
+/// </summary>
+/// <remarks>
+/// Deliberately separate from <see cref="BusinessPartnerDto"/>. This is read on the sales order
+/// path with a rep waiting, so it selects only the credit fields, and it must never be served from
+/// the cached BP list — a balance that is one sync old is the wrong number to block an order on.
+/// </remarks>
+public class BusinessPartnerCreditProfileDto
+{
+    public string CardCode { get; set; } = string.Empty;
+    public string? CardName { get; set; }
+
+    /// <summary>The BP's currency, used only to label the amounts in the message.</summary>
+    public string? Currency { get; set; }
+
+    /// <summary>OCRD.CreditLine. Zero or less means no limit is configured for this account.</summary>
+    public decimal CreditLimit { get; set; }
+
+    /// <summary>OCRD.Balance — posted A/R only, before anything still open.</summary>
+    public decimal Balance { get; set; }
+
+    /// <summary>Sales orders raised but not yet invoiced, so not yet in <see cref="Balance"/>.</summary>
+    public decimal OpenOrdersBalance { get; set; }
+
+    /// <summary>
+    /// OCRD.FatherCard — the consolidating business partner this account hangs off. When set, the
+    /// group's limit governs rather than (only) this account's own.
+    /// </summary>
+    public string? FatherCard { get; set; }
+}
+
+/// <summary>
 /// DTO for SAP Payment Terms (OCTG table)
 /// </summary>
 public class PaymentTermsDto

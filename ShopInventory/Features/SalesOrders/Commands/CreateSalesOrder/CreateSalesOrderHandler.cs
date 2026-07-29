@@ -24,6 +24,14 @@ public sealed class CreateSalesOrderHandler(
             try { await auditService.LogAsync(AuditActions.CreateSalesOrder, "SalesOrder", order.Id.ToString(), $"Sales order created for {command.Request.CardCode}", true); } catch { }
             return order;
         }
+        catch (CreditLimitExceededException ex)
+        {
+            logger.LogWarning(
+                "Refused a sales order for {CardCode} on credit: {Reason}",
+                command.Request.CardCode,
+                ex.Message);
+            return Errors.SalesOrder.CreditLimitExceeded(ex.Message);
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error creating sales order");

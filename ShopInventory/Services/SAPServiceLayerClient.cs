@@ -7535,6 +7535,16 @@ ORDER BY T0.""ItemCode""";
     // which causes error -2028 when referenced records are deleted or invalid.
     private const string BusinessPartnerSelectFields = "$select=CardCode,CardName,CardType,GroupCode,Phone1,Phone2,EmailAddress,Address,City,Country,Currency,CurrentAccountBalance,Frozen,PriceListNum,PayTermsGrpCode,FederalTaxID,CardForeignName";
 
+    // Credit control reads only what the limit check needs. OpenOrdersBalance is the value SAP shows
+    // as "Orders" on the BP master: raised but not yet invoiced, so absent from CurrentAccountBalance.
+    private const string BusinessPartnerCreditSelect = "$select=CardCode,CardName,Currency,CreditLimit,CurrentAccountBalance,OpenOrdersBalance,FatherCard";
+
+    /// <summary>Ceiling on how many accounts one consolidating parent is read as having.</summary>
+    private const int ConsolidatedCreditGroupMaxResults = 500;
+
+    /// <summary>Ceiling on the nightly whole-customer-base credit sweep.</summary>
+    private const int CustomerCreditSweepMaxResults = 20_000;
+
     public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(CancellationToken cancellationToken = default)
     {
         if (_memoryCache.TryGetValue(BusinessPartnersCacheKey, out List<BusinessPartnerDto>? cached) && cached != null)
@@ -7775,6 +7785,232 @@ ORDER BY T0.""ItemCode""";
 
         var content = await response.Content.ReadAsStringAsync(cancellationToken);
         return ParseSingleBusinessPartnerFromResponse(content);
+    }
+
+    public async Task<BusinessPartnerCreditProfileDto?> GetBusinessPartnerCreditProfileAsync(
+        string cardCode,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+        var currentSession = _sessionId;
+
+        var url = $"BusinessPartners('{SanitizeODataValue(cardCode)}')?{BusinessPartnerCreditSelect}";
+
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read the credit profile for business partner {cardCode}",
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response.Dispose();
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read the credit profile for business partner {cardCode} after SAP re-authentication",
+                cancellationToken);
+        }
+
+        using var responseOwner = response;
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError(
+                "Failed to read the credit profile for business partner {CardCode}: {StatusCode} - {Error}",
+                cardCode,
+                response.StatusCode,
+                errorContent);
+            throw new Exception($"Failed to read the credit profile for business partner {cardCode}: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var doc = JsonDocument.Parse(content);
+        return ParseCreditProfileElement(doc.RootElement);
+    }
+
+    public async Task<List<BusinessPartnerCreditProfileDto>> GetConsolidatedCreditProfilesAsync(
+        string parentCardCode,
+        CancellationToken cancellationToken = default)
+    {
+        var safeParent = SanitizeODataValue(parentCardCode);
+        return await ReadBusinessPartnerCreditPagesAsync(
+            $"CardCode eq '{safeParent}' or FatherCard eq '{safeParent}'",
+            $"read the credit profiles consolidated under business partner {parentCardCode}",
+            ConsolidatedCreditGroupMaxResults,
+            pageSize: 200,
+            cancellationToken);
+    }
+
+    public async Task<List<BusinessPartnerCreditProfileDto>> GetCustomerCreditProfilesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return await ReadBusinessPartnerCreditPagesAsync(
+            "CardType eq 'cCustomer'",
+            "read the credit profiles of every customer",
+            CustomerCreditSweepMaxResults,
+            pageSize: 500,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Walks every page of a business partner credit query.
+    /// </summary>
+    /// <remarks>
+    /// The <c>Prefer</c> header is not optional and <c>$top</c> is not a substitute for it: without
+    /// the header SAP answers 20 rows and a nextLink, which here would silently understate a group's
+    /// exposure and let an over-limit order through.
+    /// </remarks>
+    private async Task<List<BusinessPartnerCreditProfileDto>> ReadBusinessPartnerCreditPagesAsync(
+        string filterExpression,
+        string operationDescription,
+        int maxResults,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var all = new List<BusinessPartnerCreditProfileDto>();
+        var skip = 0;
+
+        while (all.Count < maxResults)
+        {
+            var requestPageSize = Math.Min(pageSize, maxResults - all.Count);
+            var url = $"BusinessPartners?$filter={Uri.EscapeDataString(filterExpression)}&{BusinessPartnerCreditSelect}" +
+                $"&$orderby=CardCode&$top={requestPageSize}&$skip={skip}";
+
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", $"odata.maxpagesize={requestPageSize}");
+                return request;
+            }
+
+            var currentSession = _sessionId;
+            var response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"{operationDescription} at skip {skip}",
+                cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(currentSession, cancellationToken);
+                response.Dispose();
+                response = await SendSapRequestWithTransientRetryAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    $"{operationDescription} at skip {skip} after SAP re-authentication",
+                    cancellationToken);
+            }
+
+            using var responseOwner = response;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Failed to {Operation}: {StatusCode} - {Error}",
+                    operationDescription,
+                    response.StatusCode,
+                    errorContent);
+                throw new Exception($"Failed to {operationDescription}: {response.StatusCode} - {errorContent}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var pageCount = 0;
+
+            using (var doc = JsonDocument.Parse(content))
+            {
+                if (doc.RootElement.TryGetProperty("value", out var valueArray))
+                {
+                    foreach (var item in valueArray.EnumerateArray())
+                    {
+                        var profile = ParseCreditProfileElement(item);
+                        if (profile != null)
+                        {
+                            all.Add(profile);
+                        }
+
+                        pageCount++;
+                    }
+                }
+            }
+
+            if (pageCount < requestPageSize)
+            {
+                return all;
+            }
+
+            skip += pageCount;
+        }
+
+        _logger.LogWarning(
+            "Reached the {MaxResults}-account ceiling while reading {Operation}; the result is truncated and exposure is understated",
+            maxResults,
+            operationDescription);
+
+        return all;
+    }
+
+    private static BusinessPartnerCreditProfileDto? ParseCreditProfileElement(JsonElement item)
+    {
+        var cardCode = item.TryGetProperty("CardCode", out var code) ? code.GetString() : null;
+        if (string.IsNullOrWhiteSpace(cardCode))
+        {
+            return null;
+        }
+
+        return new BusinessPartnerCreditProfileDto
+        {
+            CardCode = cardCode,
+            CardName = item.TryGetProperty("CardName", out var name) ? name.GetString() : null,
+            Currency = item.TryGetProperty("Currency", out var currency) ? currency.GetString() : null,
+            CreditLimit = GetDecimalOrZero(item, "CreditLimit"),
+            Balance = GetDecimalOrZero(item, "CurrentAccountBalance"),
+            OpenOrdersBalance = GetDecimalOrZero(item, "OpenOrdersBalance"),
+            FatherCard = item.TryGetProperty("FatherCard", out var father) ? father.GetString() : null
+        };
+    }
+
+    private static decimal GetDecimalOrZero(JsonElement item, string propertyName)
+    {
+        if (!item.TryGetProperty(propertyName, out var element))
+        {
+            return 0m;
+        }
+
+        return element.ValueKind switch
+        {
+            JsonValueKind.Number => element.TryGetDecimal(out var value) ? value : 0m,
+            JsonValueKind.String => decimal.TryParse(
+                element.GetString(),
+                NumberStyles.Any,
+                CultureInfo.InvariantCulture,
+                out var parsed) ? parsed : 0m,
+            _ => 0m
+        };
     }
 
     private List<BusinessPartnerDto> ParseBusinessPartnersFromResponse(string jsonContent)

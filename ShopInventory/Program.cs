@@ -251,6 +251,8 @@ try
         builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
     builder.Services.Configure<CreditNoteSyncSettings>(
         builder.Configuration.GetSection(CreditNoteSyncSettings.SectionName));
+    builder.Services.Configure<CreditLimitSettings>(
+        builder.Configuration.GetSection(CreditLimitSettings.SectionName));
     builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
 
     // Get JWT settings for authentication configuration
@@ -547,6 +549,10 @@ try
     builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
     // Register sales order, purchase order, credit note, and quotation services
     builder.Services.AddScoped<IMobileOrderPostProcessingQueue, MobileOrderPostProcessingQueue>();
+    // Scoped, and it matters: the service memoizes SAP credit reads for the life of the scope so a
+    // create-then-post request reads once, while the next request sees the balance as it then is.
+    builder.Services.AddScoped<ICreditLimitService, CreditLimitService>();
+    builder.Services.AddScoped<ICreditLimitReviewService, CreditLimitReviewService>();
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();

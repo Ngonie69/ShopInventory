@@ -27,6 +27,13 @@ public static partial class Errors
         public static Error SapError(string message) =>
             Error.Failure("SalesOrder.SapError", $"Failed to post to SAP: {message}");
 
+        /// <summary>
+        /// A business rule, not a server fault: Validation keeps it a 400 with the message intact,
+        /// so the rep is told which account is over and by how much.
+        /// </summary>
+        public static Error CreditLimitExceeded(string message) =>
+            Error.Validation("SalesOrder.CreditLimitExceeded", message);
+
         public static Error CreationFailed(string message) =>
             Error.Failure("SalesOrder.CreationFailed", message);
 
