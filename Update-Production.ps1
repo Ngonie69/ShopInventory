@@ -166,6 +166,46 @@ function Assert-SourceUpToDate {
     }
 
     $branch = & git -C $repoRoot rev-parse --abbrev-ref HEAD
+
+    # main is the release line, and comparing HEAD against its own upstream says nothing
+    # about that: a feature branch can sit perfectly in sync with origin/<itself> while
+    # missing everything merged since it forked. That publishes pre-merge code with every
+    # check reporting green. Containment of origin/main is what catches it, so it runs
+    # ahead of the per-branch comparison below and covers a detached HEAD too.
+    & git -C $repoRoot fetch --quiet origin '+refs/heads/main:refs/remotes/origin/main' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  WARNING: could not fetch origin/main - deploying without verifying against the release line." -ForegroundColor Yellow
+    }
+    else {
+        & git -C $repoRoot merge-base --is-ancestor origin/main HEAD
+        if ($LASTEXITCODE -ne 0) {
+            $missing = @(& git -C $repoRoot log --oneline origin/main "^HEAD")
+            Write-Host ""
+            Write-Host "ERROR: this checkout is missing $($missing.Count) commit(s) already on origin/main." -ForegroundColor Red
+            Write-Host "Deploying it would publish pre-merge code and take live work back off production." -ForegroundColor Red
+            Write-Host ""
+            Write-Host "  Checked out: $branch" -ForegroundColor Yellow
+            Write-Host ($missing | Select-Object -First 20 | Out-String).TrimEnd() -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  Run: git switch main" -ForegroundColor White
+            Write-Host "       git pull --ff-only" -ForegroundColor White
+            Write-Host "  Or re-run with -SkipGitCheck to deploy this revision anyway." -ForegroundColor White
+            Wait-ForExitPrompt
+            exit 1
+        }
+
+        # Contains main but is not main. Legitimate for a hotfix, worth saying out loud
+        # because the extra commits have not been through the release line.
+        if ($branch -ne 'main' -and $branch -ne 'HEAD') {
+            $unmerged = @(& git -C $repoRoot log --oneline HEAD "^origin/main")
+            Write-Host "  WARNING: deploying '$branch', not main." -ForegroundColor Yellow
+            if ($unmerged.Count -gt 0) {
+                Write-Host "  It carries $($unmerged.Count) commit(s) that are not on main:" -ForegroundColor Yellow
+                Write-Host ($unmerged | Select-Object -First 10 | Out-String).TrimEnd() -ForegroundColor Yellow
+            }
+        }
+    }
+
     if ($branch -eq 'HEAD') {
         Write-Host "  WARNING: detached HEAD - skipping the remote comparison." -ForegroundColor Yellow
         Write-Host ""
