@@ -103,6 +103,9 @@ public sealed class InventoryTransferApprovalService(
     : IInventoryTransferApprovalService
 {
     private const string UnknownOriginator = "Unknown";
+    // The seed check is cheap but not free, and listing a page asks for it once per document.
+    // The service is scoped, so this holds for the length of one request and no longer.
+    private readonly HashSet<string> _ensuredDocumentTypes = new(StringComparer.Ordinal);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly Guid DepotStageId = Guid.Parse("11000000-0000-0000-0000-000000000001");
     private static readonly Guid StockStageId = Guid.Parse("11000000-0000-0000-0000-000000000002");
@@ -124,19 +127,27 @@ public sealed class InventoryTransferApprovalService(
             ?? (await ResolveOriginatorAsync(document, null, cancellationToken))?.Id;
         var request = await EnsureRequestAsync(
             ApprovalDocumentContext.ForTransferRequest(document), resolvedOriginatorId, cancellationToken);
-
-        // Older requests carry the requester only in the SAP comments; keep that as the display fallback.
-        if (request.OriginatorUserId is null && request.OriginatorName == UnknownOriginator)
-        {
-            var fromComments = ExtractCommentValue(document.Comments, "Requester");
-            if (!string.IsNullOrWhiteSpace(fromComments))
-            {
-                request.OriginatorName = fromComments;
-                await context.SaveChangesAsync(cancellationToken);
-            }
-        }
-
+        await BackfillOriginatorNameAsync(request, document.Comments, cancellationToken);
         return request;
+    }
+
+    /// <summary>
+    /// Older requests carry the requester only in the SAP comments; keep that as the display fallback.
+    /// </summary>
+    private async Task BackfillOriginatorNameAsync(
+        ApprovalRequestEntity request,
+        string? comments,
+        CancellationToken cancellationToken)
+    {
+        if (request.OriginatorUserId is not null || request.OriginatorName != UnknownOriginator)
+            return;
+
+        var fromComments = ExtractCommentValue(comments, "Requester");
+        if (string.IsNullOrWhiteSpace(fromComments))
+            return;
+
+        request.OriginatorName = fromComments;
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<ApprovalRequestEntity> EnsureRequestAsync(
@@ -213,23 +224,44 @@ public sealed class InventoryTransferApprovalService(
 
     public async Task EnrichAsync(IEnumerable<InventoryTransferRequestDto> documents, CancellationToken cancellationToken)
     {
-        foreach (var dto in documents)
+        var listed = documents.ToList();
+        foreach (var dto in listed)
         {
             dto.RequesterName ??= ExtractCommentValue(dto.Comments, "Requester");
             dto.RequesterEmail ??= ExtractCommentValue(dto.Comments, "Email");
-            var model = new InventoryTransferRequest
+        }
+
+        // Approval requests are opened lazily, so most of a listed page already has one. Reading them
+        // in a single query keeps a page of documents off the per-document create path entirely.
+        var documentKeys = listed.Select(dto => dto.DocEntry.ToString()).ToList();
+        var known = (await context.ApprovalRequests
+                .Include(request => request.Decisions)
+                .Where(request =>
+                    request.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest &&
+                    documentKeys.Contains(request.DocumentKey))
+                .ToListAsync(cancellationToken))
+            .ToDictionary(request => request.DocumentKey);
+
+        foreach (var dto in listed)
+        {
+            try
             {
-                DocEntry = dto.DocEntry,
-                DocNum = dto.DocNum,
-                DocumentStatus = dto.DocumentStatus,
-                FromWarehouse = dto.FromWarehouse,
-                ToWarehouse = dto.ToWarehouse,
-                Comments = dto.Comments,
-                RequesterEmail = dto.RequesterEmail,
-                RequesterName = dto.RequesterName
-            };
-            var request = await EnsureRequestAsync(model, null, cancellationToken);
-            ApplyProgress(dto, request);
+                if (known.TryGetValue(dto.DocEntry.ToString(), out var request))
+                    await BackfillOriginatorNameAsync(request, dto.Comments, cancellationToken);
+                else
+                    request = await EnsureRequestAsync(ToModel(dto), null, cancellationToken);
+
+                ApplyProgress(dto, request);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or DbUpdateException)
+            {
+                // Listing is a read: a document the approval configuration cannot route — no matching
+                // template, or a template whose stages have all been deactivated — is shown without
+                // approval progress rather than failing the page it happens to appear on.
+                logger.LogWarning(ex,
+                    "Transfer request {DocEntry} has no approval progress; check the approval templates for {DocumentType}",
+                    dto.DocEntry, ApprovalDocumentTypes.InventoryTransferRequest);
+            }
         }
     }
 
@@ -487,23 +519,19 @@ public sealed class InventoryTransferApprovalService(
     /// Seeding is per document type so that installs created before a document type existed still
     /// pick up its defaults on first use.
     /// </summary>
+    /// <remarks>
+    /// Every default carries a fixed id and is re-added only when that id is absent, so a default
+    /// that was never seeded — or that was later deleted — comes back, while anything an
+    /// administrator has since renamed, retargeted or deactivated is left exactly as configured.
+    /// Repeating the check is what makes the seed self-healing: it used to run once per document
+    /// type and swallow whatever went wrong, which left a type permanently without templates.
+    /// </remarks>
     private async Task EnsureDefaultsAsync(string documentType, CancellationToken cancellationToken)
     {
-        var seededTemplates = await context.ApprovalTemplateDefinitions.AsNoTracking()
-            .AnyAsync(template => template.DocumentType == documentType, cancellationToken);
-        if (seededTemplates) return;
+        if (!_ensuredDocumentTypes.Add(documentType)) return;
 
-        var existingStageIds = await context.ApprovalStageDefinitions.AsNoTracking()
-            .Select(stage => stage.Id).ToListAsync(cancellationToken);
-        var missingStages = new[]
-        {
-            NewStage(DepotStageId, "Depot Acceptance", "Depot controllers accept transfers arriving from Dispatch.", ApplicationRoles.DepotController),
-            NewStage(StockStageId, "Stock Officer Approval", "Stock officers approve transfers initiated by depot controllers.", ApplicationRoles.StockController),
-            NewStage(AdminStageId, "Administrator Review", "Fallback review for requests that do not match a specific template.", ApplicationRoles.Admin)
-        }.Where(stage => !existingStageIds.Contains(stage.Id));
-        context.ApprovalStageDefinitions.AddRange(missingStages);
-
-        context.ApprovalTemplateDefinitions.AddRange(documentType switch
+        var stageIds = await EnsureDefaultStagesAsync(cancellationToken);
+        var defaults = documentType switch
         {
             // Direct transfers deliberately do not default to the depot-acceptance stage. Depot
             // controllers are scoped to the warehouse stock leaves from, so routing a transfer
@@ -511,28 +539,105 @@ public sealed class InventoryTransferApprovalService(
             // officers are unscoped, and the administrator stage is the catch-all.
             ApprovalDocumentTypes.InventoryTransfer =>
             [
-                NewTemplate(DirectDepotTemplateId, "Depot Controller Direct Transfers", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
-                NewTemplate(DirectFallbackTemplateId, "General Direct Transfer Review", documentType, -100, [], [AdminStageId])
+                NewTemplate(DirectDepotTemplateId, "Depot Controller Direct Transfers", documentType, 100, [ApplicationRoles.DepotController], [stageIds[StockStageId]]),
+                NewTemplate(DirectFallbackTemplateId, "General Direct Transfer Review", documentType, -100, [], [stageIds[AdminStageId]])
             ],
             // A held edit is raised precisely because the editor does not run the source
             // warehouse, so it must never route back to the depot-controller stage.
             ApprovalDocumentTypes.InventoryTransferRequestEdit =>
             [
-                NewTemplate(EditDepotTemplateId, "Depot Controller Request Edits", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
-                NewTemplate(EditFallbackTemplateId, "General Request Edit Review", documentType, -100, [], [AdminStageId])
+                NewTemplate(EditDepotTemplateId, "Depot Controller Request Edits", documentType, 100, [ApplicationRoles.DepotController], [stageIds[StockStageId]]),
+                NewTemplate(EditFallbackTemplateId, "General Request Edit Review", documentType, -100, [], [stageIds[AdminStageId]])
             ],
             _ =>
             (ApprovalTemplateDefinitionEntity[])
             [
-                NewTemplate(DispatchTemplateId, "Dispatch Transfers", documentType, 100, [ApplicationRoles.StockController], [DepotStageId]),
-                NewTemplate(DepotTemplateId, "Depot Controller Transfers", documentType, 100, [ApplicationRoles.DepotController], [StockStageId]),
-                NewTemplate(FallbackTemplateId, "General Transfer Review", documentType, -100, [], [AdminStageId])
+                NewTemplate(DispatchTemplateId, "Dispatch Transfers", documentType, 100, [ApplicationRoles.StockController], [stageIds[DepotStageId]]),
+                NewTemplate(DepotTemplateId, "Depot Controller Transfers", documentType, 100, [ApplicationRoles.DepotController], [stageIds[StockStageId]]),
+                NewTemplate(FallbackTemplateId, "General Transfer Review", documentType, -100, [], [stageIds[AdminStageId]])
             ]
-        });
+        };
 
-        try { await context.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateException) { context.ChangeTracker.Clear(); }
+        var defaultIds = defaults.Select(template => template.Id).ToList();
+        var defaultNames = defaults.Select(template => template.Name).ToList();
+        var present = await context.ApprovalTemplateDefinitions.AsNoTracking()
+            .Where(template => defaultIds.Contains(template.Id) || defaultNames.Contains(template.Name))
+            .Select(template => new { template.Id, template.Name })
+            .ToListAsync(cancellationToken);
+
+        // Template names are unique across document types, so a default whose name an administrator
+        // has given to something else is skipped rather than allowed to fail the whole insert.
+        var missing = defaults
+            .Where(template => !present.Any(item => item.Id == template.Id || item.Name == template.Name))
+            .ToList();
+        if (missing.Count == 0) return;
+
+        context.ApprovalTemplateDefinitions.AddRange(missing);
+        try
+        {
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            // Another writer seeding the same defaults is the ordinary cause and is harmless, but a
+            // silent loss here leaves documents unroutable, so say so.
+            logger.LogWarning(ex, "Could not seed the default approval templates for {DocumentType}", documentType);
+            context.ChangeTracker.Clear();
+        }
     }
+
+    /// <summary>
+    /// Ensures the built-in stages exist and maps each built-in id to the id actually in use.
+    /// Stage names are unique, so a stage an install already holds under one of these names is
+    /// adopted rather than inserted again — inserting it would fail, and would previously have
+    /// taken the templates saved alongside it down with it.
+    /// </summary>
+    private async Task<Dictionary<Guid, Guid>> EnsureDefaultStagesAsync(CancellationToken cancellationToken)
+    {
+        ApprovalStageDefinitionEntity[] defaults =
+        [
+            NewStage(DepotStageId, "Depot Acceptance", "Depot controllers accept transfers arriving from Dispatch.", ApplicationRoles.DepotController),
+            NewStage(StockStageId, "Stock Officer Approval", "Stock officers approve transfers initiated by depot controllers.", ApplicationRoles.StockController),
+            NewStage(AdminStageId, "Administrator Review", "Fallback review for requests that do not match a specific template.", ApplicationRoles.Admin)
+        ];
+
+        var present = await LoadDefaultStagesAsync(defaults, cancellationToken);
+        var missing = defaults.Where(stage => Resolve(present, stage) is null).ToList();
+        if (missing.Count > 0)
+        {
+            context.ApprovalStageDefinitions.AddRange(missing);
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException ex)
+            {
+                logger.LogWarning(ex, "Could not seed the default approval stages");
+                context.ChangeTracker.Clear();
+            }
+
+            present = await LoadDefaultStagesAsync(defaults, cancellationToken);
+        }
+
+        return defaults.ToDictionary(stage => stage.Id, stage => Resolve(present, stage)?.Id ?? stage.Id);
+    }
+
+    private async Task<List<ApprovalStageDefinitionEntity>> LoadDefaultStagesAsync(
+        IReadOnlyCollection<ApprovalStageDefinitionEntity> defaults,
+        CancellationToken cancellationToken)
+    {
+        var ids = defaults.Select(stage => stage.Id).ToList();
+        var names = defaults.Select(stage => stage.Name).ToList();
+        return await context.ApprovalStageDefinitions.AsNoTracking()
+            .Where(stage => ids.Contains(stage.Id) || names.Contains(stage.Name))
+            .ToListAsync(cancellationToken);
+    }
+
+    private static ApprovalStageDefinitionEntity? Resolve(
+        List<ApprovalStageDefinitionEntity> present,
+        ApprovalStageDefinitionEntity stage)
+        => present.FirstOrDefault(item => item.Id == stage.Id)
+           ?? present.FirstOrDefault(item => item.Name == stage.Name);
 
     private async Task<ApprovalTemplateDefinitionEntity?> SelectTemplateAsync(User? originator, ApprovalDocumentContext document, CancellationToken cancellationToken)
     {
@@ -564,6 +669,18 @@ public sealed class InventoryTransferApprovalService(
         var normalized = email.Trim().ToLowerInvariant();
         return await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Email != null && user.Email.ToLower() == normalized, cancellationToken);
     }
+
+    private static InventoryTransferRequest ToModel(InventoryTransferRequestDto dto) => new()
+    {
+        DocEntry = dto.DocEntry,
+        DocNum = dto.DocNum,
+        DocumentStatus = dto.DocumentStatus,
+        FromWarehouse = dto.FromWarehouse,
+        ToWarehouse = dto.ToWarehouse,
+        Comments = dto.Comments,
+        RequesterEmail = dto.RequesterEmail,
+        RequesterName = dto.RequesterName
+    };
 
     private void ApplyProgress(InventoryTransferRequestDto dto, ApprovalRequestEntity request)
     {

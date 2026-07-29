@@ -309,6 +309,127 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         Assert.True(result.IsError);
     }
 
+    // ── Listing survives an unusable approval configuration ─
+
+    [Fact]
+    public async Task Listing_a_request_no_template_can_route_still_returns_the_request()
+    {
+        // Reported from the field: the Transfer Requests tab showed nothing but "No active approval
+        // template is available for InventoryTransferRequest". Listing is a read — a request the
+        // configuration cannot route belongs on screen without its approval progress, not in place
+        // of every other request on the page.
+        var service = ApprovalService();
+        await service.GetTemplatesAsync(default);
+        foreach (var template in await _context.ApprovalTemplateDefinitions
+                     .Where(item => item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
+                     .ToListAsync())
+            template.IsActive = false;
+        await _context.SaveChangesAsync();
+
+        var dto = new InventoryTransferRequestDto
+        {
+            DocEntry = 4021,
+            DocNum = 4021,
+            FromWarehouse = "WH01",
+            ToWarehouse = "WH02",
+            Comments = "Requester: Tendai | Email: tendai@example.test"
+        };
+
+        await service.EnrichAsync([dto], default);
+
+        Assert.Equal("Tendai", dto.RequesterName);
+        Assert.Null(dto.ApprovalStatus);
+        Assert.Empty(dto.ApprovalStages);
+    }
+
+    [Fact]
+    public async Task Listing_reports_approval_progress_for_requests_that_already_have_it()
+    {
+        var service = ApprovalService();
+        var dto = new InventoryTransferRequestDto
+        {
+            DocEntry = 4022,
+            DocNum = 4022,
+            FromWarehouse = "WH01",
+            ToWarehouse = "WH02"
+        };
+
+        await service.EnrichAsync([dto], default);
+        var first = dto.ApprovalRequestId;
+        await service.EnrichAsync([dto], default);
+
+        Assert.NotNull(first);
+        Assert.Equal(first, dto.ApprovalRequestId);
+        Assert.Equal(ApprovalRequestStatuses.Pending, dto.ApprovalStatus);
+        Assert.NotEmpty(dto.ApprovalStages);
+        Assert.Equal(1, await _context.ApprovalRequests
+            .CountAsync(item => item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest));
+    }
+
+    // ── Seeding repairs itself ──────────────────────────
+
+    [Fact]
+    public async Task A_stage_the_install_already_holds_under_a_default_name_is_adopted()
+    {
+        // Stage names are unique. Seeding used to insert the built-in stages and the templates in
+        // one save, so an install already holding, say, "Administrator Review" under another id
+        // failed the insert and silently kept every template out — leaving the document type with
+        // nothing to route to, permanently.
+        var existing = new ApprovalStageDefinitionEntity
+        {
+            Id = Guid.NewGuid(),
+            Name = "Administrator Review",
+            AuthorizerRolesJson = """["Admin"]"""
+        };
+        _context.ApprovalStageDefinitions.Add(existing);
+        await _context.SaveChangesAsync();
+
+        var templates = (await ApprovalService().GetTemplatesAsync(default))
+            .Where(template => template.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
+            .ToList();
+
+        var fallback = Assert.Single(templates, template => template.Name == "General Transfer Review");
+        Assert.Equal([existing.Id], fallback.StageIds);
+        Assert.Equal(1, await _context.ApprovalStageDefinitions.CountAsync(stage => stage.Name == existing.Name));
+    }
+
+    [Fact]
+    public async Task A_default_template_that_went_missing_is_seeded_again()
+    {
+        var service = ApprovalService();
+        await service.GetTemplatesAsync(default);
+        _context.ApprovalTemplateDefinitions.RemoveRange(
+            await _context.ApprovalTemplateDefinitions
+                .Where(template => template.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
+                .ToListAsync());
+        await _context.SaveChangesAsync();
+
+        // A second service stands in for the next request: seeding is checked once per scope.
+        var templates = (await ApprovalService().GetTemplatesAsync(default))
+            .Where(template => template.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest)
+            .ToList();
+
+        Assert.Contains(templates, template => template.Name == "General Transfer Review");
+    }
+
+    [Fact]
+    public async Task Seeding_leaves_an_administrator_deactivated_template_alone()
+    {
+        var service = ApprovalService();
+        await service.GetTemplatesAsync(default);
+        var fallback = await _context.ApprovalTemplateDefinitions
+            .SingleAsync(template => template.Name == "General Transfer Review");
+        fallback.IsActive = false;
+        fallback.Priority = 7;
+        await _context.SaveChangesAsync();
+
+        var templates = await ApprovalService().GetTemplatesAsync(default);
+
+        var reloaded = Assert.Single(templates, template => template.Name == "General Transfer Review");
+        Assert.False(reloaded.IsActive);
+        Assert.Equal(7, reloaded.Priority);
+    }
+
     // ── Helpers ─────────────────────────────────────────
 
     private ITransferWarehouseAuthorizer Authorizer() => new TransferWarehouseAuthorizer(_context);
