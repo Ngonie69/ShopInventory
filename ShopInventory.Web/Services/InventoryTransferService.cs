@@ -42,8 +42,12 @@ public interface IInventoryTransferService
 
     // Transfer Request operations
     Task<(bool Success, string Message, InventoryTransferRequestDto? TransferRequest)> CreateTransferRequestAsync(CreateTransferRequestDto request);
-    Task<TransferRequestListResponse?> GetTransferRequestsAsync(int page = 1, int pageSize = 20);
-    Task<TransferRequestListResponse?> GetAllTransferRequestsAsync(int pageSize = 100);
+    /// <summary>
+    /// One page of transfer requests. <c>Error</c> carries why the call failed, so the caller can
+    /// tell a failed read from a warehouse that genuinely has no requests.
+    /// </summary>
+    Task<(TransferRequestListResponse? Response, string? Error)> GetTransferRequestsAsync(
+        int page = 1, int pageSize = 20, string? status = null);
     Task<TransferRequestListResponse?> GetTransferRequestsByWarehouseAsync(string warehouseCode);
     Task<InventoryTransferRequestDto?> GetTransferRequestByDocEntryAsync(int docEntry);
 
@@ -610,52 +614,32 @@ public class InventoryTransferService : IInventoryTransferService
         }
     }
 
-    public async Task<TransferRequestListResponse?> GetTransferRequestsAsync(int page = 1, int pageSize = 20)
+    public async Task<(TransferRequestListResponse? Response, string? Error)> GetTransferRequestsAsync(
+        int page = 1, int pageSize = 20, string? status = null)
     {
+        const string fallback = "We couldn't load transfer requests from the API.";
         try
         {
-            return await _httpClient.GetFromJsonAsync<TransferRequestListResponse>($"api/inventorytransfer/requests?page={page}&pageSize={pageSize}");
+            var url = $"api/inventorytransfer/requests?page={page}&pageSize={pageSize}";
+            if (!string.IsNullOrWhiteSpace(status))
+                url += $"&status={Uri.EscapeDataString(status)}";
+
+            var response = await _httpClient.GetAsync(url);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Transfer request page {Page} failed with {StatusCode}: {Body}",
+                    page, (int)response.StatusCode, body);
+                return (null, ApiErrorResponse.GetFriendlyMessage(response.StatusCode, body, fallback));
+            }
+
+            return (await response.Content.ReadFromJsonAsync<TransferRequestListResponse>(), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting transfer requests");
-            return null;
+            return (null, ApiErrorResponse.GetFriendlyMessage(ex, fallback));
         }
-    }
-
-    public async Task<TransferRequestListResponse?> GetAllTransferRequestsAsync(int pageSize = 100)
-    {
-        var effectivePageSize = Math.Clamp(pageSize, 1, 100);
-        var allRequests = new List<InventoryTransferRequestDto>();
-        string? warehouse = null;
-        var page = 1;
-
-        while (true)
-        {
-            var response = await GetTransferRequestsAsync(page, effectivePageSize);
-            if (response == null)
-                return null;
-
-            warehouse ??= response.Warehouse;
-
-            var pageRequests = response.TransferRequests ?? new List<InventoryTransferRequestDto>();
-            allRequests.AddRange(pageRequests);
-
-            if (!response.HasMore || pageRequests.Count == 0)
-                break;
-
-            page++;
-        }
-
-        return new TransferRequestListResponse
-        {
-            Warehouse = warehouse,
-            Page = 1,
-            PageSize = effectivePageSize,
-            Count = allRequests.Count,
-            HasMore = false,
-            TransferRequests = allRequests
-        };
     }
 
     public async Task<TransferRequestListResponse?> GetTransferRequestsByWarehouseAsync(string warehouseCode)

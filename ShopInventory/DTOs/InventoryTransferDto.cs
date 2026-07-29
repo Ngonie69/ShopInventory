@@ -230,6 +230,10 @@ public class CreateTransferRequestLineDto
 public class TransferRequestListResponseDto
 {
     public string? Warehouse { get; set; }
+
+    /// <summary>The SAP document status the list was filtered to, or null when unfiltered.</summary>
+    public string? Status { get; set; }
+
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int Count { get; set; }

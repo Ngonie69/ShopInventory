@@ -263,7 +263,17 @@
                                   Class="mt-0" />
                 </div>
                 <div class="itx-field">
-                    <MudSelect T="string" @bind-Value="_requestStatusFilter" Label="Status" Dense="true"
+                    @* Asks SAP for this slice, unlike the approval filter which sifts what is loaded. *@
+                    <MudSelect T="string" Value="@requestDocumentStatus" ValueChanged="@ChangeRequestDocumentStatus"
+                               Label="Documents" Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Class="mt-0" Disabled="@isLoadingRequests">
+                        <MudSelectItem T="string" Value="@OpenRequestsFilter">Open in SAP</MudSelectItem>
+                        <MudSelectItem T="string" Value="@ClosedRequestsFilter">Closed in SAP</MudSelectItem>
+                        <MudSelectItem T="string" Value="@AllRequestsFilter">All</MudSelectItem>
+                    </MudSelect>
+                </div>
+                <div class="itx-field">
+                    <MudSelect T="string" @bind-Value="_requestStatusFilter" Label="Approval" Dense="true"
                                Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" Class="mt-0">
                         @foreach (var status in RequestStatusOptions)
                         {
@@ -326,11 +336,20 @@
             else if (transferRequests?.Any() == true)
             {
                 <div class="itx-meta">
-                    @FilteredRequestCount request(s)
+                    @FilteredRequestCount request(s) — newest first, page @requestPage
                     @if (HasActiveRequestFilters)
                     {
-                        <span>— filtered from @transferRequestCount</span>
+                        <span>— filtered from @transferRequestCount on this page</span>
                     }
+                    <span class="itx-spacer"></span>
+                    <button type="button" class="itx-btn itx-btn-sm" @onclick="PreviousRequestPage"
+                            disabled="@(requestPage <= 1 || isLoadingRequests)">
+                        <i class="bi bi-chevron-left"></i> Newer
+                    </button>
+                    <button type="button" class="itx-btn itx-btn-sm" @onclick="NextRequestPage"
+                            disabled="@(!hasMoreRequests || isLoadingRequests)">
+                        Older <i class="bi bi-chevron-right"></i>
+                    </button>
                 </div>
                 <div class="itx-body">
                     <MudTable @ref="@_requestsTable" Items="@transferRequests" RowsPerPage="@_pageSize" Hover="true"
@@ -407,12 +426,30 @@
                     </MudTable>
                 </div>
             }
+            else if (requestLoadError != null)
+            {
+                <div class="itx-empty">
+                    <i class="bi bi-exclamation-octagon itx-empty-icon"></i>
+                    <h6>Transfer Requests Could Not Be Loaded</h6>
+                    <p>@requestLoadError</p>
+                    <button type="button" class="itx-btn" @onclick="RefreshTransferRequests">
+                        <i class="bi bi-arrow-clockwise"></i> Retry
+                    </button>
+                </div>
+            }
             else
             {
                 <div class="itx-empty">
                     <i class="bi bi-file-earmark-text itx-empty-icon"></i>
                     <h6>No Transfer Requests</h6>
-                    <p>No transfer requests have been created yet.</p>
+                    <p>
+                        @(requestDocumentStatus switch
+                        {
+                            OpenRequestsFilter => "Nothing is open in SAP right now.",
+                            ClosedRequestsFilter => "Nothing closed in SAP.",
+                            _ => "No transfer requests have been created yet."
+                        })
+                    </p>
                     <a href="/transfer-request/create" class="itx-btn itx-btn-primary">
                         <i class="bi bi-plus-lg"></i> Create First Request
                     </a>
@@ -1176,6 +1213,7 @@
 
     // ── Transfer requests ───────────────────────────────
     private List<InventoryTransferRequestDto>? transferRequests;
+    private string? requestLoadError;
     private InventoryTransferRequestDto? selectedTransferRequest;
     private bool isLoadingRequests = false;
     private bool isConverting = false;
@@ -1186,6 +1224,15 @@
     private readonly Dictionary<Guid, string?> decisionRemarks = [];
     private const int transferRequestBatchSize = 100;
     private int transferRequestCount = 0;
+    private int requestPage = 1;
+    private bool hasMoreRequests = false;
+
+    // Sent to the API, which filters in SAP. Open is the default: this tab exists to action
+    // requests, and all but a few thousand of the eleven thousand in SAP are closed.
+    private const string OpenRequestsFilter = "open";
+    private const string ClosedRequestsFilter = "closed";
+    private const string AllRequestsFilter = "all";
+    private string requestDocumentStatus = OpenRequestsFilter;
 
     // ── Direct transfers held for approval ──────────────
     private List<PendingInventoryTransferDto>? pendingTransfers;
@@ -1387,7 +1434,11 @@
             Logger.LogInformation("Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
             if (cachedWarehouses != null)
             {
-                var defaultWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == "01");
+                // A warehouse-scoped user does not run "01", so opening on it shows them an empty
+                // list that reads as "there are no transfers" rather than "wrong warehouse".
+                var defaultWarehouse = cachedWarehouses.FirstOrDefault(w =>
+                                           w.WarehouseCode != null && assignedWarehouseCodes.Contains(w.WarehouseCode))
+                                       ?? cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == "01");
                 if (defaultWarehouse != null)
                     selectedWarehouse = defaultWarehouse;
             }
@@ -2096,26 +2147,53 @@ pageSize) : 1);
     }
 
     // ── Transfer Request Methods ────────────────────────
-    private async Task LoadTransferRequestsAsync()
+    /// <summary>
+    /// Loads one page of transfer requests, newest first. SAP holds over eleven thousand of them,
+    /// so this deliberately does not walk every page: doing so took longer than the HTTP timeout
+    /// and the tab ended up showing its empty state instead of the requests.
+    /// </summary>
+    private async Task LoadTransferRequestsAsync(int page = 1)
     {
         isLoadingRequests = true;
+        requestLoadError = null;
+        requestPage = page < 1 ? 1 : page;
         try
         {
-            var response = await TransferService.GetAllTransferRequestsAsync(transferRequestBatchSize);
+            var (response, error) = await TransferService.GetTransferRequestsAsync(
+                requestPage, transferRequestBatchSize, requestDocumentStatus);
             if (response?.TransferRequests != null)
             {
+                // HasMore is inferred from a full page, so the page after an exact multiple comes
+                // back empty. Fall back rather than claim no requests exist.
+                if (response.TransferRequests.Count == 0 && requestPage > 1)
+                {
+                    hasMoreRequests = false;
+                    await LoadTransferRequestsAsync(requestPage - 1);
+                    return;
+                }
+
                 transferRequests = response.TransferRequests;
                 transferRequestCount = response.TransferRequests.Count;
+                hasMoreRequests = response.HasMore;
+                _requestsTable?.NavigateTo(0);
             }
             else
             {
-                transferRequests = new();
+                // The list stays null on failure so a retry runs, and the reason is shown rather
+                // than the empty state, which would claim no requests exist in SAP.
+                requestLoadError = error ?? "We couldn't load transfer requests.";
+                transferRequests = null;
                 transferRequestCount = 0;
+                hasMoreRequests = false;
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load transfer requests");
+            requestLoadError = ex.Message;
+            hasMoreRequests = false;
+            transferRequests = null;
+            transferRequestCount = 0;
         }
         finally
         {
@@ -2255,7 +2333,7 @@ pageSize) : 1);
             else
             {
                 // The lines came back from SAP, so refresh the list the drawer was opened from.
-                await LoadTransferRequestsAsync();
+                await LoadTransferRequestsAsync(requestPage);
                 selectedTransferRequest = transferRequests?.FirstOrDefault(item => item.DocEntry == docEntry)
                                           ?? selectedTransferRequest;
                 await LoadHeldEditAsync(docEntry);
@@ -2303,7 +2381,7 @@ pageSize) : 1);
 
             // An approval that reaches SAP rewrites the request's lines, so reload either way:
             // the stored state is what should be on screen, not what we acted against.
-            await LoadTransferRequestsAsync();
+            await LoadTransferRequestsAsync(requestPage);
             selectedTransferRequest = transferRequests?.FirstOrDefault(item => item.DocEntry == edit.RequestDocEntry)
                                       ?? selectedTransferRequest;
             await LoadHeldEditAsync(edit.RequestDocEntry);
@@ -2348,7 +2426,26 @@ pageSize) : 1);
         public bool Removed { get; set; }
     }
 
-    private async Task RefreshTransferRequests() => await LoadTransferRequestsAsync();
+    private async Task RefreshTransferRequests() => await LoadTransferRequestsAsync(requestPage);
+
+    /// <summary>Switching the SAP slice re-queries from the first page; the old page number would
+    /// point somewhere else entirely in a differently sized result.</summary>
+    private async Task ChangeRequestDocumentStatus(string status)
+    {
+        if (string.Equals(status, requestDocumentStatus, StringComparison.Ordinal)) return;
+        requestDocumentStatus = string.IsNullOrWhiteSpace(status) ? AllRequestsFilter : status;
+        await LoadTransferRequestsAsync(1);
+    }
+
+    private async Task PreviousRequestPage()
+    {
+        if (requestPage > 1) await LoadTransferRequestsAsync(requestPage - 1);
+    }
+
+    private async Task NextRequestPage()
+    {
+        if (hasMoreRequests) await LoadTransferRequestsAsync(requestPage + 1);
+    }
 
     private void ClearRequestFilters()
     {
@@ -2503,7 +2600,7 @@ pageSize) : 1);
             {
                 successMessage = message;
                 CloseRequestModal();
-                await LoadTransferRequestsAsync();
+                await LoadTransferRequestsAsync(requestPage);
             }
             else
             {
@@ -2558,7 +2655,7 @@ pageSize) : 1);
             {
                 successMessage = message;
                 CloseRequestModal();
-                await LoadTransferRequestsAsync();
+                await LoadTransferRequestsAsync(requestPage);
             }
             else
             {
