@@ -169,6 +169,66 @@ public sealed class PodReportCacheTests : IDisposable
     }
 
     [Fact]
+    public async Task Staff_loan_invoices_are_dropped_from_an_already_cached_report()
+    {
+        var store = CreateStore();
+        var fromDate = new DateTime(2026, 7, 1);
+        var toDate = new DateTime(2026, 7, 28);
+        await store.SaveAsync(
+            fromDate,
+            toDate,
+            "global",
+            new PodUploadStatusReportDto
+            {
+                FromDate = "2026-07-01",
+                ToDate = "2026-07-28",
+                TotalInvoices = 2,
+                PendingCount = 2,
+                Items =
+                [
+                    new PodUploadStatusItemDto
+                    {
+                        DocEntry = 123,
+                        DocNum = 456,
+                        CardCode = "C001",
+                        CardName = "Local report customer"
+                    },
+                    new PodUploadStatusItemDto
+                    {
+                        DocEntry = 124,
+                        DocNum = 457,
+                        CardCode = "C002",
+                        CardName = "Tinashe M - Staff Loan"
+                    }
+                ]
+            },
+            CancellationToken.None);
+
+        var documentService = StubProxy.For<IDocumentService>((method, _) =>
+            method.Name == nameof(IDocumentService.GetPodStatusByDocEntriesAsync)
+                ? Task.FromResult(new Dictionary<int, PodStatusInfo>())
+                : throw new InvalidOperationException($"IDocumentService.{method.Name} was not expected."));
+        var handler = new GetPodUploadStatusHandler(
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            documentService,
+            _context,
+            Options.Create(new SAPSettings { Enabled = false }),
+            Options.Create(new CreditNoteSyncSettings()),
+            store,
+            NullLogger<GetPodUploadStatusHandler>.Instance);
+
+        var result = await handler.Handle(
+            new GetPodUploadStatusQuery(fromDate, toDate, UserId: null),
+            CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var item = Assert.Single(result.Value.Items);
+        Assert.Equal("Local report customer", item.CardName);
+        Assert.Equal(1, result.Value.TotalInvoices);
+        Assert.Equal(1, result.Value.PendingCount);
+    }
+
+    [Fact]
     public async Task Cached_report_is_reenriched_from_the_fresh_credit_note_projection()
     {
         var store = CreateStore();

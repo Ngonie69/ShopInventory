@@ -635,14 +635,35 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? uploadedByUsername = null, string? assignedSection = null, string? uploadedFromLocation = null)
+    /// <summary>
+    /// SAP DocEntries of the invoices whose business partner is excluded from PODs, by card code or
+    /// by name. Only locally cached invoices can be matched, so an invoice the app has never seen
+    /// is not excluded here.
+    /// </summary>
+    internal static IQueryable<int> GetPodExcludedInvoiceDocEntries(ApplicationDbContext context)
     {
         var excludedCardCodes = PodExclusions.ExcludedCardCodes.ToArray();
 
-        // Get DocEntries for excluded BPs so we can filter them out
-        var excludedDocEntries = _context.Invoices
+        var excludedDocEntries = context.Invoices
             .Where(i => i.SAPDocEntry != null && i.CardCode != null && excludedCardCodes.Contains(i.CardCode.ToUpper()))
             .Select(i => i.SAPDocEntry!.Value);
+
+        // One fragment at a time so each stays a plain ILIKE the provider can translate.
+        foreach (var nameFragment in PodExclusions.ExcludedCardNameFragments)
+        {
+            var namePattern = $"%{nameFragment}%";
+            excludedDocEntries = excludedDocEntries.Union(context.Invoices
+                .Where(i => i.SAPDocEntry != null && i.CardName != null && EF.Functions.ILike(i.CardName, namePattern))
+                .Select(i => i.SAPDocEntry!.Value));
+        }
+
+        return excludedDocEntries;
+    }
+
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? uploadedByUsername = null, string? assignedSection = null, string? uploadedFromLocation = null)
+    {
+        // Get DocEntries for excluded BPs so we can filter them out
+        var excludedDocEntries = GetPodExcludedInvoiceDocEntries(_context);
 
         var query = _context.Set<DocumentAttachmentEntity>()
             .AsNoTracking()
