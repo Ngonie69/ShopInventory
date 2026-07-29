@@ -1,25 +1,31 @@
 using ErrorOr;
 using MediatR;
-using ShopInventory.Common.Validation;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
+using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
-using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
-using Microsoft.Extensions.Options;
 
 namespace ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer;
 
+/// <summary>
+/// Accepts a direct inventory transfer and holds it locally until the approval process
+/// completes. Nothing is posted to SAP here — see ApproveInventoryTransferHandler, which
+/// posts once every stage has signed off.
+/// </summary>
 public sealed class CreateInventoryTransferHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
-    IInventoryTransferQueueService transferQueueService,
     IStockValidationService stockValidation,
+    IInventoryTransferApprovalService approvalService,
     IAuditService auditService,
-    SapCircuitBreakerState sapCircuitBreakerState,
+    IIdempotencyRequestStore idempotencyRequestStore,
     IOptions<SAPSettings> settings,
     ILogger<CreateInventoryTransferHandler> logger
 ) : IRequestHandler<CreateInventoryTransferCommand, ErrorOr<InventoryTransferCreatedResponseDto>>
@@ -33,159 +39,255 @@ public sealed class CreateInventoryTransferHandler(
 
         var request = command.Request;
 
-        // Validate positive quantities
         var quantityErrors = await ValidateTransferQuantitiesAsync(request, cancellationToken);
         if (quantityErrors.Count > 0)
         {
             logger.LogWarning("Transfer quantity validation failed: {Errors}", string.Join(", ", quantityErrors));
             return Errors.InventoryTransfer.ValidationFailed(
-            $"Quantity validation failed: {string.Join("; ", quantityErrors)}");
+                $"Quantity validation failed: {string.Join("; ", quantityErrors)}");
         }
 
-        if (sapCircuitBreakerState.IsOpen && CanQueueFallback(request))
+        var idempotencyKey = string.IsNullOrWhiteSpace(request.ClientRequestId)
+            ? null
+            : request.ClientRequestId.Trim();
+
+        if (idempotencyKey is null)
+            return await HandleCoreAsync(command, null, cancellationToken);
+
+        // A resubmission of an already-held transfer must return the same pending record
+        // rather than opening a second approval for the same stock movement.
+        var alreadyHeld = await context.PendingInventoryTransfers
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.ClientRequestId == idempotencyKey, cancellationToken);
+        if (alreadyHeld is not null)
+            return BuildSubmittedResponse(alreadyHeld, replayed: true);
+
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+        try
         {
-            return await QueueTransferFallbackAsync(request, cancellationToken);
+            var acquireResult = await idempotencyRequestStore.TryAcquireAsync<InventoryTransferCreatedResponseDto>(
+                "inventorytransfers.create",
+                idempotencyKey,
+                request,
+                cancellationToken);
+
+            switch (acquireResult.Outcome)
+            {
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                    logger.LogWarning("Replaying inventory transfer submission for idempotency key {Key}", idempotencyKey);
+                    return acquireResult.Response;
+                case IdempotencyAcquireOutcome.InProgress:
+                    return Errors.Idempotency.RequestInProgress("inventory transfer creation");
+                case IdempotencyAcquireOutcome.RequestMismatch:
+                    return Errors.Idempotency.RequestMismatch("inventory transfer creation");
+                case IdempotencyAcquireOutcome.Acquired:
+                    idempotencyRequestId = acquireResult.RequestId;
+                    releaseIdempotencyRequest = true;
+                    break;
+            }
+
+            var result = await HandleCoreAsync(command, idempotencyKey, cancellationToken);
+
+            if (idempotencyRequestId.HasValue && !result.IsError)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist inventory transfer idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return result;
         }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release inventory transfer idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+        }
+    }
+
+    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> HandleCoreAsync(
+        CreateInventoryTransferCommand command,
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var request = command.Request;
+
+        var submitter = await context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(user => user.Id == command.UserId && user.IsActive, cancellationToken);
+        if (submitter is null)
+            return Errors.InventoryTransfer.ApproverNotAuthenticated;
+
+        if (string.IsNullOrWhiteSpace(request.FromWarehouse))
+            return Errors.InventoryTransfer.ValidationFailed("A source warehouse is required.");
+        if (string.IsNullOrWhiteSpace(request.ToWarehouse))
+            return Errors.InventoryTransfer.ValidationFailed("A destination warehouse is required.");
+
+        // Catch obviously bad submissions now so an approver is not asked to sign off on a
+        // transfer that could never post. Both checks run again at post time, which is
+        // authoritative — stock can move while the transfer waits for approval.
+        var warehouseErrors = await ValidateWarehouseCodesAsync(request, cancellationToken);
+        if (warehouseErrors is { Count: > 0 })
+        {
+            logger.LogWarning("Invalid warehouse codes in transfer submission: {Errors}", string.Join(", ", warehouseErrors));
+            return Errors.InventoryTransfer.InvalidWarehouse(string.Join("; ", warehouseErrors));
+        }
+
+        var stockError = await ValidateStockBestEffortAsync(request, cancellationToken);
+        if (stockError is not null)
+            return stockError.Value;
+
+        var pending = new PendingInventoryTransferEntity
+        {
+            ClientRequestId = idempotencyKey,
+            FromWarehouse = request.FromWarehouse!.Trim(),
+            ToWarehouse = request.ToWarehouse!.Trim(),
+            PayloadJson = PendingInventoryTransferMapper.SerializePayload(request),
+            Status = PendingInventoryTransferStatuses.AwaitingApproval,
+            CreatedByUserId = submitter.Id,
+            CreatedByName = BuildDisplayName(submitter),
+            CreatedByRole = submitter.Role,
+            LineCount = request.Lines?.Count ?? 0,
+            TotalQuantity = request.Lines?.Sum(line => line.Quantity) ?? 0m,
+            Comments = Truncate(request.Comments, 500),
+            DocDate = ParseDate(request.DocDate),
+            DueDate = ParseDate(request.DueDate)
+        };
+
+        context.PendingInventoryTransfers.Add(pending);
+        await SaveWithDraftNumberAsync(pending, cancellationToken);
 
         try
         {
-            // Run warehouse validation and stock validation in parallel
-            logger.LogInformation("Validating stock availability for transfer with {LineCount} lines from {FromWarehouse} to {ToWarehouse}",
-                request.Lines?.Count ?? 0, request.FromWarehouse, request.ToWarehouse);
+            var approvalRequest = await approvalService.EnsureRequestAsync(
+                ApprovalDocumentContext.ForPendingTransfer(pending), submitter.Id, cancellationToken);
+            pending.ApprovalRequestId = approvalRequest.Id;
+            await context.SaveChangesAsync(cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            // Without an approval request the transfer could never be actioned, so do not keep it.
+            logger.LogError(exception, "Could not open an approval request for inventory transfer {PendingId}", pending.Id);
+            context.PendingInventoryTransfers.Remove(pending);
+            await context.SaveChangesAsync(CancellationToken.None);
+            return Errors.InventoryTransfer.InvalidOperation(exception.Message);
+        }
 
-            using var warehouseValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            warehouseValidationCts.CancelAfter(TimeSpan.FromSeconds(15));
-            var warehouseTask = ValidateWarehouseCodesAsync(request, warehouseValidationCts.Token);
-            var stockTask = stockValidation.ValidateInventoryTransferStockAsync(request, cancellationToken);
+        logger.LogInformation(
+            "Inventory transfer {PendingId} submitted for approval by {User}. From: {FromWarehouse}, To: {ToWarehouse}, Lines: {LineCount}",
+            pending.Id, submitter.Username, pending.FromWarehouse, pending.ToWarehouse, pending.LineCount);
 
-            await Task.WhenAll(warehouseTask, stockTask);
+        try
+        {
+            await auditService.LogAsync(
+                AuditActions.SubmitTransferForApproval, "PendingInventoryTransfer", pending.Id.ToString(),
+                $"Transfer from {pending.FromWarehouse} to {pending.ToWarehouse} submitted for approval", true);
+        }
+        catch { }
 
-            // Check warehouse validation result
-            var warehouseErrors = await warehouseTask;
-            if (warehouseErrors != null && warehouseErrors.Count > 0)
+        return BuildSubmittedResponse(pending, replayed: false);
+    }
+
+    /// <summary>
+    /// Persists the held transfer, allocating its draft number. Two submissions arriving together
+    /// can read the same highest number, so a unique-index violation is retried with a freshly
+    /// read number rather than failing a submission that is otherwise valid.
+    /// </summary>
+    private async Task SaveWithDraftNumberAsync(
+        PendingInventoryTransferEntity pending,
+        CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; ; attempt++)
+        {
+            pending.DraftNumber = await PendingTransferDraftNumbers.NextAsync(
+                context, pending.CreatedAtUtc, cancellationToken);
+            try
             {
-                logger.LogWarning("Invalid warehouse codes in transfer request: {Errors}", string.Join(", ", warehouseErrors));
-                return Errors.InventoryTransfer.InvalidWarehouse(string.Join("; ", warehouseErrors));
+                await context.SaveChangesAsync(cancellationToken);
+                return;
             }
+            catch (DbUpdateException) when (attempt < maxAttempts)
+            {
+                logger.LogWarning(
+                    "Draft number {DraftNumber} was taken while submitting a transfer; retrying (attempt {Attempt})",
+                    pending.DraftNumber, attempt);
+            }
+        }
+    }
 
-            var stockValidationResult = await stockTask;
+    private static InventoryTransferCreatedResponseDto BuildSubmittedResponse(
+        PendingInventoryTransferEntity pending,
+        bool replayed) => new()
+        {
+            Message = replayed
+                ? "This inventory transfer has already been submitted and is awaiting approval."
+                : "Inventory transfer submitted for approval. It will post to SAP once all approval stages are complete.",
+            RequiresApproval = true,
+            Transfer = null,
+            PendingTransfer = PendingInventoryTransferMapper.ToDto(pending)
+        };
+
+    /// <summary>
+    /// Runs stock validation, returning an error only when SAP positively reports insufficient
+    /// stock. A SAP outage is not allowed to block a submission that will not post until later.
+    /// </summary>
+    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>?> ValidateStockBestEffortAsync(
+        CreateInventoryTransferRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stockValidationResult = await stockValidation.ValidateInventoryTransferStockAsync(request, cancellationToken);
             if (!stockValidationResult.IsValid)
             {
-                logger.LogWarning("Stock validation failed for inventory transfer. {ErrorCount} items have insufficient stock",
+                logger.LogWarning("Stock validation failed for inventory transfer submission. {ErrorCount} items have insufficient stock",
                     stockValidationResult.Errors.Count);
                 return Errors.InventoryTransfer.InsufficientStock(
                     $"Insufficient stock in source warehouse: {string.Join("; ", stockValidationResult.Errors.Select(e => e.Message))}");
             }
-
-            var transfer = await sapClient.CreateInventoryTransferAsync(request, stockValidationResult.PreFetchedData, cancellationToken);
-
-            logger.LogInformation("Inventory transfer created successfully. DocEntry: {DocEntry}, DocNum: {DocNum}, From: {FromWarehouse}, To: {ToWarehouse}",
-                transfer.DocEntry, transfer.DocNum, request.FromWarehouse, request.ToWarehouse);
-
-            try { await auditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(), $"Transfer #{transfer.DocNum} from {request.FromWarehouse} to {request.ToWarehouse}", true); } catch { }
-
-            return new InventoryTransferCreatedResponseDto
-            {
-                Message = "Inventory transfer created successfully",
-                Transfer = transfer.ToDto()
-            };
-        }
-        catch (Exception ex) when (SapFailureClassifier.IsTransient(ex, cancellationToken) && CanQueueFallback(request))
-        {
-            logger.LogWarning(ex, "SAP is unavailable while creating inventory transfer. Falling back to queue.");
-            return await QueueTransferFallbackAsync(request, cancellationToken);
-        }
-        catch (ArgumentException ex)
-        {
-            logger.LogWarning(ex, "Validation error creating inventory transfer");
-            return Errors.InventoryTransfer.ValidationFailed(ex.Message);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("negative"))
-        {
-            logger.LogError(ex, "CRITICAL: Attempted transfer would result in negative stock");
-            return Errors.InventoryTransfer.NegativeStock(ex.Message);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
         }
-        catch (OperationCanceledException ex)
+        catch (Exception exception)
         {
-            logger.LogError(ex, "Timeout or connection abort creating inventory transfer");
-            return Errors.InventoryTransfer.SapTimeout;
+            logger.LogWarning(exception,
+                "Could not validate stock while submitting an inventory transfer for approval. Stock is re-checked before posting.");
         }
-        catch (HttpRequestException ex)
-        {
-            logger.LogError(ex, "Network error connecting to SAP Service Layer");
-            return Errors.InventoryTransfer.SapConnectionError(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error creating inventory transfer");
-            return Errors.InventoryTransfer.CreationFailed(ex.Message);
-        }
+
+        return null;
     }
 
-    private static bool CanQueueFallback(CreateInventoryTransferRequest request)
+    private static string BuildDisplayName(User user)
     {
-        return request.Lines?.All(line => line.SerialNumbers == null || line.SerialNumbers.Count == 0) == true;
+        var name = string.Join(' ', new[] { user.FirstName, user.LastName }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+        return string.IsNullOrWhiteSpace(name) ? user.Username : name;
     }
 
-    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> QueueTransferFallbackAsync(
-        CreateInventoryTransferRequest request,
-        CancellationToken cancellationToken)
-    {
-        var queueableRequest = new CreateDesktopTransferRequest
-        {
-            ExternalReference = $"API-TRF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString()[..8]}",
-            SourceSystem = "API",
-            FromWarehouse = request.FromWarehouse ?? string.Empty,
-            ToWarehouse = request.ToWarehouse ?? string.Empty,
-            DocDate = request.DocDate,
-            DueDate = request.DueDate,
-            Comments = request.Comments,
-            IsTransferRequest = false,
-            Lines = request.Lines?.Select((line, index) => new CreateDesktopTransferLineRequest
-            {
-                LineNum = index,
-                ItemCode = line.ItemCode ?? string.Empty,
-                Quantity = line.Quantity,
-                UoMCode = line.UoMCode,
-                FromWarehouseCode = line.FromWarehouseCode,
-                WarehouseCode = line.ToWarehouseCode,
-                AutoAllocateBatches = line.BatchNumbers == null || line.BatchNumbers.Count == 0,
-                BatchNumbers = line.BatchNumbers?.Select(batch => new TransferBatchRequest
-                {
-                    BatchNumber = batch.BatchNumber,
-                    Quantity = batch.Quantity
-                }).ToList()
-            }).ToList() ?? new List<CreateDesktopTransferLineRequest>()
-        };
+    private static DateTime? ParseDate(string? value)
+        => DateTime.TryParse(value, out var parsed) ? DateTime.SpecifyKind(parsed.Date, DateTimeKind.Utc) : null;
 
-        var queueResult = await transferQueueService.EnqueueTransferAsync(
-            queueableRequest,
-            null,
-            null,
-            cancellationToken);
-
-        if (!queueResult.Success)
-        {
-            return Errors.InventoryTransfer.CreationFailed(
-                queueResult.ErrorMessage ?? "SAP is unavailable and transfer queue fallback failed");
-        }
-
-        return new InventoryTransferCreatedResponseDto
-        {
-            Message = "SAP is currently unavailable. The inventory transfer has been queued for deferred processing.",
-            WasQueued = true,
-            QueueId = queueResult.QueueId,
-            QueueStatus = queueResult.Status,
-            QueueExternalReference = queueResult.ExternalReference,
-            EstimatedProcessingSeconds = queueResult.EstimatedProcessingTime.HasValue
-                ? (int)Math.Ceiling(queueResult.EstimatedProcessingTime.Value.TotalSeconds)
-                : null
-        };
-    }
+    private static string? Truncate(string? value, int maxLength)
+        => string.IsNullOrWhiteSpace(value) ? null
+            : value.Length <= maxLength ? value : value[..maxLength];
 
     private async Task<List<string>> ValidateTransferQuantitiesAsync(CreateInventoryTransferRequest request, CancellationToken cancellationToken)
     {
@@ -237,7 +339,10 @@ public sealed class CreateInventoryTransferHandler(
     {
         try
         {
-            var warehouses = await sapClient.GetWarehousesAsync(cancellationToken);
+            using var warehouseValidationCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            warehouseValidationCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+            var warehouses = await sapClient.GetWarehousesAsync(warehouseValidationCts.Token);
             var validCodes = new HashSet<string>(warehouses.Select(w => w.WarehouseCode!), StringComparer.OrdinalIgnoreCase);
 
             var invalidWarehouses = new List<string>();

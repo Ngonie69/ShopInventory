@@ -328,6 +328,8 @@ public class UserActivityService : IUserActivityService
                 PageUrl = a.PageUrl,
                 IsSuccess = a.IsSuccess,
                 ErrorMessage = a.ErrorMessage,
+                AppVersion = a.AppVersion,
+                DeviceModel = a.DeviceModel,
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);
@@ -362,6 +364,8 @@ public class UserActivityService : IUserActivityService
                 PageUrl = a.PageUrl,
                 IsSuccess = a.IsSuccess,
                 ErrorMessage = a.ErrorMessage,
+                AppVersion = a.AppVersion,
+                DeviceModel = a.DeviceModel,
                 Timestamp = a.Timestamp
             })
             .ToListAsync(cancellationToken);

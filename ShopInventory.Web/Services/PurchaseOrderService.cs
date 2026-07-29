@@ -194,7 +194,10 @@ public class PurchaseOrderService : IPurchaseOrderService
             }
 
             _logger.LogWarning("Failed to create purchase order: {StatusCode} - {Error}", response.StatusCode, content);
-            throw new HttpRequestException($"API returned {(int)response.StatusCode}: {content}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                content,
+                "We couldn't create this purchase order right now. Please try again.");
         }
         catch (HttpRequestException)
         {
@@ -238,7 +241,10 @@ public class PurchaseOrderService : IPurchaseOrderService
             }
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to update purchase order status {Id}: {StatusCode} - {Error}", id, response.StatusCode, errorContent);
-            throw new HttpRequestException($"Failed to update status: {(int)response.StatusCode}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorContent,
+                "We couldn't update this purchase order right now. Please try again.");
         }
         catch (HttpRequestException)
         {

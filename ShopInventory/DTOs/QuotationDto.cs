@@ -33,6 +33,7 @@ public class QuotationDto
     public string? ShipToAddress { get; set; }
     public string? BillToAddress { get; set; }
     public string? WarehouseCode { get; set; }
+    public string? ClientRequestId { get; set; }
     public Guid? CreatedByUserId { get; set; }
     public string? CreatedByUserName { get; set; }
     public Guid? ApprovedByUserId { get; set; }
@@ -63,6 +64,12 @@ public class QuotationLineDto
 
 public class CreateQuotationRequest
 {
+    [StringLength(100, ErrorMessage = "Client request ID cannot exceed 100 characters")]
+    public string? ClientRequestId { get; set; }
+
+    [StringLength(100, ErrorMessage = "Source cannot exceed 100 characters")]
+    public string? Source { get; set; } = "Web";
+
     public DateTime? ValidUntil { get; set; }
 
     [Required(ErrorMessage = "Customer code is required")]
@@ -75,7 +82,8 @@ public class CreateQuotationRequest
     public string? TermsAndConditions { get; set; }
     public int? SalesPersonCode { get; set; }
     public string? SalesPersonName { get; set; }
-    public string? Currency { get; set; } = "USD";
+    [Required(ErrorMessage = "Currency is required")]
+    public string? Currency { get; set; }
     public decimal DiscountPercent { get; set; }
     public string? ShipToAddress { get; set; }
     public string? BillToAddress { get; set; }

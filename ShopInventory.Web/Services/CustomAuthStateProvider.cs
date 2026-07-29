@@ -125,6 +125,28 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
         }
     }
 
+    public async Task<string?> GetAccessTokenAsync()
+    {
+        if (HasUsableCachedToken())
+        {
+            return _cachedToken;
+        }
+
+        var authState = await GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true && HasUsableCachedToken())
+        {
+            return _cachedToken;
+        }
+
+        return null;
+    }
+
+    private bool HasUsableCachedToken()
+    {
+        return !string.IsNullOrWhiteSpace(_cachedToken) &&
+               (!_cachedExpiresAt.HasValue || _cachedExpiresAt.Value >= DateTime.UtcNow.AddMinutes(2));
+    }
+
     private AuthenticationState CreateAuthState(UserInfo? userInfo)
     {
         var claims = new List<Claim>

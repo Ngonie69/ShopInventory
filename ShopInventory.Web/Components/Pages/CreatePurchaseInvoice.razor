@@ -5,357 +5,698 @@
 <PageTitle>Create A/P Invoice</PageTitle>
 
 <style>
-    .cpinv-page { max-width: 1450px; margin: 0 auto; padding: 1.5rem; }
-    .cpinv-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .cpinv-header h1 { margin: 0; font-size: 1.75rem; font-weight: 800; color: #162033; }
-    .cpinv-header p { margin: .4rem 0 0; color: #607081; max-width: 760px; }
-    .cpinv-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
-
-    .cpinv-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, .9fr); gap: 1rem; }
-    .cpinv-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 20px; overflow: hidden; box-shadow: 0 12px 30px rgba(23, 32, 51, .05); }
-    .cpinv-panel-header { padding: 1rem 1.15rem; border-bottom: 1px solid #edf1f5; }
-    .cpinv-panel-header h2 { margin: 0; font-size: 1rem; font-weight: 700; color: #162033; }
-    .cpinv-panel-body { padding: 1.15rem; }
-    .cpinv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-    .cpinv-field { position: relative; }
-    .cpinv-field.full { grid-column: 1 / -1; }
-    .cpinv-field label { display: block; font-size: .78rem; font-weight: 700; color: #607081; margin-bottom: .4rem; text-transform: uppercase; letter-spacing: .05em; }
-    .cpinv-field input,
-    .cpinv-field select,
-    .cpinv-field textarea { width: 100%; border: 1px solid #d8e0e8; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; color: #162033; }
-    .cpinv-field textarea { min-height: 110px; resize: vertical; }
-    .cpinv-field .invalid-feedback { display: block; font-size: .8rem; margin-top: .3rem; }
-    .cpinv-search-results { position: absolute; z-index: 10; left: 0; right: 0; top: calc(100% + .3rem); background: #fff; border: 1px solid #d8e0e8; border-radius: 14px; max-height: 250px; overflow-y: auto; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); }
-    .cpinv-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #edf1f5; color: #162033; }
-    .cpinv-search-option:last-child { border-bottom: none; }
-    .cpinv-search-option:hover { background: #fff6df; }
-    .cpinv-chip { display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .7rem; border-radius: 999px; background: #fff4d3; color: #785d18; font-weight: 700; margin-top: .55rem; }
-
-    .cpinv-line-toolbar { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .cpinv-line-table { width: 100%; border-collapse: collapse; }
-    .cpinv-line-table th { text-align: left; font-size: .74rem; color: #6b7280; text-transform: uppercase; letter-spacing: .06em; padding: .85rem .75rem; background: #fbfcfe; border-bottom: 1px solid #edf1f5; }
-    .cpinv-line-table td { padding: .8rem .75rem; border-bottom: 1px solid #f2f5f8; vertical-align: top; }
-    .cpinv-line-table input,
-    .cpinv-line-table select { width: 100%; border: 1px solid #d8e0e8; border-radius: 10px; padding: .65rem .7rem; background: #fff; }
-    .cpinv-line-total { white-space: nowrap; font-weight: 700; color: #162033; padding-top: 1rem; }
-
-    .cpinv-summary { display: grid; gap: .85rem; }
-    .cpinv-summary-card { border: 1px solid #edf1f5; border-radius: 16px; padding: 1rem; background: linear-gradient(180deg, #fffef9 0%, #fff 100%); }
-    .cpinv-summary-label { color: #8a6f2f; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-    .cpinv-summary-value { margin-top: .3rem; font-size: 1.5rem; font-weight: 800; color: #162033; }
-    .cpinv-summary-row { display: flex; justify-content: space-between; gap: 1rem; margin-top: .45rem; color: #4a5565; }
-
-    .cpinv-alert { border-radius: 14px; padding: .9rem 1rem; margin-bottom: 1rem; border: 1px solid transparent; }
-    .cpinv-alert.error { background: #fff2f2; border-color: #f1c4c4; color: #8f2727; }
-    .cpinv-alert.success { background: #edf9f0; border-color: #bee1c4; color: #276738; }
-    .cpinv-loading { color: #607081; }
-
-    .dark-theme .cpinv-header h1,
-    .dark-theme .cpinv-panel-header h2,
-    .dark-theme .cpinv-summary-value,
-    .dark-theme .cpinv-line-total,
-    .dark-theme .cpinv-search-option { color: #edf2f7; }
-    .dark-theme .cpinv-header p,
-    .dark-theme .cpinv-field label,
-    .dark-theme .cpinv-summary-label,
-    .dark-theme .cpinv-summary-row,
-    .dark-theme .cpinv-loading,
-    .dark-theme .cpinv-line-table th { color: #a9b4c2; }
-    .dark-theme .cpinv-panel,
-    .dark-theme .cpinv-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .cpinv-panel-header,
-    .dark-theme .cpinv-line-table th,
-    .dark-theme .cpinv-line-table td,
-    .dark-theme .cpinv-summary-card { border-color: #2a3645; }
-    .dark-theme .cpinv-field input,
-    .dark-theme .cpinv-field select,
-    .dark-theme .cpinv-field textarea,
-    .dark-theme .cpinv-line-table input,
-    .dark-theme .cpinv-line-table select,
-    .dark-theme .cpinv-summary-card { background: #101823; color: #edf2f7; }
-    .dark-theme .cpinv-line-table th { background: #101823; }
-    .dark-theme .cpinv-search-option:hover { background: #263647; }
-    .dark-theme .cpinv-chip { background: #263647; color: #f7d37d; }
-
-    @@media (max-width: 1150px) {
-        .cpinv-layout { grid-template-columns: 1fr; }
+    .cpinv-page {
+        background: #f0f2f5;
+        min-height: 100vh;
+        padding: 1.5rem;
     }
 
-    @@media (max-width: 720px) {
-        .cpinv-page { padding: 1rem; }
-        .cpinv-grid { grid-template-columns: 1fr; }
-        .cpinv-line-toolbar { align-items: stretch; }
-        .cpinv-actions { width: 100%; }
-        .cpinv-actions > * { flex: 1 1 180px; }
-        .cpinv-line-toolbar > :first-child { width: 100%; }
-        .cpinv-line-table thead { display: none; }
-        .cpinv-line-table,
-        .cpinv-line-table tbody,
-        .cpinv-line-table tr,
-        .cpinv-line-table td { display: block; width: 100%; }
-        .cpinv-line-table tbody { display: grid; gap: .85rem; }
-        .cpinv-line-table tbody tr {
-            border: 1px solid #edf1f5;
-            border-radius: 14px;
-            padding: .4rem .75rem 0;
-            background: #fff;
-        }
-        .cpinv-line-table td {
-            display: grid;
-            grid-template-columns: minmax(92px, 108px) minmax(0, 1fr);
-            gap: .6rem;
-            padding: .5rem 0 .6rem;
-        }
-        .cpinv-line-table td::before {
-            content: attr(data-label);
-            font-size: .68rem;
-            font-weight: 700;
-            color: #607081;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            padding-top: .15rem;
-        }
-        .cpinv-line-total { white-space: normal; padding-top: 0; }
-        .cpinv-summary-row { flex-wrap: wrap; }
+    .cpinv-breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+        font-size: .85rem;
+        color: #6b7280;
+        margin-bottom: 1.25rem;
     }
 
-    @@media (max-width: 480px) {
-        .cpinv-line-table tbody tr {
-            padding: .35rem .65rem 0;
+    .cpinv-breadcrumb a {
+        color: #b45309;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .cpinv-breadcrumb a:hover {
+        text-decoration: underline;
+    }
+
+    .cpinv-breadcrumb .sep {
+        color: #d1d5db;
+    }
+
+    .cpinv-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .cpinv-header-left {
+        display: flex;
+        align-items: center;
+        gap: .85rem;
+    }
+
+    .cpinv-header-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #92400e, #d97706);
+        box-shadow: 0 4px 14px rgba(180, 83, 9, .28);
+        color: #fff;
+        font-size: 1.4rem;
+    }
+
+    .cpinv-header h2 {
+        font-weight: 700;
+        color: #1a1a2e;
+        margin: 0;
+        letter-spacing: -.3px;
+    }
+
+    .cpinv-header p {
+        color: #6b7280;
+        margin: 0;
+        font-size: .88rem;
+    }
+
+    .cpinv-header-actions {
+        display: flex;
+        gap: .5rem;
+        align-items: center;
+    }
+
+    .btn-back {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.1rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .85rem;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        transition: all .15s;
+    }
+
+    .btn-back:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+        color: #374151;
+    }
+
+    .form-card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-card-title {
+        font-weight: 600;
+        font-size: .95rem;
+        color: #1a1a2e;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .85rem;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-field.full {
+        grid-column: span 2;
+    }
+
+    .form-field label {
+        font-size: .75rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        margin-bottom: .25rem;
+    }
+
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+        padding: .5rem .75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: .88rem;
+        color: #374151;
+        transition: all .15s;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+        outline: none;
+        border-color: #d97706;
+        box-shadow: 0 0 0 3px rgba(217, 119, 6, .15);
+    }
+
+    .dropdown-autocomplete {
+        position: absolute;
+        z-index: 100;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        max-height: 250px;
+        overflow-y: auto;
+        width: 100%;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
+        margin-top: 2px;
+    }
+
+    .dropdown-item {
+        padding: .5rem .75rem;
+        cursor: pointer;
+        font-size: .85rem;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background .12s;
+    }
+
+    .dropdown-item:hover,
+    .dropdown-item.selected {
+        background: #fff7ed;
+    }
+
+    .btn-cpinv-gradient {
+        background: linear-gradient(135deg, #92400e, #d97706);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: .88rem;
+        text-decoration: none;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        box-shadow: 0 2px 8px rgba(180, 83, 9, .25);
+        cursor: pointer;
+    }
+
+    .btn-cpinv-gradient:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(180, 83, 9, .38);
+        color: #fff;
+    }
+
+    .btn-create {
+        background: linear-gradient(135deg, #92400e, #d97706);
+        border: none;
+        color: #fff;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .2s;
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+    }
+
+    .btn-create:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(180, 83, 9, .32);
+    }
+
+    .btn-create:disabled {
+        opacity: .5;
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    .btn-secondary-action {
+        background: #fff;
+        color: #374151;
+        border: 1px solid #d1d5db;
+        padding: .55rem 1.35rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .88rem;
+        cursor: pointer;
+        transition: all .15s;
+        text-decoration: none;
+    }
+
+    .btn-secondary-action:hover {
+        background: #f9fafb;
+        border-color: #9ca3af;
+    }
+
+    .form-footer {
+        display: flex;
+        gap: .5rem;
+        justify-content: flex-end;
+        padding-top: 1rem;
+    }
+
+    .loading-state {
+        text-align: center;
+        padding: 3rem;
+    }
+
+    @@media (max-width: 768px) {
+        .cpinv-header {
+            flex-direction: column;
         }
-        .cpinv-line-table td {
+
+        .form-grid {
             grid-template-columns: 1fr;
-            gap: .35rem;
+        }
+
+        .form-field.full {
+            grid-column: span 1;
         }
     }
 </style>
 
 <div class="cpinv-page">
-    <div class="cpinv-header">
-        <div>
-            <h1>Create A/P Invoice</h1>
-            <p>Create a supplier invoice directly against SAP using the same purchasing permissions as the purchase-order workflow.</p>
+    <div class="container-fluid">
+        <div class="cpinv-breadcrumb">
+            <a href="/purchase-invoices">A/P Invoices</a>
+            <span class="sep">/</span>
+            <span>Create New</span>
         </div>
-        <div class="cpinv-actions">
-            <button class="btn btn-outline-secondary" @onclick="GoBack">Back to Invoices</button>
-            <button class="btn btn-warning" @onclick="SubmitAsync" disabled="@(isSubmitting || isLoadingLookups)">
-                @(isSubmitting ? "Posting..." : "Post A/P Invoice")
-            </button>
-        </div>
-    </div>
 
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="cpinv-alert error">@errorMessage</div>
-    }
-
-    @if (!string.IsNullOrWhiteSpace(successMessage))
-    {
-        <div class="cpinv-alert success">@successMessage</div>
-    }
-
-    <div class="cpinv-layout">
-        <section class="cpinv-panel">
-            <div class="cpinv-panel-header">
-                <h2>Document Details</h2>
+        <div class="cpinv-header">
+            <div class="cpinv-header-left">
+                <div class="cpinv-header-icon"><i class="bi bi-receipt-cutoff"></i></div>
+                <div>
+                    <h2>Create A/P Invoice</h2>
+                    <p>Create a supplier invoice directly against SAP with detailed purchasing lines</p>
+                </div>
             </div>
-            <div class="cpinv-panel-body">
-                @if (isLoadingLookups)
-                {
-                    <div class="cpinv-loading">Loading suppliers, products, and warehouses...</div>
-                }
+            <div class="cpinv-header-actions">
+                <a href="/purchase-invoices" class="btn-back"><i class="bi bi-arrow-left"></i> Back</a>
+            </div>
+        </div>
 
-                <div class="cpinv-grid">
-                    <div class="cpinv-field full">
-                        <label>Supplier</label>
-                        <input type="text"
-                               @bind="supplierSearchTerm"
-                               @bind:event="oninput"
-                               @onfocus="ShowSupplierResults"
-                               @onblur="HandleSupplierBlur"
-                               class="@(HasError("CardCode") ? "is-invalid" : string.Empty)"
-                               placeholder="Search supplier by code or name" />
-                        @if (showSupplierResults && FilteredSuppliers.Any())
-                        {
-                            <div class="cpinv-search-results">
-                                @foreach (var supplier in FilteredSuppliers)
-                                {
-                                    <button type="button" class="cpinv-search-option" @onmousedown="() => SelectSupplier(supplier)">
-                                        <div><strong>@supplier.CardCode</strong> - @supplier.CardName</div>
-                                        <small>@supplier.Currency</small>
-                                    </button>
-                                }
-                            </div>
-                        }
-                        @if (selectedSupplier is not null)
-                        {
-                            <div class="cpinv-chip">
-                                @selectedSupplier.DisplayName
-                                <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" @onclick="ClearSupplier">Change</button>
-                            </div>
-                        }
-                        @if (HasError("CardCode"))
-                        {
-                            <div class="invalid-feedback">@GetError("CardCode")</div>
-                        }
-                    </div>
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger mb-3">@errorMessage</div>
+        }
 
-                    <div class="cpinv-field">
+        @if (!string.IsNullOrWhiteSpace(successMessage))
+        {
+            <div class="alert alert-success mb-3">@successMessage</div>
+        }
+
+        @if (isLoadingLookups)
+        {
+            <div class="loading-state">
+                <div class="spinner-border" style="color:#d97706;width:2.5rem;height:2.5rem;" role="status"></div>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading suppliers, products, and warehouses...
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="form-card">
+                <div class="form-card-title"><i class="bi bi-truck"></i> Supplier</div>
+                <div style="margin-bottom:1rem;">
+                    <label
+                        style="display:block; font-size:.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">
+                        Supplier <span style="color:#ef4444;">*</span>
+                    </label>
+                    @if (selectedSupplier != null)
+                    {
+                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <div style="font-weight:700; color:#065f46;">
+                                        <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
+                                        @selectedSupplier.CardCode
+                                    </div>
+                                    <div style="font-size:.85rem; color:#065f46; opacity:.8;">@selectedSupplier.CardName</div>
+                                    @if (!string.IsNullOrWhiteSpace(selectedSupplier.Phone1))
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-telephone me-1"></i>@selectedSupplier.Phone1
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(selectedSupplier.Address))
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-geo-alt me-1"></i>@TruncateName(selectedSupplier.Address, 60)
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(selectedSupplier.Currency) &&
+                                                                !string.Equals(selectedSupplier.Currency, "##", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
+                                            <i class="bi bi-cash-coin me-1"></i>@selectedSupplier.Currency
+                                        </div>
+                                    }
+                                </div>
+                                <button type="button"
+                                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.8rem;"
+                                        @onclick="ClearSupplier">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="position-relative">
+                            <input type="text"
+                                   style="width:100%; padding:.5rem .75rem; border:1px solid @(HasError("CardCode") ? "#ef4444" : "#d1d5db"); border-radius:8px; font-size:.88rem; color:#374151;"
+                                   value="@supplierSearchTerm" @oninput="OnSupplierInput" @onfocus="ShowSupplierResults"
+                                   @onblur="HandleSupplierBlur"
+                                   placeholder="Search supplier by code or name, or enter an exact code" autocomplete="off" />
+                            @if (showSupplierResults && FilteredSuppliers.Any())
+                            {
+                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                    @foreach (var supplier in FilteredSuppliers)
+                                    {
+                                        <div class="dropdown-item" @onmousedown="() => SelectSupplier(supplier)">
+                                            <div style="font-weight:600;">@supplier.CardCode - @supplier.CardName</div>
+                                            @if (!string.IsNullOrWhiteSpace(supplier.Currency) && !string.Equals(supplier.Currency,
+                                                                   "##", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <small style="color:#6b7280;">@supplier.Currency</small>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else if (showSupplierResults && !string.IsNullOrWhiteSpace(supplierSearchTerm) &&
+                    !FilteredSuppliers.Any())
+                            {
+                                <div class="dropdown-autocomplete" style="padding:1rem; text-align:center; color:#9ca3af;">
+                                    <i class="bi bi-search me-1"></i>No suppliers found in cache
+                                </div>
+                            }
+                        </div>
+                    }
+                    @if (HasError("CardCode"))
+                    {
+                        <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@GetError("CardCode")</div>
+                    }
+                </div>
+            </div>
+
+            <div class="form-card">
+                <div class="form-card-title"><i class="bi bi-journal-text"></i> Invoice Details</div>
+                <div class="form-grid">
+                    <div class="form-field">
                         <label>Posting Date</label>
                         <input type="date" @bind-value="purchaseInvoice.DocDate" @bind-value:format="yyyy-MM-dd" />
                     </div>
-
-                    <div class="cpinv-field">
+                    <div class="form-field">
                         <label>Due Date</label>
                         <input type="date" @bind-value="purchaseInvoice.DocDueDate" @bind-value:format="yyyy-MM-dd" />
                     </div>
-
-                    <div class="cpinv-field">
+                    <div class="form-field">
                         <label>Tax Date</label>
                         <input type="date" @bind-value="purchaseInvoice.TaxDate" @bind-value:format="yyyy-MM-dd" />
                     </div>
-
-                    <div class="cpinv-field">
+                    <div class="form-field">
                         <label>Currency</label>
                         <input type="text" @bind="purchaseInvoice.DocCurrency" placeholder="USD" />
                     </div>
-
-                    <div class="cpinv-field">
+                    <div class="form-field">
                         <label>Supplier Ref</label>
                         <input type="text" @bind="purchaseInvoice.NumAtCard" placeholder="Supplier invoice number" />
                     </div>
-
-                    <div class="cpinv-field">
+                    <div class="form-field">
                         <label>Header Discount %</label>
-                        <input type="number" min="0" step="0.01" @bind="purchaseInvoice.DiscountPercent" />
+                        <input type="number" min="0" max="100" step="0.01" @bind="purchaseInvoice.DiscountPercent" />
                     </div>
-
-                    <div class="cpinv-field full">
+                    <div class="form-field full">
                         <label>Comments</label>
-                        <textarea @bind="purchaseInvoice.Comments" placeholder="Optional comments for SAP"></textarea>
+                        <textarea rows="2" @bind="purchaseInvoice.Comments"
+                                  placeholder="Optional comments for SAP"></textarea>
                     </div>
                 </div>
             </div>
 
-            <div class="cpinv-panel-header">
-                <h2>Invoice Lines</h2>
-            </div>
-            <div class="cpinv-panel-body">
-                <div class="cpinv-line-toolbar">
-                    <div class="cpinv-loading">Use exact SAP item codes. Description auto-fills when a cached product match exists.</div>
-                    <button class="btn btn-outline-dark" @onclick="AddLine">Add Line</button>
+            <div class="form-card">
+                <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
+                    <span style="font-weight:600; font-size:.92rem; color:var(--text-primary);">
+                        <i class="bi bi-list-ul me-1" style="color:#b45309;"></i>Invoice Lines
+                    </span>
+                    <button type="button" class="btn-cpinv-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
+                            @onclick="AddLine">
+                        <i class="bi bi-plus-lg"></i> Add Line
+                    </button>
                 </div>
 
-                <div style="overflow-x: auto;">
-                    <table class="cpinv-line-table">
-                        <thead>
-                            <tr>
-                                <th style="min-width: 160px;">Item Code</th>
-                                <th style="min-width: 220px;">Description</th>
-                                <th style="width: 110px;">Qty</th>
-                                <th style="width: 130px;">Unit Price</th>
-                                <th style="width: 150px;">Warehouse</th>
-                                <th style="width: 120px;">Tax Code</th>
-                                <th style="width: 120px;">Line Total</th>
-                                <th style="width: 60px;"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @for (var index = 0; index < purchaseInvoice.Lines.Count; index++)
-                            {
-                                var line = purchaseInvoice.Lines[index];
+                @if (purchaseInvoice.Lines.Any())
+                {
+                    @for (var i = 0; i < purchaseInvoice.Lines.Count; i++)
+                    {
+                        var index = i;
+                        var line = purchaseInvoice.Lines[index];
+                        var lineState = GetLineState(index);
 
-                                <tr>
-                                    <td data-label="Item Code">
-                                        <input type="text" @bind="line.ItemCode" @bind:event="oninput" @onblur="() => SyncProduct(index)" class="@(HasError($"Lines[{index}].ItemCode") ? "is-invalid" : string.Empty)" />
-                                        @if (HasError($"Lines[{index}].ItemCode"))
+                        <div
+                            style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
+                            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span
+                                        style="background:linear-gradient(135deg,#92400e,#d97706); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
+                                                                    + 1)</span>
+                    @if (!string.IsNullOrWhiteSpace(line.ItemCode) ||
+                                            !string.IsNullOrWhiteSpace(line.ItemDescription))
+                    {
+                        <span
+                        style="font-weight:600; font-size:.85rem; color:var(--text-primary);">@line.ItemCode</span>
+                        @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                        {
+                            <span style="color:#d1d5db;">-</span>
+                            <span style="color:var(--text-secondary); font-size:.82rem;">@TruncateName(line.ItemDescription,
+                                                            30)</span>
+                            }
+                        }
+                        else
+                        {
+                            <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
+                        }
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span
+                        style="font-weight:700; color:#b45309; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
+                        <button type="button"
+                                style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
+                                @onclick="() => RemoveLine(index)">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-12 col-lg-5">
+                        <label
+                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
+                            Code <span style="color:#ef4444;">*</span></label>
+                            <div class="position-relative">
+                                <input type="text"
+                                       style="width:100%; padding:.4rem .6rem; border:1px solid @(HasError($"Lines[{index}].ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                       value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
+                                       @onkeydown="(e) => OnItemCodeKeyDown(index, e)" @onfocus="() => OnItemCodeFocus(index)"
+                                       @onblur="() => OnItemCodeBlur(index)" placeholder="Search item or enter exact code"
+                                       autocomplete="off" />
+                                @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
+                                {
+                                    <div class="dropdown-autocomplete" @onmousedown:preventDefault>
+                                        @foreach (var product in lineState.FilteredProducts.Take(10))
                                         {
-                                            <div class="invalid-feedback">@GetError($"Lines[{index}].ItemCode")</div>
-                                        }
-                                    </td>
-                                    <td data-label="Description">
-                                        <input type="text" @bind="line.ItemDescription" placeholder="Item description" />
-                                    </td>
-                                    <td data-label="Qty">
-                                        <input type="number" min="0.01" step="0.01" @bind="line.Quantity" class="@(HasError($"Lines[{index}].Quantity") ? "is-invalid" : string.Empty)" />
+                                            var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
+                                            <div class="dropdown-item @(isSelected ? "selected" : string.Empty)"
+                                                 @onmousedown="() => SelectProduct(index, product)">
+                                                <div class="d-flex justify-content-between align-items-center gap-2">
+                                                    <div>
+                                                        <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
+                                                        <small
+                                                            style="@(isSelected ? "color:rgba(255,255,255,.75);" : "color:#6b7280;")">@TruncateName(product.ItemName,
+                                                                                                            25)</small>
+                                                        </div>
+                                                        <span
+                                                            style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#ffedd5; color:#9a3412;")">
+                                                            @product.Price.ToString("N2")
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            }
+                                            @if (lineState.FilteredProducts.Count > 10)
+                                            {
+                                                <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.78rem;">
+                                                    +@(lineState.FilteredProducts.Count - 10) more...
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                @if (HasError($"Lines[{index}].ItemCode"))
+                                {
+                                    <div style="color:#ef4444; font-size:.75rem; margin-top:.2rem;">
+                                        @GetError($"Lines[{index}].ItemCode")</div>
+                                    }
+                                </div>
+                                <div class="col-12 col-lg-7">
+                                    <label
+                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
+                                    @if (!string.IsNullOrEmpty(line.ItemDescription))
+                                    {
+                                        <div
+                                            style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e; min-height:34px; display:flex; align-items:center;">
+                                            <i class="bi bi-box-seam me-1"
+                                               style="color:#b45309;"></i>@TruncateName(line.ItemDescription, 45)
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <input type="text"
+                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                               placeholder="Select an item" readonly />
+                                    }
+                                </div>
+                            </div>
+
+                            <div class="row g-2 mb-2">
+                                <div class="col-12 col-md-6 col-lg-3">
+                                    <label
+                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
+                                        <span style="color:#ef4444;">*</span></label>
+                                        <input type="number"
+                                               style="width:100%; padding:.4rem .6rem; border:1px solid @(HasError($"Lines[{index}].Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                               value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())"
+                                               min="0.01" step="0.01" />
                                         @if (HasError($"Lines[{index}].Quantity"))
                                         {
-                                            <div class="invalid-feedback">@GetError($"Lines[{index}].Quantity")</div>
-                                        }
-                                    </td>
-                                    <td data-label="Unit Price">
-                                        <input type="number" min="0.01" step="0.01" @bind="line.UnitPrice" class="@(HasError($"Lines[{index}].UnitPrice") ? "is-invalid" : string.Empty)" />
-                                        @if (HasError($"Lines[{index}].UnitPrice"))
-                                        {
-                                            <div class="invalid-feedback">@GetError($"Lines[{index}].UnitPrice")</div>
-                                        }
-                                    </td>
-                                    <td data-label="Warehouse">
-                                        <select @bind="line.WarehouseCode">
-                                            <option value="">Select warehouse</option>
-                                            @foreach (var warehouse in warehouses)
-                                            {
-                                                <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                            <div style="color:#ef4444; font-size:.75rem; margin-top:.2rem;">
+                                                @GetError($"Lines[{index}].Quantity")</div>
                                             }
-                                        </select>
-                                    </td>
-                                    <td data-label="Tax Code">
-                                        <input type="text" @bind="line.TaxCode" placeholder="A15" />
-                                    </td>
-                                    <td data-label="Line Total">
-                                        <div class="cpinv-line-total">@CalculateLineTotal(line).ToString("N2")</div>
-                                    </td>
-                                    <td data-label="Remove">
-                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveLine(index)" disabled="@(purchaseInvoice.Lines.Count == 1)">X</button>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
+                                        </div>
+                                        <div class="col-12 col-md-6 col-lg-3">
+                                            <label
+                                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
+                                                Price <span style="color:#ef4444;">*</span></label>
+                                                <input type="number"
+                                                       style="width:100%; padding:.4rem .6rem; border:1px solid @(HasError($"Lines[{index}].UnitPrice") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
+                                                       value="@line.UnitPrice" @onchange="(e) => OnUnitPriceChange(index, e.Value?.ToString())"
+                                                       min="0.01" step="0.01" />
+                                                @if (HasError($"Lines[{index}].UnitPrice"))
+                                                {
+                                                    <div style="color:#ef4444; font-size:.75rem; margin-top:.2rem;">
+                                                        @GetError($"Lines[{index}].UnitPrice")</div>
+                                                    }
+                                                </div>
+                                                <div class="col-12 col-md-6 col-lg-3">
+                                                    <label
+                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
+                                                        %</label>
+                                                        <input type="number"
+                                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                               @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                    </div>
+                                                    <div class="col-12 col-md-6 col-lg-3">
+                                                        <label
+                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
+                                                        <select
+                                                            style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                            @bind="line.WarehouseCode">
+                                                            <option value="">Select warehouse</option>
+                                                            @foreach (var warehouse in warehouses)
+                                                            {
+                                                                <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                                            }
+                                                        </select>
+                                                    </div>
+                                                </div>
 
-        <aside class="cpinv-panel">
-            <div class="cpinv-panel-header">
-                <h2>Summary</h2>
-            </div>
-            <div class="cpinv-panel-body">
-                <div class="cpinv-summary">
-                    <div class="cpinv-summary-card">
-                        <div class="cpinv-summary-label">Estimated Total</div>
-                        <div class="cpinv-summary-value">@EstimatedTotal.ToString("N2")</div>
-                        <div class="cpinv-summary-row">
-                            <span>Lines</span>
-                            <strong>@purchaseInvoice.Lines.Count</strong>
-                        </div>
-                        <div class="cpinv-summary-row">
-                            <span>Subtotal</span>
-                            <strong>@SubTotal.ToString("N2")</strong>
-                        </div>
-                        <div class="cpinv-summary-row">
-                            <span>Header Discount</span>
-                            <strong>@HeaderDiscountAmount.ToString("N2")</strong>
-                        </div>
-                    </div>
+                                                <div class="row g-2">
+                                                    <div class="col-12 col-md-6">
+                                                        <label
+                                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Tax
+                                                            Code</label>
+                                                            <input type="text"
+                                                                   style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
+                                                                   @bind="line.TaxCode" placeholder="A15" />
+                                                        </div>
+                                                        <div class="col-12 col-md-6">
+                                                            <label
+                                                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Line
+                                                                Total</label>
+                                                                <input type="text"
+                                                                       style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
+                                                                       value="@CalculateLineTotal(line).ToString("N2")" readonly />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
 
-                    <div class="cpinv-summary-card">
-                        <div class="cpinv-summary-label">Posting Notes</div>
-                        <div class="cpinv-summary-row">
-                            <span>Supplier</span>
-                            <strong>@(selectedSupplier?.CardCode ?? purchaseInvoice.CardCode)</strong>
-                        </div>
-                        <div class="cpinv-summary-row">
-                            <span>Currency</span>
-                            <strong>@(string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency) ? "Not set" : purchaseInvoice.DocCurrency)</strong>
-                        </div>
-                        <div class="cpinv-summary-row">
-                            <span>Tax</span>
-                            <strong>Calculated by SAP</strong>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </aside>
-    </div>
-</div>
+                                                <div style="text-align:center; margin-top:.5rem;">
+                                                    <button type="button"
+                                                            style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
+                                                            @onclick="AddLine">
+                                                        <i class="bi bi-plus-lg me-1"></i>Add Another Line
+                                                    </button>
+                                                </div>
+                                            }
+                else
+                                            {
+                                                <div
+                                                    style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
+                                                    <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
+                                                    <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No invoice lines yet</p>
+                                                    <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to build the A/P invoice
+                                                    </p>
+                                                    <button type="button" class="btn-cpinv-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
+                                                            @onclick="AddLine">
+                                                        <i class="bi bi-plus-lg"></i> Add First Line
+                                                    </button>
+                                                </div>
+                                            }
+
+                                            @if (HasError("Lines"))
+                                            {
+                                                <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@GetError("Lines")</div>
+                                            }
+
+                                            @if (purchaseInvoice.Lines.Any())
+                                            {
+                                                <div
+                                                    style="background:linear-gradient(135deg,#92400e,#d97706); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
+                                                    <div class="d-flex justify-content-between align-items-center">
+                                                        <div>
+                                                            <div style="font-size:.78rem; opacity:.8;">@purchaseInvoice.Lines.Count line(s) ·
+                                                                @(string.IsNullOrWhiteSpace(purchaseInvoice.DocCurrency) ? "No currency" :
+                                                                purchaseInvoice.DocCurrency)</div>
+                                                                <div style="font-size:.85rem; font-weight:500;">Subtotal @SubTotal.ToString("N2") · Header
+                                                                    discount @HeaderDiscountAmount.ToString("N2")</div>
+                                                                </div>
+                                                                <div style="font-size:1.3rem; font-weight:700;">@EstimatedTotal.ToString("N2")</div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+
+                                                <div class="form-footer">
+                                                    <a href="/purchase-invoices" class="btn-secondary-action">Cancel</a>
+                                                    <button type="button" class="btn-create" @onclick="SubmitAsync" disabled="@isSubmitting">
+                                                        @if (isSubmitting)
+                                                        {
+                                                            <span class="spinner-border spinner-border-sm"></span>
+                                                        }
+                                                        <span>@(isSubmitting ? "Posting..." : "Post A/P Invoice")</span>
+                                                    </button>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>

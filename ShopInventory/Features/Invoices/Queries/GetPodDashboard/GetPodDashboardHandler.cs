@@ -1,6 +1,7 @@
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models.Entities;
@@ -10,7 +11,7 @@ namespace ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 
 public sealed class GetPodDashboardHandler(
     ApplicationDbContext context,
-    IDocumentService documentService,
+    ISAPServiceLayerClient sapClient,
     ILogger<GetPodDashboardHandler> logger
 ) : IRequestHandler<GetPodDashboardQuery, ErrorOr<PodDashboardDto>>
 {
@@ -42,14 +43,36 @@ public sealed class GetPodDashboardHandler(
 
         if (string.Equals(user?.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
         {
-            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync(
-                await baseQuery.Select(a => a.EntityId).Distinct().ToListAsync(cancellationToken),
-                user?.AssignedSection ?? string.Empty,
-                cancellationToken);
+            var sectionFilterValues = PodLocationScope.GetSectionFilterValues(user?.AssignedSection)
+                .Select(value => value.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var canonicalSection = PodLocationScope.CanonicalizeSection(user?.AssignedSection);
+            var warehouseCodes = string.IsNullOrWhiteSpace(canonicalSection)
+                ? Array.Empty<string>()
+                : PodLocationScope.GetWarehouseCodesForAssignedSection(
+                        await sapClient.GetWarehousesAsync(cancellationToken),
+                        canonicalSection)
+                    .Select(code => code.ToUpperInvariant())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
 
-            baseQuery = scopedDocEntries.Count == 0
-                ? baseQuery.Where(_ => false)
-                : baseQuery.Where(a => scopedDocEntries.Contains(a.EntityId));
+            if (sectionFilterValues.Length == 0 && warehouseCodes.Length == 0)
+            {
+                baseQuery = baseQuery.Where(_ => false);
+            }
+            else
+            {
+                baseQuery = baseQuery.Where(a =>
+                    (a.UploadedByUser != null &&
+                     a.UploadedByUser.AssignedSection != null &&
+                     sectionFilterValues.Contains(a.UploadedByUser.AssignedSection.ToUpper())) ||
+                    context.Invoices.Any(invoice =>
+                        invoice.SAPDocEntry == a.EntityId &&
+                        invoice.DocumentLines.Any(line =>
+                            line.WarehouseCode != null &&
+                            warehouseCodes.Contains(line.WarehouseCode.ToUpper()))));
+            }
         }
         else
         {

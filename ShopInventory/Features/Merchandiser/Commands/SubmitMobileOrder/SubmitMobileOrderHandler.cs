@@ -56,6 +56,7 @@ public sealed class SubmitMobileOrderHandler(
             CardName = command.Request.CardName,
             DeliveryDate = command.Request.DeliveryDate,
             Comments = command.Request.Notes,
+            Currency = command.Request.Currency?.Trim().ToUpperInvariant(),
             Source = SalesOrderSource.Mobile,
             ClientRequestId = string.IsNullOrWhiteSpace(command.Request.ClientRequestId)
                 ? null

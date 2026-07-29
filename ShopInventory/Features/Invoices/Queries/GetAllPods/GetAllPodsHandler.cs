@@ -29,13 +29,28 @@ public sealed class GetAllPodsHandler(
             return ShopInventory.Common.Errors.Errors.Auth.UserNotFound;
         }
 
-        var assignedSection = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
+        var isScopedPodViewer = string.Equals(currentUser.Role, "PodOperator", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(currentUser.Role, "Operator", StringComparison.OrdinalIgnoreCase);
+
+        if (isScopedPodViewer && string.IsNullOrWhiteSpace(currentUser.AssignedSection))
+        {
+            return new PodAttachmentListResponseDto
+            {
+                Items = [],
+                TotalCount = 0,
+                Page = page,
+                PageSize = pageSize,
+                HasMore = false
+            };
+        }
+
+        var assignedSection = isScopedPodViewer
             ? currentUser.AssignedSection
             : null;
 
         var result = await documentService.GetAllPodAttachmentsAsync(
             page, pageSize, request.CardCode, cancellationToken,
-            request.FromDate, request.ToDate, request.Search, request.UploadedByUserId, assignedSection);
+            request.FromDate, request.ToDate, request.Search, request.UploadedByUserId, request.UploadedByUsername, assignedSection, request.UploadedFromLocation);
 
         return result;
     }

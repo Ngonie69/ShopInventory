@@ -6,15 +6,14 @@ public static class SapFailureClassifier
 {
     public static bool IsTransient(Exception exception, CancellationToken cancellationToken = default)
     {
-        if (exception is SapCircuitOpenException ||
-            exception is HttpRequestException ||
-            exception is TimeoutException ||
-            exception is TaskCanceledException)
+        if (exception is OperationCanceledException)
         {
-            return true;
+            return !cancellationToken.IsCancellationRequested;
         }
 
-        if (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        if (exception is SapCircuitOpenException ||
+            exception is HttpRequestException ||
+            exception is TimeoutException)
         {
             return true;
         }

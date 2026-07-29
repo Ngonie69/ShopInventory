@@ -166,6 +166,8 @@ public class QuotationLineDto
 
 public class CreateQuotationRequest
 {
+    public string? ClientRequestId { get; set; }
+
     public DateTime? ValidUntil { get; set; }
     public string CardCode { get; set; } = null!;
     public string? CardName { get; set; }

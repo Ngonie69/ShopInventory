@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
+using ShopInventory.Common.Security;
 using ShopInventory.Features.Timesheets.Commands.CheckIn;
 using ShopInventory.Features.Timesheets.Commands.CheckOut;
 using ShopInventory.Features.Timesheets.Queries.GetActiveCheckIn;
@@ -175,8 +176,7 @@ public class TimesheetController(IMediator mediator) : ApiControllerBase
 
     private Guid? GetCurrentUserId()
     {
-        var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        return Guid.TryParse(userIdClaim, out var userId) ? userId : null;
+        return UserClaimReader.GetUserId(User);
     }
 }
 

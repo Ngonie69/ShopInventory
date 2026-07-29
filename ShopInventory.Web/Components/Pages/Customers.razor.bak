@@ -571,7 +571,7 @@
                 var fileBytes = await response.Content.ReadAsByteArrayAsync();
                 var fileName = $"Statement_{cardCode}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
 
-                // Convert to base64 for JS interop (same pattern as Kefalos-Workshop)
+                // Convert to base64 for JS interop
                 var base64 = Convert.ToBase64String(fileBytes);
                 await JS.InvokeVoidAsync("downloadFile", fileName, base64);
             }

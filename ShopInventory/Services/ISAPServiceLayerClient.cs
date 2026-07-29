@@ -1,5 +1,6 @@
 using ShopInventory.DTOs;
 using ShopInventory.Models;
+using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Services;
 
@@ -59,21 +60,55 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task CloseInventoryTransferRequestAsync(int docEntry, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Rewrites the lines of an open inventory transfer request. The collection passed is the
+    /// complete set the request should be left with — any existing line missing from it is
+    /// removed — so callers must send every line they intend to keep.
+    /// </summary>
+    Task<InventoryTransferRequest> UpdateInventoryTransferRequestLinesAsync(
+        int docEntry,
+        IReadOnlyList<(int LineNum, decimal Quantity)> lines,
+        CancellationToken cancellationToken = default);
+
     // Invoice Operations
     Task<Invoice> CreateInvoiceAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoiceHeadersByDocEntriesAsync(IEnumerable<int> docEntries, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByDocNumsAsync(IEnumerable<int> docNums, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetInvoicesByVanSaleOrdersAsync(IEnumerable<string> vanSaleOrders, CancellationToken cancellationToken = default);
     Task<Invoice?> GetInvoiceByVanSaleOrderAsync(string vanSaleOrder, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetInvoicesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, bool includeDocumentLines, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Invoices for several customers over one date range, in a single set of requests rather than
+    /// one walk per customer.
+    /// </summary>
+    Task<List<Invoice>> GetInvoicesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        bool includeDocumentLines = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Open invoices for several customers, filtered by SAP rather than after the fact.
+    /// </summary>
+    /// <remarks>
+    /// For aging and outstanding-balance work, where reading a customer's entire invoice history to
+    /// keep the handful that are still open is the wrong shape.
+    /// </remarks>
+    Task<List<Invoice>> GetOpenInvoicesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        CancellationToken cancellationToken = default);
+
     Task<List<Invoice>> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
-    Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetInvoiceHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, List<string>? excludeCardCodes = null, bool includeDocumentLines = false, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
-    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
-    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<List<Invoice>> GetPagedInvoicesByOffsetAsync(int skip, int pageSize, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
+    Task<int> GetInvoicesCountAsync(int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null, CancellationToken cancellationToken = default);
 
     // Product/Item Operations
     Task<List<Item>> GetAllItemsAsync(CancellationToken cancellationToken = default);
@@ -98,6 +133,11 @@ public interface ISAPServiceLayerClient
     Task<List<PriceListDto>> GetPriceListsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Creates a scoped in-memory cache for resolving related price lists during a single sync operation.
+    /// </summary>
+    IDisposable BeginPriceListResolutionScope();
+
+    /// <summary>
     /// Gets prices for all items from a specific price list
     /// </summary>
     Task<List<ItemPriceByListDto>> GetPricesByPriceListAsync(int priceListNum, CancellationToken cancellationToken = default);
@@ -109,8 +149,12 @@ public interface ISAPServiceLayerClient
 
     /// <summary>
     /// Gets prices for specific items using a customer's assigned price list (from OCRD.ListNum).
-    /// Combines BP lookup + price fetch into a single SAP SQL query for efficiency.
     /// </summary>
+    /// <remarks>
+    /// Two OData calls — the business partner, then the Items API filtered to the requested codes.
+    /// It does not go through SQLQueries, so unlike the other bulk item lookups it creates no
+    /// SAP-side query object.
+    /// </remarks>
     Task<List<ItemPriceByListDto>> GetItemPricesForCustomerAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -125,6 +169,19 @@ public interface ISAPServiceLayerClient
     /// </summary>
     Task<Dictionary<string, decimal>> GetSpecialPricesForBPAsync(string cardCode, IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// As <see cref="GetSpecialPricesForBPAsync(string, IEnumerable{string}, CancellationToken)"/>,
+    /// but also reports whether the lookup finished. Use this anywhere the prices are written to a
+    /// document: an empty result on its own cannot be told apart from a failed lookup, and pricing
+    /// a customer as though they have no negotiated prices overcharges them.
+    /// </summary>
+    Task<SpecialPriceLookupResult> GetSpecialPricesForBPWithStatusAsync(string cardCode, IEnumerable<string>? itemCodes, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets all currently active business partner special prices from SAP.
+    /// </summary>
+    Task<List<BusinessPartnerSpecialPriceDto>> GetAllSpecialPricesAsync(CancellationToken cancellationToken = default);
+
     // Incoming Payment Operations
     Task<List<IncomingPayment>> GetIncomingPaymentsAsync(CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetPagedIncomingPaymentsAsync(int page, int pageSize, CancellationToken cancellationToken = default);
@@ -133,6 +190,16 @@ public interface ISAPServiceLayerClient
     Task<List<IncomingPayment>> GetIncomingPaymentsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetIncomingPaymentsByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<IncomingPayment>> GetIncomingPaymentsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Incoming payments for several customers over one date range, in a single set of requests
+    /// rather than one walk per customer.
+    /// </summary>
+    Task<List<IncomingPayment>> GetIncomingPaymentsByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Creates a new incoming payment in SAP Business One.
@@ -234,21 +301,60 @@ public interface ISAPServiceLayerClient
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetPagedSalesOrdersByOffsetAsync(int skip, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPSalesOrder?> GetSalesOrderByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<SAPSalesOrder?> GetSalesOrderByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves several U_OrderNumber values in one pass, keyed by order number.
+    /// </summary>
+    /// <remarks>
+    /// U_OrderNumber is an unindexed UDF, so each single-order probe costs a scan of ORDR. Asking
+    /// for a batch turns a sweep of N orders into one scan instead of N. Order numbers SAP does not
+    /// hold are simply absent from the result.
+    /// </remarks>
+    Task<IReadOnlyDictionary<string, SAPSalesOrder>> GetSalesOrdersByOrderNumbersAsync(
+        IEnumerable<string> orderNumbers,
+        CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrdersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, int skip = 0, int pageSize = 20, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default);
     Task<List<SAPSalesOrder>> GetSalesOrderHeadersByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetSalesOrdersCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? documentStatus = null, string? cancelled = null, string? search = null, CancellationToken cancellationToken = default);
-    Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default);
+    /// <param name="order">Local sales order to post.</param>
+    /// <param name="cancellationToken">Cancels the SAP calls.</param>
+    /// <param name="duplicateCheckAlreadyPerformed">
+    /// Set by callers that have just run the U_OrderNumber duplicate probe themselves while holding
+    /// the per-order posting lock. Skips a repeat of that probe, which is an unindexed scan of ORDR
+    /// and the dominant cost of posting an order. Leave false when the caller has not checked.
+    /// </param>
+    Task<SAPSalesOrder> CreateSalesOrderAsync(ShopInventory.Models.Entities.SalesOrderEntity order, CancellationToken cancellationToken = default, bool duplicateCheckAlreadyPerformed = false);
     Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Runs SQL under a code derived from the SQL text itself. Use this instead of
+    /// <see cref="ExecuteRawSqlQueryAsync"/> whenever the SQL text varies per request: callers only
+    /// share a code when their statements are identical, so no caller can overwrite another's SQL or
+    /// read another's rows. The query object is left on SAP and reused by the next matching call.
+    /// </summary>
+    Task<List<Dictionary<string, object?>>> ExecuteScopedRawSqlQueryAsync(string queryCodePrefix, string queryNamePrefix, string sqlText, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves and persists the canonical SAP UoM for the given item / requested-UoM pairs
+    /// without posting anything, so an approval does not have to pay for it while a rep waits.
+    /// Pairs already resolved cost nothing. Each item code may appear at most once per call.
+    /// </summary>
+    Task WarmSalesOrderLineSapUomsAsync(
+        IEnumerable<(string? ItemCode, string? RequestedUomCode)> lines,
+        CancellationToken cancellationToken = default);
 
     // Credit Note/Credit Memo Operations (from SAP)
     Task<List<SAPCreditNote>> GetCreditNotesAsync(CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetPagedCreditNotesAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPCreditNote?> GetCreditNoteByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<SAPCreditNote?> GetCreditNoteByDocNumAsync(int docNum, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(DateTime fromUpdateDate, DateTime toUpdateDate, CancellationToken cancellationToken = default);
+    Task<DateTime?> GetEarliestCreditNoteDateAsync(CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default);
     Task<int> GetCreditNotesCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
 
@@ -256,6 +362,11 @@ public interface ISAPServiceLayerClient
     /// Creates a credit note (A/R Credit Memo) in SAP Business One
     /// </summary>
     Task<SAPCreditNote> CreateCreditNoteAsync(CreateCreditNoteRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cancels a credit note (A/R Credit Memo) in SAP Business One.
+    /// </summary>
+    Task CancelCreditNoteAsync(int docEntry, CancellationToken cancellationToken = default);
 
     // Exchange Rate Operations
     /// <summary>
@@ -312,7 +423,9 @@ public interface ISAPServiceLayerClient
     Task<List<SAPQuotation>> GetQuotationsFromSAPAsync(CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetPagedQuotationsFromSAPAsync(int page, int pageSize, CancellationToken cancellationToken = default);
     Task<SAPQuotation?> GetQuotationByDocEntryAsync(int docEntry, CancellationToken cancellationToken = default);
+    Task<SAPQuotation?> GetQuotationByOrderNumberAsync(string orderNumber, CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetQuotationsByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPQuotation>> GetQuotationsByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<int> GetQuotationsCountAsync(string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default);
+    Task<SAPQuotation> CreateQuotationAsync(ShopInventory.Models.Entities.QuotationEntity quotation, string externalOrderNumber, CancellationToken cancellationToken = default);
 }

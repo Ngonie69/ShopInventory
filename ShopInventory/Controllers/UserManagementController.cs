@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ShopInventory.Authentication;
+using ShopInventory.Common.Security;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.UserManagement.Queries.GetUsers;
@@ -50,7 +51,7 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPost]
-    [RequirePermission(Permission.CreateUsers)]
+    [RequirePermission(Permission.CreateUsers, Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserDetailRequest request, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new CreateUserCommand(request), cancellationToken);
@@ -60,7 +61,7 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpGet("merchandisers")]
-    [RequirePermission(Permission.CreateUsers)]
+    [RequirePermission(Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> GetManagedMerchandiserAccounts(CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new GetManagedMerchandiserAccountsQuery(), cancellationToken);
@@ -68,7 +69,7 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
     }
 
     [HttpPut("merchandisers/{id:guid}/assigned-customers")]
-    [RequirePermission(Permission.CreateUsers)]
+    [RequirePermission(Permission.CreateMerchandiserAccounts)]
     public async Task<IActionResult> UpdateMerchandiserAssignedCustomers(
         Guid id,
         [FromBody] UpdateMerchandiserAssignedCustomersRequest request,
@@ -170,10 +171,6 @@ public class UserManagementController(IMediator mediator) : ApiControllerBase
 
     private Guid? GetCurrentUserId()
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
-            return null;
-
-        return userId;
+        return UserClaimReader.GetUserId(User);
     }
 }

@@ -313,3 +313,28 @@ public static class WebhookEvents
 }
 
 #endregion
+
+#region System Health Models
+
+public class SystemHealthApiResponse
+{
+    public string Status { get; set; } = "Unknown";
+    public DateTime Timestamp { get; set; }
+    public SystemHealthSection? Dependencies { get; set; }
+}
+
+public class SystemHealthSection
+{
+    public string Status { get; set; } = "Unknown";
+    public List<SystemHealthCheckEntry> Checks { get; set; } = new();
+}
+
+public class SystemHealthCheckEntry
+{
+    public string Name { get; set; } = string.Empty;
+    public string Status { get; set; } = "Unknown";
+    public string? Description { get; set; }
+    public double DurationMs { get; set; }
+}
+
+#endregion

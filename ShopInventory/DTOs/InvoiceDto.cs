@@ -17,10 +17,17 @@ public class InvoiceDto
     public string? Comments { get; set; }
     public string? DocStatus { get; set; }
     public string? Remarks { get; set; }
+    public string? VanSaleOrderNumber { get; set; }
+    public bool IsVanSalesInvoice { get; set; }
     public decimal DocTotal { get; set; }
     public decimal PaidToDate { get; set; }
     public decimal VatSum { get; set; }
     public string? DocCurrency { get; set; }
+    public bool? IsFiscalized { get; set; }
+    public string FiscalizationStatus { get; set; } = "Unknown";
+    public string? FiscalQrCode { get; set; }
+    public int? FiscalReceiptGlobalNo { get; set; }
+    public DateTime? FiscalizedAtUtc { get; set; }
 
     // Address & tax fields (populated from SAP invoice + business partner)
     public string? BillToAddress { get; set; }
@@ -45,6 +52,7 @@ public class InvoiceLineDto
     public decimal UnitPrice { get; set; }
     public decimal GrossPrice { get; set; }
     public decimal LineTotal { get; set; }
+    public string? TaxCode { get; set; }
     public string? WarehouseCode { get; set; }
     public decimal DiscountPercent { get; set; }
     public string? UoMCode { get; set; }

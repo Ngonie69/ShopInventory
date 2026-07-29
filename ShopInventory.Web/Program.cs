@@ -5,13 +5,16 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using MediatR;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using Serilog;
 using ShopInventory.Web.Configuration;
 using ShopInventory.Web.Behaviors;
+using ShopInventory.Web.Common.ProblemDetails;
 using ShopInventory.Web.Components;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Health;
@@ -60,12 +63,13 @@ try
     var customerPortalJwtSecret = builder.Configuration["CustomerPortal:JwtSecret"];
     if (string.IsNullOrWhiteSpace(customerPortalJwtSecret) ||
         customerPortalJwtSecret.StartsWith("${", StringComparison.Ordinal) ||
+        customerPortalJwtSecret.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase) ||
         customerPortalJwtSecret.Length < 32)
     {
         throw new InvalidOperationException(
             "CustomerPortal:JwtSecret is missing, a placeholder, or shorter than 32 characters. " +
             "This secret MUST be configured independently from Jwt:SecretKey. " +
-            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CUSTOMER_PORTAL_JWT_SECRET environment variable.");
+            "Set it via: dotnet user-secrets set \"CustomerPortal:JwtSecret\" \"<your-secret>\" or the CustomerPortal__JwtSecret environment variable.");
     }
 
     // Warn if customer portal secret is identical to staff JWT secret (compare hashes)
@@ -120,6 +124,16 @@ try
             // Allow enough parallel invocations for bulk POD uploads (5 concurrent file reads + UI updates).
             options.MaximumParallelInvocationsPerClient = 10;
         });
+    builder.Services.AddProblemDetails(options =>
+    {
+        options.CustomizeProblemDetails = ProblemDetailsDefaults.Customize;
+    });
+    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestInputExceptionHandler>();
+    builder.Services.AddExceptionHandler<AuthorizationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestCanceledExceptionHandler>();
+    builder.Services.AddExceptionHandler<DependencyExceptionHandler>();
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
     // Add MudBlazor services
     builder.Services.AddMudServices();
@@ -148,9 +162,10 @@ try
     builder.Services.AddSingleton<StartupReadinessSignal>();
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
-        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready"])
-        .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "dependencies"])
-        .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "dependencies"])
+        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready", "deploy-ready"])
+        .AddCheck<WebAppDbHealthCheck>("database", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<WebAppSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<WebQuartzWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<ApiDependencyHealthCheck>("api", tags: ["dependencies"]);
 
     // Add Cascading Authentication State (for Blazor component-level auth)
@@ -174,10 +189,30 @@ try
         }
     });
 
+    builder.Services.AddHttpClient("ShopInventoryApiLongRunning", client =>
+    {
+        client.BaseAddress = new Uri(apiBaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(35); // Keep the admin UI waiting longer than the server-side sync window.
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        }
+    });
+
     builder.Services.AddHttpClient("ShopInventoryApiUser", client =>
     {
         client.BaseAddress = new Uri(apiBaseUrl);
         client.Timeout = TimeSpan.FromMinutes(5);
+    });
+
+    builder.Services.AddHttpClient<IPodService, PodService>(client =>
+    {
+        client.BaseAddress = new Uri(apiBaseUrl);
+        client.Timeout = TimeSpan.FromMinutes(35);
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            client.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        }
     });
 
     // Register a scoped HttpClient that uses the factory
@@ -224,15 +259,21 @@ try
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
     builder.Services.AddScoped<IInventoryTransferCacheService, InventoryTransferCacheService>();
     builder.Services.AddScoped<IInventoryTransferService, InventoryTransferService>();
+    builder.Services.AddScoped<IApprovalProcessService, ApprovalProcessService>();
     builder.Services.AddScoped<IIncomingPaymentCacheService, IncomingPaymentCacheService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IWarehouseStockCacheService, WarehouseStockCacheService>();
     builder.Services.AddScoped<IProductService, ProductService>();
     builder.Services.AddScoped<IPriceService, PriceService>();
+    builder.Services.AddScoped<IBusinessPartnerPricingService, BusinessPartnerPricingService>();
     builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
     builder.Services.AddScoped<IMasterDataCacheService, MasterDataCacheService>();
 
+    builder.Services.AddHttpContextAccessor();
+
     // Add audit and settings services
+    builder.Services.AddScoped<WebClientAuditContext>();
+    builder.Services.AddScoped<CircuitHandler, WebClientAuditCircuitHandler>();
     builder.Services.AddScoped<IAuditService, AuditService>();
     builder.Services.AddScoped<IAppSettingsService, AppSettingsService>();
     builder.Services.AddSingleton<IAppSettingsProvider, AppSettingsProvider>();
@@ -245,14 +286,18 @@ try
     // Add new feature services
     builder.Services.AddScoped<IReportService, ReportService>();
     builder.Services.AddScoped<IReportExportService, ReportExportService>();
+    builder.Services.AddScoped<IGlobalSearchService, GlobalSearchService>();
     builder.Services.AddScoped<IUserManagementService, UserManagementService>();
     builder.Services.AddScoped<INotificationClientService, NotificationClientService>();
+    builder.Services.AddScoped<IPushNotificationClientService, PushNotificationClientService>();
     builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
     builder.Services.AddScoped<ISyncStatusClientService, SyncStatusClientService>();
     builder.Services.AddScoped<IExceptionCenterService, ExceptionCenterService>();
+    builder.Services.AddScoped<ISystemHealthService, SystemHealthService>();
 
     // Add Sales Order, Purchase Order, Credit Note, and Quotation services
     builder.Services.AddScoped<ISalesOrderService, SalesOrderService>();
+    builder.Services.AddScoped<IRouteCustomerService, RouteCustomerService>();
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<IPurchaseRequestService, PurchaseRequestService>();
     builder.Services.AddScoped<IPurchaseQuotationService, PurchaseQuotationService>();
@@ -270,6 +315,7 @@ try
     builder.Services.AddScoped<IMobileVersionPolicySettingsService, MobileVersionPolicySettingsService>();
     builder.Services.AddScoped<ISAPSettingsService, SAPSettingsService>();
     builder.Services.AddScoped<IWebhookService, WebhookService>();
+    builder.Services.AddScoped<IWhatsAppAdminService, WhatsAppAdminService>();
 
     // Add Two-Factor Authentication service
     builder.Services.AddScoped<ITwoFactorWebService, TwoFactorWebService>();
@@ -279,7 +325,7 @@ try
     builder.Services.AddScoped<ICustomerAuthService, CustomerAuthService>();
     builder.Services.AddScoped<ICustomerPortalSessionService, CustomerPortalSessionService>();
     builder.Services.AddScoped<ICustomerStatementService, CustomerStatementService>();
-    builder.Services.AddScoped<IPodService, PodService>();
+    builder.Services.AddScoped<ICrateTrackingService, CrateTrackingService>();
 
     // Add Desktop Integration service (for viewing desktop app transactions)
     builder.Services.AddScoped<IDesktopIntegrationService, DesktopIntegrationService>();
@@ -293,8 +339,13 @@ try
     // Add Email service with MailKit
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IPodReportEmailScheduleService, PodReportEmailScheduleService>();
+    builder.Services.AddScoped<IPodReportEmailService, PodReportEmailService>();
     builder.Services.Configure<StatementEmailSettings>(builder.Configuration.GetSection("StatementEmails"));
-    builder.Services.AddHostedService<StatementEmailScheduler>();
+
+    // Scheduled statement + POD report emails run on the clustered Quartz scheduler
+    // (StatementEmailJob, PodReportEmailJob) instead of per-instance BackgroundService timers.
+    builder.Services.AddShopInventoryWebQuartz(defaultConnectionString);
 
     // Add Theme, Localization, and Search services
     builder.Services.AddScoped<IThemeService, ThemeService>();
@@ -315,7 +366,7 @@ try
     {
         options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
         options.ForwardLimit = 1;
-        options.RequireHeaderSymmetry = true;
+        options.RequireHeaderSymmetry = false;
 
         foreach (var proxy in knownReverseProxies)
         {
@@ -329,11 +380,22 @@ try
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 
+    // Topbar is rendered on every authenticated page. Resolve its application-level dependency
+    // during startup so a missing registration fails the deployment warm-up instead of returning
+    // a blank Blazor shell on every route.
+    using (var topbarDependencyScope = app.Services.CreateScope())
+    {
+        _ = topbarDependencyScope.ServiceProvider.GetRequiredService<IGlobalSearchService>();
+    }
+
     // Apply database migrations and seed default data
     try
     {
         using var scope = app.Services.CreateScope();
         await DatabaseInitializer.InitializeAsync(scope.ServiceProvider);
+
+        // Provision the Quartz job-store tables before the scheduler starts.
+        await ShopInventory.Web.Services.QuartzSchema.EnsureAsync(defaultConnectionString, "ShopInventoryWeb");
     }
     catch (Exception ex)
     {
@@ -366,6 +428,31 @@ try
         app.UseExceptionHandler("/Error", createScopeForErrors: true);
         app.UseHsts();
     }
+    app.UseStatusCodePages(async statusCodeContext =>
+    {
+        var httpContext = statusCodeContext.HttpContext;
+        var statusCode = httpContext.Response.StatusCode;
+        if (statusCode < StatusCodes.Status400BadRequest
+            || httpContext.Response.HasStarted
+            || !ProblemDetailsDefaults.ShouldWriteProblemDetails(httpContext))
+        {
+            return;
+        }
+
+        var problemDetailsService = httpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        var problemDetails = new ProblemDetails
+        {
+            Status = statusCode,
+            Type = ProblemDetailsDefaults.GetType(statusCode)
+        };
+
+        await ProblemDetailsDefaults.WriteAsync(
+            problemDetailsService,
+            httpContext,
+            null,
+            problemDetails,
+            httpContext.RequestAborted);
+    });
 
     // Swagger proxy - must be before security middleware to avoid interference
     app.UseSwaggerProxy();
@@ -392,6 +479,11 @@ try
     app.MapHealthChecks("/health/live", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("live")
+    }).AllowAnonymous();
+
+    app.MapHealthChecks("/health/deploy-ready", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("deploy-ready")
     }).AllowAnonymous();
 
     app.MapHealthChecks("/health/ready", new HealthCheckOptions
@@ -445,12 +537,12 @@ try
             httpContext,
             $"api/invoice/{docEntry}/attachments/{attachmentId}/download",
             $"pod-{attachmentId}",
-            ["Admin", "Cashier", "PodOperator", "Driver", "SalesRep"],
+            ["Admin", "Cashier", "PodOperator", "Operator", "Driver", "SalesRep"],
             ct))
         .RequireAuthorization(new AuthorizeAttribute
         {
             AuthenticationSchemes = ApiBearerAuthenticationHandler.SchemeName,
-            Roles = "Admin,Cashier,PodOperator,Driver,SalesRep"
+            Roles = "Admin,Cashier,PodOperator,Operator,Driver,SalesRep"
         });
 
     // Minimal API endpoint for external purchase order file viewing/downloads.

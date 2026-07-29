@@ -11,6 +11,7 @@ namespace ShopInventory.Features.InventoryTransfers.Queries.GetPagedTransferRequ
 
 public sealed class GetPagedTransferRequestsHandler(
     ISAPServiceLayerClient sapClient,
+    IInventoryTransferApprovalService approvalService,
     IOptions<SAPSettings> settings,
     ILogger<GetPagedTransferRequestsHandler> logger
 ) : IRequestHandler<GetPagedTransferRequestsQuery, ErrorOr<TransferRequestListResponseDto>>
@@ -31,13 +32,16 @@ public sealed class GetPagedTransferRequestsHandler(
 
             logger.LogInformation("Retrieved {Count} transfer requests (page {Page})", transferRequests.Count, page);
 
+            var transferRequestDtos = transferRequests.ToDto();
+            await approvalService.EnrichAsync(transferRequestDtos, cancellationToken);
+
             return new TransferRequestListResponseDto
             {
                 Page = page,
                 PageSize = pageSize,
                 Count = transferRequests.Count,
                 HasMore = transferRequests.Count == pageSize,
-                TransferRequests = transferRequests.ToDto()
+                TransferRequests = transferRequestDtos
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

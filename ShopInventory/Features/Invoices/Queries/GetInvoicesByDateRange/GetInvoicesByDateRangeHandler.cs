@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
@@ -11,6 +13,7 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.Invoices.Queries.GetInvoicesByDateRange;
 
 public sealed class GetInvoicesByDateRangeHandler(
+    ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
     IOptions<SAPSettings> settings,
     ILogger<GetInvoicesByDateRangeHandler> logger
@@ -39,10 +42,13 @@ public sealed class GetInvoicesByDateRangeHandler(
             currentPageSize = Math.Clamp(request.PageSize, 1, 100);
             var skip = (currentPage - 1) * currentPageSize;
 
-            invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, null, request.FromDate, request.ToDate, cancellationToken);
-            totalCount = await sapClient.GetInvoicesCountAsync(null, null, request.FromDate, request.ToDate, cancellationToken);
+            invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, currentPageSize, null, null, request.FromDate, request.ToDate, cancellationToken: cancellationToken);
+            totalCount = await sapClient.GetInvoicesCountAsync(null, null, request.FromDate, request.ToDate, cancellationToken: cancellationToken);
             totalPages = currentPageSize > 0 ? (int)Math.Ceiling(totalCount / (double)currentPageSize) : 1;
             hasMore = (currentPage * currentPageSize) < totalCount;
+            var invoiceDtos = invoices.ToDto();
+
+            await FiscalDocumentStatusProjector.EnrichInvoicesAsync(dbContext, invoiceDtos, cancellationToken);
 
             logger.LogInformation("Retrieved {Count} invoices between {FromDate} and {ToDate}",
                 invoices.Count, request.FromDate.ToString("yyyy-MM-dd"), request.ToDate.ToString("yyyy-MM-dd"));
@@ -57,7 +63,7 @@ public sealed class GetInvoicesByDateRangeHandler(
                 TotalCount = totalCount,
                 TotalPages = totalPages,
                 HasMore = hasMore,
-                Invoices = invoices.ToDto()
+                Invoices = invoiceDtos
             };
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)

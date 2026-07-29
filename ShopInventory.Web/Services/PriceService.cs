@@ -22,7 +22,7 @@ public interface IPriceService
     Task<ItemPricesByListResponse?> GetPricesByPriceListAsync(int priceListNum);
     Task<ItemPricesByListResponse?> GetPricesByPriceListForceRefreshAsync(int priceListNum);
     Task<ItemPriceByListDto?> GetItemPriceFromListAsync(int priceListNum, string itemCode);
-    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode);
+    Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null, bool useLivePricing = true);
 }
 
 public class PriceService : IPriceService
@@ -84,7 +84,10 @@ public class PriceService : IPriceService
                 {
                     IsSuccess = false,
                     StatusCode = (int)response.StatusCode,
-                    ErrorMessage = $"API returned {response.StatusCode}: {errorContent}"
+                    ErrorMessage = ApiErrorResponse.GetFriendlyMessage(
+                        response.StatusCode,
+                        errorContent,
+                        "We couldn't load grouped prices right now.")
                 };
             }
 
@@ -102,7 +105,9 @@ public class PriceService : IPriceService
             return new PriceServiceResult<ItemPricesGroupedResponse>
             {
                 IsSuccess = false,
-                ErrorMessage = $"Exception: {ex.Message}"
+                ErrorMessage = ApiErrorResponse.GetFriendlyMessage(
+                    ex,
+                    "We couldn't load grouped prices right now.")
             };
         }
     }
@@ -266,13 +271,37 @@ public class PriceService : IPriceService
         }
     }
 
-    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode)
+    public async Task<ItemPricesByListResponse?> GetPricesByBusinessPartnerAsync(string cardCode, IReadOnlyCollection<string>? itemCodes = null, bool useLivePricing = true)
     {
         try
         {
             _logger.LogDebug("Fetching prices for business partner {CardCode}", cardCode);
 
-            var response = await _httpClient.GetAsync($"api/price/businesspartner/{Uri.EscapeDataString(cardCode)}");
+            var url = $"api/price/businesspartner/{Uri.EscapeDataString(cardCode)}";
+            var requestedItemCodes = itemCodes?
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(code => code.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var queryParts = new List<string>();
+
+            if (requestedItemCodes?.Count > 0)
+            {
+                queryParts.AddRange(requestedItemCodes.Select(code => $"itemCodes={Uri.EscapeDataString(code)}"));
+            }
+
+            if (!useLivePricing)
+            {
+                queryParts.Add("useLivePricing=false");
+            }
+
+            if (queryParts.Count > 0)
+            {
+                url = $"{url}?{string.Join("&", queryParts)}";
+            }
+
+            var response = await _httpClient.GetAsync(url);
             _logger.LogDebug("GetPricesByBusinessPartnerAsync response: {StatusCode}", response.StatusCode);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)

@@ -21,7 +21,7 @@ public static class UserRoles
     public const string StockController = "StockController";
 
     /// <summary>
-    /// Depot Controller with access to incoming payments and inventory transfers
+    /// Depot Controller with access to inventory transfers and local stock only
     /// </summary>
     public const string DepotController = "DepotController";
 
@@ -34,6 +34,11 @@ public static class UserRoles
     /// POD Operator with access to Proof of Delivery only
     /// </summary>
     public const string PodOperator = "PodOperator";
+
+    /// <summary>
+    /// Driver with access to POD and assigned mobile workflows
+    /// </summary>
+    public const string Driver = "Driver";
 
     /// <summary>
     /// Merchandiser with access to mobile sales orders and assigned customers
@@ -58,18 +63,24 @@ public static class UserRoles
     /// <summary>
     /// Comma-separated role strings for use in [Authorize(Roles = "...")] attributes
     /// </summary>
+    public const string DashboardRoles = "Admin,Cashier,StockController,Manager,SalesRep";
+    public const string CatalogueRoles = "Admin,Cashier,StockController,Manager";
+    public const string InsightsRoles = "Admin,Cashier,StockController,Manager";
+    public const string SystemRoles = "Admin,Cashier,StockController,Manager";
     public const string InvoicingRoles = "Admin,Cashier";
-    public const string PaymentRoles = "Admin,Cashier,DepotController";
-    public const string InventoryTransferRoles = "Admin,StockController,DepotController";
+    public const string PaymentRoles = "Admin,Cashier";
+    public const string InventoryTransferRoles = "Admin,Manager,StockController,DepotController";
     public const string SalesOrderRoles = "Admin,Cashier,Merchandiser,SalesRep";
     public const string PurchasingRoles = "Admin,Manager";
 
-    public const string PodRoles = "Admin,Cashier,PodOperator,SalesRep";
+    public const string PodRoles = "Admin,Cashier,PodOperator,Driver,SalesRep";
+    public const string UserManagementRoles = "Admin,PodOperator,SalesRep";
+    public const string MerchandiserAccountManagementRoles = "Admin,SalesRep";
 
     /// <summary>
     /// Get all available roles
     /// </summary>
-    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
+    public static IReadOnlyList<string> AllRoles => new[] { Admin, Cashier, StockController, DepotController, Manager, PodOperator, Driver, Merchandiser, SalesRep, MerchandiserPurchaseOrderViewer, Lab };
 
     /// <summary>
     /// Check if a role has admin privileges
@@ -89,16 +100,14 @@ public static class UserRoles
     /// </summary>
     public static bool CanViewPayments(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can create payments
     /// </summary>
     public static bool CanCreatePayments(string role) =>
         IsAdmin(role) ||
-        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
+        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Check if a role can view/create sales orders
@@ -148,6 +157,7 @@ public static class UserRoles
     /// </summary>
     public static bool CanViewInventoryTransfers(string role) =>
         IsAdmin(role) ||
+        string.Equals(role, Manager, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, StockController, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(role, DepotController, StringComparison.OrdinalIgnoreCase);
 

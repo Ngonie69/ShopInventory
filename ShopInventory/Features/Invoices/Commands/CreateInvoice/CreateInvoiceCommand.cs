@@ -8,5 +8,7 @@ namespace ShopInventory.Features.Invoices.Commands.CreateInvoice;
 public sealed record CreateInvoiceCommand(
     CreateInvoiceRequest Request,
     bool AutoAllocateBatches,
-    BatchAllocationStrategy AllocationStrategy
+    BatchAllocationStrategy AllocationStrategy,
+    Guid? UserId,
+    string? Username
 ) : IRequest<ErrorOr<InvoiceCreatedResponseDto>>;

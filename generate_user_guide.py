@@ -278,9 +278,10 @@ add_table(
     [
         ['Overview', 'Dashboard', 'All staff roles'],
         ['Sales & Billing', 'Invoices, Sales Orders, Quotations, Credit Notes', 'Admin, Cashier'],
-        ['Inventory', 'Stock, Products, Inventory Transfers', 'Admin, Cashier, StockController, DepotController, Manager'],
+        ['Inventory', 'Inventory Transfers', 'Admin, Manager, StockController, DepotController'],
+        ['Inventory', 'Local Stock', 'Admin, StockController, DepotController'],
         ['Purchasing', 'Purchase Orders', 'Admin, Manager'],
-        ['Payments', 'Payments', 'Admin, Cashier, DepotController'],
+        ['Payments', 'Payments', 'Admin, Cashier'],
         ['Catalogue', 'Customers, Prices, G/L Accounts, Exchange Rates', 'All staff roles (Prices: Admin only)'],
         ['Insights', 'Reports, POD Dashboard, Proof of Delivery, POD Report', 'Varies by role'],
         ['System', 'Notifications, Sync Status, REVMax, AI Assistant', 'Varies by role'],
@@ -1009,7 +1010,7 @@ add_table(
         ['Cashier', 'Sales, Payments, Inventory, Customers, Reports, PODs', 'Create invoices, quotations, credit notes; record payments; manage PODs'],
         ['Manager', 'Purchasing, Reports, User Activity, Inventory, Customers', 'Create purchase orders; view reports, user activity; manage products'],
         ['StockController', 'Inventory, Transfers, Products, Customers, Reports', 'Monitor stock; create transfer requests; manage inventory'],
-        ['DepotController', 'Inventory, Transfers, Payments, Customers, Reports', 'Manage depot operations; record payments; process transfers'],
+        ['DepotController', 'Transfers, Local Stock', 'Process transfers for assigned warehouses; review local stock'],
         ['PodOperator', 'POD Dashboard, Proof of Delivery, POD Report', 'Upload proof of delivery attachments; view personal upload stats'],
         ['Customer', 'Customer Portal only', 'View invoices, statements, payments, PODs; submit support tickets'],
     ]

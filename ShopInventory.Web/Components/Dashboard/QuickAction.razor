@@ -1,0 +1,19 @@
+@using MudBlazor
+
+<a class="kf-quick-action" href="@Href">
+    <span class="kf-quick-action__icon" aria-hidden="true">
+        <MudIcon Icon="@Icon" />
+    </span>
+    <span class="kf-quick-action__copy">
+        <strong>@Title</strong>
+        <span>@Description</span>
+    </span>
+    <MudIcon Class="kf-quick-action__chevron" Icon="@Icons.Material.Filled.ChevronRight" />
+</a>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Href { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+}

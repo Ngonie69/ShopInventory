@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.Models.Entities;
@@ -19,6 +20,8 @@ public interface IAuditService
 
 public class AuditService : IAuditService
 {
+    private static readonly Lazy<TimeZoneInfo> CatTimeZone = new(ResolveCatTimeZone);
+
     private readonly ApplicationDbContext _db;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<AuditService> _logger;
@@ -31,6 +34,24 @@ public class AuditService : IAuditService
         _db = db;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
+    }
+
+    public static DateTime ToCAT(DateTime utcDateTime)
+    {
+        var normalizedUtc = utcDateTime.Kind switch
+        {
+            DateTimeKind.Utc => utcDateTime,
+            DateTimeKind.Local => utcDateTime.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc)
+        };
+
+        return TimeZoneInfo.ConvertTimeFromUtc(normalizedUtc, CatTimeZone.Value);
+    }
+
+    public static DateTime FromCAT(DateTime catDateTime)
+    {
+        var normalizedCat = DateTime.SpecifyKind(catDateTime, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(normalizedCat, CatTimeZone.Value);
     }
 
     public async Task LogAsync(string action, string username, string userRole, string? entityType = null,
@@ -55,6 +76,8 @@ public class AuditService : IAuditService
                 PageUrl = endpoint ?? $"{httpContext?.Request.Method} {httpContext?.Request.Path}",
                 IsSuccess = isSuccess,
                 ErrorMessage = errorMessage,
+                AppVersion = httpContext?.Request.Headers["X-App-Version"].FirstOrDefault(),
+                DeviceModel = httpContext?.Request.Headers["X-Device-Model"].FirstOrDefault(),
                 Timestamp = DateTime.UtcNow
             };
 
@@ -87,10 +110,13 @@ public class AuditService : IAuditService
         var httpContext = _httpContextAccessor.HttpContext;
         var user = httpContext?.User;
 
-        if (user?.Identity?.IsAuthenticated == true)
+        var preferredIdentity = ResolvePreferredIdentity(user);
+        if (preferredIdentity != null)
         {
-            var username = user.Identity.Name ?? user.FindFirst(ClaimTypes.Name)?.Value ?? "Unknown";
-            var role = user.FindFirst(ClaimTypes.Role)?.Value ?? "User";
+            var username = preferredIdentity.Name
+                ?? preferredIdentity.FindFirst(ClaimTypes.Name)?.Value
+                ?? "Unknown";
+            var role = preferredIdentity.FindFirst(ClaimTypes.Role)?.Value ?? "User";
             return (username, role);
         }
 
@@ -102,33 +128,131 @@ public class AuditService : IAuditService
         var httpContext = _httpContextAccessor.HttpContext;
         var user = httpContext?.User;
 
-        if (user?.Identity?.IsAuthenticated != true)
+        var preferredIdentity = ResolvePreferredIdentity(user);
+        if (preferredIdentity == null)
         {
             return null;
         }
 
-        var currentUsername = user.Identity.Name ?? user.FindFirst(ClaimTypes.Name)?.Value;
+        var currentUsername = preferredIdentity.Name ?? preferredIdentity.FindFirst(ClaimTypes.Name)?.Value;
         if (string.IsNullOrWhiteSpace(currentUsername) ||
             !string.Equals(currentUsername, username, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        return user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return preferredIdentity.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    }
+
+    private static ClaimsIdentity? ResolvePreferredIdentity(ClaimsPrincipal? user)
+    {
+        if (user == null)
+        {
+            return null;
+        }
+
+        var identities = user.Identities
+            .Where(identity => identity.IsAuthenticated)
+            .OfType<ClaimsIdentity>()
+            .ToList();
+
+        if (identities.Count == 0)
+        {
+            return null;
+        }
+
+        return identities.FirstOrDefault(identity => !IsApiKeyIdentity(identity) && HasDisplayableUser(identity))
+            ?? identities.FirstOrDefault(HasDisplayableUser)
+            ?? identities.First();
+    }
+
+    private static bool IsApiKeyIdentity(ClaimsIdentity identity)
+    {
+        return string.Equals(identity.FindFirst(ClaimTypes.AuthenticationMethod)?.Value, "ApiKey", StringComparison.OrdinalIgnoreCase)
+            || identity.HasClaim(claim => string.Equals(claim.Type, "api_key_name", StringComparison.Ordinal));
+    }
+
+    private static bool HasDisplayableUser(ClaimsIdentity identity)
+    {
+        var username = identity.Name ?? identity.FindFirst(ClaimTypes.Name)?.Value;
+        return !string.IsNullOrWhiteSpace(username);
     }
 
     private static string? GetClientIpAddress(HttpContext? httpContext)
     {
-        if (httpContext == null) return null;
-
-        // Check X-Forwarded-For first (behind reverse proxy/load balancer)
-        var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(forwardedFor))
+        if (httpContext is null)
         {
-            // Take the first IP (original client)
-            return forwardedFor.Split(',', StringSplitOptions.TrimEntries)[0];
+            return null;
         }
 
-        return httpContext.Connection.RemoteIpAddress?.ToString();
+        var remoteAddress = NormalizeAddress(httpContext.Connection.RemoteIpAddress);
+        if (remoteAddress is null)
+        {
+            return null;
+        }
+
+        if (!IPAddress.IsLoopback(remoteAddress))
+        {
+            return remoteAddress.ToString();
+        }
+
+        // Web-to-API calls originate from loopback in the production IIS deployment.
+        // Trust the forwarded chain only for that local peer so external callers cannot
+        // spoof the address stored in the audit trail.
+        foreach (var value in httpContext.Request.Headers["X-Forwarded-For"].ToString()
+                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (TryParseAddress(value, out var forwardedAddress) && !IPAddress.IsLoopback(forwardedAddress))
+            {
+                return forwardedAddress.ToString();
+            }
+        }
+
+        return remoteAddress.ToString();
+    }
+
+    private static bool TryParseAddress(string value, out IPAddress address)
+    {
+        address = IPAddress.None;
+        var candidate = value.Trim().Trim('"');
+
+        if (candidate.StartsWith('[') && candidate.IndexOf(']') is var closingBracket && closingBracket > 0)
+        {
+            candidate = candidate[1..closingBracket];
+        }
+        else if (!IPAddress.TryParse(candidate, out _) && candidate.Count(character => character == ':') == 1)
+        {
+            candidate = candidate[..candidate.LastIndexOf(':')];
+        }
+
+        if (!IPAddress.TryParse(candidate, out var parsedAddress))
+        {
+            return false;
+        }
+
+        address = NormalizeAddress(parsedAddress)!;
+        return true;
+    }
+
+    private static IPAddress? NormalizeAddress(IPAddress? address)
+        => address?.IsIPv4MappedToIPv6 == true ? address.MapToIPv4() : address;
+
+    private static TimeZoneInfo ResolveCatTimeZone()
+    {
+        foreach (var timeZoneId in new[] { "South Africa Standard Time", "Africa/Harare", "Africa/Blantyre", "Africa/Lusaka" })
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return TimeZoneInfo.Utc;
     }
 }

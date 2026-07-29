@@ -1,11 +1,12 @@
 @* @formatter:off *@
 @page "/reports"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.JSInterop
-@attribute [Authorize]
+@attribute [Authorize(Roles = UserRoles.InsightsRoles)]
 @inject IReportService ReportService
 @inject IReportExportService ExportService
 @inject IAuditService AuditService
@@ -272,7 +273,7 @@
                                                 </div>
                                                 <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Daily Breakdown</h6>
                                                 <div class="table-responsive">
-                                                    <table class="table table-hover align-middle mb-0">
+                                                    <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                         <thead>
                                                             <tr style="background: #f8f9fa;">
                                                                 <th class="border-0 fw-semibold">Date</th>
@@ -285,22 +286,22 @@
                                                             @foreach (var day in salesReport.DailySales.OrderByDescending(d => d.Date))
                                                             {
                                                                 <tr>
-                                                                    <td class="fw-medium">@day.Date.ToString("ddd, dd MMM yyyy")</td>
-                                                                    <td class="text-end"><span class="badge bg-secondary rounded-pill">@day.InvoiceCount</span>
+                                                                    <td data-label="Date" class="fw-medium">@day.Date.ToString("ddd, dd MMM yyyy")</td>
+                                                                    <td data-label="Invoices" class="text-end"><span class="badge bg-secondary rounded-pill">@day.InvoiceCount</span>
                                                                     </td>
-                                                                    <td class="text-end fw-semibold" style="color: #2e7d32;">$@day.TotalSalesUSD.ToString("N2")
+                                                                    <td data-label="USD Sales" class="text-end fw-semibold" style="color: #2e7d32;">$@day.TotalSalesUSD.ToString("N2")
                                                                     </td>
-                                                                    <td class="text-end fw-semibold" style="color: #00838f;">ZIG
+                                                                    <td data-label="ZIG Sales" class="text-end fw-semibold" style="color: #00838f;">ZIG
                                                                         @day.TotalSalesZIG.ToString("N2")</td>
                                                                     </tr>
                                                                 }
                                                             </tbody>
                                                             <tfoot>
                                                                 <tr style="background: #e8eaf6; font-weight: 700;">
-                                                                    <td>Total</td>
-                                                                    <td class="text-end">@salesReport.TotalInvoices</td>
-                                                                    <td class="text-end" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</td>
-                                                                    <td class="text-end" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
+                                                                    <td data-label="Summary">Total</td>
+                                                                    <td data-label="Invoices" class="text-end">@salesReport.TotalInvoices</td>
+                                                                    <td data-label="USD Sales" class="text-end" style="color: #2e7d32;">$@salesReport.TotalSalesUSD.ToString("N2")</td>
+                                                                    <td data-label="ZIG Sales" class="text-end" style="color: #00838f;">ZIG @salesReport.TotalSalesZIG.ToString("N2")
                                                                     </td>
                                                                 </tr>
                                                             </tfoot>
@@ -333,7 +334,7 @@
                                                         </div>
                                                     </div>
                                                     <div class="table-responsive">
-                                                        <table class="table table-hover align-middle mb-0">
+                                                        <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                             <thead>
                                                                 <tr style="background: #f8f9fa;">
                                                                     <th class="border-0 fw-semibold" style="width: 60px;">Rank</th>
@@ -348,7 +349,7 @@
                                                                 @foreach (var p in topProductsReport.TopProducts)
                                                                 {
                                                                     <tr>
-                                                                        <td>
+                                                                        <td data-label="Rank">
                                                                             @if (p.Rank <= 3)
                                                                             {
                                                                                 <span
@@ -360,15 +361,15 @@
                                                                                 <span class="text-muted fw-medium ms-2">@p.Rank</span>
                                                                             }
                                                                         </td>
-                                                                        <td>
+                                                                        <td data-label="Product">
                                                                             <div class="fw-semibold">@p.ItemName</div>
                                                                             <small class="text-muted font-monospace">@p.ItemCode</small>
                                                                         </td>
-                                                                        <td class="text-end fw-bold">@p.TotalQuantitySold.ToString("N0")</td>
-                                                                        <td class="text-end">@p.TimesOrdered</td>
-                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">$@p.TotalRevenueUSD.ToString("N2")
+                                                                        <td data-label="Qty Sold" class="text-end fw-bold">@p.TotalQuantitySold.ToString("N0")</td>
+                                                                        <td data-label="Orders" class="text-end">@p.TimesOrdered</td>
+                                                                        <td data-label="Revenue (USD)" class="text-end fw-semibold" style="color: #2e7d32;">$@p.TotalRevenueUSD.ToString("N2")
                                                                         </td>
-                                                                        <td class="text-end fw-semibold" style="color: #00838f;">ZIG
+                                                                        <td data-label="Revenue (ZIG)" class="text-end fw-semibold" style="color: #00838f;">ZIG
                                                                             @p.TotalRevenueZIG.ToString("N2")</td>
                                                                         </tr>
                                                                     }
@@ -424,7 +425,7 @@
                                                             <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-building me-2"></i>Stock by Warehouse
                                                             </h6>
                                                             <div class="table-responsive">
-                                                                <table class="table table-hover align-middle mb-0">
+                                                                <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                                     <thead>
                                                                         <tr style="background: #f8f9fa;">
                                                                             <th class="border-0 fw-semibold">Warehouse</th>
@@ -436,20 +437,20 @@
                                                                         @foreach (var wh in stockReport.StockByWarehouse.OrderByDescending(w => w.TotalQuantity))
                                                                         {
                                                                             <tr>
-                                                                                <td>
+                                                                                <td data-label="Warehouse">
                                                                                     <div class="fw-semibold">@wh.WarehouseCode</div>
                                                                                     <small class="text-muted">@wh.WarehouseName</small>
                                                                                 </td>
-                                                                                <td class="text-end">@wh.ProductCount</td>
-                                                                                <td class="text-end fw-bold">@wh.TotalQuantity.ToString("N0")</td>
+                                                                                <td data-label="Products" class="text-end">@wh.ProductCount</td>
+                                                                                <td data-label="Total Quantity" class="text-end fw-bold">@wh.TotalQuantity.ToString("N0")</td>
                                                                             </tr>
                                                                         }
                                                                     </tbody>
                                                                     <tfoot>
                                                                         <tr style="background: #e8eaf6; font-weight: 700;">
-                                                                            <td>Total</td>
-                                                                            <td class="text-end">@stockReport.TotalProducts</td>
-                                                                            <td class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
+                                                                            <td data-label="Summary">Total</td>
+                                                                            <td data-label="Products" class="text-end">@stockReport.TotalProducts</td>
+                                                                            <td data-label="Total Quantity" class="text-end">@stockReport.StockByWarehouse.Sum(w => w.TotalQuantity).ToString("N0")
                                                                             </td>
                                                                         </tr>
                                                                     </tfoot>
@@ -581,7 +582,7 @@
                                                                                         <span class="text-muted small">@topCustomersReport.TotalCustomers total customers</span>
                                                                                     </div>
                                                                                     <div class="table-responsive">
-                                                                                        <table class="table table-hover align-middle mb-0">
+                                                                                        <table class="table table-hover align-middle mb-0 mobile-card-table">
                                                                                             <thead>
                                                                                                 <tr style="background: #f8f9fa;">
                                                                                                     <th class="border-0 fw-semibold" style="width: 60px;">Rank</th>
@@ -597,7 +598,7 @@
                                                                                                 @foreach (var c in topCustomersReport.TopCustomers)
                                                                                                 {
                                                                                                     <tr>
-                                                                                                        <td>
+                                                                                                        <td data-label="Rank">
                                                                                                             @if (c.Rank <= 3)
                                                                                                             {
                                                                                                                 <span
@@ -609,17 +610,17 @@
                                                                                                                 <span class="text-muted fw-medium ms-2">@c.Rank</span>
                                                                                                             }
                                                                                                         </td>
-                                                                                                        <td>
+                                                                                                        <td data-label="Customer">
                                                                                                             <div class="fw-semibold">@c.CardName</div>
                                                                                                             <small class="text-muted font-monospace">@c.CardCode</small>
                                                                                                         </td>
-                                                                                                        <td class="text-end"><span class="badge bg-secondary rounded-pill">@c.InvoiceCount</span>
+                                                                                                        <td data-label="Invoices" class="text-end"><span class="badge bg-secondary rounded-pill">@c.InvoiceCount</span>
                                                                                                         </td>
-                                                                                                        <td class="text-end fw-semibold" style="color: #2e7d32;">
+                                                                                                        <td data-label="Purchases (USD)" class="text-end fw-semibold" style="color: #2e7d32;">
                                                                                                             $@c.TotalPurchasesUSD.ToString("N2")</td>
-                                                                                                            <td class="text-end" style="color: #00838f;">@(c.TotalPurchasesZIG > 0 ? $"ZIG {c.TotalPurchasesZIG:N2}" : "-")</td>
-                                                                                                            <td class="text-end">$@c.TotalPaymentsUSD.ToString("N2")</td>
-                                                                                                            <td class="text-end fw-bold"
+                                                                                                            <td data-label="Purchases (ZIG)" class="text-end" style="color: #00838f;">@(c.TotalPurchasesZIG > 0 ? $"ZIG {c.TotalPurchasesZIG:N2}" : "-")</td>
+                                                                                                            <td data-label="Payments (USD)" class="text-end">$@c.TotalPaymentsUSD.ToString("N2")</td>
+                                                                                                            <td data-label="Balance (USD)" class="text-end fw-bold"
                                                                                                                 style="color: @(c.OutstandingBalanceUSD > 0 ? "#c62828" : "#2e7d32");">
                                                                                                                 $@c.OutstandingBalanceUSD.ToString("N2")</td>
                                                                                                             </tr>
@@ -996,7 +997,7 @@ else if (activeTab == "profit")
         {
             <h6 class="fw-bold text-uppercase text-muted mb-3"><i class="bi bi-calendar3 me-2"></i>Monthly Breakdown</h6>
             <div class="table-responsive mb-4">
-                <table class="table table-sm table-hover align-middle mb-0">
+                <table class="table table-sm table-hover align-middle mb-0 mobile-card-table">
                     <thead>
                         <tr style="background: #f8f9fa;">
                             <th class="border-0 fw-semibold">Month</th>
@@ -1015,13 +1016,13 @@ else if (activeTab == "profit")
                             var gp = netRev - m.PurchaseCostUSD;
                             var margin = netRev > 0 ? (gp / netRev * 100) : 0;
                             <tr>
-                                <td class="fw-medium">@(m.Month)</td>
-                                <td class="text-end">$@m.RevenueUSD.ToString("N2")</td>
-                                <td class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
-                                <td class="text-end fw-semibold">$@netRev.ToString("N2")</td>
-                                <td class="text-end">$@m.PurchaseCostUSD.ToString("N2")</td>
-                                <td class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
-                                <td class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
+                                <td data-label="Month" class="fw-medium">@(m.Month)</td>
+                                <td data-label="Sales (USD)" class="text-end">$@m.RevenueUSD.ToString("N2")</td>
+                                <td data-label="Credit Notes" class="text-end" style="color: #c62828;">$@m.CreditNotesUSD.ToString("N2")</td>
+                                <td data-label="Net Revenue" class="text-end fw-semibold">$@netRev.ToString("N2")</td>
+                                <td data-label="Purchases" class="text-end">$@m.PurchaseCostUSD.ToString("N2")</td>
+                                <td data-label="Gross Profit" class="text-end fw-bold" style="color: @(gp >= 0 ? "#2e7d32" : "#c62828");">$@gp.ToString("N2")</td>
+                                <td data-label="Margin %" class="text-end"><span class="badge rounded-pill @(margin >= 20 ? "bg-success" : margin >= 10 ? "bg-warning text-dark" : "bg-danger")">@margin.ToString("N1")%</span></td>
                             </tr>
                         }
                     </tbody>
@@ -1646,31 +1647,23 @@ new("fulfillment", "Fulfillment", "bi-truck")
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             Task action = tab switch
             {
-                "profit" => Task.Run(async () => profitReport = await ReportService.GetProfitOverviewAsync(fromDate, toDate)),
-                "sales" => Task.Run(async () => salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate)),
-                "stock" => Task.Run(async () => stockReport = await ReportService.GetStockSummaryAsync()),
-                "payments" => Task.Run(async () => paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate)),
-                "products" => Task.Run(async () => topProductsReport = await ReportService.GetTopProductsAsync(fromDate, toDate, topProductsCount)),
-                "customers" => Task.Run(async () => topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10)),
-                "creditnotes" => Task.Run(async () => creditNotesReport = await ReportService.GetCreditNoteSummaryAsync(fromDate, toDate)),
-                "purchasing" => Task.Run(async () => purchaseOrderReport = await ReportService.GetPurchaseOrderSummaryAsync(fromDate, toDate)),
-                "aging" => Task.Run(async () => agingReport = await ReportService.GetReceivablesAgingAsync()),
-                "alerts" => Task.Run(async () => lowStockReport = await ReportService.GetLowStockAlertsAsync()),
-                "slowmoving" => Task.Run(async () => slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays)),
-                "fulfillment" => Task.Run(async () => fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate)),
+                "profit" => LoadProfitReportAsync(cts.Token),
+                "sales" => LoadSalesReportAsync(cts.Token),
+                "stock" => LoadStockReportAsync(cts.Token),
+                "payments" => LoadPaymentReportAsync(cts.Token),
+                "products" => LoadTopProductsReportAsync(cts.Token),
+                "customers" => LoadTopCustomersReportAsync(cts.Token),
+                "creditnotes" => LoadCreditNoteReportAsync(cts.Token),
+                "purchasing" => LoadPurchaseOrderReportAsync(cts.Token),
+                "aging" => LoadAgingReportAsync(cts.Token),
+                "alerts" => LoadLowStockReportAsync(cts.Token),
+                "slowmoving" => LoadSlowMovingReportAsync(cts.Token),
+                "fulfillment" => LoadFulfillmentReportAsync(cts.Token),
                 _ => Task.CompletedTask
             };
 
-            var completed = await Task.WhenAny(action, Task.Delay(Timeout.Infinite, cts.Token));
-            if (completed != action)
-            {
-                tabErrors[tab] = "Request timed out (5 min). SAP may be under heavy load — try again.";
-            }
-            else
-            {
-                await action; // propagate exceptions
-                loadedTabs.Add(tab);
-            }
+            await action;
+            loadedTabs.Add(tab);
 
             try { await AuditService.LogAsync("GenerateReport", currentUsername, currentUserRole, "Report", null, $"Loaded {tab} report ({fromDate:yyyy-MM-dd} to {toDate:yyyy-MM-dd})", "/reports"); } catch { }
         }
@@ -1693,6 +1686,50 @@ new("fulfillment", "Fulfillment", "bi-truck")
     {
         await LoadTab("products", forceReload: true);
     }
+
+    private async Task LoadProfitReportAsync(CancellationToken cancellationToken) =>
+        profitReport = await ReportService.GetProfitOverviewAsync(fromDate, toDate, cancellationToken);
+
+    private async Task LoadSalesReportAsync(CancellationToken cancellationToken) =>
+        salesReport = await ReportService.GetSalesSummaryAsync(fromDate, toDate, cancellationToken);
+
+    private async Task LoadStockReportAsync(CancellationToken cancellationToken) =>
+        stockReport = await ReportService.GetStockSummaryAsync(cancellationToken: cancellationToken);
+
+    private async Task LoadPaymentReportAsync(CancellationToken cancellationToken) =>
+        paymentReport = await ReportService.GetPaymentSummaryAsync(fromDate, toDate, cancellationToken);
+
+    private async Task LoadTopProductsReportAsync(CancellationToken cancellationToken) =>
+        topProductsReport = await ReportService.GetTopProductsAsync(
+            fromDate,
+            toDate,
+            topProductsCount,
+            cancellationToken);
+
+    private async Task LoadTopCustomersReportAsync(CancellationToken cancellationToken) =>
+        topCustomersReport = await ReportService.GetTopCustomersAsync(fromDate, toDate, 10, cancellationToken);
+
+    private async Task LoadCreditNoteReportAsync(CancellationToken cancellationToken) =>
+        creditNotesReport = await ReportService.GetCreditNoteSummaryAsync(fromDate, toDate, cancellationToken);
+
+    private async Task LoadPurchaseOrderReportAsync(CancellationToken cancellationToken) =>
+        purchaseOrderReport = await ReportService.GetPurchaseOrderSummaryAsync(fromDate, toDate, cancellationToken);
+
+    private async Task LoadAgingReportAsync(CancellationToken cancellationToken) =>
+        agingReport = await ReportService.GetReceivablesAgingAsync(cancellationToken);
+
+    private async Task LoadLowStockReportAsync(CancellationToken cancellationToken) =>
+        lowStockReport = await ReportService.GetLowStockAlertsAsync(cancellationToken: cancellationToken);
+
+    private async Task LoadSlowMovingReportAsync(CancellationToken cancellationToken) =>
+        slowMovingReport = await ReportService.GetSlowMovingProductsAsync(
+            fromDate,
+            toDate,
+            slowMovingDays,
+            cancellationToken);
+
+    private async Task LoadFulfillmentReportAsync(CancellationToken cancellationToken) =>
+        fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate, cancellationToken);
 
     private void OnQuickSelectChanged(ChangeEventArgs e)
     {

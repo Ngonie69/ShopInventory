@@ -29,6 +29,10 @@ public sealed class GetAllSalesOrdersHandler(
 
         if (request.Source.HasValue)
         {
+            // Deliberately no SAP work on this path. Listing source-filtered orders is answered
+            // entirely from the local tables; relinking orders whose SAP metadata went missing is
+            // owned by SalesOrderReconciliationJob. See the note on
+            // GetSalesOrderByOrderNumberAsync for why doing it here was so expensive.
             return await GetAllFromLocalAsync(
                 page,
                 pageSize,
@@ -38,6 +42,7 @@ public sealed class GetAllSalesOrdersHandler(
                 localToExclusive,
                 request.Source,
                 orderSearch,
+                request.VanSalesUsersOnly,
                 cancellationToken);
         }
 
@@ -49,7 +54,8 @@ public sealed class GetAllSalesOrdersHandler(
                 localFromDate,
                 localToExclusive,
                 source: null,
-                orderSearch)
+                orderSearch,
+                request.VanSalesUsersOnly)
             .CountAsync(cancellationToken);
 
         var localPage = await ProjectSalesOrderListItems(
@@ -60,7 +66,8 @@ public sealed class GetAllSalesOrdersHandler(
                     localFromDate,
                     localToExclusive,
                     source: null,
-                    orderSearch)
+                    orderSearch,
+                    request.VanSalesUsersOnly)
                 .OrderByDescending(o => o.OrderDate)
                 .ThenByDescending(o => o.Id)
                 .Skip(localOffset)
@@ -133,6 +140,7 @@ public sealed class GetAllSalesOrdersHandler(
                 localToExclusive,
                 request.Source,
                 orderSearch,
+                request.VanSalesUsersOnly,
                 cancellationToken);
         }
     }
@@ -144,7 +152,8 @@ public sealed class GetAllSalesOrdersHandler(
         DateTime? fromDate,
         DateTime? toExclusive,
         SalesOrderSource? source,
-        string? orderSearch)
+        string? orderSearch,
+        bool? vanSalesUsersOnly)
     {
         var query = context.SalesOrders.AsNoTracking().AsQueryable();
 
@@ -170,6 +179,29 @@ public sealed class GetAllSalesOrdersHandler(
 
         if (source.HasValue)
             query = query.Where(o => o.Source == source.Value);
+
+        if (vanSalesUsersOnly.HasValue)
+        {
+            const string vanSalesCommentPrefix = "Van sales sales order%";
+
+            query = vanSalesUsersOnly.Value
+                ? query.Where(o =>
+                    o.Source == SalesOrderSource.Mobile
+                    && ((o.Comments != null && EF.Functions.ILike(o.Comments, vanSalesCommentPrefix))
+                        || (o.CustomerRefNo != null
+                            && o.CustomerRefNo != string.Empty
+                            && o.ClientRequestId != null
+                            && o.ClientRequestId != string.Empty
+                            && o.CustomerRefNo == o.ClientRequestId)))
+                : query.Where(o =>
+                    o.Source != SalesOrderSource.Mobile
+                    || (((o.Comments == null || !EF.Functions.ILike(o.Comments, vanSalesCommentPrefix))
+                            && (o.CustomerRefNo == null
+                                || o.CustomerRefNo == string.Empty
+                                || o.ClientRequestId == null
+                                || o.ClientRequestId == string.Empty
+                                || o.CustomerRefNo != o.ClientRequestId))));
+        }
 
         if (!string.IsNullOrWhiteSpace(orderSearch))
         {
@@ -202,9 +234,10 @@ public sealed class GetAllSalesOrdersHandler(
         DateTime? toExclusive,
         SalesOrderSource? source,
         string? orderSearch,
+        bool? vanSalesUsersOnly,
         CancellationToken cancellationToken)
     {
-        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch);
+        var query = BuildLocalOrdersQuery(false, status, customerSearch, fromDate, toExclusive, source, orderSearch, vanSalesUsersOnly);
         var totalCount = await query.CountAsync(cancellationToken);
         var orders = await ProjectSalesOrderListItems(
             query.OrderByDescending(o => o.OrderDate)
@@ -230,6 +263,9 @@ public sealed class GetAllSalesOrdersHandler(
         return await query
             .Select(o => new SalesOrderDto
             {
+                Status = o.Status == SalesOrderStatus.Approved && (!o.SAPDocNum.HasValue || o.SAPDocNum <= 0)
+                    ? SalesOrderStatus.Pending
+                    : o.Status,
                 Id = o.Id,
                 SAPDocEntry = o.SAPDocEntry,
                 SAPDocNum = o.SAPDocNum,
@@ -239,7 +275,6 @@ public sealed class GetAllSalesOrdersHandler(
                 CardCode = o.CardCode,
                 CardName = o.CardName,
                 CustomerRefNo = o.CustomerRefNo,
-                Status = o.Status,
                 Comments = o.Comments,
                 SalesPersonCode = o.SalesPersonCode,
                 SalesPersonName = o.SalesPersonName,
@@ -261,7 +296,8 @@ public sealed class GetAllSalesOrdersHandler(
                 CreatedAt = o.CreatedAt,
                 UpdatedAt = o.UpdatedAt,
                 InvoiceId = o.InvoiceId,
-                IsSynced = o.IsSynced,
+                InvoiceSapDocNum = o.Invoice != null ? o.Invoice.SAPDocNum : null,
+                IsSynced = o.IsSynced && o.SAPDocNum.HasValue && o.SAPDocNum > 0,
                 SyncError = o.SyncError,
                 Source = o.Source,
                 ClientRequestId = o.ClientRequestId,

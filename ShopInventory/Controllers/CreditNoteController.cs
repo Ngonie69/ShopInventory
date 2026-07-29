@@ -5,9 +5,11 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.CreditNotes.Commands.ApproveCreditNote;
+using ShopInventory.Features.CreditNotes.Commands.BulkCancelCreditNotes;
 using ShopInventory.Features.CreditNotes.Commands.CreateCreditNote;
 using ShopInventory.Features.CreditNotes.Commands.CreateCreditNoteFromInvoice;
 using ShopInventory.Features.CreditNotes.Commands.DeleteCreditNote;
+using ShopInventory.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes;
 using ShopInventory.Features.CreditNotes.Commands.UpdateCreditNoteStatus;
 using ShopInventory.Features.CreditNotes.Queries.GetAllCreditNotes;
 using ShopInventory.Features.CreditNotes.Queries.GetCreditNoteById;
@@ -98,6 +100,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         if (userId == null)
             return Unauthorized();
 
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new CreateCreditNoteCommand(request, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetById), new { id = value.Id }, value),
@@ -119,6 +126,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         var userId = GetCurrentUserId();
         if (userId == null)
             return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
 
         var result = await mediator.Send(
             new CreateCreditNoteFromInvoiceCommand(invoiceId, request, userId.Value),
@@ -178,6 +190,44 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Cancel multiple SAP credit notes.
+    /// </summary>
+    [HttpPost("bulk-cancel")]
+    [RequirePermission(Permission.EditInvoices)]
+    [ProducesResponseType(typeof(BulkCancelCreditNotesResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> BulkCancel(
+        [FromBody] BulkCancelCreditNotesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new BulkCancelCreditNotesCommand(request, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Duplicate cancelled SAP credit notes and return the new document references.
+    /// </summary>
+    [HttpPost("duplicate-cancelled")]
+    [RequirePermission(Permission.CreateInvoices)]
+    [ProducesResponseType(typeof(DuplicateCancelledCreditNotesResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> DuplicateCancelled(
+        [FromBody] DuplicateCancelledCreditNotesRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new DuplicateCancelledCreditNotesCommand(request, userId.Value), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
     private Guid? GetCurrentUserId()
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -191,6 +241,11 @@ public class CreditNoteController(IMediator mediator) : ApiControllerBase
 public class CreateCreditNoteFromInvoiceApiRequest
 {
     public string? Reason { get; set; }
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Deduplicates retried submissions so a duplicate credit note is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
     public List<CreditNoteLineApiRequest>? Lines { get; set; }
 }
 

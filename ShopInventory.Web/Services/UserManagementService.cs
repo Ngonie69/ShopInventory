@@ -1,4 +1,3 @@
-using Blazored.LocalStorage;
 using ShopInventory.Web.Data;
 using ShopInventory.Web.Models;
 using System.Net;
@@ -20,6 +19,7 @@ public interface IUserManagementService
 {
     Task<UserListResponse> GetUsersAsync(int page = 1, int pageSize = 20, string? search = null, string? role = null, string? status = null);
     Task<UserModel?> GetUserAsync(Guid id);
+    Task<(List<string> DirectPermissions, List<string> EffectivePermissions, bool UsesRoleDefaults)> GetUserPermissionsAsync(Guid id);
     Task CreateUserAsync(string username, string email, string password, string role);
     Task CreateUserAsync(UserFormModel model);
     Task CreateMerchandiserAccountAsync(CreateMerchandiserAccountFormModel model, CancellationToken cancellationToken = default);
@@ -47,43 +47,44 @@ public interface IUserManagementService
 /// </summary>
 public class UserManagementService : IUserManagementService
 {
+    private const int AuthTokenReadAttempts = 3;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly IAppSettingsService _appSettingsService;
     private readonly ILogger<UserManagementService> _logger;
 
     public UserManagementService(
         IHttpClientFactory httpClientFactory,
-        ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider,
         IAppSettingsService appSettingsService,
         ILogger<UserManagementService> logger)
     {
         _httpClientFactory = httpClientFactory;
-        _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _appSettingsService = appSettingsService;
         _logger = logger;
     }
 
     public async Task<UserListResponse> GetUsersAsync(int page = 1, int pageSize = 20, string? search = null, string? role = null, string? status = null)
     {
-        try
+        var client = await CreateAuthenticatedClientAsync();
+        var url = $"api/usermanagement?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(search)) url += $"&search={Uri.EscapeDataString(search)}";
+        if (!string.IsNullOrEmpty(role)) url += $"&role={role}";
+        if (!string.IsNullOrEmpty(status))
         {
-            var client = await CreateAuthenticatedClientAsync();
-            var url = $"api/usermanagement?page={page}&pageSize={pageSize}";
-            if (!string.IsNullOrEmpty(search)) url += $"&search={Uri.EscapeDataString(search)}";
-            if (!string.IsNullOrEmpty(role)) url += $"&role={role}";
-            if (!string.IsNullOrEmpty(status))
-            {
-                if (status == "active") url += "&isActive=true";
-                else if (status == "inactive") url += "&isActive=false";
-            }
-            return await client.GetFromJsonAsync<UserListResponse>(url) ?? new UserListResponse();
+            if (status == "active") url += "&isActive=true";
+            else if (status == "inactive") url += "&isActive=false";
         }
-        catch (Exception ex)
+
+        var response = await client.GetAsync(url);
+
+        if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError(ex, "Error fetching users");
-            return new UserListResponse();
+            await ThrowApiExceptionAsync(response, "Failed to load users.");
         }
+
+        return await response.Content.ReadFromJsonAsync<UserListResponse>() ?? new UserListResponse();
     }
 
     public async Task<UserModel?> GetUserAsync(Guid id)
@@ -98,6 +99,25 @@ public class UserManagementService : IUserManagementService
             _logger.LogError(ex, "Error fetching user {Id}", id);
             return null;
         }
+    }
+
+    public async Task<(List<string> DirectPermissions, List<string> EffectivePermissions, bool UsesRoleDefaults)> GetUserPermissionsAsync(Guid id)
+    {
+        var client = await CreateAuthenticatedClientAsync();
+        var response = await client.GetAsync($"api/usermanagement/{id}/permissions");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            await ThrowApiExceptionAsync(response, "Failed to load user permissions.");
+        }
+
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+
+        return (
+            ReadStringListProperty(root, "permissions"),
+            ReadStringListProperty(root, "effectivePermissions"),
+            ReadBooleanProperty(root, "usesRoleDefaults"));
     }
 
     public async Task CreateUserAsync(string username, string email, string password, string role)
@@ -219,7 +239,9 @@ public class UserManagementService : IUserManagementService
             DefaultGLAccount = model.DefaultGLAccount,
             AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
-            AssignedCustomerCodes = assignedCustomerCodes
+            AssignedCustomerCodes = assignedCustomerCodes,
+            AssignedBusinessPartnerCode = model.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = model.AssignedCostCentreCode
         });
 
         if (!response.IsSuccessStatusCode)
@@ -330,7 +352,9 @@ public class UserManagementService : IUserManagementService
             DefaultGLAccount = model.DefaultGLAccount,
             AllowedPaymentBusinessPartners = model.AllowedPaymentBusinessPartners,
             AssignedSection = model.AssignedSection,
-            AssignedCustomerCodes = assignedCustomerCodes
+            AssignedCustomerCodes = assignedCustomerCodes,
+            AssignedBusinessPartnerCode = model.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = model.AssignedCostCentreCode
         });
 
         if (!response.IsSuccessStatusCode)
@@ -341,7 +365,8 @@ public class UserManagementService : IUserManagementService
 
     private async Task<List<string>> GetDriverAssignedCustomerCodesForRequestAsync(string role, List<string> assignedCustomerCodes)
     {
-        if (!string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(role, "PodOperator", StringComparison.OrdinalIgnoreCase))
         {
             return assignedCustomerCodes;
         }
@@ -432,34 +457,50 @@ public class UserManagementService : IUserManagementService
 
     private async Task<HttpClient> CreateAuthenticatedClientAsync()
     {
-        try
+        var client = _httpClientFactory.CreateClient("ShopInventoryApiUser");
+
+        Exception? lastException = null;
+
+        for (var attempt = 1; attempt <= AuthTokenReadAttempts; attempt++)
         {
-            var token = await _localStorage.GetItemAsync<string>("authToken");
-            if (string.IsNullOrWhiteSpace(token))
+            try
             {
-                _logger.LogWarning("Missing auth token for user management API call");
-                throw new HttpRequestException(
-                    "Authentication failed. Please log out and log in again.",
-                    null,
-                    HttpStatusCode.Unauthorized);
+                var token = await _authStateProvider.GetAccessTokenAsync();
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    lastException = new HttpRequestException(
+                        "Authentication failed. Please log out and log in again.",
+                        null,
+                        HttpStatusCode.Unauthorized);
+                }
+                else
+                {
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    return client;
+                }
+            }
+            catch (Exception ex) when (ex is not HttpRequestException)
+            {
+                lastException = ex;
+                _logger.LogDebug(ex, "Could not resolve auth token for user management API call on attempt {Attempt}", attempt);
             }
 
-            var client = _httpClientFactory.CreateClient("ShopInventoryApiUser");
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            return client;
+            if (attempt < AuthTokenReadAttempts)
+            {
+                await Task.Delay(150);
+            }
         }
-        catch (HttpRequestException)
+
+        if (lastException is HttpRequestException httpRequestException)
         {
-            throw;
+            throw httpRequestException;
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not access auth token for user management API call");
-            throw new HttpRequestException(
-                "Authentication failed. Please log out and log in again.",
-                null,
-                HttpStatusCode.Unauthorized);
-        }
+
+        _logger.LogWarning(lastException, "Could not resolve auth token for user management API call");
+        throw new HttpRequestException(
+            "Authentication failed. Please log out and log in again.",
+            null,
+            HttpStatusCode.Unauthorized);
     }
 
     private static async Task ThrowApiExceptionAsync(HttpResponseMessage response, string fallbackMessage)
@@ -469,6 +510,48 @@ public class UserManagementService : IUserManagementService
             ExtractApiErrorMessage(errorBody, response.StatusCode, fallbackMessage),
             null,
             response.StatusCode);
+    }
+
+    private static List<string> ReadStringListProperty(JsonElement root, string propertyName)
+    {
+        if (!TryGetPropertyIgnoreCase(root, propertyName, out var propertyElement) || propertyElement.ValueKind != JsonValueKind.Array)
+        {
+            return new List<string>();
+        }
+
+        return propertyElement.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool ReadBooleanProperty(JsonElement root, string propertyName)
+    {
+        return TryGetPropertyIgnoreCase(root, propertyName, out var propertyElement)
+            && (propertyElement.ValueKind == JsonValueKind.True || propertyElement.ValueKind == JsonValueKind.False)
+            && propertyElement.GetBoolean();
+    }
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement root, string propertyName, out JsonElement propertyElement)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in root.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    propertyElement = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        propertyElement = default;
+        return false;
     }
 
     private static string ExtractApiErrorMessage(

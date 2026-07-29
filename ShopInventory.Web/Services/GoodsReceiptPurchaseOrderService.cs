@@ -93,7 +93,10 @@ public class GoodsReceiptPurchaseOrderService(HttpClient httpClient, ILogger<Goo
             }
 
             logger.LogWarning("Failed to create goods receipt PO: {StatusCode} - {Content}", response.StatusCode, content);
-            throw new HttpRequestException($"API returned {(int)response.StatusCode}: {content}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                content,
+                "We couldn't create this goods receipt right now. Please try again.");
         }
         catch (HttpRequestException)
         {

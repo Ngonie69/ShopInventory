@@ -14,12 +14,15 @@ namespace ShopInventory.Web.Services;
 /// </summary>
 public interface IMasterDataCacheService
 {
-    Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false, bool includeInactive = false);
-    Task<List<ProductDto>> GetProductsAsync(bool forceRefresh = false);
+    Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(
+        bool forceRefresh = false,
+        bool includeInactive = false,
+        CancellationToken cancellationToken = default);
+    Task<List<ProductDto>> GetProductsAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<List<ProductDto>> GetProductsAsync(string warehouseCode, bool forceRefresh = false);
-    Task<List<WarehouseDto>> GetWarehousesAsync(bool forceRefresh = false);
+    Task<List<WarehouseDto>> GetWarehousesAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<List<GLAccountDto>> GetGLAccountsAsync(bool forceRefresh = false);
-    Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false);
+    Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false, CancellationToken cancellationToken = default);
     Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false);
     Task<Dictionary<string, decimal>> GetPricesByPriceListAsync(int priceListNum, bool forceRefresh = false);
     void StorePriceListPrices(int priceListNum, Dictionary<string, decimal> prices);
@@ -38,6 +41,7 @@ public interface IMasterDataCacheService
 public class MasterDataCacheService : IMasterDataCacheService
 {
     private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<MasterDataCacheService> _logger;
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILocalStorageService _localStorage;
@@ -88,12 +92,14 @@ public class MasterDataCacheService : IMasterDataCacheService
 
     public MasterDataCacheService(
         HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         ILogger<MasterDataCacheService> logger,
         IDbContextFactory<WebAppDbContext> dbContextFactory,
         ILocalStorageService localStorage,
         IAppSettingsProvider appSettings)
     {
         _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _localStorage = localStorage;
@@ -103,23 +109,25 @@ public class MasterDataCacheService : IMasterDataCacheService
     /// <summary>
     /// Ensures the HttpClient has authentication header set from localStorage
     /// </summary>
-    private async Task EnsureAuthenticationAsync()
+    private async Task EnsureAuthenticationAsync(HttpClient? client = null)
     {
+        var targetClient = client ?? _httpClient;
+
         try
         {
             var token = await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+            var currentToken = targetClient.DefaultRequestHeaders.Authorization?.Parameter;
 
             if (string.IsNullOrWhiteSpace(token))
             {
-                _httpClient.DefaultRequestHeaders.Authorization = null;
+                targetClient.DefaultRequestHeaders.Authorization = null;
                 _logger.LogWarning("No auth token found in localStorage - API calls may fail");
                 return;
             }
 
             if (!string.Equals(currentToken, token, StringComparison.Ordinal))
             {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                targetClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 _logger.LogDebug("Updated auth header from localStorage for API call");
             }
         }
@@ -224,13 +232,13 @@ public class MasterDataCacheService : IMasterDataCacheService
             var updatedCount = 0;
             var insertedCount = 0;
 
-            // Get existing products in database
-            var existingItemCodes = await db.CachedProducts
-                .Select(p => p.ItemCode)
-                .ToHashSetAsync();
+            // Load existing rows once so the refresh performs one read and one batched save,
+            // rather than issuing an UPDATE command for every product.
+            var existingProducts = (await db.CachedProducts.ToListAsync())
+                .ToDictionary(product => product.ItemCode, StringComparer.OrdinalIgnoreCase);
 
             // Track inserted codes to avoid duplicate Add for same key
-            var processedCodes = new HashSet<string>();
+            var processedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var apiProduct in apiProducts)
             {
@@ -239,21 +247,17 @@ public class MasterDataCacheService : IMasterDataCacheService
 
                 var price = priceDict.TryGetValue(apiProduct.ItemCode, out var p) ? p : 0;
 
-                if (existingItemCodes.Contains(apiProduct.ItemCode))
+                if (existingProducts.TryGetValue(apiProduct.ItemCode, out var existingProduct))
                 {
-                    // Update existing
-                    await db.CachedProducts
-                        .Where(cp => cp.ItemCode == apiProduct.ItemCode)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(cp => cp.ItemName, apiProduct.ItemName)
-                            .SetProperty(cp => cp.BarCode, apiProduct.BarCode)
-                            .SetProperty(cp => cp.ItemType, apiProduct.ItemType)
-                            .SetProperty(cp => cp.ManagesBatches, apiProduct.ManagesBatches)
-                            .SetProperty(cp => cp.Price, price)
-                            .SetProperty(cp => cp.DefaultWarehouse, apiProduct.DefaultWarehouse)
-                            .SetProperty(cp => cp.UoM, apiProduct.UoM)
-                            .SetProperty(cp => cp.LastSyncedAt, syncTime)
-                            .SetProperty(cp => cp.IsActive, true));
+                    existingProduct.ItemName = apiProduct.ItemName;
+                    existingProduct.BarCode = apiProduct.BarCode;
+                    existingProduct.ItemType = apiProduct.ItemType;
+                    existingProduct.ManagesBatches = apiProduct.ManagesBatches;
+                    existingProduct.Price = price;
+                    existingProduct.DefaultWarehouse = apiProduct.DefaultWarehouse;
+                    existingProduct.UoM = apiProduct.UoM;
+                    existingProduct.LastSyncedAt = syncTime;
+                    existingProduct.IsActive = true;
                     updatedCount++;
                 }
                 else
@@ -277,16 +281,17 @@ public class MasterDataCacheService : IMasterDataCacheService
             }
 
             // Mark products not in API as inactive
-            var apiItemCodes = apiProducts
-                .Where(p => !string.IsNullOrEmpty(p.ItemCode))
-                .Select(p => p.ItemCode!)
-                .ToHashSet();
-
-            var deactivatedCount = await db.CachedProducts
-                .Where(cp => cp.IsActive && !apiItemCodes.Contains(cp.ItemCode))
-                .ExecuteUpdateAsync(setters => setters
-                    .SetProperty(cp => cp.IsActive, false)
-                    .SetProperty(cp => cp.LastSyncedAt, syncTime));
+            var apiItemCodes = processedCodes;
+            var deactivatedCount = 0;
+            foreach (var existingProduct in existingProducts.Values)
+            {
+                if (existingProduct.IsActive && !apiItemCodes.Contains(existingProduct.ItemCode))
+                {
+                    existingProduct.IsActive = false;
+                    existingProduct.LastSyncedAt = syncTime;
+                    deactivatedCount++;
+                }
+            }
 
             await db.SaveChangesAsync();
 
@@ -312,7 +317,9 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
     }
 
-    public async Task<List<ProductDto>> GetProductsAsync(bool forceRefresh = false)
+    public async Task<List<ProductDto>> GetProductsAsync(
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
     {
         // Return from memory cache if valid
         if (!forceRefresh && _cachedProducts != null &&
@@ -323,7 +330,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(ProductsCacheKey);
-        await loadLock.WaitAsync();
+        await loadLock.WaitAsync(cancellationToken);
         try
         {
             // Double-check after acquiring lock
@@ -333,7 +340,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return _cachedProducts;
             }
 
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             // ALWAYS load from database first for quick response
             var products = await db.CachedProducts
@@ -350,7 +357,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     DefaultWarehouse = p.DefaultWarehouse,
                     UoM = p.UoM
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             // Store in memory cache immediately
             _cachedProducts = products;
@@ -540,6 +547,7 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         try
         {
+            await TriggerPriceCatalogSyncAsync();
             return await SyncPricesFromApiInternalAsync();
         }
         finally
@@ -566,7 +574,10 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             var errorContent = await httpResponse.Content.ReadAsStringAsync();
             _logger.LogError("API call failed with status {Status}: {Error}", httpResponse.StatusCode, errorContent);
-            throw new HttpRequestException($"API returned {httpResponse.StatusCode}: {errorContent}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                httpResponse.StatusCode,
+                errorContent,
+                "We couldn't load prices from the server right now.");
         }
 
         var response = await httpResponse.Content.ReadFromJsonAsync<ItemPricesResponse>();
@@ -613,6 +624,29 @@ public class MasterDataCacheService : IMasterDataCacheService
 
         _logger.LogInformation("Prices sync completed: {Count} prices saved", uniquePrices.Count);
         return uniquePrices.Count;
+    }
+
+    private async Task TriggerPriceCatalogSyncAsync()
+    {
+        _logger.LogInformation("Triggering API price catalog sync before refreshing Web price cache...");
+
+        var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
+        await EnsureAuthenticationAsync(syncClient);
+
+        var syncResponse = await syncClient.PostAsync("api/price/sync", null);
+        _logger.LogDebug("Price catalog sync response status: {Status}", syncResponse.StatusCode);
+
+        if (syncResponse.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var errorContent = await syncResponse.Content.ReadAsStringAsync();
+        _logger.LogError("Price catalog sync failed with status {Status}: {Error}", syncResponse.StatusCode, errorContent);
+        throw ApiErrorResponse.CreateHttpRequestException(
+            syncResponse.StatusCode,
+            errorContent,
+            "We couldn't sync prices from SAP right now.");
     }
 
     public async Task<List<ItemPriceDto>> GetItemPricesAsync(bool forceRefresh = false)
@@ -811,37 +845,34 @@ public class MasterDataCacheService : IMasterDataCacheService
         var updatedCount = 0;
         var insertedCount = 0;
 
-        var existingCardCodes = await db.CachedBusinessPartners
-            .Select(p => p.CardCode)
-            .ToHashSetAsync();
+        var existingPartners = (await db.CachedBusinessPartners.ToListAsync())
+            .ToDictionary(partner => partner.CardCode, StringComparer.OrdinalIgnoreCase);
 
         // Track processed codes to avoid duplicate Add for same key
-        var processedCodes = new HashSet<string>();
+        var processedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var partner in apiPartners)
         {
             if (string.IsNullOrEmpty(partner.CardCode)) continue;
             if (!processedCodes.Add(partner.CardCode)) continue; // skip duplicates from API
 
-            if (existingCardCodes.Contains(partner.CardCode))
+            if (existingPartners.TryGetValue(partner.CardCode, out var existingPartner))
             {
-                await db.CachedBusinessPartners
-                    .Where(cp => cp.CardCode == partner.CardCode)
-                    .ExecuteUpdateAsync(setters => setters
-                        .SetProperty(cp => cp.CardName, partner.CardName)
-                        .SetProperty(cp => cp.CardType, partner.CardType)
-                        .SetProperty(cp => cp.GroupCode, partner.GroupCode)
-                        .SetProperty(cp => cp.Phone1, partner.Phone1)
-                        .SetProperty(cp => cp.Phone2, partner.Phone2)
-                        .SetProperty(cp => cp.Email, partner.Email)
-                        .SetProperty(cp => cp.Address, partner.Address)
-                        .SetProperty(cp => cp.City, partner.City)
-                        .SetProperty(cp => cp.Country, partner.Country)
-                        .SetProperty(cp => cp.Currency, partner.Currency)
-                        .SetProperty(cp => cp.Balance, partner.Balance)
-                        .SetProperty(cp => cp.IsActive, partner.IsActive)
-                        .SetProperty(cp => cp.PriceListNum, partner.PriceListNum)
-                        .SetProperty(cp => cp.LastSyncedAt, syncTime));
+                existingPartner.CardName = partner.CardName;
+                existingPartner.CardType = partner.CardType;
+                existingPartner.GroupCode = partner.GroupCode;
+                existingPartner.Phone1 = partner.Phone1;
+                existingPartner.Phone2 = partner.Phone2;
+                existingPartner.Email = partner.Email;
+                existingPartner.Address = partner.Address;
+                existingPartner.City = partner.City;
+                existingPartner.Country = partner.Country;
+                existingPartner.Currency = partner.Currency;
+                existingPartner.Balance = partner.Balance;
+                existingPartner.IsActive = partner.IsActive;
+                existingPartner.PriceListNum = partner.PriceListNum;
+                existingPartner.Channel = partner.Channel;
+                existingPartner.LastSyncedAt = syncTime;
                 updatedCount++;
             }
             else
@@ -862,6 +893,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     Balance = partner.Balance,
                     IsActive = partner.IsActive,
                     PriceListNum = partner.PriceListNum,
+                    Channel = partner.Channel,
                     LastSyncedAt = syncTime
                 });
                 insertedCount++;
@@ -960,7 +992,10 @@ public class MasterDataCacheService : IMasterDataCacheService
             prices.Count, priceListNum);
     }
 
-    public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(bool forceRefresh = false, bool includeInactive = false)
+    public async Task<List<BusinessPartnerDto>> GetBusinessPartnersAsync(
+        bool forceRefresh = false,
+        bool includeInactive = false,
+        CancellationToken cancellationToken = default)
     {
         var cachedPartners = includeInactive ? _cachedAllBusinessPartners : _cachedBusinessPartners;
         var loadedAt = includeInactive ? _allBpLoadedAt : _bpLoadedAt;
@@ -974,7 +1009,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(BusinessPartnersCacheKey);
-        await loadLock.WaitAsync();
+        await loadLock.WaitAsync(cancellationToken);
         try
         {
             cachedPartners = includeInactive ? _cachedAllBusinessPartners : _cachedBusinessPartners;
@@ -987,10 +1022,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return cachedPartners;
             }
 
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             // ALWAYS load from database first for quick response
-            var partners = await LoadBusinessPartnersFromDatabaseAsync(db, includeInactive);
+            var partners = await LoadBusinessPartnersFromDatabaseAsync(db, includeInactive, cancellationToken);
 
             // Store in memory cache immediately
             CacheBusinessPartners(partners, includeInactive);
@@ -1029,7 +1064,8 @@ public class MasterDataCacheService : IMasterDataCacheService
 
     private static async Task<List<BusinessPartnerDto>> LoadBusinessPartnersFromDatabaseAsync(
         WebAppDbContext db,
-        bool includeInactive)
+        bool includeInactive,
+        CancellationToken cancellationToken = default)
     {
         IQueryable<CachedBusinessPartner> query = db.CachedBusinessPartners.AsNoTracking();
 
@@ -1055,9 +1091,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                 Currency = p.Currency,
                 Balance = p.Balance,
                 IsActive = p.IsActive,
-                PriceListNum = p.PriceListNum
+                PriceListNum = p.PriceListNum,
+                Channel = p.Channel
             })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
     }
 
     private static void CacheBusinessPartners(List<BusinessPartnerDto> partners, bool includeInactive)
@@ -1107,30 +1144,26 @@ public class MasterDataCacheService : IMasterDataCacheService
             var updatedCount = 0;
             var insertedCount = 0;
 
-            var existingCodes = await db.CachedWarehouses
-                .Select(p => p.WarehouseCode)
-                .ToHashSetAsync();
+            var existingWarehouses = (await db.CachedWarehouses.ToListAsync())
+                .ToDictionary(warehouse => warehouse.WarehouseCode, StringComparer.OrdinalIgnoreCase);
 
             // Track processed codes to avoid duplicate Add for same key
-            var processedCodes = new HashSet<string>();
+            var processedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var warehouse in apiWarehouses)
             {
                 if (string.IsNullOrEmpty(warehouse.WarehouseCode)) continue;
                 if (!processedCodes.Add(warehouse.WarehouseCode)) continue; // skip duplicates from API
 
-                if (existingCodes.Contains(warehouse.WarehouseCode))
+                if (existingWarehouses.TryGetValue(warehouse.WarehouseCode, out var existingWarehouse))
                 {
-                    await db.CachedWarehouses
-                        .Where(cp => cp.WarehouseCode == warehouse.WarehouseCode)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(cp => cp.WarehouseName, warehouse.WarehouseName)
-                            .SetProperty(cp => cp.Location, warehouse.Location)
-                            .SetProperty(cp => cp.Street, warehouse.Street)
-                            .SetProperty(cp => cp.City, warehouse.City)
-                            .SetProperty(cp => cp.Country, warehouse.Country)
-                            .SetProperty(cp => cp.IsActive, warehouse.IsActive)
-                            .SetProperty(cp => cp.LastSyncedAt, syncTime));
+                    existingWarehouse.WarehouseName = warehouse.WarehouseName;
+                    existingWarehouse.Location = warehouse.Location;
+                    existingWarehouse.Street = warehouse.Street;
+                    existingWarehouse.City = warehouse.City;
+                    existingWarehouse.Country = warehouse.Country;
+                    existingWarehouse.IsActive = warehouse.IsActive;
+                    existingWarehouse.LastSyncedAt = syncTime;
                     updatedCount++;
                 }
                 else
@@ -1172,7 +1205,9 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
     }
 
-    public async Task<List<WarehouseDto>> GetWarehousesAsync(bool forceRefresh = false)
+    public async Task<List<WarehouseDto>> GetWarehousesAsync(
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
     {
         // Return from memory cache if valid
         if (!forceRefresh && _cachedWarehouses != null &&
@@ -1183,7 +1218,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(WarehousesCacheKey);
-        await loadLock.WaitAsync();
+        await loadLock.WaitAsync(cancellationToken);
         try
         {
             // Double-check after acquiring lock
@@ -1193,7 +1228,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                 return _cachedWarehouses;
             }
 
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             // ALWAYS load from database first for quick response
             var warehouses = await db.CachedWarehouses
@@ -1209,7 +1244,7 @@ public class MasterDataCacheService : IMasterDataCacheService
                     Country = p.Country,
                     IsActive = p.IsActive
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             // Store in memory cache immediately
             _cachedWarehouses = warehouses;
@@ -1347,25 +1382,23 @@ public class MasterDataCacheService : IMasterDataCacheService
             var updatedCount = 0;
             var insertedCount = 0;
 
-            var existingCodes = await db.CachedGLAccounts
-                .Select(p => p.Code)
-                .ToHashSetAsync();
+            var existingAccounts = (await db.CachedGLAccounts.ToListAsync())
+                .ToDictionary(account => account.Code, StringComparer.OrdinalIgnoreCase);
+            var processedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var account in apiAccounts)
             {
                 if (string.IsNullOrEmpty(account.Code)) continue;
+                if (!processedCodes.Add(account.Code)) continue;
 
-                if (existingCodes.Contains(account.Code))
+                if (existingAccounts.TryGetValue(account.Code, out var existingAccount))
                 {
-                    await db.CachedGLAccounts
-                        .Where(cp => cp.Code == account.Code)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(cp => cp.Name, account.Name)
-                            .SetProperty(cp => cp.AccountType, account.AccountType)
-                            .SetProperty(cp => cp.Currency, account.Currency)
-                            .SetProperty(cp => cp.Balance, account.Balance)
-                            .SetProperty(cp => cp.IsActive, account.IsActive)
-                            .SetProperty(cp => cp.LastSyncedAt, syncTime));
+                    existingAccount.Name = account.Name;
+                    existingAccount.AccountType = account.AccountType;
+                    existingAccount.Currency = account.Currency;
+                    existingAccount.Balance = account.Balance;
+                    existingAccount.IsActive = account.IsActive;
+                    existingAccount.LastSyncedAt = syncTime;
                     updatedCount++;
                 }
                 else
@@ -1546,7 +1579,10 @@ public class MasterDataCacheService : IMasterDataCacheService
                 var errorContent = await httpResponse.Content.ReadAsStringAsync();
                 _logger.LogError("API call to costcentre failed with status {StatusCode}: {Error}",
                     httpResponse.StatusCode, errorContent);
-                throw new HttpRequestException($"API returned {httpResponse.StatusCode}: {errorContent}");
+                throw ApiErrorResponse.CreateHttpRequestException(
+                    httpResponse.StatusCode,
+                    errorContent,
+                    "We couldn't load cost centres from the server right now.");
             }
 
             // Log raw response for debugging
@@ -1573,12 +1609,11 @@ public class MasterDataCacheService : IMasterDataCacheService
             var updatedCount = 0;
             var insertedCount = 0;
 
-            var existingCodes = await db.CachedCostCentres
-                .Select(p => p.CenterCode)
-                .ToHashSetAsync();
+            var existingCostCentres = (await db.CachedCostCentres.ToListAsync())
+                .ToDictionary(costCentre => costCentre.CenterCode, StringComparer.OrdinalIgnoreCase);
 
             // Track processed codes to avoid duplicate Add for same key
-            var processedCodes = new HashSet<string>();
+            var processedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var costCentre in apiCostCentres)
             {
@@ -1593,17 +1628,14 @@ public class MasterDataCacheService : IMasterDataCacheService
                 if (!string.IsNullOrEmpty(costCentre.ValidTo) && DateTime.TryParse(costCentre.ValidTo, out var to))
                     validTo = DateTime.SpecifyKind(to, DateTimeKind.Utc);
 
-                if (existingCodes.Contains(costCentre.CenterCode))
+                if (existingCostCentres.TryGetValue(costCentre.CenterCode, out var existingCostCentre))
                 {
-                    await db.CachedCostCentres
-                        .Where(cp => cp.CenterCode == costCentre.CenterCode)
-                        .ExecuteUpdateAsync(setters => setters
-                            .SetProperty(cp => cp.CenterName, costCentre.CenterName)
-                            .SetProperty(cp => cp.Dimension, costCentre.Dimension)
-                            .SetProperty(cp => cp.IsActive, costCentre.IsActive)
-                            .SetProperty(cp => cp.ValidFrom, validFrom)
-                            .SetProperty(cp => cp.ValidTo, validTo)
-                            .SetProperty(cp => cp.LastSyncedAt, syncTime));
+                    existingCostCentre.CenterName = costCentre.CenterName;
+                    existingCostCentre.Dimension = costCentre.Dimension;
+                    existingCostCentre.IsActive = costCentre.IsActive;
+                    existingCostCentre.ValidFrom = validFrom;
+                    existingCostCentre.ValidTo = validTo;
+                    existingCostCentre.LastSyncedAt = syncTime;
                     updatedCount++;
                 }
                 else
@@ -1640,7 +1672,9 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
     }
 
-    public async Task<List<CostCentreDto>> GetCostCentresAsync(bool forceRefresh = false)
+    public async Task<List<CostCentreDto>> GetCostCentresAsync(
+        bool forceRefresh = false,
+        CancellationToken cancellationToken = default)
     {
         // Return from memory cache if valid AND has data
         // Don't return empty cache - need to try to sync
@@ -1652,7 +1686,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
 
         var loadLock = GetLoadLock(CostCentresCacheKey);
-        await loadLock.WaitAsync();
+        await loadLock.WaitAsync(cancellationToken);
         try
         {
             // Double-check after acquiring lock - also verify count > 0
@@ -1664,7 +1698,7 @@ public class MasterDataCacheService : IMasterDataCacheService
 
             _logger.LogInformation("GetCostCentresAsync: Loading cost centres from database...");
 
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             // ALWAYS load from database first for quick response
             var costCentres = await db.CachedCostCentres
@@ -1679,13 +1713,13 @@ public class MasterDataCacheService : IMasterDataCacheService
                     ValidFrom = p.ValidFrom.HasValue ? p.ValidFrom.Value.ToString("yyyy-MM-dd") : null,
                     ValidTo = p.ValidTo.HasValue ? p.ValidTo.Value.ToString("yyyy-MM-dd") : null
                 })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             // If no active cost centres found, check total count in database for diagnostics
             if (costCentres.Count == 0)
             {
-                var totalInDb = await db.CachedCostCentres.CountAsync();
-                var inactiveCount = await db.CachedCostCentres.CountAsync(c => !c.IsActive);
+                var totalInDb = await db.CachedCostCentres.CountAsync(cancellationToken);
+                var inactiveCount = await db.CachedCostCentres.CountAsync(c => !c.IsActive, cancellationToken);
                 _logger.LogWarning("No active cost centres in database. Total records: {Total}, Inactive: {Inactive}",
                     totalInDb, inactiveCount);
             }

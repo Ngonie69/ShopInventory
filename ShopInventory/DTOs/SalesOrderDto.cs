@@ -42,6 +42,7 @@ public class SalesOrderDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public int? InvoiceId { get; set; }
+    public int? InvoiceSapDocNum { get; set; }
     public bool IsSynced { get; set; }
     public string? SyncError { get; set; }
     public SalesOrderSource Source { get; set; }
@@ -73,6 +74,7 @@ public class SalesOrderLineDto
     public string? WarehouseCode { get; set; }
     public string? UoMCode { get; set; }
     public string? BatchNumber { get; set; }
+    public string? CostCentreCode { get; set; }
 }
 
 /// <summary>
@@ -90,7 +92,8 @@ public class CreateSalesOrderRequest
     public string? Comments { get; set; }
     public int? SalesPersonCode { get; set; }
     public string? SalesPersonName { get; set; }
-    public string? Currency { get; set; } = "USD";
+    [Required(ErrorMessage = "Currency is required")]
+    public string? Currency { get; set; }
     public decimal DiscountPercent { get; set; }
     public string? ShipToAddress { get; set; }
     public string? BillToAddress { get; set; }
@@ -130,6 +133,7 @@ public class CreateSalesOrderLineRequest
     public string? WarehouseCode { get; set; }
     public string? UoMCode { get; set; }
     public string? BatchNumber { get; set; }
+    public string? CostCentreCode { get; set; }
 }
 
 /// <summary>
@@ -177,6 +181,8 @@ public class CreditNoteDto
     public string StatusName => Status.ToString();
     public int? OriginalInvoiceId { get; set; }
     public int? OriginalInvoiceDocEntry { get; set; }
+    public int? OriginalInvoiceSAPDocEntry { get; set; }
+    public int? OriginalInvoiceSAPDocNum { get; set; }
     public string? Reason { get; set; }
     public string? Comments { get; set; }
     public string? Currency { get; set; }
@@ -196,6 +202,10 @@ public class CreditNoteDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsSynced { get; set; }
+    public bool? IsFiscalized { get; set; }
+    public string FiscalizationStatus { get; set; } = "Unknown";
+    public int? FiscalReceiptGlobalNo { get; set; }
+    public DateTime? FiscalizedAtUtc { get; set; }
     public List<CreditNoteLineDto> Lines { get; set; } = new();
 }
 
@@ -212,6 +222,7 @@ public class CreditNoteLineDto
     public decimal UnitPrice { get; set; }
     public decimal DiscountPercent { get; set; }
     public decimal TaxPercent { get; set; }
+    public string? TaxCode { get; set; }
     public decimal LineTotal { get; set; }
     public string? WarehouseCode { get; set; }
     public string? ReturnReason { get; set; }
@@ -248,6 +259,12 @@ public class CreateCreditNoteRequest
     public string? Currency { get; set; } = "USD";
     public bool RestockItems { get; set; } = true;
     public string? RestockWarehouseCode { get; set; }
+
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Used to deduplicate retried submissions so a duplicate credit note is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
 
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]

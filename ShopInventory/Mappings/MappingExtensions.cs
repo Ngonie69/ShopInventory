@@ -63,7 +63,11 @@ public static class MappingExtensions
             CardName = model.CardName,
             NumAtCard = model.NumAtCard,
             Comments = model.Comments,
+            DocStatus = NormalizeInvoiceStatus(model.DocStatus, model.DocumentStatus, model.Cancelled),
+            VanSaleOrderNumber = model.U_Van_saleorder,
+            IsVanSalesInvoice = !string.IsNullOrWhiteSpace(model.U_Van_saleorder),
             DocTotal = model.DocTotal,
+            PaidToDate = model.PaidToDate,
             VatSum = model.VatSum,
             DocCurrency = model.DocCurrency,
             BillToAddress = model.Address,
@@ -86,6 +90,7 @@ public static class MappingExtensions
             UnitPrice = model.UnitPrice,
             GrossPrice = model.GrossPrice,
             LineTotal = model.LineTotal,
+            TaxCode = model.TaxCode,
             WarehouseCode = model.WarehouseCode,
             DiscountPercent = model.DiscountPercent,
             UoMCode = model.UoMCode
@@ -100,22 +105,34 @@ public static class MappingExtensions
         return models.Select(m => m.ToDto()).ToList();
     }
 
+    private static string? NormalizeInvoiceStatus(string? docStatus, string? documentStatus, string? cancelled)
+    {
+        if (string.Equals(cancelled, "tYES", StringComparison.OrdinalIgnoreCase))
+            return "X";
+
+        var status = !string.IsNullOrWhiteSpace(docStatus) ? docStatus : documentStatus;
+        return status switch
+        {
+            "bost_Open" => "O",
+            "bost_Close" => "C",
+            _ => status
+        };
+    }
+
     /// <summary>
     /// Maps IncomingPayment model to DTO
     /// </summary>
     public static IncomingPaymentDto ToDto(this IncomingPayment model)
     {
-        // Calculate total from payment method sums if DocTotal is 0
-        var calculatedTotal = model.DocTotal > 0
-            ? model.DocTotal
-            : model.CashSum + model.TransferSum + model.CheckSum + model.CreditSum;
-
+        // IncomingPayment.DocTotal is composed from the four means of payment; SAP has no header
+        // total on a payment. The fallback that used to live here could not work — it added
+        // CheckSum and CreditSum, which were bound to fields SAP does not have and were always zero.
         return new IncomingPaymentDto
         {
             DocEntry = model.DocEntry,
             DocNum = model.DocNum,
             DocDate = model.DocDate,
-            DocDueDate = model.DocDueDate,
+            DocDueDate = model.DueDate,
             CardCode = model.CardCode,
             CardName = model.CardName,
             DocCurrency = model.DocCurrency,
@@ -123,7 +140,7 @@ public static class MappingExtensions
             CheckSum = model.CheckSum,
             TransferSum = model.TransferSum,
             CreditSum = model.CreditSum,
-            DocTotal = calculatedTotal,
+            DocTotal = model.DocTotal,
             Remarks = model.Remarks,
             TransferReference = model.TransferReference,
             TransferDate = model.TransferDate,

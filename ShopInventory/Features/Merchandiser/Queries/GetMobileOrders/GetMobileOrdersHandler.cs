@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.AppVersion;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -11,7 +12,8 @@ namespace ShopInventory.Features.Merchandiser.Queries.GetMobileOrders;
 
 public sealed class GetMobileOrdersHandler(
     ApplicationDbContext context,
-    IAuditService auditService
+    IAuditService auditService,
+    MobileOrderStatusCompatibilityService statusCompatibilityService
 ) : IRequestHandler<GetMobileOrdersQuery, ErrorOr<SalesOrderListResponseDto>>
 {
     public async Task<ErrorOr<SalesOrderListResponseDto>> Handle(
@@ -23,13 +25,14 @@ public sealed class GetMobileOrdersHandler(
         var fromDate = NormalizeUtcDate(request.FromDate);
         var toExclusive = NormalizeUtcDate(request.ToDate)?.AddDays(1);
         var search = NormalizeSearchValue(request.Search);
+        var useLegacyDraftStatus = statusCompatibilityService.ShouldUseLegacyDraftStatus();
 
         var query = context.SalesOrders
             .AsNoTracking()
             .Where(o => o.Source == SalesOrderSource.Mobile && o.CreatedByUserId == request.UserId);
 
         if (request.Status.HasValue)
-            query = query.Where(o => o.Status == request.Status.Value);
+            query = ApplyVisibleStatusFilter(query, request.Status.Value, useLegacyDraftStatus);
 
         if (fromDate.HasValue)
             query = query.Where(o => o.OrderDate >= fromDate.Value);
@@ -81,13 +84,18 @@ public sealed class GetMobileOrdersHandler(
                 DocTotal = o.DocTotal,
                 CreatedAt = o.CreatedAt,
                 UpdatedAt = o.UpdatedAt,
-                IsSynced = o.IsSynced,
+                IsSynced = o.IsSynced && o.SAPDocNum.HasValue && o.SAPDocNum > 0,
                 Source = o.Source,
                 MerchandiserNotes = o.MerchandiserNotes,
                 Latitude = o.Latitude,
                 Longitude = o.Longitude
             })
             .ToListAsync(cancellationToken);
+
+        foreach (var order in orders)
+        {
+            order.Status = statusCompatibilityService.GetVisibleMobileStatus(order.Status, order.IsSynced, order.SAPDocNum);
+        }
 
         var response = new SalesOrderListResponseDto
         {
@@ -113,6 +121,35 @@ public sealed class GetMobileOrdersHandler(
         }
 
         return response;
+    }
+
+    private static IQueryable<SalesOrderEntity> ApplyVisibleStatusFilter(
+        IQueryable<SalesOrderEntity> query,
+        SalesOrderStatus requestedStatus,
+        bool useLegacyDraftStatus)
+    {
+        return requestedStatus switch
+        {
+            SalesOrderStatus.Pending when !useLegacyDraftStatus => query.Where(o =>
+                o.Status == SalesOrderStatus.Pending
+                || (o.Status == SalesOrderStatus.Approved && (!o.SAPDocNum.HasValue || o.SAPDocNum <= 0))
+                || (o.Status == SalesOrderStatus.Draft && (!o.IsSynced || !o.SAPDocNum.HasValue || o.SAPDocNum <= 0))),
+
+            SalesOrderStatus.Pending => query.Where(_ => false),
+
+            SalesOrderStatus.Draft when useLegacyDraftStatus => query.Where(o =>
+                o.Status == SalesOrderStatus.Draft
+                || o.Status == SalesOrderStatus.Pending
+                || (o.Status == SalesOrderStatus.Approved && (!o.SAPDocNum.HasValue || o.SAPDocNum <= 0))),
+
+            SalesOrderStatus.Draft => query.Where(o =>
+                o.Status == SalesOrderStatus.Draft
+                && o.IsSynced
+                && o.SAPDocNum.HasValue
+                && o.SAPDocNum > 0),
+
+            _ => query.Where(o => o.Status == requestedStatus)
+        };
     }
 
     private static DateTime? NormalizeUtcDate(DateTime? value)

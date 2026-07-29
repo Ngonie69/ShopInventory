@@ -13,6 +13,7 @@ using ShopInventory.Features.IncomingPayments.Queries.GetPaymentsByDateRange;
 using ShopInventory.Features.IncomingPayments.Queries.GetQueueStatus;
 using ShopInventory.Features.IncomingPayments.Queries.GetTodaysPayments;
 using System.Security.Claims;
+using ShopInventory.Middleware;
 
 namespace ShopInventory.Controllers;
 
@@ -35,6 +36,11 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
         [FromBody] CreateIncomingPaymentRequest request,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(request.ClientRequestId) && Request.Headers.TryGetValue("Idempotency-Key", out var idempotencyValues))
+        {
+            request.ClientRequestId = idempotencyValues.FirstOrDefault();
+        }
+
         var result = await mediator.Send(new CreateIncomingPaymentCommand(request, GetUserId()), cancellationToken);
         return result.Match(
             value =>
@@ -73,7 +79,7 @@ public class IncomingPaymentController(IMediator mediator) : ApiControllerBase
     [HttpPost("{docEntry:int}/attachment")]
     [ProducesResponseType(typeof(DocumentAttachmentDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
-    [RequestSizeLimit(20 * 1024 * 1024)]
+    [MaxRequestBodySize(20 * 1024 * 1024)]
     public async Task<IActionResult> UploadAttachment(
         int docEntry,
         IFormFile file,

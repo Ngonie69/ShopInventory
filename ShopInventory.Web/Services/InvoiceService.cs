@@ -6,14 +6,15 @@ namespace ShopInventory.Web.Services;
 
 public interface IInvoiceService
 {
-    Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
+    Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null);
     Task<InvoiceDto?> GetInvoiceByDocEntryAsync(int docEntry);
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
+    Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry);
     Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null);
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
     Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request);
-    Task<byte[]?> GetInvoicePdfAsync(int docEntry);
+    Task<byte[]?> GetInvoicePdfAsync(int docEntry, string? fiscalQrCode = null);
 }
 
 public class InvoiceService : IInvoiceService
@@ -27,7 +28,7 @@ public class InvoiceService : IInvoiceService
         _logger = logger;
     }
 
-    public async Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null)
+    public async Task<InvoiceListResponse?> GetInvoicesAsync(int page = 1, int pageSize = 20, int? docNum = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, bool? vanSalesOnly = null)
     {
         try
         {
@@ -40,12 +41,15 @@ public class InvoiceService : IInvoiceService
                 queryParams.Add($"fromDate={fromDate.Value:yyyy-MM-dd}");
             if (toDate.HasValue)
                 queryParams.Add($"toDate={toDate.Value:yyyy-MM-dd}");
+            if (vanSalesOnly.HasValue)
+                queryParams.Add($"vanSalesOnly={vanSalesOnly.Value.ToString().ToLowerInvariant()}");
 
             var url = $"api/invoice/paged?{string.Join("&", queryParams)}";
             return await _httpClient.GetFromJsonAsync<InvoiceListResponse>(url);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Error fetching invoices for customer {CardCode}", cardCode);
             return null;
         }
     }
@@ -64,13 +68,66 @@ public class InvoiceService : IInvoiceService
 
     public async Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum)
     {
-        try
-        {
-            return await _httpClient.GetFromJsonAsync<InvoiceDto>($"api/invoice/by-docnum/{docNum}");
-        }
-        catch
+        using var response = await _httpClient.GetAsync($"api/invoice/by-docnum/{docNum}");
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning(
+                "Invoice lookup failed for DocNum {DocNum}. Status: {StatusCode}, Response: {ErrorContent}",
+                docNum,
+                (int)response.StatusCode,
+                ApiErrorResponse.SanitizeForLog(errorContent));
+
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorContent,
+                $"Could not look up invoice #{docNum}.");
+        }
+
+        return await response.Content.ReadFromJsonAsync<InvoiceDto>();
+    }
+
+    public async Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync($"api/invoice/{docEntry}/fiscalize", null);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<FiscalizationResult>()
+                    ?? new FiscalizationResult
+                    {
+                        Success = false,
+                        Message = "The server returned an empty fiscalization response."
+                    };
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError(
+                "Invoice fiscalization failed for DocEntry {DocEntry}. Status: {StatusCode}, Response: {ErrorContent}",
+                docEntry,
+                response.StatusCode,
+                ApiErrorResponse.SanitizeForLog(errorContent));
+
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                errorContent,
+                "Failed to fiscalise invoice.");
+        }
+        catch (HttpRequestException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error fiscalizing invoice {DocEntry}", docEntry);
+            throw;
         }
     }
 
@@ -143,17 +200,23 @@ public class InvoiceService : IInvoiceService
             _logger.LogInformation("Sending invoice creation request for customer {CardCode} with {LineCount} lines",
                 request.CardCode, request.Lines.Count);
 
-            // Log the full request as JSON for debugging
-            var requestJson = System.Text.Json.JsonSerializer.Serialize(request, new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-            });
-            _logger.LogDebug("Invoice request payload:\n{RequestJson}", requestJson);
+            _logger.LogDebug(
+                "Invoice request summary: Customer={CardCode}, Lines={LineCount}, Currency={Currency}, AutoAllocateBatches=true, AllocationStrategy=FEFO",
+                request.CardCode,
+                request.Lines.Count,
+                request.DocCurrency);
 
             // Use auto-allocation with FEFO (First Expiry First Out) strategy
             // This ensures batches are automatically selected based on expiry dates
-            var response = await _httpClient.PostAsJsonAsync("api/invoice?autoAllocateBatches=true&allocationStrategy=FEFO", request);
+            var clientRequestId = EnsureClientRequestId(request);
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/invoice?autoAllocateBatches=true&allocationStrategy=FEFO")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+            var response = await _httpClient.SendAsync(httpRequest);
 
             _logger.LogInformation("Invoice API response: {StatusCode}", response.StatusCode);
 
@@ -167,7 +230,7 @@ public class InvoiceService : IInvoiceService
 
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogError("Invoice creation failed. Status: {StatusCode}, Response:\n{ErrorContent}",
-                response.StatusCode, errorContent);
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
             try
             {
@@ -178,56 +241,48 @@ public class InvoiceService : IInvoiceService
                     return (false, friendlyBatchError, null, null);
                 }
 
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                var errorMessage = errorResponse?.Message ?? "Failed to create invoice";
-
-                // If there are multiple errors, join them
-                if (errorResponse?.Errors?.Any() == true)
-                {
-                    errorMessage = string.Join("; ", errorResponse.Errors);
-                }
-
-                // Check for SAP-specific error structure
-                if (errorContent.Contains("\"error\""))
-                {
-                    // Try to extract SAP error message
-                    using var doc = System.Text.Json.JsonDocument.Parse(errorContent);
-                    if (doc.RootElement.TryGetProperty("error", out var errorProp))
-                    {
-                        if (errorProp.TryGetProperty("message", out var msgProp))
-                        {
-                            if (msgProp.TryGetProperty("value", out var valueProp))
-                            {
-                                errorMessage = valueProp.GetString() ?? errorMessage;
-                            }
-                            else if (msgProp.ValueKind == System.Text.Json.JsonValueKind.String)
-                            {
-                                errorMessage = msgProp.GetString() ?? errorMessage;
-                            }
-                        }
-                    }
-                }
+                var errorMessage = ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "Failed to create invoice");
 
                 return (false, errorMessage, null, null);
             }
             catch (Exception parseEx)
             {
                 _logger.LogWarning(parseEx, "Failed to parse error response");
-                return (false, $"Failed to create invoice: {response.StatusCode} - {errorContent}", null, null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't create this invoice right now. Please try again."), null, null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error creating invoice. Status: {StatusCode}", httpEx.StatusCode);
-            return (false, $"Network error: {httpEx.Message}", null, null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't create this invoice right now. Please try again."), null, null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating invoice");
-            return (false, $"Error: {ex.Message}", null, null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't create this invoice right now. Please try again."), null, null);
         }
+    }
+
+    private static string EnsureClientRequestId(CreateInvoiceRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
     }
 
     /// <summary>
@@ -300,11 +355,17 @@ public class InvoiceService : IInvoiceService
         }
     }
 
-    public async Task<byte[]?> GetInvoicePdfAsync(int docEntry)
+    public async Task<byte[]?> GetInvoicePdfAsync(int docEntry, string? fiscalQrCode = null)
     {
         try
         {
-            var response = await _httpClient.GetAsync($"api/invoice/{docEntry}/pdf");
+            var url = $"api/invoice/{docEntry}/pdf";
+            if (!string.IsNullOrWhiteSpace(fiscalQrCode))
+            {
+                url = $"{url}?fiscalQrCode={Uri.EscapeDataString(fiscalQrCode)}";
+            }
+
+            var response = await _httpClient.GetAsync(url);
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadAsByteArrayAsync();

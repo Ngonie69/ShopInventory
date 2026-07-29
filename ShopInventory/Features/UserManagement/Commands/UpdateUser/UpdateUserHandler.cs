@@ -1,10 +1,13 @@
+using System.Security.Claims;
 using System.Text.Json;
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using ShopInventory.Common.Errors;
 using ShopInventory.Common.Extensions;
+using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.UserManagement;
@@ -15,6 +18,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UpdateUser;
 
 public sealed class UpdateUserHandler(
     ApplicationDbContext context,
+    IHttpContextAccessor httpContextAccessor,
     IMemoryCache memoryCache,
     IAuditService auditService,
     IBusinessPartnerService businessPartnerService,
@@ -24,27 +28,27 @@ public sealed class UpdateUserHandler(
 {
     private const string EffectivePermissionsCacheKeyPrefix = "user-permissions:";
 
-    private static readonly string[] ValidRoles =
-    [
-        "Admin",
-        "Manager",
-        "User",
-        "ReadOnly",
-        "Cashier",
-        "StockController",
-        "DepotController",
-        "PodOperator",
-        "Driver",
-        "Merchandiser",
-        "SalesRep",
-        "MerchandiserPurchaseOrderViewer",
-        "Lab"
-    ];
-
     public async Task<ErrorOr<Success>> Handle(
         UpdateUserCommand command,
         CancellationToken cancellationToken)
     {
+        var currentUserId = UserClaimReader.GetUserId(httpContextAccessor.HttpContext?.User);
+        if (currentUserId is null)
+        {
+            return Errors.UserManagement.Unauthenticated;
+        }
+
+        var currentUser = await context.Users
+            .AsNoTracking()
+            .Where(current => current.Id == currentUserId.Value)
+            .Select(current => new { current.Role, current.IsActive })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (currentUser is null || !currentUser.IsActive)
+        {
+            return Errors.UserManagement.Unauthenticated;
+        }
+
         var user = await context.Users
             .AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == command.Id, cancellationToken);
@@ -61,6 +65,24 @@ public sealed class UpdateUserHandler(
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        if (string.Equals(currentUser.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase))
+        {
+            var requestedRole = string.IsNullOrWhiteSpace(command.Request.Role)
+                ? user.Role
+                : command.Request.Role;
+
+            if (!string.Equals(currentRole, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(requestedRole, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
+            }
+
+            if (command.Request.Permissions is { Count: > 0 })
+            {
+                return Errors.UserManagement.PodOperatorCannotAssignCustomPermissionsOnUpdate;
+            }
+        }
 
         if (command.Request.Username != null)
         {
@@ -109,17 +131,17 @@ public sealed class UpdateUserHandler(
 
         if (!string.IsNullOrWhiteSpace(command.Request.Role))
         {
-            if (!ValidRoles.Contains(command.Request.Role))
+            if (!ApplicationRoles.CanAssignOrRetainManagedRole(command.Request.Role, user.Role))
             {
-                return Errors.UserManagement.UpdateFailed($"Invalid role. Valid roles: {string.Join(", ", ValidRoles)}");
+                return Errors.UserManagement.UpdateFailed($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
             }
 
-            user.Role = command.Request.Role;
+            user.Role = command.Request.Role.Trim();
         }
 
         if (command.Request.AssignedWarehouseCodes != null)
         {
-            if (user.Role == "StockController" || user.Role == "DepotController" || user.Role == "Merchandiser")
+            if (ApplicationRoles.SupportsWarehouseAssignments(user.Role))
                 user.SetWarehouseCodes(command.Request.AssignedWarehouseCodes);
             else
                 user.SetWarehouseCodes(null);
@@ -127,7 +149,7 @@ public sealed class UpdateUserHandler(
 
         if (command.Request.AssignedCustomerCodes != null)
         {
-            if (user.Role == "Merchandiser" || user.Role == "Driver")
+            if (ApplicationRoles.SupportsCustomerAssignments(user.Role))
             {
                 logger.LogInformation("Setting customer codes for {User}: {Codes}", user.Username, string.Join(",", command.Request.AssignedCustomerCodes));
                 user.SetCustomerCodes(command.Request.AssignedCustomerCodes);
@@ -139,10 +161,21 @@ public sealed class UpdateUserHandler(
             }
         }
 
-        if (user.Role == "Driver")
+        if (ApplicationRoles.RequiresAssignedSection(user.Role))
             user.AssignedSection = command.Request.AssignedSection;
         else
             user.AssignedSection = null;
+
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(user.Role))
+        {
+            user.AssignedBusinessPartnerCode = command.Request.AssignedBusinessPartnerCode?.Trim();
+            user.AssignedCostCentreCode = command.Request.AssignedCostCentreCode?.Trim();
+        }
+        else
+        {
+            user.AssignedBusinessPartnerCode = null;
+            user.AssignedCostCentreCode = null;
+        }
 
         if (command.Request.AllowedPaymentMethods != null)
         {
@@ -161,24 +194,37 @@ public sealed class UpdateUserHandler(
             user.SetAllowedPaymentBusinessPartners(command.Request.AllowedPaymentBusinessPartners);
         }
 
-        if ((user.Role == "StockController" || user.Role == "DepotController") && user.GetWarehouseCodes().Count == 0)
+        if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
         }
 
-        if (user.Role == "Merchandiser" && user.GetCustomerCodes().Count == 0)
+        if (ApplicationRoles.RequiresCustomerAssignments(user.Role) && user.GetCustomerCodes().Count == 0)
         {
-            return Errors.UserManagement.UpdateFailed("At least one assigned customer code is required for Merchandiser role");
+            return Errors.UserManagement.UpdateFailed($"At least one assigned customer code is required for {user.Role} role");
         }
 
-        if (user.Role == "Driver" && string.IsNullOrWhiteSpace(user.AssignedSection))
+        if (ApplicationRoles.RequiresAssignedSection(user.Role) && string.IsNullOrWhiteSpace(user.AssignedSection))
         {
-            return Errors.UserManagement.UpdateFailed("An assigned section is required for Driver role");
+            return Errors.UserManagement.UpdateFailed($"An assigned section is required for {user.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(user.Role) &&
+            string.IsNullOrWhiteSpace(user.AssignedBusinessPartnerCode))
+        {
+            return Errors.UserManagement.UpdateFailed($"An assigned business partner code is required for {user.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresAssignedCostCentreCode(user.Role) &&
+            string.IsNullOrWhiteSpace(user.AssignedCostCentreCode))
+        {
+            return Errors.UserManagement.UpdateFailed($"An assigned cost centre code is required for {user.Role} role");
         }
 
         var shouldNotifyCustomerAssignmentChanges = command.Request.AssignedCustomerCodes != null &&
-            (string.Equals(user.Role, "Merchandiser", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(user.Role, "Driver", StringComparison.OrdinalIgnoreCase));
+            (string.Equals(user.Role, ApplicationRoles.Merchandiser, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(user.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase));
 
         var updatedAssignedCustomerCodes = user.GetCustomerCodes()
             .Where(code => !string.IsNullOrWhiteSpace(code))
@@ -235,6 +281,8 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedWarehouseCodes, user.AssignedWarehouseCodes)
                 .SetProperty(x => x.AssignedCustomerCodes, user.AssignedCustomerCodes)
                 .SetProperty(x => x.AssignedSection, user.AssignedSection)
+                .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
+                .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.Permissions, user.Permissions)
                 .SetProperty(x => x.AllowedPaymentMethods, user.AllowedPaymentMethods)
                 .SetProperty(x => x.DefaultGLAccount, user.DefaultGLAccount)

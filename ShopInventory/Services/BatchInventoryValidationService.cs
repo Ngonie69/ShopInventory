@@ -20,6 +20,12 @@ public interface IReservedQuantityProvider
     /// Gets the reserved quantity for a specific batch.
     /// </summary>
     Task<decimal> GetReservedBatchQuantityAsync(string itemCode, string warehouseCode, string batchNumber, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -143,6 +149,25 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             return 0;
 
         return await _reservedQuantityProvider.GetReservedBatchQuantityAsync(itemCode, warehouseCode, batchNumber, cancellationToken);
+    }
+
+    private Task<IReadOnlyDictionary<string, decimal>> GetReservedBatchQuantitiesInternalAsync(
+        string itemCode,
+        string warehouseCode,
+        IEnumerable<string> batchNumbers,
+        CancellationToken cancellationToken)
+    {
+        if (_reservedQuantityProvider == null)
+        {
+            return Task.FromResult<IReadOnlyDictionary<string, decimal>>(
+                new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        return _reservedQuantityProvider.GetReservedBatchQuantitiesAsync(
+            itemCode,
+            warehouseCode,
+            batchNumbers,
+            cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -271,6 +296,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                     LineNumber = lineNumber,
                     ItemCode = line.ItemCode ?? "",
                     WarehouseCode = line.WarehouseCode,
+                    IsBatchManaged = false,
                     OriginalRequestedQuantity = line.Quantity,
                     TotalQuantityAllocated = stockCheck.inventoryQuantity,
                     UoMConversionFactor = stockCheck.conversionFactor,
@@ -298,24 +324,24 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 return result;
             }
 
-            // Auto-allocate batches using FIFO/FEFO
-            var autoAllocationResult = await AutoAllocateBatchesAsync(
+            var uomInfo = await GetUoMConversionAsync(
                 line.ItemCode ?? "",
-                line.WarehouseCode,
-                line.Quantity,
                 line.UoMCode,
-                strategy,
-                lineNumber,
+                null,
                 cancellationToken);
+            var conversionFactor = uomInfo?.ConversionFactor ?? 1.0m;
 
-            if (autoAllocationResult.error != null)
+            result.AllocatedLine = new AllocatedBatchLine
             {
-                result.Errors.Add(autoAllocationResult.error);
-            }
-            else if (autoAllocationResult.allocatedLine != null)
-            {
-                result.AllocatedLine = autoAllocationResult.allocatedLine;
-            }
+                LineNumber = lineNumber,
+                ItemCode = line.ItemCode ?? "",
+                WarehouseCode = line.WarehouseCode,
+                IsBatchManaged = true,
+                OriginalRequestedQuantity = line.Quantity,
+                TotalQuantityAllocated = line.Quantity * conversionFactor,
+                UoMConversionFactor = conversionFactor,
+                Batches = new List<AllocatedBatch>()
+            };
         }
         else
         {
@@ -397,7 +423,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         CancellationToken cancellationToken)
     {
         var nonBatchGroups = result.AllocatedLines
-            .Where(line => line.Batches.Count == 0)
+            .Where(line => !line.IsBatchManaged)
             .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
 
         foreach (var nonBatchGroup in nonBatchGroups)
@@ -412,8 +438,12 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             try
             {
-                var stockQuantities = await _sapClient.GetStockQuantitiesInWarehouseAsync(
+                // Groups are already one per (item, warehouse), so this asks for the single item it
+                // is about. It used to scan OITM/OITW for the whole warehouse and page 500 rows at
+                // a time to pick one row out of the result — once per group.
+                var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
                     warehouseCode,
+                    [itemCode],
                     cancellationToken);
 
                 var stock = stockQuantities.FirstOrDefault(stockItem =>
@@ -481,7 +511,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         CancellationToken cancellationToken)
     {
         var batchGroups = result.AllocatedLines
-            .Where(line => line.Batches.Count > 0)
+            .Where(line => line.IsBatchManaged)
             .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
 
         foreach (var batchGroup in batchGroups)
@@ -497,6 +527,14 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 warehouseCode,
                 strategy,
                 cancellationToken);
+            var reservedQuantities = await GetReservedBatchQuantitiesInternalAsync(
+                itemCode,
+                warehouseCode,
+                availableBatches
+                    .Select(batch => batch.BatchNumber)
+                    .Where(batchNumber => !string.IsNullOrWhiteSpace(batchNumber))
+                    .Select(batchNumber => batchNumber!),
+                cancellationToken);
 
             var availabilityStates = new List<BatchAvailabilityState>();
             var availabilityByBatch = new Dictionary<string, BatchAvailabilityState>(StringComparer.OrdinalIgnoreCase);
@@ -506,11 +544,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 if (string.IsNullOrWhiteSpace(batch.BatchNumber))
                     continue;
 
-                var reservedQuantity = await GetReservedBatchQuantityInternalAsync(
-                    itemCode,
-                    warehouseCode,
-                    batch.BatchNumber,
-                    cancellationToken);
+                var reservedQuantity = reservedQuantities.GetValueOrDefault(batch.BatchNumber);
                 var effectiveAvailable = Math.Max(0, batch.AvailableQuantity - reservedQuantity);
                 var state = new BatchAvailabilityState
                 {
@@ -893,6 +927,17 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
         try
         {
+            if (previouslyAllocatedBatches is { Count: > 0 })
+            {
+                response.IsValid = true;
+                response.Message = "Stock validation successful";
+                response.AllocatedBatches = previouslyAllocatedBatches;
+                response.LockToken = lockResult.CombinedLockToken;
+                response.LockTokens = lockResult.LockTokens;
+                response.LockExpiresAt = lockResult.EarliestExpiry;
+                return response;
+            }
+
             // Re-validate stock with locks held
             var validationResult = await ValidateAndAllocateBatchesAsync(
                 request,
@@ -902,6 +947,11 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
 
             if (!validationResult.IsValid)
             {
+                if (lockResult.LockTokens.Count > 0)
+                {
+                    await _lockService.ReleaseMultipleLocksAsync(lockResult.LockTokens);
+                }
+
                 response.IsValid = false;
                 response.Message = "Stock validation failed during pre-post check";
                 response.Errors = validationResult.ValidationErrors;
@@ -926,6 +976,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             response.Message = "Stock validation successful";
             response.AllocatedBatches = validationResult.AllocatedLines;
             response.LockToken = lockResult.CombinedLockToken;
+            response.LockTokens = lockResult.LockTokens;
             response.LockExpiresAt = lockResult.EarliestExpiry;
 
             // Note: Locks will be held until invoice is posted or lock expires
@@ -1158,6 +1209,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             LineNumber = lineNumber,
             ItemCode = itemCode,
             WarehouseCode = warehouseCode,
+            IsBatchManaged = true,
             OriginalRequestedQuantity = requestedQuantity,
             TotalQuantityAllocated = inventoryQuantityNeeded,
             UoMConversionFactor = conversionFactor,
@@ -1298,6 +1350,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
             LineNumber = lineNumber,
             ItemCode = line.ItemCode ?? "",
             WarehouseCode = line.WarehouseCode ?? "",
+            IsBatchManaged = true,
             OriginalRequestedQuantity = line.Quantity,
             TotalQuantityAllocated = expectedInventoryQty,
             UoMConversionFactor = conversionFactor,
@@ -1324,8 +1377,10 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         // Get available quantity from SAP
         try
         {
-            var stockQuantities = await _sapClient.GetStockQuantitiesInWarehouseAsync(
-                warehouseCode, cancellationToken);
+            // One item, asked for by name — this is called per line, and used to scan the whole
+            // warehouse each time.
+            var stockQuantities = await _sapClient.GetStockQuantitiesForItemsInWarehouseAsync(
+                warehouseCode, [itemCode], cancellationToken);
 
             var stock = stockQuantities?.FirstOrDefault(s =>
                 string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase));

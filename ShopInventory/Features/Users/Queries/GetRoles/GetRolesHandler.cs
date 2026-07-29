@@ -1,5 +1,6 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Models;
 
 namespace ShopInventory.Features.Users.Queries.GetRoles;
 
@@ -10,20 +11,7 @@ public sealed class GetRolesHandler
         GetRolesQuery query,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<string> roles = new List<string>
-        {
-            "Admin",
-            "Manager",
-            "Cashier",
-            "StockController",
-            "DepotController",
-            "PodOperator",
-            "Driver",
-            "Merchandiser",
-            "SalesRep",
-            "MerchandiserPurchaseOrderViewer",
-            "Lab"
-        };
+        IReadOnlyList<string> roles = ApplicationRoles.AssignableRoles;
         ErrorOr<IReadOnlyList<string>> result = ErrorOrFactory.From(roles);
         return Task.FromResult(result);
     }

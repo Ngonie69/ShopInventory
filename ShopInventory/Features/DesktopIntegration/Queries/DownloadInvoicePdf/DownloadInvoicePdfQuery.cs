@@ -9,5 +9,6 @@ public sealed record InvoicePdfResult(
 );
 
 public sealed record DownloadInvoicePdfQuery(
-    int DocEntry
+    int DocEntry,
+    string? FiscalQrCode = null
 ) : IRequest<ErrorOr<InvoicePdfResult>>;

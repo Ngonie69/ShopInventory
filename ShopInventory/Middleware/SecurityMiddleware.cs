@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Mvc;
+using ShopInventory.Common.ProblemDetails;
 
 namespace ShopInventory.Middleware;
 
@@ -183,7 +185,12 @@ public class RequestValidationMiddleware
         "/api/auth/login",     // login credentials
         "/api/auth/register",  // registration passwords
         "/api/password/",      // self-service password change/reset
-        "/api/customerportal/auth" // customer portal login/password
+        "/api/customerportal/auth", // customer portal login/password
+        // FCM tokens are opaque, high-entropy credentials that can legitimately contain
+        // substrings such as "--" or "sp_". The endpoint is authenticated and its DTO applies
+        // an explicit token-character allowlist, so generic SQL-pattern scanning is harmful here.
+        "/api/pushnotification/register",
+        "/api/pushnotification/unregister"
     };
 
     // Headers to check for injection
@@ -360,8 +367,11 @@ public class RequestValidationMiddleware
 
     private static async Task RejectRequest(HttpContext context)
     {
-        context.Response.StatusCode = StatusCodes.Status400BadRequest;
-        await context.Response.WriteAsJsonAsync(new { message = "Invalid request" });
+        await SecurityProblemDetailsWriter.WriteAsync(
+            context,
+            StatusCodes.Status400BadRequest,
+            "Invalid request.",
+            "The request was rejected by request validation.");
     }
 }
 
@@ -432,18 +442,21 @@ public class FileUploadValidationMiddleware
                 {
                     _logger.LogWarning("File upload rejected: size {Size} exceeds limit from IP {Ip}",
                         file.Length, ip);
-                    context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-                    await context.Response.WriteAsJsonAsync(new
-                    {
-                        message = $"File size exceeds the maximum allowed size of {MaxFileSize / (1024 * 1024)} MB"
-                    });
+                    await SecurityProblemDetailsWriter.WriteAsync(
+                        context,
+                        StatusCodes.Status413PayloadTooLarge,
+                        "Uploaded file is too large.",
+                        $"File size exceeds the maximum allowed size of {MaxFileSize / (1024 * 1024)} MB.");
                     return;
                 }
 
                 if (file.Length == 0)
                 {
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsJsonAsync(new { message = "Empty files are not allowed" });
+                    await SecurityProblemDetailsWriter.WriteAsync(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        "Invalid file upload.",
+                        "Empty files are not allowed.");
                     return;
                 }
 
@@ -453,8 +466,11 @@ public class FileUploadValidationMiddleware
                 {
                     _logger.LogWarning("File upload rejected: invalid filename '{FileName}' from IP {Ip}",
                         file.FileName, ip);
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsJsonAsync(new { message = "Invalid filename" });
+                    await SecurityProblemDetailsWriter.WriteAsync(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        "Invalid file upload.",
+                        "Invalid filename.");
                     return;
                 }
 
@@ -464,11 +480,11 @@ public class FileUploadValidationMiddleware
                 {
                     _logger.LogWarning("File upload rejected: extension '{Ext}' not allowed from IP {Ip}",
                         extension, ip);
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsJsonAsync(new
-                    {
-                        message = $"File type '{extension}' is not allowed. Allowed types: {string.Join(", ", AllowedExtensions)}"
-                    });
+                    await SecurityProblemDetailsWriter.WriteAsync(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        "Invalid file upload.",
+                        $"File type '{extension}' is not allowed. Allowed types: {string.Join(", ", AllowedExtensions)}.");
                     return;
                 }
 
@@ -478,8 +494,11 @@ public class FileUploadValidationMiddleware
                 {
                     _logger.LogWarning("File upload rejected: dangerous extension detected in '{FileName}' from IP {Ip}",
                         fileName, ip);
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsJsonAsync(new { message = "File type not allowed" });
+                    await SecurityProblemDetailsWriter.WriteAsync(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        "Invalid file upload.",
+                        "File type not allowed.");
                     return;
                 }
 
@@ -496,11 +515,11 @@ public class FileUploadValidationMiddleware
                         _logger.LogWarning(
                             "File upload rejected: magic bytes mismatch for '{FileName}' (claimed {Ext}) from IP {Ip}",
                             fileName, extension, ip);
-                        context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                        await context.Response.WriteAsJsonAsync(new
-                        {
-                            message = "File content does not match the declared file type"
-                        });
+                        await SecurityProblemDetailsWriter.WriteAsync(
+                            context,
+                            StatusCodes.Status400BadRequest,
+                            "Invalid file upload.",
+                            "File content does not match the declared file type.");
                         return;
                     }
                 }
@@ -528,6 +547,22 @@ public class FileUploadValidationMiddleware
 /// <summary>
 /// Middleware to enforce request size limits and prevent payload-based DoS.
 /// </summary>
+/// <summary>
+/// Declares a per-endpoint request body size limit that <see cref="RequestSizeLimitMiddleware"/>
+/// enforces. Unlike the built-in [RequestSizeLimit] attribute, this is metadata only — it does
+/// not register an MVC resource filter, so it avoids the "IHttpRequestBodySizeFeature ... is
+/// read-only" warning that filter logs on every request under IIS in-process hosting (where the
+/// server body-size feature cannot be set per request). Hard enforcement of the overall ceiling
+/// is done at the server level (IIS/Kestrel MaxRequestBodySize, configured in Program.cs).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+public sealed class MaxRequestBodySizeAttribute : Attribute, IRequestSizeLimitMetadata
+{
+    public MaxRequestBodySizeAttribute(long maxRequestBodySize) => MaxRequestBodySize = maxRequestBodySize;
+
+    public long? MaxRequestBodySize { get; }
+}
+
 public class RequestSizeLimitMiddleware
 {
     private readonly RequestDelegate _next;
@@ -555,12 +590,41 @@ public class RequestSizeLimitMiddleware
             var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             _logger.LogWarning("Request size {Size} exceeds limit {Limit} from IP {Ip}",
                 contentLength, maxSize, ip);
-            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-            await context.Response.WriteAsJsonAsync(new { message = "Request body too large" });
+            await SecurityProblemDetailsWriter.WriteAsync(
+                context,
+                StatusCodes.Status413PayloadTooLarge,
+                "Request body too large.",
+                "Request body too large.");
             return;
         }
 
         await _next(context);
+    }
+}
+
+internal static class SecurityProblemDetailsWriter
+{
+    public static ValueTask<bool> WriteAsync(
+        HttpContext context,
+        int statusCode,
+        string title,
+        string detail)
+    {
+        var problemDetailsService = context.RequestServices.GetRequiredService<IProblemDetailsService>();
+        var problemDetails = new ProblemDetails
+        {
+            Status = statusCode,
+            Title = title,
+            Type = ProblemDetailsDefaults.GetType(statusCode),
+            Detail = detail
+        };
+
+        return ProblemDetailsDefaults.WriteAsync(
+            problemDetailsService,
+            context,
+            null,
+            problemDetails,
+            context.RequestAborted);
     }
 }
 

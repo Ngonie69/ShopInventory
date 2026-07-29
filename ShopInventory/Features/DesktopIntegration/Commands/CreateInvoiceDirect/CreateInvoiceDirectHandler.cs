@@ -48,6 +48,7 @@ public sealed class CreateInvoiceDirectHandler(
                     UnitPrice = l.UnitPrice ?? 0,
                     TaxCode = l.TaxCode,
                     DiscountPercent = l.DiscountPercent ?? 0,
+                    CostCentreCode = l.CostCentreCode,
                     BatchNumbers = l.BatchNumbers?.Select(b => new ReservationBatchRequest
                     {
                         BatchNumber = b.BatchNumber,
@@ -61,7 +62,35 @@ public sealed class CreateInvoiceDirectHandler(
                 reservationRequest, command.CreatedBy, cancellationToken);
 
             if (!reservationResult.Success)
+            {
+                var existingReservation = await reservationService.GetReservationByExternalReferenceAsync(
+                    externalRef,
+                    cancellationToken);
+
+                if (existingReservation != null
+                    && string.Equals(existingReservation.Status, ReservationStatus.Confirmed, StringComparison.OrdinalIgnoreCase)
+                    && existingReservation.SAPDocEntry.HasValue
+                    && existingReservation.SAPDocNum.HasValue)
+                {
+                    logger.LogInformation(
+                        "Reusing confirmed reservation {ReservationId} for duplicate invoice request {ExternalRef}. SAP DocEntry={DocEntry}, DocNum={DocNum}",
+                        existingReservation.ReservationId,
+                        externalRef,
+                        existingReservation.SAPDocEntry.Value,
+                        existingReservation.SAPDocNum.Value);
+
+                    return new ConfirmReservationResponseDto
+                    {
+                        Success = true,
+                        Message = "Invoice already exists for this external reference",
+                        ReservationId = existingReservation.ReservationId,
+                        SAPDocEntry = existingReservation.SAPDocEntry,
+                        SAPDocNum = existingReservation.SAPDocNum
+                    };
+                }
+
                 return Errors.DesktopIntegration.ReservationFailed(reservationResult.Message ?? "Reservation failed");
+            }
 
             if (sapCircuitBreakerState.IsOpen)
             {

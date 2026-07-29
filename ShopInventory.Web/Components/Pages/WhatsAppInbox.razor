@@ -1,0 +1,1423 @@
+@page "/whatsapp-inbox"
+@implements IAsyncDisposable
+@inject IWhatsAppAdminService WhatsAppService
+@inject ILogger<WhatsAppInbox> Logger
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+
+<PageTitle>WhatsApp Inbox - Shop Inventory</PageTitle>
+
+<div class="page-shell wa-inbox-shell">
+    <section class="wa-inbox-hero">
+        <div>
+            <div class="wa-inbox-kicker"><i class="bi bi-whatsapp"></i>OpenWA Workspace</div>
+            <h2 class="mb-2">WhatsApp Operator Console</h2>
+            <p class="wa-inbox-subtitle">Run the OpenWA session from inside Shop Inventory, scan QR codes when the
+                gateway needs authentication, and work active WhatsApp threads with live refresh and reply controls.</p>
+            </div>
+            <div class="wa-inbox-hero-actions">
+                <button class="btn btn-outline-success" type="button" @onclick="ToggleAutoRefresh">
+                    <i class="bi bi-broadcast me-1"></i>@(autoRefreshEnabled ? "Auto Refresh On" : "Auto Refresh Off")
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="ClearSearchAsync"
+                        disabled="@isRefreshing">
+                    <i class="bi bi-x-circle me-1"></i>Clear Search
+                </button>
+                <button class="btn btn-primary" type="button" @onclick="RefreshAsync" disabled="@isRefreshing">
+                    @if (isRefreshing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(actionErrorMessage))
+        {
+            <div class="alert alert-danger d-flex align-items-center justify-content-between flex-wrap gap-3 mb-4">
+                <div>
+                    <strong class="d-block mb-1">WhatsApp action failed</strong>
+                    <span>@actionErrorMessage</span>
+                </div>
+                <button class="btn btn-outline-danger" type="button" @onclick="RefreshAsync">Retry</button>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(actionInfoMessage))
+        {
+            <div class="alert alert-info mb-4">
+                <strong class="d-block mb-1">Operator update</strong>
+                <span>@actionInfoMessage</span>
+            </div>
+        }
+
+        <div class="row g-4 mb-4">
+            <div class="col-xl-4">
+                <section class="wa-inbox-panel">
+                    <div class="wa-inbox-panel-head">
+                        <h3 class="wa-inbox-panel-title">Gateway Health</h3>
+                        <span class="wa-inbox-status-pill @HealthStatusClass">@HealthStatusLabel</span>
+                    </div>
+
+                    <div class="wa-inbox-meta-grid">
+                        <div class="wa-inbox-meta-item">
+                            <span class="wa-inbox-meta-label">Host</span>
+                            <span class="wa-inbox-meta-value">@(health?.BaseUrl ?? "Not configured")</span>
+                        </div>
+                        <div class="wa-inbox-meta-item">
+                            <span class="wa-inbox-meta-label">Health Path</span>
+                            <span class="wa-inbox-meta-value">@(health?.SourcePath ?? "n/a")</span>
+                        </div>
+                        <div class="wa-inbox-meta-item">
+                            <span class="wa-inbox-meta-label">Version</span>
+                            <span class="wa-inbox-meta-value">@(health?.Version ?? "Unknown")</span>
+                        </div>
+                        <div class="wa-inbox-meta-item">
+                            <span class="wa-inbox-meta-label">Checked (CAT)</span>
+                            <span class="wa-inbox-meta-value">@FormatCatTimestamp(health?.CheckedAtUtc)</span>
+                        </div>
+                        <div class="wa-inbox-meta-item">
+                            <span class="wa-inbox-meta-label">Reported (CAT)</span>
+                            <span class="wa-inbox-meta-value">@FormatCatTimestamp(health?.ReportedAtUtc)</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="col-xl-4">
+                <section class="wa-inbox-panel">
+                    <div class="wa-inbox-panel-head">
+                        <h3 class="wa-inbox-panel-title">Session Console</h3>
+                        <span class="wa-inbox-status-pill @SelectedSessionStatusClass">@SelectedSessionStatusLabel</span>
+                    </div>
+
+                    <form class="wa-inbox-create-form" @onsubmit="CreateSessionFromConsoleAsync"
+                          @onsubmit:preventDefault="true">
+                        <label class="wa-inbox-field-label" for="wa-create-session">New Session Name</label>
+                        <input id="wa-create-session" class="form-control wa-inbox-text-input" type="text"
+                               maxlength="50" placeholder="e.g. shopinventory-admin" @bind="createSessionName"
+                               @bind:event="oninput"
+                               disabled="@(isRefreshing || isSessionActionRunning || isCreatingSession)" />
+                        <div class="wa-inbox-create-btns">
+                            <button class="btn btn-primary" type="submit" disabled="@(!CanCreateSession)">
+                                @if (isCreatingSession)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                Create
+                            </button>
+                            <button class="btn btn-success" type="button"
+                                    @onclick="CreateAndStartSessionFromConsoleAsync" disabled="@(!CanCreateSession)">
+                                @if (isCreatingSession)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <i class="bi bi-play-fill me-1"></i>Create + Start
+                            </button>
+                        </div>
+                        <div class="wa-inbox-form-help">3–50 characters: letters, numbers, and hyphens only.</div>
+                        @if (!string.IsNullOrWhiteSpace(createSessionValidationMessage))
+                        {
+                            <div class="wa-inbox-form-help is-error">@createSessionValidationMessage</div>
+                        }
+                    </form>
+
+                    @if (sessions.Count == 0)
+                    {
+                        <p class="wa-inbox-empty-body mb-0">No OpenWA sessions are available yet. Create one here, or use Create
+                            + Start to jump straight into QR authentication.</p>
+                        }
+                else
+                        {
+                            <label class="wa-inbox-field-label" for="wa-session-select">Active Session</label>
+                            <select id="wa-session-select" class="form-select wa-inbox-select" value="@selectedSessionId"
+                                    @onchange="OnSessionChangedAsync"
+                                    disabled="@(isRefreshing || isSessionActionRunning || isCreatingSession)">
+                                @foreach (var session in sessions.OrderBy(session => session.Name,
+                            StringComparer.OrdinalIgnoreCase))
+                                {
+                                    <option value="@session.Id">@session.Name (@FormatStatusLabel(session.Status))</option>
+                                }
+                            </select>
+
+                            <div class="wa-inbox-action-row">
+                                <button class="btn btn-success" type="button" @onclick="StartSelectedSessionAsync"
+                                        disabled="@(!CanStartSelectedSession || isRefreshing || isSessionActionRunning)">
+                                    @if (isSessionActionRunning)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                    }
+                                    Start
+                                </button>
+                                <button class="btn btn-outline-danger" type="button" @onclick="StopSelectedSessionAsync"
+                                        disabled="@(!CanStopSelectedSession || isRefreshing || isSessionActionRunning)">
+                                    Stop
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" @onclick="RefreshSelectedSessionQrAsync"
+                                        disabled="@(SelectedSession is null || isRefreshing || isQrLoading)">
+                                    @if (isQrLoading)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                    }
+                                    QR
+                                </button>
+                            </div>
+
+                            <div class="wa-inbox-meta-grid">
+                                <div class="wa-inbox-meta-item">
+                                    <span class="wa-inbox-meta-label">Phone</span>
+                                    <span class="wa-inbox-meta-value">@(SelectedSession?.Phone ?? "Not linked")</span>
+                                </div>
+                                <div class="wa-inbox-meta-item">
+                                    <span class="wa-inbox-meta-label">Profile Name</span>
+                                    <span class="wa-inbox-meta-value">@(SelectedSession?.PushName ?? "Unknown")</span>
+                                </div>
+                                <div class="wa-inbox-meta-item">
+                                    <span class="wa-inbox-meta-label">Connected (CAT)</span>
+                                    <span class="wa-inbox-meta-value">@FormatCatTimestamp(SelectedSession?.ConnectedAt)</span>
+                                </div>
+                                <div class="wa-inbox-meta-item">
+                                    <span class="wa-inbox-meta-label">Last Active (CAT)</span>
+                                    <span class="wa-inbox-meta-value">@FormatCatTimestamp(SelectedSession?.LastActive)</span>
+                                </div>
+                                <div class="wa-inbox-meta-item">
+                                    <span class="wa-inbox-meta-label">Updated (CAT)</span>
+                                    <span class="wa-inbox-meta-value">@FormatCatTimestamp(SelectedSession?.UpdatedAt)</span>
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(selectedSessionQr?.QrCode))
+                            {
+                                <div class="wa-inbox-qr-card">
+                                    <img class="wa-inbox-qr-image" src="@selectedSessionQr.QrCode" alt="WhatsApp session QR code" />
+                                    <div class="wa-inbox-qr-caption">Scan from WhatsApp &gt; Linked devices to authenticate this
+                                        session.</div>
+                                    </div>
+                                }
+                    else
+                                {
+                                    <div class="wa-inbox-note">@qrStatusMessage</div>
+                                }
+                            }
+                        </section>
+                    </div>
+
+                    <div class="col-xl-4">
+                        <section class="wa-inbox-panel">
+                            <div class="wa-inbox-panel-head">
+                                <h3 class="wa-inbox-panel-title">Inbox Snapshot</h3>
+                                <span class="wa-inbox-page-summary">Page @currentPage of @TotalPages</span>
+                            </div>
+
+                            <div class="wa-inbox-stat-grid">
+                                <div class="wa-inbox-stat-card">
+                                    <span>Total Captured</span>
+                                    <strong>@inbox.TotalCount</strong>
+                                </div>
+                                <div class="wa-inbox-stat-card">
+                                    <span>Connected Sessions</span>
+                                    <strong>@(health?.ConnectedSessions?.ToString() ?? "0")</strong>
+                                </div>
+                                <div class="wa-inbox-stat-card">
+                                    <span>Unread Threads</span>
+                                    <strong>@UnreadThreadCount</strong>
+                                </div>
+                                <div class="wa-inbox-stat-card">
+                                    <span>Latest Received (CAT)</span>
+                                    <strong>@LatestReceivedLabel</strong>
+                                </div>
+                            </div>
+
+                            <form class="wa-inbox-toolbar" @onsubmit="ApplySearchAsync" @onsubmit:preventDefault="true">
+                                <input class="wa-inbox-search" type="search"
+                                       placeholder="Search by sender, session, message id, event or body" @bind="searchTerm"
+                                       @bind:event="oninput" />
+                                <button class="btn btn-primary" type="submit" disabled="@isRefreshing">
+                                    <i class="bi bi-search me-1"></i>Search
+                                </button>
+                            </form>
+                        </section>
+                    </div>
+                </div>
+
+                @if (isLoading)
+                {
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-muted mb-0">Loading the WhatsApp workspace...</p>
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(errorMessage))
+                {
+                    <div class="alert alert-danger d-flex align-items-center justify-content-between flex-wrap gap-3">
+                        <div>
+                            <strong class="d-block mb-1">Unable to load the WhatsApp workspace</strong>
+                            <span>@errorMessage</span>
+                        </div>
+                        <button class="btn btn-outline-danger" type="button" @onclick="RefreshAsync">Retry</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="wa-inbox-workspace">
+                        <aside class="wa-inbox-thread-column">
+                            <section class="wa-inbox-panel wa-inbox-thread-panel">
+                                <div class="wa-inbox-panel-head">
+                                    <h3 class="wa-inbox-panel-title">Grouped Threads</h3>
+                                    <span class="wa-inbox-page-summary">@UnreadThreadCount unread</span>
+                                </div>
+
+                                @if (threadOrder.Count == 0)
+                                {
+                                    <div class="wa-inbox-empty">
+                                        <h3 class="mb-2">No threads captured yet</h3>
+                                        <p class="mb-0 text-muted">Incoming and outbound WhatsApp messages will appear here after the first webhook is captured. You can still send a first message from the panel on the right.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="wa-inbox-thread-list">
+                                        @foreach (var threadKey in threadOrder)
+                                        {
+                                            var unreadCount = GetThreadUnreadCount(threadKey);
+                                            <button
+                                                class="wa-inbox-thread-item @(threadKey == selectedThreadKey ? "is-selected" : string.Empty)"
+                                                type="button" @onclick="() => SelectThreadAsync(threadKey)">
+                                                <div class="wa-inbox-thread-item-head">
+                                                    <strong>@GetThreadLabel(threadKey)</strong>
+                                                    <span class="wa-inbox-thread-time">@GetThreadLatestLabel(threadKey)</span>
+                                                </div>
+                                                <div class="wa-inbox-thread-meta">
+                                                    <span>@(GetThreadSessionName(threadKey) ?? "default")</span>
+                                                    @if (unreadCount > 0)
+                                                    {
+                                                        <span class="wa-inbox-unread-badge">@unreadCount</span>
+                                                    }
+                                                </div>
+                                                <p class="wa-inbox-thread-preview">@GetThreadPreview(threadKey)</p>
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </section>
+                        </aside>
+
+                        <section class="wa-inbox-conversation-column">
+                            <section class="wa-inbox-panel wa-inbox-conversation-panel">
+                                @if (SelectedThreadMessages.Count == 0)
+                                {
+                                    <div class="wa-inbox-empty">
+                                        <h3 class="mb-2">Start an outbound chat</h3>
+                                        <p class="mb-0 text-muted">Select a captured thread to continue an existing conversation, or enter a phone number below to send the first message.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="wa-inbox-conversation-head">
+                                        <div>
+                                            <div class="wa-inbox-conversation-title">@GetSelectedThreadLabel()</div>
+                                            <div class="wa-inbox-conversation-subtitle">
+                                                <span><i class="bi bi-chat-square-text me-1"></i>@(GetSelectedThreadChatId() ?? "No chat id")</span>
+                                                <span><i class="bi bi-diagram-3 me-1"></i>@(GetSelectedThreadSessionName() ?? "default")</span>
+                                            </div>
+                                        </div>
+                                        <div class="wa-inbox-card-badges">
+                                            <span class="wa-inbox-status-pill @SelectedSessionStatusClass">@SelectedSessionStatusLabel</span>
+                                        </div>
+                                    </div>
+
+                                    @if (IsReplying)
+                                    {
+                                        <div class="wa-inbox-reply-banner">
+                                            <div>
+                                                <div class="wa-inbox-reply-title">Replying to @replyToSenderLabel</div>
+                                                <div class="wa-inbox-reply-preview">@replyPreviewText</div>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-secondary" type="button"
+                                                    @onclick="ClearReplyContext">Cancel</button>
+                                        </div>
+                                    }
+
+                                    <div class="wa-inbox-message-list">
+                                        @foreach (var message in SelectedThreadMessages)
+                                        {
+                                            <article class="wa-inbox-message-bubble @(message.IsFromMe ? "is-self" : "is-other")">
+                                                <div class="wa-inbox-message-head">
+                                                    <div>
+                                                        <div class="wa-inbox-message-sender">@GetSenderLabel(message)</div>
+                                                        <div class="wa-inbox-message-time">@FormatCatTimestamp(message.OccurredAtUtc ?? message.ReceivedAtUtc)</div>
+                                                    </div>
+
+                                                    <div class="wa-inbox-card-badges">
+                                                        <span class="wa-inbox-event-pill">@message.EventType</span>
+                                                        <span class="wa-inbox-direction-pill @(message.IsFromMe ? "is-outbound" : "is-inbound")">@message.Direction</span>
+                                                        @if (CanReplyTo(message))
+                                                        {
+                                                            <button class="btn btn-sm btn-outline-secondary" type="button"
+                                                                    @onclick="() => BeginReply(message)">
+                                                                Reply
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                </div>
+
+                                                @if (string.IsNullOrWhiteSpace(message.TextBody))
+                                                {
+                                                    <p class="wa-inbox-preview wa-inbox-empty-body">No text body was extracted from this event. Open the raw payload for the full webhook content.</p>
+                                                }
+                                                else
+                                                {
+                                                    <p class="wa-inbox-preview">@message.TextBody</p>
+                                                }
+
+                                                <div class="wa-inbox-message-meta">
+                                                    <span><i class="bi bi-hash me-1"></i>@(message.MessageId ?? "No message id")</span>
+                                                    <span><i class="bi bi-broadcast me-1"></i>@(message.MessageType ?? "Unknown type")</span>
+                                                    <span><i class="bi bi-activity me-1"></i>@(message.Status ?? "No status")</span>
+                                                    <span><i class="bi bi-box-arrow-in-down me-1"></i>Captured @FormatCatTimestamp(message.ReceivedAtUtc)</span>
+                                                </div>
+
+                                                <details class="wa-inbox-raw">
+                                                    <summary>Raw payload</summary>
+                                                    <pre>@message.RawPayload</pre>
+                                                </details>
+                                            </article>
+                                        }
+                                    </div>
+                                }
+
+                                <form class="wa-inbox-compose" @onsubmit="SendComposeAsync" @onsubmit:preventDefault="true">
+                                    <div>
+                                        <label class="wa-inbox-field-label" for="wa-compose-recipient">Recipient Number or Chat ID</label>
+                                        <input id="wa-compose-recipient" class="form-control wa-inbox-text-input" type="text"
+                                               inputmode="tel" autocomplete="off"
+                                               placeholder="Leave blank to use the selected thread, or enter 263772123456"
+                                               @bind="composeRecipient" @bind:event="oninput"
+                                               disabled="@(isSending || IsReplying)" />
+                                        <div class="wa-inbox-form-help">@(IsReplying
+                                                ? "Reply target comes from the selected message thread."
+                                                : "Leave this blank to use the selected thread, or enter a phone number / full chat id to start a new chat.")</div>
+                                    </div>
+                                    <textarea class="wa-inbox-compose-input" rows="4" placeholder="@ComposePlaceholder"
+                                              @bind="composeText"></textarea>
+                                    <div class="wa-inbox-compose-actions">
+                                        <span class="wa-inbox-compose-hint">@ComposeHintLabel</span>
+                                        <div class="wa-inbox-hero-actions">
+                                            @if (IsReplying)
+                                            {
+                                                <button class="btn btn-outline-secondary" type="button" @onclick="ClearReplyContext">
+                                                    Clear Reply
+                                                </button>
+                                            }
+                                            <button class="btn btn-success" type="submit" disabled="@(!CanSendCompose || isSending)">
+                                                @if (isSending)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                                }
+                                                @(IsReplying ? "Send Reply" : "Send Message")
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </section>
+                        </section>
+                    </div>
+
+                    @if (inbox.TotalCount > 0)
+                    {
+                        <div class="wa-inbox-pagination">
+                            <button class="btn btn-outline-secondary" type="button" @onclick="PreviousPageAsync"
+                                    disabled="@(currentPage <= 1 || isRefreshing)">
+                                <i class="bi bi-arrow-left me-1"></i>Newer
+                            </button>
+                            <div class="wa-inbox-page-summary">Showing @inbox.Messages.Count of @inbox.TotalCount captured events</div>
+                            <button class="btn btn-outline-secondary" type="button" @onclick="NextPageAsync"
+                                    disabled="@(currentPage >= TotalPages || isRefreshing)">
+                                Older<i class="bi bi-arrow-right ms-1"></i>
+                            </button>
+                        </div>
+                    }
+                }
+                                    </div>
+
+@code {
+    private const int PageSize = 100;
+    private static readonly TimeSpan AutoRefreshInterval = TimeSpan.FromSeconds(15);
+
+    private readonly HashSet<int> trackedMessageIds = [];
+    private readonly HashSet<int> unreadMessageIds = [];
+
+    private bool isLoading = true;
+    private bool isRefreshing;
+    private bool isSending;
+    private bool isQrLoading;
+    private bool isSessionActionRunning;
+    private bool isCreatingSession;
+    private bool autoRefreshEnabled = true;
+
+    private string? errorMessage;
+    private string? actionErrorMessage;
+    private string? actionInfoMessage;
+    private string? createSessionValidationMessage;
+    private string? selectedSessionId;
+    private string? selectedThreadKey;
+    private string? replyToMessageId;
+    private string? replyToSenderLabel;
+    private string? replyPreviewText;
+    private string? qrStatusMessage = "Select a session to load the current authentication state.";
+    private string searchTerm = string.Empty;
+    private string createSessionName = string.Empty;
+    private string composeRecipient = string.Empty;
+    private string composeText = string.Empty;
+    private int currentPage = 1;
+
+    private PeriodicTimer? autoRefreshTimer;
+    private CancellationTokenSource? autoRefreshCancellationTokenSource;
+    private Task? autoRefreshTask;
+
+    private WhatsAppHealthModel? health;
+    private WhatsAppQrCodeModel? selectedSessionQr;
+    private WhatsAppInboxResponseModel inbox = new() { Page = 1, PageSize = PageSize };
+    private List<WhatsAppSessionModel> sessions = [];
+    private Dictionary<string, List<WhatsAppInboxItemModel>> threadMap = new(StringComparer.Ordinal);
+    private List<string> threadOrder = [];
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(inbox.TotalCount / (double)Math.Max(inbox.PageSize, 1)));
+
+    private WhatsAppSessionModel? SelectedSession => sessions.FirstOrDefault(session => session.Id == selectedSessionId);
+
+    private IReadOnlyList<WhatsAppInboxItemModel> SelectedThreadMessages =>
+        !string.IsNullOrWhiteSpace(selectedThreadKey) && threadMap.TryGetValue(selectedThreadKey, out var messages)
+            ? messages
+            : Array.Empty<WhatsAppInboxItemModel>();
+
+    private int UnreadThreadCount => threadOrder.Count(threadKey => GetThreadUnreadCount(threadKey) > 0);
+
+    private string HealthStatusLabel => FormatStatusLabel(health?.Status);
+
+    private string HealthStatusClass => GetStatusClass(health?.Status);
+
+    private string SelectedSessionStatusLabel => FormatStatusLabel(SelectedSession?.Status);
+
+    private string SelectedSessionStatusClass => GetStatusClass(SelectedSession?.Status);
+
+    private string LatestReceivedLabel => inbox.Messages.Count == 0
+        ? "None"
+        : FormatCatTimestamp(inbox.Messages.Max(message => message.ReceivedAtUtc));
+
+    private bool IsReplying => !string.IsNullOrWhiteSpace(replyToMessageId);
+
+    private bool CanStartSelectedSession => SelectedSession is not null && IsStartableStatus(SelectedSession.Status);
+
+    private bool CanStopSelectedSession => SelectedSession is not null && IsStoppableStatus(SelectedSession.Status);
+
+    private bool CanCreateSession => !isRefreshing
+        && !isSessionActionRunning
+        && !isCreatingSession
+        && ValidateSessionName(createSessionName) is null;
+
+    private bool CanSendCompose => !isSending
+        && SelectedSession is not null
+        && string.Equals(SelectedSession.Status, "ready", StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(ResolveComposeChatId(out _))
+        && !string.IsNullOrWhiteSpace(composeText);
+
+    private string ComposePlaceholder => SelectedSession is null
+        ? "Choose an OpenWA session before sending."
+        : IsReplying
+            ? "Type a WhatsApp reply..."
+            : !string.IsNullOrWhiteSpace(composeRecipient)
+                ? "Type the first WhatsApp message for this recipient..."
+                : SelectedThreadMessages.Count == 0
+                    ? "Enter a phone number above or select a thread to start sending"
+                    : "Type a WhatsApp message...";
+
+    private string ComposeHintLabel
+    {
+        get
+        {
+            if (SelectedSession is null)
+            {
+                return "Choose an OpenWA session.";
+            }
+
+            if (!string.Equals(SelectedSession.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Session must be ready before sending.";
+            }
+
+            var chatId = ResolveComposeChatId(out var validationMessage);
+            if (string.IsNullOrWhiteSpace(chatId))
+            {
+                return validationMessage ?? "Select a thread or enter a phone number.";
+            }
+
+            if (IsReplying)
+            {
+                return $"Reply will send to {chatId}.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(composeRecipient))
+            {
+                return $"New chat will send to {chatId}.";
+            }
+
+            return autoRefreshEnabled
+                ? $"Selected thread will send to {chatId}. Live refresh every {AutoRefreshInterval.TotalSeconds:0} seconds."
+                : $"Selected thread will send to {chatId}.";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync(resetTracker: true);
+        StartAutoRefreshLoop();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        autoRefreshCancellationTokenSource?.Cancel();
+        autoRefreshTimer?.Dispose();
+
+        if (autoRefreshTask is not null)
+        {
+            try
+            {
+                await autoRefreshTask;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        autoRefreshCancellationTokenSource?.Dispose();
+    }
+
+    private async Task RefreshAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task ApplySearchAsync()
+    {
+        currentPage = 1;
+        await LoadAsync(resetTracker: true);
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            return;
+        }
+
+        searchTerm = string.Empty;
+        currentPage = 1;
+        await LoadAsync(resetTracker: true);
+    }
+
+    private async Task PreviousPageAsync()
+    {
+        if (currentPage <= 1)
+        {
+            return;
+        }
+
+        currentPage--;
+        await LoadAsync(resetTracker: true);
+    }
+
+    private async Task NextPageAsync()
+    {
+        if (currentPage >= TotalPages)
+        {
+            return;
+        }
+
+        currentPage++;
+        await LoadAsync(resetTracker: true);
+    }
+
+    private void ToggleAutoRefresh()
+    {
+        autoRefreshEnabled = !autoRefreshEnabled;
+    }
+
+    private async Task OnSessionChangedAsync(ChangeEventArgs args)
+    {
+        selectedSessionId = args.Value?.ToString();
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+        createSessionValidationMessage = null;
+        ClearReplyContext();
+        await TryLoadSelectedSessionQrAsync();
+    }
+
+    private async Task CreateSessionFromConsoleAsync()
+    {
+        await CreateSessionInternalAsync(startAfterCreate: false);
+    }
+
+    private async Task CreateAndStartSessionFromConsoleAsync()
+    {
+        await CreateSessionInternalAsync(startAfterCreate: true);
+    }
+
+    private async Task CreateSessionInternalAsync(bool startAfterCreate)
+    {
+        if (isCreatingSession)
+        {
+            return;
+        }
+
+        var validationError = ValidateSessionName(createSessionName);
+        if (!string.IsNullOrWhiteSpace(validationError))
+        {
+            createSessionValidationMessage = validationError;
+            return;
+        }
+
+        var trimmedSessionName = createSessionName.Trim();
+        isCreatingSession = true;
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+        createSessionValidationMessage = null;
+
+        try
+        {
+            var session = await WhatsAppService.CreateSessionAsync(trimmedSessionName);
+            createSessionName = string.Empty;
+            selectedSessionId = session.Id;
+
+            if (!startAfterCreate)
+            {
+                actionInfoMessage = $"Session {session.Name} was created. Start it to request a QR code.";
+                await LoadAsync();
+                return;
+            }
+
+            try
+            {
+                var startedSession = await WhatsAppService.StartSessionAsync(session.Id);
+                selectedSessionId = startedSession.Id;
+                actionInfoMessage = $"Session {startedSession.Name} was created and started. Use QR when the session reaches QR READY.";
+            }
+            catch (Exception startEx)
+            {
+                Logger.LogWarning(startEx, "Failed to start newly created WhatsApp session {SessionId}", session.Id);
+                actionErrorMessage = $"Session {session.Name} was created, but starting it failed. {startEx.Message}";
+            }
+
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to create WhatsApp session {SessionName}", trimmedSessionName);
+            actionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isCreatingSession = false;
+        }
+    }
+
+    private async Task StartSelectedSessionAsync()
+    {
+        if (SelectedSession is null || isSessionActionRunning)
+        {
+            return;
+        }
+
+        isSessionActionRunning = true;
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+
+        try
+        {
+            await WhatsAppService.StartSessionAsync(SelectedSession.Id);
+            actionInfoMessage = $"Session {SelectedSession.Name} start was sent to OpenWA.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to start WhatsApp session {SessionId}", SelectedSession.Id);
+            actionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSessionActionRunning = false;
+        }
+    }
+
+    private async Task StopSelectedSessionAsync()
+    {
+        if (SelectedSession is null || isSessionActionRunning)
+        {
+            return;
+        }
+
+        isSessionActionRunning = true;
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+
+        try
+        {
+            await WhatsAppService.StopSessionAsync(SelectedSession.Id);
+            actionInfoMessage = $"Session {SelectedSession.Name} stop was sent to OpenWA.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to stop WhatsApp session {SessionId}", SelectedSession.Id);
+            actionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSessionActionRunning = false;
+        }
+    }
+
+    private async Task RefreshSelectedSessionQrAsync()
+    {
+        await TryLoadSelectedSessionQrAsync();
+    }
+
+    private async Task SelectThreadAsync(string threadKey)
+    {
+        selectedThreadKey = threadKey;
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+        ClearReplyContext();
+        TrySelectSessionForThread(threadKey);
+        MarkSelectedThreadAsRead();
+        await TryLoadSelectedSessionQrAsync();
+    }
+
+    private void BeginReply(WhatsAppInboxItemModel message)
+    {
+        replyToMessageId = message.MessageId;
+        replyToSenderLabel = GetSenderLabel(message);
+        replyPreviewText = string.IsNullOrWhiteSpace(message.TextBody)
+            ? "Replying to a captured WhatsApp event"
+            : message.TextBody.Length <= 120
+                ? message.TextBody
+                : $"{message.TextBody[..117]}...";
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+    }
+
+    private void ClearReplyContext()
+    {
+        replyToMessageId = null;
+        replyToSenderLabel = null;
+        replyPreviewText = null;
+    }
+
+    private async Task SendComposeAsync()
+    {
+        var selectedSession = SelectedSession;
+        var chatId = ResolveComposeChatId(out _);
+        if (!CanSendCompose || selectedSession is null || string.IsNullOrWhiteSpace(chatId))
+        {
+            return;
+        }
+
+        var trimmedText = composeText.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedText))
+        {
+            return;
+        }
+
+        isSending = true;
+        actionErrorMessage = null;
+        actionInfoMessage = null;
+        var wasReply = IsReplying;
+        var usedManualRecipient = !wasReply && !string.IsNullOrWhiteSpace(composeRecipient);
+
+        try
+        {
+            if (wasReply && !string.IsNullOrWhiteSpace(replyToMessageId))
+            {
+                await WhatsAppService.ReplyAsync(selectedSession.Id, chatId, replyToMessageId, trimmedText);
+            }
+            else
+            {
+                await WhatsAppService.SendTextAsync(selectedSession.Id, chatId, trimmedText);
+            }
+
+            composeText = string.Empty;
+            ClearReplyContext();
+            actionInfoMessage = wasReply
+                ? "Reply submitted to OpenWA. It will appear here after the webhook is captured."
+                : usedManualRecipient
+                    ? $"Message to {chatId} was submitted to OpenWA. It will appear here after the webhook is captured."
+                    : "Message submitted to OpenWA. It will appear here after the webhook is captured.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to send WhatsApp message for session {SessionId}", selectedSession.Id);
+            actionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isSending = false;
+        }
+    }
+
+    private string? ResolveComposeChatId(out string? validationMessage)
+    {
+        validationMessage = null;
+
+        if (IsReplying)
+        {
+            var replyChatId = GetSelectedThreadChatId();
+            if (!string.IsNullOrWhiteSpace(replyChatId))
+            {
+                return replyChatId;
+            }
+
+            validationMessage = "The selected reply target is missing a chat id.";
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(composeRecipient))
+        {
+            return NormalizeComposeRecipient(composeRecipient, out validationMessage);
+        }
+
+        var threadChatId = GetSelectedThreadChatId();
+        if (!string.IsNullOrWhiteSpace(threadChatId))
+        {
+            return threadChatId;
+        }
+
+        validationMessage = "Select a thread or enter a phone number.";
+        return null;
+    }
+
+    private static string? NormalizeComposeRecipient(string value, out string? validationMessage)
+    {
+        validationMessage = null;
+        var trimmedValue = value.Trim();
+
+        if (string.IsNullOrWhiteSpace(trimmedValue))
+        {
+            validationMessage = "Enter a phone number or chat id.";
+            return null;
+        }
+
+        if (TryNormalizeFullChatId(trimmedValue, out var normalizedChatId))
+        {
+            return normalizedChatId;
+        }
+
+        var digits = ExtractDigits(trimmedValue);
+        if (string.IsNullOrWhiteSpace(digits))
+        {
+            validationMessage = "Use digits only for phone numbers, or a full chat id ending in @c.us or @g.us.";
+            return null;
+        }
+
+        if (digits.Length < 10 || digits.Length > 15)
+        {
+            validationMessage = "Phone numbers must contain 10 to 15 digits.";
+            return null;
+        }
+
+        return $"{digits}@c.us";
+    }
+
+    private static bool TryNormalizeFullChatId(string value, out string? normalizedChatId)
+    {
+        normalizedChatId = null;
+
+        var lowerValue = value.ToLowerInvariant();
+        if (!lowerValue.EndsWith("@c.us", StringComparison.Ordinal)
+            && !lowerValue.EndsWith("@g.us", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var atIndex = value.IndexOf('@');
+        if (atIndex <= 0)
+        {
+            return false;
+        }
+
+        var idPart = value[..atIndex];
+        foreach (var character in idPart)
+        {
+            if (!char.IsDigit(character))
+            {
+                return false;
+            }
+        }
+
+        normalizedChatId = $"{idPart}{lowerValue[atIndex..]}";
+        return true;
+    }
+
+    private static string ExtractDigits(string value)
+    {
+        var digits = new char[value.Length];
+        var count = 0;
+
+        foreach (var character in value)
+        {
+            if (char.IsDigit(character))
+            {
+                digits[count++] = character;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(character) || character is '+' or '-' or '(' or ')')
+            {
+                continue;
+            }
+
+            return string.Empty;
+        }
+
+        return new string(digits, 0, count);
+    }
+
+    private async Task LoadAsync(bool resetTracker = false)
+    {
+        if (isRefreshing)
+        {
+            return;
+        }
+
+        isRefreshing = true;
+        errorMessage = null;
+
+        try
+        {
+            health = await WhatsAppService.GetHealthAsync();
+
+            string? loadWarningMessage = null;
+
+            try
+            {
+                sessions = await WhatsAppService.GetSessionsAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to load WhatsApp sessions");
+                sessions = [];
+                loadWarningMessage = ex.Message;
+            }
+
+            try
+            {
+                inbox = await WhatsAppService.GetInboxAsync(currentPage, PageSize, searchTerm);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to load WhatsApp inbox items");
+                inbox = new WhatsAppInboxResponseModel
+                {
+                    Page = currentPage,
+                    PageSize = PageSize
+                };
+
+                loadWarningMessage ??= ex.Message;
+            }
+
+            if (!string.IsNullOrWhiteSpace(loadWarningMessage) && string.IsNullOrWhiteSpace(actionErrorMessage))
+            {
+                actionErrorMessage = loadWarningMessage;
+            }
+
+            SynchronizeSelectedSession();
+            UpdateUnreadTracking(resetTracker || currentPage != 1);
+            RebuildThreads();
+            await TryLoadSelectedSessionQrAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load WhatsApp inbox page");
+            errorMessage = ex.Message;
+            sessions = [];
+            threadMap.Clear();
+            threadOrder = [];
+            selectedSessionId = null;
+            selectedThreadKey = null;
+            selectedSessionQr = null;
+            qrStatusMessage = "Unable to load the session QR state right now.";
+            inbox = new WhatsAppInboxResponseModel
+            {
+                Page = currentPage,
+                PageSize = PageSize
+            };
+        }
+        finally
+        {
+            isLoading = false;
+            isRefreshing = false;
+        }
+    }
+
+    private async Task TryLoadSelectedSessionQrAsync()
+    {
+        var selectedSession = SelectedSession;
+        selectedSessionQr = null;
+
+        if (selectedSession is null)
+        {
+            qrStatusMessage = sessions.Count == 0
+                ? "Create a session to begin linking WhatsApp."
+                : "Select a session to load the current authentication state.";
+            return;
+        }
+
+        if (string.Equals(selectedSession.Status, "ready", StringComparison.OrdinalIgnoreCase))
+        {
+            qrStatusMessage = "This session is authenticated and ready to send messages.";
+            return;
+        }
+
+        if (!string.Equals(selectedSession.Status, "qr_ready", StringComparison.OrdinalIgnoreCase))
+        {
+            qrStatusMessage = $"Session status is {FormatStatusLabel(selectedSession.Status)}. Refresh again to check for a QR code.";
+            return;
+        }
+
+        isQrLoading = true;
+
+        try
+        {
+            selectedSessionQr = await WhatsAppService.TryGetSessionQrCodeAsync(selectedSession.Id);
+            qrStatusMessage = selectedSessionQr is null
+                ? "QR code is not available yet. Refresh again in a moment."
+                : "Scan this QR code from WhatsApp > Linked devices.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load QR code for WhatsApp session {SessionId}", selectedSession.Id);
+            qrStatusMessage = "Unable to load the QR code right now.";
+        }
+        finally
+        {
+            isQrLoading = false;
+        }
+    }
+
+    private void SynchronizeSelectedSession()
+    {
+        if (sessions.Count == 0)
+        {
+            selectedSessionId = null;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedSessionId) && sessions.Any(session => session.Id == selectedSessionId))
+        {
+            return;
+        }
+
+        selectedSessionId = sessions
+            .OrderByDescending(session => string.Equals(session.Status, "ready", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(session => session.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(session => session.Id)
+            .FirstOrDefault();
+    }
+
+    private void UpdateUnreadTracking(bool resetTracker)
+    {
+        if (resetTracker)
+        {
+            trackedMessageIds.Clear();
+            unreadMessageIds.Clear();
+        }
+
+        if (trackedMessageIds.Count == 0)
+        {
+            trackedMessageIds.UnionWith(inbox.Messages.Select(message => message.Id));
+            return;
+        }
+
+        foreach (var message in inbox.Messages.Where(message => !trackedMessageIds.Contains(message.Id)))
+        {
+            trackedMessageIds.Add(message.Id);
+            if (!message.IsFromMe)
+            {
+                unreadMessageIds.Add(message.Id);
+            }
+        }
+    }
+
+    private void RebuildThreads()
+    {
+        threadMap = inbox.Messages
+            .GroupBy(GetThreadKey)
+            .ToDictionary(
+                group => group.Key,
+                group => group.OrderBy(message => message.OccurredAtUtc ?? message.ReceivedAtUtc).ToList(),
+                StringComparer.Ordinal);
+
+        threadOrder = threadMap
+            .OrderByDescending(entry => entry.Value.Max(message => message.OccurredAtUtc ?? message.ReceivedAtUtc))
+            .Select(entry => entry.Key)
+            .ToList();
+
+        if (!string.IsNullOrWhiteSpace(selectedThreadKey) && !threadMap.ContainsKey(selectedThreadKey))
+        {
+            selectedThreadKey = null;
+            ClearReplyContext();
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedThreadKey) && threadOrder.Count > 0)
+        {
+            selectedThreadKey = threadOrder[0];
+        }
+
+        TrySelectSessionForThread(selectedThreadKey);
+        MarkSelectedThreadAsRead();
+    }
+
+    private void MarkSelectedThreadAsRead()
+    {
+        if (string.IsNullOrWhiteSpace(selectedThreadKey) || !threadMap.TryGetValue(selectedThreadKey, out var messages))
+        {
+            return;
+        }
+
+        foreach (var message in messages.Where(message => !message.IsFromMe))
+        {
+            unreadMessageIds.Remove(message.Id);
+        }
+    }
+
+    private void TrySelectSessionForThread(string? threadKey)
+    {
+        if (string.IsNullOrWhiteSpace(threadKey))
+        {
+            return;
+        }
+
+        var sessionName = GetThreadSessionName(threadKey);
+        if (string.IsNullOrWhiteSpace(sessionName))
+        {
+            return;
+        }
+
+        var matchingSession = sessions.FirstOrDefault(session => string.Equals(session.Name, sessionName,
+StringComparison.OrdinalIgnoreCase));
+        if (matchingSession is not null)
+        {
+            selectedSessionId = matchingSession.Id;
+        }
+    }
+
+    private int GetThreadUnreadCount(string threadKey)
+    {
+        return threadMap.TryGetValue(threadKey, out var messages)
+            ? messages.Count(message => unreadMessageIds.Contains(message.Id))
+            : 0;
+    }
+
+    private string GetThreadLabel(string threadKey)
+    {
+        if (!threadMap.TryGetValue(threadKey, out var messages) || messages.Count == 0)
+        {
+            return "Unknown thread";
+        }
+
+        var latestMessage = messages[^1];
+        return GetSenderLabel(latestMessage);
+    }
+
+    private string GetSelectedThreadLabel()
+    {
+        return string.IsNullOrWhiteSpace(selectedThreadKey)
+            ? "Unknown thread"
+            : GetThreadLabel(selectedThreadKey);
+    }
+
+    private string? GetSelectedThreadChatId()
+    {
+        return string.IsNullOrWhiteSpace(selectedThreadKey)
+            ? null
+            : GetThreadChatId(selectedThreadKey);
+    }
+
+    private string? GetSelectedThreadSessionName()
+    {
+        return string.IsNullOrWhiteSpace(selectedThreadKey)
+            ? null
+            : GetThreadSessionName(selectedThreadKey);
+    }
+
+    private string? GetThreadChatId(string threadKey)
+    {
+        return threadMap.TryGetValue(threadKey, out var messages)
+            ? messages.Select(message => message.ChatId).LastOrDefault(chatId => !string.IsNullOrWhiteSpace(chatId))
+            : null;
+    }
+
+    private string? GetThreadSessionName(string threadKey)
+    {
+        return threadMap.TryGetValue(threadKey, out var messages)
+            ? messages.Select(message => message.SessionName).LastOrDefault(sessionName => !string.IsNullOrWhiteSpace(sessionName))
+            : null;
+    }
+
+    private string GetThreadLatestLabel(string threadKey)
+    {
+        return threadMap.TryGetValue(threadKey, out var messages) && messages.Count > 0
+            ? FormatCatTimestamp(messages[^1].OccurredAtUtc ?? messages[^1].ReceivedAtUtc)
+            : "n/a";
+    }
+
+    private string GetThreadPreview(string threadKey)
+    {
+        if (!threadMap.TryGetValue(threadKey, out var messages) || messages.Count == 0)
+        {
+            return "No captured preview";
+        }
+
+        var latestMessage = messages[^1];
+        return string.IsNullOrWhiteSpace(latestMessage.TextBody)
+            ? "No text body captured for the latest event"
+            : latestMessage.TextBody;
+    }
+
+    private static string GetThreadKey(WhatsAppInboxItemModel message)
+    {
+        var sessionName = string.IsNullOrWhiteSpace(message.SessionName) ? "default" : message.SessionName.Trim();
+        var chatId = !string.IsNullOrWhiteSpace(message.ChatId)
+            ? message.ChatId.Trim()
+            : !string.IsNullOrWhiteSpace(message.SenderNumber)
+                ? message.SenderNumber.Trim()
+                : $"event-{message.Id}";
+
+        return $"{sessionName}::{chatId}";
+    }
+
+    private bool CanReplyTo(WhatsAppInboxItemModel message)
+    {
+        return !message.IsFromMe
+            && !string.IsNullOrWhiteSpace(message.MessageId)
+            && !string.IsNullOrWhiteSpace(GetSelectedThreadChatId())
+            && SelectedSession is not null
+            && string.Equals(SelectedSession.Status, "ready", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStartableStatus(string? status)
+    {
+        return (status ?? string.Empty).ToLowerInvariant() switch
+        {
+            "created" or "disconnected" or "failed" => true,
+            _ => false
+        };
+    }
+
+    private static bool IsStoppableStatus(string? status)
+    {
+        return (status ?? string.Empty).ToLowerInvariant() switch
+        {
+            "initializing" or "qr_ready" or "authenticating" or "ready" => true,
+            _ => false
+        };
+    }
+
+    private static string? ValidateSessionName(string? value)
+    {
+        var trimmedValue = value?.Trim() ?? string.Empty;
+
+        if (trimmedValue.Length < 3 || trimmedValue.Length > 50)
+        {
+            return "Session name must be between 3 and 50 characters.";
+        }
+
+        foreach (var character in trimmedValue)
+        {
+            if (!char.IsLetterOrDigit(character) && character != '-')
+            {
+                return "Session name can only contain letters, numbers, and hyphens.";
+            }
+        }
+
+        return null;
+    }
+
+    private void StartAutoRefreshLoop()
+    {
+        autoRefreshCancellationTokenSource = new CancellationTokenSource();
+        autoRefreshTimer = new PeriodicTimer(AutoRefreshInterval);
+        autoRefreshTask = RunAutoRefreshLoopAsync(autoRefreshCancellationTokenSource.Token);
+    }
+
+    private async Task RunAutoRefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        if (autoRefreshTimer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            while (await autoRefreshTimer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (!autoRefreshEnabled || isRefreshing || isSending || isSessionActionRunning)
+                {
+                    continue;
+                }
+
+                await InvokeAsync(() => LoadAsync());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private static string GetSenderLabel(WhatsAppInboxItemModel message)
+    {
+        if (!string.IsNullOrWhiteSpace(message.SenderDisplayName) && !string.IsNullOrWhiteSpace(message.SenderNumber))
+        {
+            return $"{message.SenderDisplayName} ({message.SenderNumber})";
+        }
+
+        return message.SenderDisplayName
+            ?? message.SenderNumber
+            ?? message.ChatId
+            ?? "Unknown sender";
+    }
+
+    private static string FormatStatusLabel(string? status)
+    {
+        return string.IsNullOrWhiteSpace(status)
+            ? "UNKNOWN"
+            : status.Replace('_', ' ').ToUpperInvariant();
+    }
+
+    private static string GetStatusClass(string? status)
+    {
+        return (status ?? string.Empty).ToLowerInvariant() switch
+        {
+            "ok" or "healthy" or "ready" => "is-ok",
+            "warning" or "degraded" or "qr_ready" or "initializing" or "authenticating" => "is-warning",
+            _ => "is-error"
+        };
+    }
+
+    private static string FormatCatTimestamp(DateTime? utcDateTime)
+    {
+        if (!utcDateTime.HasValue)
+        {
+            return "n/a";
+        }
+
+        var utcValue = utcDateTime.Value.Kind == DateTimeKind.Utc
+            ? utcDateTime.Value
+            : DateTime.SpecifyKind(utcDateTime.Value, DateTimeKind.Utc);
+
+        return IAuditService.ToCAT(utcValue).ToString("dd MMM yyyy HH:mm");
+    }
+}

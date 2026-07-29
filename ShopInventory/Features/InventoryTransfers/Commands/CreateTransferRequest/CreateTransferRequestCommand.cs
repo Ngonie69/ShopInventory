@@ -5,5 +5,6 @@ using ShopInventory.DTOs;
 namespace ShopInventory.Features.InventoryTransfers.Commands.CreateTransferRequest;
 
 public sealed record CreateTransferRequestCommand(
-    CreateTransferRequestDto Request
+    CreateTransferRequestDto Request,
+    Guid UserId
 ) : IRequest<ErrorOr<TransferRequestCreatedResponseDto>>;

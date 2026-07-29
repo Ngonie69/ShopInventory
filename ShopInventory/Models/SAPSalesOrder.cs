@@ -124,6 +124,9 @@ public class SAPSalesOrderLine
     [JsonPropertyName("UoMEntry")]
     public int? UoMEntry { get; set; }
 
+    [JsonPropertyName("CostingCode")]
+    public string? CostingCode { get; set; }
+
     [JsonPropertyName("LineStatus")]
     public string? LineStatus { get; set; } // bost_Open, bost_Close
 }

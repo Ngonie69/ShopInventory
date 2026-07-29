@@ -1,5 +1,6 @@
 @page "/pod-report"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Common
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
@@ -10,8 +11,9 @@
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
-<PageTitle>POD Upload Report - Shop Inventory</PageTitle>
+<PageTitle>Product and Crate POD Upload Report - Shop Inventory</PageTitle>
 
 <div class="container-fluid fade-in staff-dashboard staff-shell">
     @* Hero Header *@
@@ -22,13 +24,13 @@
                     <span class="podr-hero-icon">
                         <i class="bi bi-clipboard-data"></i>
                     </span>
-                    POD Upload Report
+                    Product and Crate POD Upload Report
                 </h2>
-                <p class="podr-hero-subtitle">Track which invoices have proof of delivery uploaded</p>
+                <p class="podr-hero-subtitle">Track which invoices have product or crate proof of delivery uploaded</p>
             </div>
             @if (report != null)
             {
-                <div class="d-flex gap-2 align-items-center">
+                <div class="podr-hero-actions d-flex gap-2 align-items-center">
                     <span class="podr-stat-pill podr-pill-total">
                         <i class="bi bi-receipt me-1"></i>
                         @BaseFilteredCount invoices
@@ -42,7 +44,7 @@
                         @BasePendingCount pending
                     </span>
                     <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ExportToExcel"
-                               Disabled="@(isExporting || FilteredCount == 0)" Class="podr-export-btn">
+                               Disabled="@(isExporting || BaseFilteredCount == 0)" Class="podr-export-btn">
                         @if (isExporting)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -69,26 +71,30 @@
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                    <MudDatePicker @bind-Date="fromDate" @bind-Date:after="OnDateRangeChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
                                    DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
+                    <MudDatePicker @bind-Date="toDate" @bind-Date:after="OnDateRangeChanged"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense"
                                    DateFormat="@AppSettings.DateFormat" Editable="true" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
-                    <select class="form-select" @onchange="OnQuickSelectChanged" style="border-radius: 8px;">
+                    <select class="form-select" value="@selectedQuickRange" @onchange="OnQuickSelectChanged"
+                            style="border-radius: 8px;">
                         <option value="7">Last 7 Days</option>
-                        <option value="30" selected>Last 30 Days</option>
+                        <option value="30">Last 30 Days</option>
                         <option value="90">Last 90 Days</option>
                         <option value="180">Last 6 Months</option>
+                        <option value="custom">Custom Range</option>
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadReport"
-                               Disabled="@isLoading" FullWidth="true" Class="podr-load-btn">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadReport" Disabled="@isLoading"
+                               FullWidth="true" Class="podr-load-btn">
                         @if (isLoading)
                         {
                             <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
@@ -106,11 +112,13 @@
                 <div class="col-md-4">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Invoice / Customer</label>
                     <input type="text" class="form-control" placeholder="Invoice #, customer, or card code"
-                           @bind="searchTerm" @bind:event="oninput" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
+                           @bind="searchTerm" @bind:event="oninput" @bind:after="OnAdvancedFiltersChanged"
+                           style="border-radius: 8px;" />
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Currency</label>
-                    <select class="form-select" @bind="currencyFilter" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;">
+                    <select class="form-select" @bind="currencyFilter" @bind:after="OnAdvancedFiltersChanged"
+                            style="border-radius: 8px;">
                         <option value="all">All currencies</option>
                         @foreach (var currency in AvailableCurrencies)
                         {
@@ -120,7 +128,8 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Uploaded By</label>
-                    <select class="form-select" @bind="uploadedByFilter" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;">
+                    <select class="form-select" @bind="uploadedByFilter" @bind:after="OnAdvancedFiltersChanged"
+                            style="border-radius: 8px;">
                         <option value="all">Any uploader</option>
                         @foreach (var uploader in AvailableUploaders)
                         {
@@ -129,14 +138,38 @@
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Uploader Role</label>
+                    <select class="form-select" @bind="uploaderRoleFilter" @bind:after="OnAdvancedFiltersChanged"
+                            style="border-radius: 8px;">
+                        <option value="all">Any role</option>
+                        @foreach (var role in AvailableUploaderRoles)
+                        {
+                            <option value="@role">@role</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-semibold text-uppercase text-muted">Generated Location</label>
+                    <select class="form-select" @bind="generatedLocationFilter" @bind:after="OnAdvancedFiltersChanged"
+                            style="border-radius: 8px;">
+                        <option value="all">Any location</option>
+                        @foreach (var location in AvailableGeneratedLocations)
+                        {
+                            <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            <div class="row g-3 align-items-end mt-1">
+                <div class="col-md-2">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Min Amount</label>
-                    <input type="number" class="form-control" min="0" step="0.01" placeholder="0.00"
-                           @bind="minAmount" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
+                    <input type="number" class="form-control" min="0" step="0.01" placeholder="0.00" @bind="minAmount"
+                           @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Max Amount</label>
-                    <input type="number" class="form-control" min="0" step="0.01" placeholder="0.00"
-                           @bind="maxAmount" @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
+                    <input type="number" class="form-control" min="0" step="0.01" placeholder="0.00" @bind="maxAmount"
+                           @bind:after="OnAdvancedFiltersChanged" style="border-radius: 8px;" />
                 </div>
             </div>
         </div>
@@ -205,8 +238,8 @@
                 </div>
                 <div class="progress" style="height: 10px; border-radius: 8px;">
                     <div class="progress-bar @(pct >= 100 ? "bg-success" : pct >= 50 ? "bg-primary" : "bg-warning")"
-                         role="progressbar" style="width: @(pct.ToString("N1"))%; border-radius: 8px;"
-                         aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100">
+                         role="progressbar" style="width: @(pct.ToString("N1"))%; border-radius: 8px;" aria-valuenow="@pct"
+                         aria-valuemin="0" aria-valuemax="100">
                     </div>
                 </div>
             </div>
@@ -217,13 +250,15 @@
             <button class="podr-tab @(filterMode == "all" ? "podr-tab-active" : "")" @onclick='() => SetFilter("all")'>
                 All (@BaseFilteredCount)
             </button>
-            <button class="podr-tab @(filterMode == "uploaded" ? "podr-tab-active" : "")" @onclick='() => SetFilter("uploaded")'>
+            <button class="podr-tab @(filterMode == "uploaded" ? "podr-tab-active" : "")"
+                    @onclick='() => SetFilter("uploaded")'>
                 <i class="bi bi-check-circle me-1"></i>Uploaded (@BaseUploadedCount)
             </button>
-            <button class="podr-tab @(filterMode == "pending" ? "podr-tab-active" : "")" @onclick='() => SetFilter("pending")'>
+            <button class="podr-tab @(filterMode == "pending" ? "podr-tab-active" : "")"
+                    @onclick='() => SetFilter("pending")'>
                 <i class="bi bi-clock me-1"></i>Pending (@BasePendingCount)
             </button>
-            <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+            <div class="podr-tab-summary ms-auto d-flex align-items-center gap-2 flex-wrap">
                 <span class="text-muted small">@FilteredCount matching invoices</span>
                 <button class="btn btn-sm btn-outline-secondary" @onclick="ResetAdvancedFilters">Clear Filters</button>
             </div>
@@ -231,14 +266,39 @@
 
         @* Data Table *@
         <div class="podr-table-card">
+            @if (!report.CreditNoteDataComplete)
+            {
+                <div class="podr-credit-status" role="status" aria-live="polite">
+                    <div class="podr-credit-status-copy">
+                        @if (isRefreshingCreditNotes)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                            <span>Credit-note status is updating. The report remains available.</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            <span>Credit-note synchronization is catching up automatically. Some statuses are not yet verified.</span>
+                        }
+                    </div>
+                    @if (!isRefreshingCreditNotes)
+                    {
+                        <button type="button" class="btn btn-sm podr-credit-retry" @onclick="RetryCreditNoteDataAsync">
+                            <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Retry
+                        </button>
+                    }
+                </div>
+            }
             <div class="table-responsive">
-                <table class="table table-hover mb-0 align-middle podr-table">
+                <table class="table table-hover mb-0 align-middle podr-table mobile-card-table">
                     <thead>
                         <tr>
                             <th>Invoice #</th>
                             <th>Customer</th>
                             <th>Date</th>
                             <th class="text-end">Amount</th>
+                            <th>Credit Note</th>
+                            <th>Credit Reason</th>
                             <th class="text-center">POD Status</th>
                             <th>Uploaded</th>
                             <th class="text-center">Files</th>
@@ -251,18 +311,50 @@
                             @foreach (var item in PagedItems)
                             {
                                 <tr class="@(!item.HasPod ? "podr-row-pending" : "")">
-                                    <td>
+                                    <td data-label="Invoice #">
                                         <span class="podr-docnum">@item.DocNum</span>
                                     </td>
-                                    <td>
+                                    <td data-label="Customer">
                                         <div class="podr-customer">@item.CardName</div>
                                         <div class="podr-cardcode">@item.CardCode</div>
                                     </td>
-                                    <td>@FormatDate(item.DocDate)</td>
-                                    <td class="text-end fw-semibold">
+                                    <td data-label="Date">@FormatDate(item.DocDate)</td>
+                                    <td data-label="Amount" class="text-end fw-semibold">
                                         @item.DocCurrency @item.DocTotal.ToString("N2")
                                     </td>
-                                    <td class="text-center">
+                                    <td data-label="Credit Note">
+                                        @if (!string.IsNullOrWhiteSpace(item.CreditNoteNumber))
+                                        {
+                                            <span class="badge rounded-pill @(item.IsFullyCredited ? "bg-danger" : "bg-secondary")">
+                                                @item.CreditNoteNumber
+                                            </span>
+                                            @if (item.IsFullyCredited)
+                                            {
+                                                <div class="small text-muted mt-1">Fully credited</div>
+                                            }
+                                        }
+                                        else if (!report.CreditNoteDataComplete)
+                                        {
+                                            <span class="podr-credit-unverified">
+                                                <i class="bi bi-question-circle me-1" aria-hidden="true"></i>Not verified
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td data-label="Credit Reason">
+                                        @if (!string.IsNullOrWhiteSpace(item.CreditNoteReason))
+                                        {
+                                            <span class="small">@item.CreditNoteReason</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">&mdash;</span>
+                                        }
+                                    </td>
+                                    <td data-label="POD Status" class="text-center">
                                         @if (item.HasPod)
                                         {
                                             <span class="podr-badge podr-badge-uploaded">
@@ -276,18 +368,27 @@
                                             </span>
                                         }
                                     </td>
-                                    <td>
-                                        @if (item.HasPod && item.PodUploadedAt.HasValue)
+                                    <td data-label="Uploaded">
+                                        @{
+                                            var displayedUploadedAt = GetDisplayPodUploadedAt(item);
+                                            var uploadedByDisplay = FormatPodUploadedByDisplay(item);
+                                            var uploadLocationDisplay = FormatPodUploadLocationDisplay(item);
+                                        }
+                                        @if (item.HasPod && displayedUploadedAt.HasValue)
                                         {
-                                            <div class="small">@item.PodUploadedAt.Value.ToString("dd MMM yyyy HH:mm")</div>
-                                            <div class="text-muted small">by @FormatPodUploadedByDisplay(item)</div>
+                                            <div class="small">@displayedUploadedAt.Value.ToString("dd MMM yyyy HH:mm")</div>
+                                            <div class="text-muted small">by @uploadedByDisplay</div>
+                                            @if (!string.Equals(uploadLocationDisplay, "-", StringComparison.Ordinal))
+                                            {
+                                                <div class="podr-upload-location">@uploadLocationDisplay</div>
+                                            }
                                         }
                                         else
                                         {
                                             <span class="text-muted">&mdash;</span>
                                         }
                                     </td>
-                                    <td class="text-center">
+                                    <td data-label="Files" class="text-center">
                                         @if (item.PodCount > 0)
                                         {
                                             <span class="badge bg-primary rounded-pill">@item.PodCount</span>
@@ -297,7 +398,7 @@
                                             <span class="text-muted">0</span>
                                         }
                                     </td>
-                                    <td class="text-center">
+                                    <td data-label="Action" class="text-center">
                                         @if (!item.HasPod)
                                         {
                                             <button class="btn btn-sm podr-upload-btn" @onclick="() => GoToUpload(item.DocNum)">
@@ -311,7 +412,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="8" class="text-center py-4 text-muted">
+                                <td colspan="10" class="text-center py-4 text-muted">
                                     <i class="bi bi-inbox me-2"></i>No invoices match the current filters
                                 </td>
                             </tr>
@@ -323,24 +424,31 @@
             {
                 <div class="podr-pagination">
                     <span class="text-muted small">Showing @PageStartItem&ndash;@PageEndItem of @FilteredCount</span>
-                    <div class="d-flex gap-1">
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage <= 1)" @onclick="() => GoToPage(1)">
+                    <div class="podr-pagination-controls d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage <= 1)"
+                                @onclick="() => GoToPage(1)">
                             <i class="bi bi-chevron-double-left"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage <= 1)" @onclick="() => GoToPage(EffectiveCurrentPage - 1)">
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage <= 1)"
+                                @onclick="() => GoToPage(EffectiveCurrentPage - 1)">
                             <i class="bi bi-chevron-left"></i>
                         </button>
                         @for (int i = PageStart; i <= PageEnd; i++)
                         {
                             var pg = i;
-                            <button class="btn btn-sm @(pg == EffectiveCurrentPage ? "btn-primary" : "btn-outline-secondary")" @onclick="() => GoToPage(pg)">
+                            <button class="btn btn-sm @(pg == EffectiveCurrentPage ? "btn-primary" : "btn-outline-secondary")"
+                                    @onclick="() => GoToPage(pg)">
                                 @pg
                             </button>
                         }
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage >= TotalFilteredPages)" @onclick="() => GoToPage(EffectiveCurrentPage + 1)">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                disabled="@(EffectiveCurrentPage >= TotalFilteredPages)"
+                                @onclick="() => GoToPage(EffectiveCurrentPage + 1)">
                             <i class="bi bi-chevron-right"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary" disabled="@(EffectiveCurrentPage >= TotalFilteredPages)" @onclick="() => GoToPage(TotalFilteredPages)">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                disabled="@(EffectiveCurrentPage >= TotalFilteredPages)"
+                                @onclick="() => GoToPage(TotalFilteredPages)">
                             <i class="bi bi-chevron-double-right"></i>
                         </button>
                     </div>
@@ -353,285 +461,529 @@
     {
         <div class="text-center py-5 text-muted">
             <i class="bi bi-bar-chart-line" style="font-size: 3rem;"></i>
-            <p class="mt-3">Select a date range and click <strong>Load Report</strong> to generate the POD upload status report.</p>
-        </div>
-    }
-</div>
+            <p class="mt-3">Select a date range and click <strong>Load Report</strong> to generate the POD upload status
+                report.</p>
+            </div>
+        }
+    </div>
 
-<style>
-    .podr-hero {
-        background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
-        border-radius: 16px;
-        padding: 1.5rem 1.75rem;
-        margin-bottom: 1.25rem;
-        color: #fff;
-    }
-    .podr-hero-content {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
-    .podr-hero-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .podr-hero-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 44px;
-        height: 44px;
-        background: rgba(255,255,255,0.15);
-        border-radius: 12px;
-        font-size: 1.25rem;
-    }
-    .podr-hero-subtitle {
-        margin: 0.25rem 0 0;
-        opacity: 0.8;
-        font-size: 0.9rem;
-    }
-    .podr-stat-pill {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.35rem 0.85rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    .podr-pill-total { background: rgba(255,255,255,0.2); color: #fff; }
-    .podr-pill-uploaded { background: rgba(76,175,80,0.25); color: #a5d6a7; }
-    .podr-pill-pending { background: rgba(255,152,0,0.25); color: #ffcc80; }
-    .podr-export-btn {
-        border-color: rgba(255,255,255,0.3) !important;
-        color: #fff !important;
-        font-size: 0.8rem;
-    }
-    .podr-export-btn:hover {
-        background: rgba(255,255,255,0.15) !important;
-    }
+    <style>
+        .podr-hero {
+            background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
+            border-radius: 16px;
+            padding: 1.5rem 1.75rem;
+            margin-bottom: 1.25rem;
+            color: #fff;
+        }
 
-    .podr-filter-card {
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
-    }
-    .podr-filter-header {
-        padding: 0.75rem 1.25rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        background: var(--card-header-bg, #f8f9fa);
-        border-radius: 12px 12px 0 0;
-    }
-    .podr-filter-body {
-        padding: 1.25rem;
-    }
-    .podr-load-btn {
-        height: 40px;
-    }
+        .podr-hero-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
 
-    .podr-stat-card {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 1.25rem;
-        border-radius: 12px;
-        color: #fff;
-        min-height: 90px;
-    }
-    .podr-stat-total { background: linear-gradient(135deg, #1a237e, #3949ab); }
-    .podr-stat-uploaded { background: linear-gradient(135deg, #1b5e20, #388e3c); }
-    .podr-stat-pending { background: linear-gradient(135deg, #e65100, #f57c00); }
-    .podr-stat-icon {
-        width: 48px;
-        height: 48px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(255,255,255,0.2);
-        border-radius: 12px;
-        font-size: 1.35rem;
-    }
-    .podr-stat-label {
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        opacity: 0.85;
-    }
-    .podr-stat-value {
-        font-size: 1.75rem;
-        font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        line-height: 1.2;
-    }
-    .podr-stat-pct {
-        margin-left: auto;
-        font-size: 1.25rem;
-        font-weight: 600;
-        opacity: 0.9;
-    }
+        .podr-hero-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
 
-    .podr-progress-card {
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
-    }
+        .podr-hero-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            font-size: 1.25rem;
+        }
 
-    .podr-tab-bar {
-        display: flex;
-        gap: 0.5rem;
-        align-items: center;
-        flex-wrap: wrap;
-    }
-    .podr-tab {
-        padding: 0.45rem 1rem;
-        border: 1px solid var(--border-color, #dee2e6);
-        border-radius: 8px;
-        background: var(--card-bg, #fff);
-        font-size: 0.85rem;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        color: var(--text-secondary, #4a4a4a);
-    }
-    .podr-tab:hover { border-color: #3949ab; color: #3949ab; }
-    .podr-tab-active {
-        background: #3949ab;
-        color: #fff !important;
-        border-color: #3949ab;
-    }
-    .podr-search {
-        border-radius: 8px;
-    }
+        .podr-hero-subtitle {
+            margin: 0.25rem 0 0;
+            opacity: 0.8;
+            font-size: 0.9rem;
+        }
 
-    .podr-table-card {
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 12px;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
-        overflow: hidden;
-    }
-    .podr-table thead th {
-        background: var(--card-header-bg, #f8f9fa);
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--text-muted, #6c757d);
-        font-weight: 600;
-        padding: 0.75rem 1rem;
-        border-bottom: 2px solid var(--border-color, #e2e8f0);
-    }
-    .podr-table tbody td {
-        padding: 0.7rem 1rem;
-        font-size: 0.88rem;
-        border-bottom: 1px solid var(--border-color, #f1f5f9);
-    }
-    .podr-row-pending {
-        background: rgba(255,152,0,0.03);
-    }
-    .podr-upload-btn {
-        background: linear-gradient(135deg, #1a237e, #3949ab);
-        color: #fff;
-        border: none;
-        border-radius: 6px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        padding: 0.3rem 0.7rem;
-        transition: all 0.15s ease;
-    }
-    .podr-upload-btn:hover {
-        background: linear-gradient(135deg, #283593, #5c6bc0);
-        color: #fff;
-        transform: translateY(-1px);
-        box-shadow: 0 2px 6px rgba(26,35,126,0.3);
-    }
-    .podr-docnum {
-        font-weight: 600;
-        color: #1a237e;
-        font-family: 'Space Grotesk', monospace;
-    }
-    .podr-customer {
-        font-weight: 500;
-        font-size: 0.88rem;
-    }
-    .podr-cardcode {
-        font-size: 0.75rem;
-        color: var(--text-muted, #8a8a8a);
-    }
-    .podr-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.25rem 0.65rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-    .podr-badge-uploaded {
-        background: #e8f5e9;
-        color: #2e7d32;
-    }
-    .podr-badge-pending {
-        background: #fff3e0;
-        color: #e65100;
-    }
+        .podr-stat-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.85rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
 
-    .podr-pagination {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.75rem 1rem;
-        border-top: 1px solid var(--border-color, #e2e8f0);
-        gap: 0.5rem;
-        flex-wrap: wrap;
-    }
+        .podr-pill-total {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
 
-    /* Dark theme overrides */
-    .dark-theme .podr-filter-card,
-    .dark-theme .podr-progress-card,
-    .dark-theme .podr-table-card {
-        background: var(--card-bg, #1e293b);
-        border-color: var(--border-color, #334155);
-    }
-    .dark-theme .podr-filter-header,
-    .dark-theme .podr-table thead th {
-        background: var(--card-header-bg, #1e293b);
-    }
-    .dark-theme .podr-tab {
-        background: var(--card-bg, #1e293b);
-        border-color: var(--border-color, #334155);
-        color: var(--text-secondary, #94a3b8);
-    }
-    .dark-theme .podr-tab:hover { border-color: #7986cb; color: #7986cb; }
-    .dark-theme .podr-tab-active { background: #3949ab; color: #fff !important; border-color: #3949ab; }
-    .dark-theme .podr-docnum { color: #7986cb; }
-    .dark-theme .podr-badge-uploaded { background: rgba(46,125,50,0.2); color: #81c784; }
-    .dark-theme .podr-badge-pending { background: rgba(230,81,0,0.2); color: #ffb74d; }
-    .dark-theme .podr-row-pending { background: rgba(255,152,0,0.05); }
-</style>
+        .podr-pill-uploaded {
+            background: rgba(76, 175, 80, 0.25);
+            color: #a5d6a7;
+        }
+
+        .podr-pill-pending {
+            background: rgba(255, 152, 0, 0.25);
+            color: #ffcc80;
+        }
+
+        .podr-export-btn {
+            border-color: rgba(255, 255, 255, 0.3) !important;
+            color: #fff !important;
+            font-size: 0.8rem;
+        }
+
+        .podr-export-btn:hover {
+            background: rgba(255, 255, 255, 0.15) !important;
+        }
+
+        .podr-filter-card {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 12px;
+            margin-bottom: 1.25rem;
+            box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+        }
+
+        .podr-filter-header {
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-color, #e2e8f0);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--card-header-bg, #f8f9fa);
+            border-radius: 12px 12px 0 0;
+        }
+
+        .podr-filter-body {
+            padding: 1.25rem;
+        }
+
+        .podr-load-btn {
+            height: 40px;
+        }
+
+        .podr-stat-card {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.25rem;
+            border-radius: 12px;
+            color: #fff;
+            min-height: 90px;
+        }
+
+        .podr-stat-total {
+            background: linear-gradient(135deg, #1a237e, #3949ab);
+        }
+
+        .podr-stat-uploaded {
+            background: linear-gradient(135deg, #1b5e20, #388e3c);
+        }
+
+        .podr-stat-pending {
+            background: linear-gradient(135deg, #e65100, #f57c00);
+        }
+
+        .podr-stat-icon {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            font-size: 1.35rem;
+        }
+
+        .podr-stat-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            opacity: 0.85;
+        }
+
+        .podr-stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            font-family: 'Space Grotesk', sans-serif;
+            line-height: 1.2;
+        }
+
+        .podr-stat-pct {
+            margin-left: auto;
+            font-size: 1.25rem;
+            font-weight: 600;
+            opacity: 0.9;
+        }
+
+        .podr-progress-card {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+        }
+
+        .podr-tab-bar {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .podr-tab {
+            padding: 0.45rem 1rem;
+            border: 1px solid var(--border-color, #dee2e6);
+            border-radius: 8px;
+            background: var(--card-bg, #fff);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            color: var(--text-secondary, #4a4a4a);
+        }
+
+        .podr-tab:hover {
+            border-color: #3949ab;
+            color: #3949ab;
+        }
+
+        .podr-tab-active {
+            background: #3949ab;
+            color: #fff !important;
+            border-color: #3949ab;
+        }
+
+        .podr-search {
+            border-radius: 8px;
+        }
+
+        .podr-table-card {
+            background: var(--card-bg, #fff);
+            border: 1px solid var(--border-color, #e2e8f0);
+            border-radius: 12px;
+            box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.06));
+            overflow: hidden;
+        }
+
+        .podr-credit-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.55rem 1rem;
+            border-bottom: 1px solid var(--border-color, #e2e8f0);
+            background: var(--card-header-bg, #f8f9fa);
+            color: var(--text-muted, #6c757d);
+            font-size: 0.8rem;
+        }
+
+        .podr-credit-status-copy {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+        }
+
+        .podr-credit-retry {
+            border-color: var(--border-color, #cbd5e1);
+            color: var(--text-secondary, #475569);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .podr-credit-retry:hover {
+            border-color: #3949ab;
+            color: #3949ab;
+        }
+
+        .podr-credit-unverified {
+            display: inline-flex;
+            align-items: center;
+            color: var(--text-muted, #64748b);
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .podr-table thead th {
+            background: var(--card-header-bg, #f8f9fa);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted, #6c757d);
+            font-weight: 600;
+            padding: 0.75rem 1rem;
+            border-bottom: 2px solid var(--border-color, #e2e8f0);
+        }
+
+        .podr-table tbody td {
+            padding: 0.7rem 1rem;
+            font-size: 0.88rem;
+            border-bottom: 1px solid var(--border-color, #f1f5f9);
+        }
+
+        .podr-row-pending {
+            background: rgba(255, 152, 0, 0.03);
+        }
+
+        .podr-upload-btn {
+            background: linear-gradient(135deg, #1a237e, #3949ab);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.3rem 0.7rem;
+            transition: all 0.15s ease;
+        }
+
+        .podr-upload-btn:hover {
+            background: linear-gradient(135deg, #283593, #5c6bc0);
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(26, 35, 126, 0.3);
+        }
+
+        .podr-docnum {
+            font-weight: 600;
+            color: #1a237e;
+            font-family: 'Space Grotesk', monospace;
+        }
+
+        .podr-customer {
+            font-weight: 500;
+            font-size: 0.88rem;
+        }
+
+        .podr-cardcode {
+            font-size: 0.75rem;
+            color: var(--text-muted, #8a8a8a);
+        }
+
+        .podr-upload-location {
+            font-size: 0.75rem;
+            color: var(--text-muted, #8a8a8a);
+        }
+
+        .podr-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.65rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .podr-badge-uploaded {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .podr-badge-pending {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .podr-pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-top: 1px solid var(--border-color, #e2e8f0);
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        @@media (max-width: 767.98px) {
+            .podr-hero {
+                padding: 1rem;
+                border-radius: 14px;
+            }
+
+            .podr-hero-title {
+                font-size: 1.15rem;
+                align-items: flex-start;
+            }
+
+            .podr-hero-icon {
+                width: 38px;
+                height: 38px;
+                border-radius: 10px;
+                font-size: 1rem;
+                flex-shrink: 0;
+            }
+
+            .podr-hero-actions {
+                width: 100%;
+                flex-wrap: wrap;
+                justify-content: flex-start;
+            }
+
+            .podr-filter-body {
+                padding: 1rem;
+            }
+
+            .podr-tab-bar {
+                align-items: stretch;
+            }
+
+            .podr-tab {
+                flex: 1 1 auto;
+                text-align: center;
+                padding: 0.55rem 0.85rem;
+            }
+
+            .podr-tab-summary {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .podr-table.mobile-card-table tbody td[data-label="Action"] .podr-upload-btn {
+                width: 100%;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .podr-table.mobile-card-table .podr-badge,
+            .podr-table.mobile-card-table .badge {
+                max-width: 100%;
+                white-space: normal;
+                text-align: left;
+            }
+
+            .podr-pagination {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .podr-credit-status {
+                align-items: flex-start;
+            }
+
+            .podr-pagination-controls {
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            .podr-pagination>span {
+                text-align: center;
+            }
+        }
+
+        @@media (max-width: 575.98px) {
+            .podr-hero {
+                padding: 0.9rem;
+            }
+
+            .podr-hero-title {
+                font-size: 1rem;
+            }
+
+            .podr-hero-subtitle {
+                font-size: 0.8rem;
+            }
+
+            .podr-stat-pill {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .podr-stat-card {
+                padding: 1rem;
+                min-height: 78px;
+            }
+
+            .podr-stat-value {
+                font-size: 1.4rem;
+            }
+
+            .podr-stat-pct {
+                font-size: 1rem;
+            }
+
+            .podr-pagination .btn {
+                flex: 1 1 2.5rem;
+            }
+        }
+
+        /* Dark theme overrides */
+        .dark-theme .podr-filter-card,
+        .dark-theme .podr-progress-card,
+        .dark-theme .podr-table-card {
+            background: var(--card-bg, #1e293b);
+            border-color: var(--border-color, #334155);
+        }
+
+        .dark-theme .podr-filter-header,
+        .dark-theme .podr-table thead th,
+        .dark-theme .podr-credit-status {
+            background: var(--card-header-bg, #1e293b);
+        }
+
+        .dark-theme .podr-tab {
+            background: var(--card-bg, #1e293b);
+            border-color: var(--border-color, #334155);
+            color: var(--text-secondary, #94a3b8);
+        }
+
+        .dark-theme .podr-tab:hover {
+            border-color: #7986cb;
+            color: #7986cb;
+        }
+
+        .dark-theme .podr-tab-active {
+            background: #3949ab;
+            color: #fff !important;
+            border-color: #3949ab;
+        }
+
+        .dark-theme .podr-docnum {
+            color: #7986cb;
+        }
+
+        .dark-theme .podr-badge-uploaded {
+            background: rgba(46, 125, 50, 0.2);
+            color: #81c784;
+        }
+
+        .dark-theme .podr-badge-pending {
+            background: rgba(230, 81, 0, 0.2);
+            color: #ffb74d;
+        }
+
+        .dark-theme .podr-row-pending {
+            background: rgba(255, 152, 0, 0.05);
+        }
+    </style>
 
 @code {
     private PodUploadStatusReport? report;
     private bool isLoading;
     private bool isExporting;
+    private bool isRefreshingCreditNotes;
+    private bool isDisposed;
     private string? errorMessage;
-    private DateTime? fromDate = DateTime.Today.AddDays(-30);
+    private CancellationTokenSource? creditNoteRefreshCts;
+    private const int DefaultQuickRangeDays = 30;
+    private DateTime? fromDate = InclusiveRangeStart(DateTime.Today, DefaultQuickRangeDays);
     private DateTime? toDate = DateTime.Today;
+    private string selectedQuickRange = DefaultQuickRangeDays.ToString();
     private string filterMode = "all";
     private string? searchTerm;
     private string currencyFilter = "all";
     private string uploadedByFilter = "all";
+    private string uploaderRoleFilter = "all";
+    private string generatedLocationFilter = "all";
     private decimal? minAmount;
     private decimal? maxAmount;
     private int currentPage = 1;
@@ -653,6 +1005,29 @@
         .OrderBy(uploader => uploader)
         ?? Enumerable.Empty<string>();
 
+    private IEnumerable<string> AvailableUploaderRoles => report?.Items?
+        .SelectMany(GetPodUploadedByUsers)
+        .Select(uploader => uploader.Role?.Trim())
+        .Where(role => !string.IsNullOrWhiteSpace(role))
+        .Select(role => role!)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(role => role)
+        ?? Enumerable.Empty<string>();
+
+    private IEnumerable<string> AvailableGeneratedLocations => report?.Items?
+        .Select(item => NormalizeLocationValue(item.CreatedLocation))
+        .Where(location => !string.IsNullOrWhiteSpace(location))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(location => location)
+        ?? Enumerable.Empty<string>();
+
+    private bool HasUploaderIdentityFilters =>
+        !string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(uploaderRoleFilter, "all", StringComparison.OrdinalIgnoreCase);
+
+    private bool HasGeneratedLocationFilter =>
+        !string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase);
+
     private IEnumerable<PodUploadStatusItem> BaseFilteredItems
     {
         get
@@ -668,6 +1043,8 @@
                 items = items.Where(i =>
                     (i.CardName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     (i.CardCode?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CreditNoteNumber?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                    (i.CreditNoteReason?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                     i.DocNum.ToString().Contains(term));
             }
 
@@ -676,10 +1053,14 @@
                 items = items.Where(i => string.Equals(i.DocCurrency?.Trim(), currencyFilter, StringComparison.OrdinalIgnoreCase));
             }
 
-            if (!string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase))
+            if (HasUploaderIdentityFilters)
             {
-                items = items.Where(i => GetPodUploadedByUsers(i)
-                    .Any(uploader => string.Equals(uploader.Username.Trim(), uploadedByFilter, StringComparison.OrdinalIgnoreCase)));
+                items = items.Where(i => GetUploaderFilteredPodUploadedByUsers(i).Any());
+            }
+
+            if (HasGeneratedLocationFilter)
+            {
+                items = items.Where(MatchesGeneratedLocationFilter);
             }
 
             if (minAmount.HasValue)
@@ -742,6 +1123,12 @@
             return;
         }
 
+        if (fromDate.Value.Date > toDate.Value.Date)
+        {
+            errorMessage = "From Date cannot be later than To Date.";
+            return;
+        }
+
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
         if (authState.User.Identity?.IsAuthenticated != true)
         {
@@ -749,6 +1136,7 @@
             return;
         }
 
+        CancelCreditNoteRefresh();
         isLoading = true;
         errorMessage = null;
         report = null;
@@ -756,7 +1144,10 @@
 
         try
         {
-            report = await PodService.GetPodUploadStatusAsync(fromDate.Value, toDate.Value);
+            report = await PodService.GetPodUploadStatusAsync(
+                fromDate.Value,
+                toDate.Value,
+                includeCreditNoteActivity: false);
             NormalizeDynamicFilters();
             currentPage = EffectiveCurrentPage;
             if (report == null)
@@ -770,6 +1161,73 @@
         {
             isLoading = false;
         }
+
+    }
+
+    private Task RetryCreditNoteDataAsync() => RefreshCreditNoteDataAsync();
+
+    private async Task RefreshCreditNoteDataAsync()
+    {
+        if (report is null ||
+            report.CreditNoteDataComplete ||
+            isRefreshingCreditNotes ||
+            !fromDate.HasValue ||
+            !toDate.HasValue)
+        {
+            return;
+        }
+
+        var refreshFromDate = fromDate.Value;
+        var refreshToDate = toDate.Value;
+        var refreshCts = new CancellationTokenSource();
+        creditNoteRefreshCts = refreshCts;
+        isRefreshingCreditNotes = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var refreshedReport = await PodService.GetPodUploadStatusAsync(
+                refreshFromDate,
+                refreshToDate,
+                includeCreditNoteActivity: false,
+                refreshCts.Token);
+
+            if (!refreshCts.IsCancellationRequested &&
+                refreshedReport is not null &&
+                fromDate == refreshFromDate &&
+                toDate == refreshToDate)
+            {
+                report = refreshedReport;
+                NormalizeDynamicFilters();
+                currentPage = EffectiveCurrentPage;
+            }
+        }
+        catch (OperationCanceledException) when (refreshCts.IsCancellationRequested)
+        {
+            // A new report load or component disposal superseded this refresh.
+        }
+        finally
+        {
+            if (ReferenceEquals(creditNoteRefreshCts, refreshCts))
+            {
+                creditNoteRefreshCts = null;
+                isRefreshingCreditNotes = false;
+            }
+
+            refreshCts.Dispose();
+            if (!isDisposed)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void CancelCreditNoteRefresh()
+    {
+        var refreshCts = creditNoteRefreshCts;
+        creditNoteRefreshCts = null;
+        isRefreshingCreditNotes = false;
+        refreshCts?.Cancel();
     }
 
     private void SetFilter(string mode)
@@ -791,11 +1249,25 @@
 
     private void OnQuickSelectChanged(ChangeEventArgs e)
     {
-        if (int.TryParse(e.Value?.ToString(), out var days))
+        var selectedValue = e.Value?.ToString();
+        selectedQuickRange = selectedValue ?? "custom";
+
+        if (int.TryParse(selectedValue, out var days) && days > 0)
         {
-            fromDate = DateTime.Today.AddDays(-days);
-            toDate = DateTime.Today;
+            var today = DateTime.Today;
+            fromDate = InclusiveRangeStart(today, days);
+            toDate = today;
+            currentPage = 1;
         }
+    }
+
+    private static DateTime InclusiveRangeStart(DateTime endDate, int days) =>
+        endDate.Date.AddDays(-(days - 1));
+
+    private void OnDateRangeChanged()
+    {
+        selectedQuickRange = "custom";
+        currentPage = 1;
     }
 
     private void OnAdvancedFiltersChanged()
@@ -809,6 +1281,8 @@
         searchTerm = null;
         currencyFilter = "all";
         uploadedByFilter = "all";
+        uploaderRoleFilter = "all";
+        generatedLocationFilter = "all";
         minAmount = null;
         maxAmount = null;
         currentPage = 1;
@@ -827,6 +1301,108 @@
         {
             uploadedByFilter = "all";
         }
+
+        if (!string.Equals(uploaderRoleFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !AvailableUploaderRoles.Contains(uploaderRoleFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            uploaderRoleFilter = "all";
+        }
+
+        if (!string.Equals(generatedLocationFilter, "all", StringComparison.OrdinalIgnoreCase)
+            && !AvailableGeneratedLocations.Contains(generatedLocationFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            generatedLocationFilter = "all";
+        }
+    }
+
+    private bool MatchesGeneratedLocationFilter(PodUploadStatusItem item) =>
+        LocationMatchesFilter(item.CreatedLocation, generatedLocationFilter);
+
+    private static bool LocationMatchesFilter(string? location, string? filterValue)
+    {
+        if (string.IsNullOrWhiteSpace(location) || string.IsNullOrWhiteSpace(filterValue))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            NormalizeLocationValue(location),
+            NormalizeLocationValue(filterValue),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeLocationValue(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            return string.Empty;
+        }
+
+        var trimmedLocation = location.Trim();
+        var normalizedLocation = NormalizeLocationText(trimmedLocation);
+
+        foreach (var option in AssignedSectionOptions.All)
+        {
+            if (string.Equals(NormalizeLocationText(option), normalizedLocation, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(NormalizeLocationText(AssignedSectionOptions.GetLabel(option)), normalizedLocation,
+StringComparison.OrdinalIgnoreCase))
+            {
+                return option;
+            }
+        }
+
+        return trimmedLocation;
+    }
+
+    private static string NormalizeLocationText(string value) =>
+        string.Concat(value.Trim().Where(character => !char.IsWhiteSpace(character) && character != '-'))
+            .ToUpperInvariant();
+
+    private IEnumerable<PodUploadUserSummary> GetUploaderFilteredPodUploadedByUsers(PodUploadStatusItem item)
+    {
+        IEnumerable<PodUploadUserSummary> uploaders = GetPodUploadedByUsers(item);
+
+        if (!string.Equals(uploadedByFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            uploaders = uploaders.Where(uploader =>
+                string.Equals(uploader.Username.Trim(), uploadedByFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.Equals(uploaderRoleFilter, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            uploaders = uploaders.Where(uploader =>
+                string.Equals(uploader.Role?.Trim(), uploaderRoleFilter, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return uploaders;
+    }
+
+    private IReadOnlyList<PodUploadUserSummary> GetDisplayPodUploadedByUsers(PodUploadStatusItem item)
+    {
+        if (!HasUploaderIdentityFilters)
+            return GetPodUploadedByUsers(item);
+
+        var filteredUploaders = GetUploaderFilteredPodUploadedByUsers(item).ToList();
+        if (filteredUploaders.Count > 0)
+            return filteredUploaders;
+
+        return GetPodUploadedByUsers(item);
+    }
+
+    private DateTime? GetDisplayPodUploadedAt(PodUploadStatusItem item)
+    {
+        if (!HasUploaderIdentityFilters)
+            return item.PodUploadedAt;
+
+        var filteredUploaders = GetUploaderFilteredPodUploadedByUsers(item)
+            .Select(uploader => uploader.LatestUploadedAt)
+            .Where(uploadedAt => uploadedAt.HasValue)
+            .ToList();
+
+        if (filteredUploaders.Count > 0)
+            return filteredUploaders.Max();
+
+        return item.PodUploadedAt;
     }
 
     private static IReadOnlyList<PodUploadUserSummary> GetPodUploadedByUsers(PodUploadStatusItem item)
@@ -850,9 +1426,9 @@
         return [];
     }
 
-    private static string FormatPodUploadedByDisplay(PodUploadStatusItem item)
+    private string FormatPodUploadedByDisplay(PodUploadStatusItem item)
     {
-        var uploaders = GetPodUploadedByUsers(item)
+        var uploaders = GetDisplayPodUploadedByUsers(item)
             .Select(uploader => uploader.Username.Trim())
             .Where(username => !string.IsNullOrWhiteSpace(username))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -862,6 +1438,20 @@
             return string.IsNullOrWhiteSpace(item.PodUploadedBy) ? "Unknown uploader" : item.PodUploadedBy;
 
         return string.Join(", ", uploaders);
+    }
+
+    private string FormatPodUploadLocationDisplay(PodUploadStatusItem item)
+    {
+        var locations = GetDisplayPodUploadedByUsers(item)
+            .Select(uploader => uploader.AssignedSection?.Trim())
+            .Where(location => !string.IsNullOrWhiteSpace(location))
+            .Select(location => location!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return locations.Count == 0
+            ? "-"
+            : string.Join(", ", locations.Select(AssignedSectionOptions.GetLabel));
     }
 
     private string FormatDate(string? dateStr)
@@ -874,24 +1464,26 @@
 
     private async Task ExportToExcel()
     {
-        if (report == null || FilteredCount == 0) return;
+        if (report == null || BaseFilteredCount == 0) return;
         isExporting = true;
         StateHasChanged();
         try
         {
+            var exportItems = BaseFilteredItems.ToList();
             var exportReport = new PodUploadStatusReport
             {
                 FromDate = report.FromDate,
                 ToDate = report.ToDate,
-                TotalInvoices = FilteredCount,
-                UploadedCount = FilteredItems.Count(i => i.HasPod),
-                PendingCount = FilteredItems.Count(i => !i.HasPod),
-                Items = FilteredItems.ToList()
+                TotalInvoices = exportItems.Count,
+                UploadedCount = exportItems.Count(i => i.HasPod),
+                PendingCount = exportItems.Count(i => !i.HasPod),
+                CreditNoteDataComplete = report.CreditNoteDataComplete,
+                Items = exportItems
             };
 
             var bytes = ExportService.ExportPodUploadStatusToExcel(exportReport);
             var base64 = Convert.ToBase64String(bytes);
-            await JS.InvokeVoidAsync("downloadFile", $"POD_Upload_Report_{DateTime.Now:yyyyMMdd_HHmm}.xlsx", base64);
+            await JS.InvokeVoidAsync("downloadFile", $"POD_Upload_Report_{DateTime.UtcNow:yyyyMMdd_HHmm}.xlsx", base64);
         }
         catch (Exception ex)
         {
@@ -902,5 +1494,12 @@
             isExporting = false;
             StateHasChanged();
         }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        isDisposed = true;
+        CancelCreditNoteRefresh();
+        return ValueTask.CompletedTask;
     }
 }

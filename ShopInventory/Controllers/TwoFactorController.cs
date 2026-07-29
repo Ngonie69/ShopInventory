@@ -63,7 +63,9 @@ public class TwoFactorController(IMediator mediator) : ApiControllerBase
         if (userId == null) return Unauthorized();
 
         var result = await mediator.Send(new EnableTwoFactorCommand(request.Code, userId.Value), cancellationToken);
-        return result.Match(value => Ok(new { message = value }), errors => Problem(errors));
+        return result.Match(
+            value => Ok(new { message = "Two-factor authentication enabled successfully", backupCodes = value }),
+            errors => Problem(errors));
     }
 
     /// <summary>
@@ -111,7 +113,9 @@ public class TwoFactorController(IMediator mediator) : ApiControllerBase
         if (userId == null) return Unauthorized();
 
         var result = await mediator.Send(new RegenerateBackupCodesCommand(request.Code, userId.Value), cancellationToken);
-        return result.Match(value => Ok(new { backupCodes = value }), errors => Problem(errors));
+        return result.Match(
+            value => Ok(new { message = "Backup codes regenerated successfully", backupCodes = value }),
+            errors => Problem(errors));
     }
 
     private Guid? GetCurrentUserId()

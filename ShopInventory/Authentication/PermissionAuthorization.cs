@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
+using ShopInventory.Common.Security;
 using ShopInventory.Models;
 using ShopInventory.Services;
 
@@ -50,7 +51,7 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAsyncAuthorizatio
         // Allow API key authenticated users with Admin or ApiUser roles to bypass
         // permission checks (service-to-service calls don't have a user-specific identity)
         var authMethod = user.FindFirst(ClaimTypes.AuthenticationMethod)?.Value;
-        if (authMethod == "ApiKey" && (user.IsInRole("Admin") || user.IsInRole("ApiUser")))
+        if (authMethod == "ApiKey" && (user.IsInRole(ApplicationRoles.Admin) || user.IsInRole(ApplicationRoles.ApiUser)))
         {
             return; // Allow access for API key service accounts
         }
@@ -65,15 +66,15 @@ public class RequirePermissionAttribute : AuthorizeAttribute, IAsyncAuthorizatio
             return;
         }
 
-        var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!Guid.TryParse(userIdClaim, out var userId))
+        var userId = UserClaimReader.GetUserId(user);
+        if (userId is null)
         {
             context.Result = new UnauthorizedResult();
             return;
         }
 
         // Get user's effective permissions without blocking the request thread.
-        var userPermissions = await userManagementService.GetEffectivePermissionsAsync(userId);
+        var userPermissions = await userManagementService.GetEffectivePermissionsAsync(userId.Value);
 
         // Check for system admin - they have all permissions
         if (userPermissions.Contains(Permission.SystemAdmin))
@@ -135,8 +136,8 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
             return;
         }
 
-        var userIdClaim = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!Guid.TryParse(userIdClaim, out var userId))
+        var userId = UserClaimReader.GetUserId(context.User);
+        if (userId is null)
         {
             return;
         }
@@ -144,7 +145,7 @@ public class PermissionAuthorizationHandler : AuthorizationHandler<PermissionReq
         using var scope = _serviceProvider.CreateScope();
         var userManagementService = scope.ServiceProvider.GetRequiredService<IUserManagementService>();
 
-        var userPermissions = await userManagementService.GetEffectivePermissionsAsync(userId);
+        var userPermissions = await userManagementService.GetEffectivePermissionsAsync(userId.Value);
 
         // System admin has all permissions
         if (userPermissions.Contains(Permission.SystemAdmin))

@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.SalesOrders;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -25,57 +26,75 @@ public sealed class UpdateSalesOrderStatusHandler(
                 command.Id, command.Status, command.UserId, command.Comments, cancellationToken);
 
             if (order.Source == SalesOrderSource.Mobile
-                && (order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected)
-                && !string.IsNullOrWhiteSpace(order.CreatedByUserName))
+                && (order.Status == SalesOrderStatus.Cancelled || order.Status == SalesOrderStatus.Rejected))
             {
+                var customerName = string.IsNullOrWhiteSpace(order.CardName)
+                    ? order.CardCode
+                    : order.CardName;
+                var isRejected = order.Status == SalesOrderStatus.Rejected;
+                var notificationTitle = isRejected
+                    ? $"Sales Order Rejected: {order.OrderNumber}"
+                    : $"Sales Order Cancelled: {order.OrderNumber}";
+                var statusVerb = isRejected ? "rejected" : "cancelled";
+                var trimmedComments = string.IsNullOrWhiteSpace(command.Comments)
+                    ? null
+                    : command.Comments.Trim();
+                var creatorNotificationMessage = $"Your mobile sales order {order.OrderNumber} for {customerName} was {statusVerb}.";
+                var staffNotificationMessage = $"Mobile sales order {order.OrderNumber} for {customerName} was {statusVerb}.";
+
+                if (!string.IsNullOrWhiteSpace(trimmedComments))
+                {
+                    creatorNotificationMessage += $" Reason: {trimmedComments}";
+                    staffNotificationMessage += $" Reason: {trimmedComments}";
+                }
+
+                var notificationData = new Dictionary<string, string>
+                {
+                    ["action"] = order.Status.ToString(),
+                    ["comments"] = trimmedComments ?? string.Empty
+                };
+
+                var creatorNotification = SalesOrderLifecycleNotificationFactory.CreateCreatorNotification(
+                    order,
+                    notificationTitle,
+                    creatorNotificationMessage,
+                    "Warning",
+                    notificationData);
+
+                if (creatorNotification is not null)
+                {
+                    try
+                    {
+                        await notificationService.CreateNotificationAsync(creatorNotification, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(
+                            ex,
+                            "Failed to notify creator {Username} about {Status} mobile sales order {OrderId}",
+                            order.CreatedByUserName,
+                            order.Status,
+                            order.Id);
+                    }
+                }
+
                 try
                 {
-                    var customerName = string.IsNullOrWhiteSpace(order.CardName)
-                        ? order.CardCode
-                        : order.CardName;
-                    var isRejected = order.Status == SalesOrderStatus.Rejected;
-                    var notificationTitle = isRejected
-                        ? $"Sales Order Rejected: {order.OrderNumber}"
-                        : $"Sales Order Cancelled: {order.OrderNumber}";
-                    var statusVerb = isRejected ? "rejected" : "cancelled";
-                    var trimmedComments = string.IsNullOrWhiteSpace(command.Comments)
-                        ? null
-                        : command.Comments.Trim();
-                    var notificationMessage = $"Your mobile sales order {order.OrderNumber} for {customerName} was {statusVerb}.";
-
-                    if (!string.IsNullOrWhiteSpace(trimmedComments))
-                        notificationMessage += $" Reason: {trimmedComments}";
-
-                    await notificationService.CreateNotificationAsync(new CreateNotificationRequest
+                    foreach (var staffNotification in SalesOrderLifecycleNotificationFactory.CreateStaffNotifications(
+                                 order,
+                                 notificationTitle,
+                                 staffNotificationMessage,
+                                 "Warning",
+                                 notificationData))
                     {
-                        Title = notificationTitle,
-                        Message = notificationMessage,
-                        Type = "Warning",
-                        Category = "SalesOrder",
-                        EntityType = "SalesOrder",
-                        EntityId = order.OrderNumber,
-                        ActionUrl = "/mobile-drafts",
-                        TargetUserId = order.CreatedByUserId,
-                        TargetUsername = order.CreatedByUserName,
-                        Data = new Dictionary<string, string>
-                        {
-                            ["orderId"] = order.Id.ToString(),
-                            ["orderNumber"] = order.OrderNumber,
-                            ["cardCode"] = order.CardCode,
-                            ["customerCode"] = order.CardCode,
-                            ["customerName"] = customerName,
-                            ["status"] = order.Status.ToString(),
-                            ["action"] = order.Status.ToString(),
-                            ["comments"] = trimmedComments ?? string.Empty
-                        }
-                    }, cancellationToken);
+                        await notificationService.CreateNotificationAsync(staffNotification, cancellationToken);
+                    }
                 }
                 catch (Exception ex)
                 {
                     logger.LogWarning(
                         ex,
-                        "Failed to notify creator {Username} about {Status} mobile sales order {OrderId}",
-                        order.CreatedByUserName,
+                        "Failed to publish staff {Status} notifications for mobile sales order {OrderId}",
                         order.Status,
                         order.Id);
                 }

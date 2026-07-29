@@ -42,8 +42,17 @@ public class Invoice
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
 
+    [JsonPropertyName("UserSign")]
+    public int? UserSign { get; set; }
+
     [JsonPropertyName("DocumentStatus")]
     public string? DocumentStatus { get; set; }
+
+    [JsonPropertyName("DocStatus")]
+    public string? DocStatus { get; set; }
+
+    [JsonPropertyName("Cancelled")]
+    public string? Cancelled { get; set; }
 
     [JsonPropertyName("PaidToDate")]
     public decimal PaidToDate { get; set; }
@@ -146,6 +155,11 @@ public class CreateInvoiceRequest
     public string? DocDueDate { get; set; }
 
     /// <summary>
+    /// Optional SAP B1 A/R Invoice numbering series. If omitted, the API uses SAP:InvoiceSeries when configured.
+    /// </summary>
+    public int? Series { get; set; }
+
+    /// <summary>
     /// Customer reference number (required)
     /// </summary>
     [Required(ErrorMessage = "NumAtCard (customer reference) is required")]
@@ -153,6 +167,7 @@ public class CreateInvoiceRequest
 
     public string? Comments { get; set; }
 
+    [Required(ErrorMessage = "Currency is required")]
     public string? DocCurrency { get; set; }
 
     public int? SalesPersonCode { get; set; }
@@ -161,6 +176,20 @@ public class CreateInvoiceRequest
     /// Van sale order reference (UDF). Used as unique identifier to prevent duplicate invoices in SAP.
     /// </summary>
     public string? U_Van_saleorder { get; set; }
+
+    /// <summary>
+    /// Expected number of crates attached to this invoice for crate reconciliation.
+    /// When zero or omitted, no crate transaction is registered.
+    /// </summary>
+    [Range(0, double.MaxValue, ErrorMessage = "Crate quantity cannot be negative")]
+    public decimal? CrateQuantity { get; set; }
+
+    /// <summary>
+    /// Client-supplied idempotency key (also accepted via the Idempotency-Key header).
+    /// Deduplicates retried web invoice submissions that have no U_Van_saleorder business key,
+    /// so a duplicate invoice is not posted to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
 
     [Required(ErrorMessage = "At least one line item is required")]
     [MinLength(1, ErrorMessage = "At least one line item is required")]
@@ -206,6 +235,12 @@ public class CreateInvoiceLineRequest
     /// G/L Account code for the line
     /// </summary>
     public string? AccountCode { get; set; }
+
+    /// <summary>
+    /// SAP dimension 1 cost centre code for the line.
+    /// Mapped to the document line CostingCode field in SAP Service Layer.
+    /// </summary>
+    public string? CostCentreCode { get; set; }
 
     /// <summary>
     /// Batch numbers for batch-managed items.

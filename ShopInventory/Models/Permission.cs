@@ -67,6 +67,7 @@ public static class Permissions
     // Users & Admin
     public const string ViewUsers = "users.view";
     public const string CreateUsers = "users.create";
+    public const string CreateMerchandiserAccounts = "users.create_merchandiser_accounts";
     public const string EditUsers = "users.edit";
     public const string DeleteUsers = "users.delete";
     public const string ManageRoles = "users.manage_roles";
@@ -189,6 +190,7 @@ public static class Permissions
             {
                 new(ViewUsers, "View Users", "View user accounts"),
                 new(CreateUsers, "Create Users", "Create new user accounts"),
+                new(CreateMerchandiserAccounts, "Create Merchandiser Accounts", "Create merchandiser user accounts (for SalesRep role)"),
                 new(EditUsers, "Edit Users", "Modify user accounts"),
                 new(DeleteUsers, "Delete Users", "Delete user accounts"),
                 new(ManageRoles, "Manage Roles", "Assign roles to users"),
@@ -250,8 +252,9 @@ public static class Permissions
     {
         return role switch
         {
-            "Admin" => GetAllPermissions(), // Admin gets everything
-            "Manager" => new List<string>
+            ApplicationRoles.Admin => GetAllPermissions(), // Admin gets everything
+            ApplicationRoles.ApiUser => GetAllPermissions(),
+            ApplicationRoles.Manager => new List<string>
             {
                 ViewDashboard, ViewProducts, CreateProducts, EditProducts, ManageProductPrices,
                 ViewInvoices, CreateInvoices, EditInvoices, VoidInvoices,
@@ -270,7 +273,7 @@ public static class Permissions
                 ViewAuditLogs,
                 ViewSyncStatus
             },
-            "User" => new List<string>
+            ApplicationRoles.User => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewInvoices, CreateInvoices,
@@ -278,7 +281,7 @@ public static class Permissions
                 ViewStock, ViewInventory,
                 ViewCustomers
             },
-            "Cashier" => new List<string>
+            ApplicationRoles.Cashier => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewInvoices, CreateInvoices, EditInvoices,
@@ -288,51 +291,77 @@ public static class Permissions
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
                 ViewReports
             },
-            "StockController" => new List<string>
+            ApplicationRoles.StockController => new List<string>
             {
                 ViewDashboard, ViewProducts,
                 ViewStock, ViewInventory, TransferStock, TransferInventory,
                 ViewCustomers
             },
-            "DepotController" => new List<string>
+            // Depot controllers are limited to inventory transfers and local stock.
+            ApplicationRoles.DepotController => new List<string>
             {
-                ViewDashboard, ViewProducts,
-                ViewPayments, CreatePayments,
-                ViewStock, ViewInventory, TransferStock, TransferInventory,
-                ViewCustomers
+                ViewProducts,
+                ViewStock, ViewInventory, TransferStock, TransferInventory
             },
-            "ReadOnly" => new List<string>
+            ApplicationRoles.ReadOnly => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewInvoices, ViewPayments,
                 ViewStock, ViewInventory, ViewCustomers, ViewReports
             },
-            "PodOperator" => new List<string>
+            ApplicationRoles.PodOperator => new List<string>
             {
-                ViewDashboard, ViewInvoices
+                ViewDashboard, ViewInvoices,
+                ViewUsers, CreateUsers, EditUsers,
+                ViewTimesheets, ManageTimesheets
             },
-            "Driver" => new List<string>
+            ApplicationRoles.Driver => new List<string>
             {
-                ViewDashboard, ViewInvoices
+                ViewDashboard, ViewInvoices,
+                ViewTimesheets, ManageTimesheets
             },
-            "Lab" => new List<string>
+            ApplicationRoles.Operator => new List<string>
+            {
+                ViewInvoices
+            },
+            ApplicationRoles.Lab => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewStock, ViewInventory
             },
-            "Merchandiser" => new List<string>
+            ApplicationRoles.Merchandiser => new List<string>
             {
                 ViewDashboard, ViewProducts, ViewCustomers,
                 ViewSalesOrders, CreateSalesOrders,
                 ViewPurchaseOrders, UploadPurchaseOrderDocuments,
                 ViewTimesheets, ManageTimesheets
             },
-            "SalesRep" => new List<string>
+            ApplicationRoles.Adr => new List<string>
             {
                 ViewDashboard,
-                CreateUsers,
+                ViewProducts,
+                ViewCustomers, CreateCustomers,
+                ViewStock, ViewInventory,
+                ViewSalesOrders, CreateSalesOrders,
+                ViewTimesheets, ManageTimesheets
+            },
+            ApplicationRoles.Sales => new List<string>
+            {
+                ViewDashboard,
+                ViewProducts,
+                ViewCustomers, CreateCustomers,
+                ViewStock, ViewInventory,
+                ViewInvoices, CreateInvoices,
+                ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders,
+                TransferStock, TransferInventory,
+                ViewTimesheets, ManageTimesheets
+            },
+            ApplicationRoles.SalesRep => new List<string>
+            {
+                ViewDashboard,
+                CreateMerchandiserAccounts,
                 ViewSalesOrders, CreateSalesOrders, EditSalesOrders, ApproveSalesOrders, PostSalesOrdersToSAP,
                 ViewTimesheets, ManageTimesheets
             },
-            "MerchandiserPurchaseOrderViewer" => new List<string>
+            ApplicationRoles.MerchandiserPurchaseOrderViewer => new List<string>
             {
                 ViewReports
             },
@@ -408,6 +437,7 @@ public static class Permission
     // Users & Admin
     public const string ViewUsers = Permissions.ViewUsers;
     public const string CreateUsers = Permissions.CreateUsers;
+    public const string CreateMerchandiserAccounts = Permissions.CreateMerchandiserAccounts;
     public const string EditUsers = Permissions.EditUsers;
     public const string DeleteUsers = Permissions.DeleteUsers;
     public const string ManageRoles = Permissions.ManageRoles;

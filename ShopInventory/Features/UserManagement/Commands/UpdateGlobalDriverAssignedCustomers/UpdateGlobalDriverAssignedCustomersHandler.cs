@@ -1,6 +1,8 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.Features.UserManagement;
 using ShopInventory.Models;
@@ -10,6 +12,7 @@ namespace ShopInventory.Features.UserManagement.Commands.UpdateGlobalDriverAssig
 
 public sealed class UpdateGlobalDriverAssignedCustomersHandler(
     ApplicationDbContext context,
+    IHttpContextAccessor httpContextAccessor,
     IAuditService auditService,
     IBusinessPartnerService businessPartnerService,
     INotificationService notificationService,
@@ -20,6 +23,11 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
         UpdateGlobalDriverAssignedCustomersCommand command,
         CancellationToken cancellationToken)
     {
+        if (httpContextAccessor.HttpContext?.User.IsInRole(ApplicationRoles.PodOperator) == true)
+        {
+            return Errors.UserManagement.PodOperatorCanOnlyManageDrivers;
+        }
+
         var assignedCustomerCodes = command.Request.AssignedCustomerCodes
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Select(code => code.Trim())
@@ -27,23 +35,23 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
             .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var drivers = await context.Users
+        var mobileUsers = await context.Users
             .AsNoTracking()
-            .Where(user => user.Role == "Driver")
+            .Where(user => user.Role == ApplicationRoles.Driver || user.Role == ApplicationRoles.PodOperator)
             .OrderBy(user => user.Username)
             .ToListAsync(cancellationToken);
 
-        var driverIds = drivers
+        var mobileUserIds = mobileUsers
             .Select(user => user.Id)
             .ToList();
 
-        if (driverIds.Count == 0)
+        if (mobileUserIds.Count == 0)
         {
-            logger.LogInformation("No driver accounts found while updating global driver business partners");
+            logger.LogInformation("No driver or pod operator accounts found while updating global mobile business partners");
             return 0;
         }
 
-        var currentAssignedCustomerCodes = drivers[0].GetCustomerCodes()
+        var currentAssignedCustomerCodes = mobileUsers[0].GetCustomerCodes()
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .Select(code => code.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -64,25 +72,25 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
             ? null
             : System.Text.Json.JsonSerializer.Serialize(assignedCustomerCodes);
 
-        var updatedDriverCount = await context.Users
-            .Where(user => user.Role == "Driver")
+        var updatedUserCount = await context.Users
+            .Where(user => user.Role == ApplicationRoles.Driver || user.Role == ApplicationRoles.PodOperator)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(user => user.AssignedCustomerCodes, _ => serializedCodes)
                 .SetProperty(user => user.UpdatedAt, _ => DateTime.UtcNow),
                 cancellationToken);
 
         var revokedRefreshTokenCount = await context.RefreshTokens
-            .Where(token => driverIds.Contains(token.UserId) && !token.IsRevoked && token.ExpiresAt > DateTime.UtcNow)
+            .Where(token => mobileUserIds.Contains(token.UserId) && !token.IsRevoked && token.ExpiresAt > DateTime.UtcNow)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(token => token.IsRevoked, true)
                 .SetProperty(token => token.RevokedAt, _ => DateTime.UtcNow)
                 .SetProperty(token => token.RevokedByIp, _ => "system")
-                .SetProperty(token => token.ReasonRevoked, _ => "Driver business partner scope updated"),
+                .SetProperty(token => token.ReasonRevoked, _ => "Mobile business partner scope updated"),
                 cancellationToken);
 
         logger.LogInformation(
-            "Updated global driver business partners for {UpdatedDriverCount} drivers; revoked {RefreshTokenCount} active refresh tokens",
-            updatedDriverCount,
+            "Updated global mobile business partners for {UpdatedUserCount} driver/pod operator accounts; revoked {RefreshTokenCount} active refresh tokens",
+            updatedUserCount,
             revokedRefreshTokenCount);
 
         var customerNamesByCode = addedCustomerCodes.Count > 0 || removedCustomerCodes.Count > 0
@@ -94,31 +102,37 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
 
         if (addedCustomerCodes.Count > 0)
         {
-            var addedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
-                "Driver",
-                "Driver",
-                addedCustomerCodes,
-                customerNamesByCode,
-                isRemoval: false);
-
-            if (addedNotification is not null)
+            foreach (var role in ApplicationRoles.DriverScopedRoles)
             {
-                await notificationService.CreateNotificationAsync(addedNotification, cancellationToken);
+                var addedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
+                    role,
+                    role,
+                    addedCustomerCodes,
+                    customerNamesByCode,
+                    isRemoval: false);
+
+                if (addedNotification is not null)
+                {
+                    await notificationService.CreateNotificationAsync(addedNotification, cancellationToken);
+                }
             }
         }
 
         if (removedCustomerCodes.Count > 0)
         {
-            var removedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
-                "Driver",
-                "Driver",
-                removedCustomerCodes,
-                customerNamesByCode,
-                isRemoval: true);
-
-            if (removedNotification is not null)
+            foreach (var role in ApplicationRoles.DriverScopedRoles)
             {
-                await notificationService.CreateNotificationAsync(removedNotification, cancellationToken);
+                var removedNotification = CustomerAssignmentNotificationFactory.CreateForRole(
+                    role,
+                    role,
+                    removedCustomerCodes,
+                    customerNamesByCode,
+                    isRemoval: true);
+
+                if (removedNotification is not null)
+                {
+                    await notificationService.CreateNotificationAsync(removedNotification, cancellationToken);
+                }
             }
         }
 
@@ -127,14 +141,14 @@ public sealed class UpdateGlobalDriverAssignedCustomersHandler(
             await auditService.LogAsync(
                 AuditActions.UpdateUser,
                 "User",
-                "DriverRole",
-                $"Updated global driver business partner scope for {updatedDriverCount} drivers; added={addedCustomerCodes.Count}, removed={removedCustomerCodes.Count}",
+                "MobileRole",
+                $"Updated global mobile business partner scope for {updatedUserCount} driver/pod operator accounts; added={addedCustomerCodes.Count}, removed={removedCustomerCodes.Count}",
                 true);
         }
         catch
         {
         }
 
-        return updatedDriverCount;
+        return updatedUserCount;
     }
 }

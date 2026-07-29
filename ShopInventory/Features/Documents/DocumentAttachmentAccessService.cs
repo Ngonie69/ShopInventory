@@ -1,7 +1,9 @@
 using System.Security.Claims;
 using ErrorOr;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -21,6 +23,7 @@ public sealed class DocumentAttachmentAccessService(
         "Admin",
         "Cashier",
         "PodOperator",
+        "Operator",
         "Driver",
         "SalesRep"
     };
@@ -117,6 +120,21 @@ public sealed class DocumentAttachmentAccessService(
             return await EnsureExternalPurchaseOrderAccessAsync(role, isWriteOperation, GetPermissionsAsync, cancellationToken);
         }
 
+        if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCrateTransaction, StringComparison.OrdinalIgnoreCase))
+        {
+            return await EnsureCrateTransactionAccessAsync(entityId, userId, role, isWriteOperation, cancellationToken);
+        }
+
+        if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCratePodSubmission, StringComparison.OrdinalIgnoreCase))
+        {
+            return await EnsureCratePodSubmissionAccessAsync(entityId, userId, role, assignedSection, uploadedByUserId, isWriteOperation, cancellationToken);
+        }
+
+        if (string.Equals(normalizedEntityType, CrateTrackingConstants.AttachmentEntityTypeCrateGrv, StringComparison.OrdinalIgnoreCase))
+        {
+            return await EnsureCrateGrvAccessAsync(entityId, userId, role, isWriteOperation, cancellationToken);
+        }
+
         if (IsRole(role, "Admin") || IsRole(role, "Manager"))
         {
             return true;
@@ -162,21 +180,66 @@ public sealed class DocumentAttachmentAccessService(
             return Errors.Document.AccessDenied("Drivers can only access PODs they uploaded.");
         }
 
-        if (IsRole(role, "PodOperator"))
+        var isScopedPodViewer = IsRole(role, "PodOperator") || IsRole(role, "Operator");
+
+        if (isScopedPodViewer)
         {
+            // POD operators may upload a POD to any invoice (matching driver behaviour); the
+            // assigned-section scope only governs which invoices' PODs they are allowed to view.
+            // A null uploadedByUserId marks the entity-level upload path (AuthorizeEntityAccessAsync);
+            // attachment-level operations (e.g. delete) still fall through to the section check below.
+            if (isWriteOperation && uploadedByUserId is null && IsRole(role, "PodOperator"))
+            {
+                return true;
+            }
+
             if (string.IsNullOrWhiteSpace(assignedSection))
             {
-                return Errors.Document.AccessDenied("Pod operators must have an assigned section to access invoice attachments.");
+                return Errors.Document.AccessDenied("An assigned POD section is required to access invoice attachments.");
             }
 
             var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync([entityId], assignedSection, cancellationToken);
-            if (!scopedDocEntries.Contains(entityId))
+            if (scopedDocEntries.Contains(entityId))
             {
-                return Errors.Document.AccessDenied("This invoice is outside your assigned POD section.");
+                return true;
             }
+
+            if (!isWriteOperation && await MatchesUploaderAssignedSectionAsync(uploadedByUserId, assignedSection, cancellationToken))
+            {
+                return true;
+            }
+
+            return Errors.Document.AccessDenied("This invoice is outside your assigned POD section.");
         }
 
         return true;
+    }
+
+    private async Task<bool> MatchesUploaderAssignedSectionAsync(
+        Guid? uploadedByUserId,
+        string assignedSection,
+        CancellationToken cancellationToken)
+    {
+        if (!uploadedByUserId.HasValue || string.IsNullOrWhiteSpace(assignedSection))
+        {
+            return false;
+        }
+
+        var uploaderAssignedSection = await context.Users
+            .AsNoTracking()
+            .Where(user => user.Id == uploadedByUserId.Value)
+            .Select(user => user.AssignedSection)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(uploaderAssignedSection))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            PodLocationScope.CanonicalizeSection(uploaderAssignedSection),
+            PodLocationScope.CanonicalizeSection(assignedSection),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<ErrorOr<bool>> EnsureExternalPurchaseOrderAccessAsync(
@@ -207,6 +270,130 @@ public sealed class DocumentAttachmentAccessService(
             isWriteOperation
                 ? "You do not have permission to modify purchase order attachments."
                 : "You do not have permission to view purchase order attachments.");
+    }
+
+    private async Task<ErrorOr<bool>> EnsureCrateTransactionAccessAsync(
+        int entityId,
+        Guid userId,
+        string role,
+        bool isWriteOperation,
+        CancellationToken cancellationToken)
+    {
+        var transactionExists = await context.CrateTransactions
+            .AsNoTracking()
+            .AnyAsync(t => t.Id == entityId, cancellationToken);
+
+        if (!transactionExists)
+        {
+            return Errors.CrateTracking.TransactionNotFound(entityId);
+        }
+
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser") || IsRole(role, "PodOperator"))
+        {
+            return true;
+        }
+
+        return Errors.Document.AccessDenied(
+            isWriteOperation
+                ? "You do not have permission to modify crate transaction documents."
+                : "You do not have permission to view crate transaction documents.");
+    }
+
+    private async Task<ErrorOr<bool>> EnsureCratePodSubmissionAccessAsync(
+        int entityId,
+        Guid userId,
+        string role,
+        string? assignedSection,
+        Guid? uploadedByUserId,
+        bool isWriteOperation,
+        CancellationToken cancellationToken)
+    {
+        var submission = await context.CratePodSubmissions
+            .AsNoTracking()
+            .Include(s => s.CrateTransaction)
+            .FirstOrDefaultAsync(s => s.Id == entityId, cancellationToken);
+
+        if (submission is null)
+        {
+            return Errors.CrateTracking.SubmissionNotFound(entityId);
+        }
+
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser"))
+        {
+            return true;
+        }
+
+        if (!isWriteOperation && (IsRole(role, "SalesRep") || IsRole(role, "PodOperator")))
+        {
+            return true;
+        }
+
+        if (!isWriteOperation && IsRole(role, "Operator"))
+        {
+            if (string.IsNullOrWhiteSpace(assignedSection))
+            {
+                return Errors.Document.AccessDenied("An assigned POD section is required to view crate POD attachments.");
+            }
+
+            if (submission.CrateTransaction?.InvoiceDocEntry is not int invoiceDocEntry)
+            {
+                return Errors.Document.AccessDenied("This crate POD is not linked to an invoice in your assigned POD section.");
+            }
+
+            var scopedDocEntries = await documentService.GetScopedPodInvoiceDocEntriesAsync([invoiceDocEntry], assignedSection, cancellationToken);
+            if (scopedDocEntries.Contains(invoiceDocEntry))
+            {
+                return true;
+            }
+
+            return Errors.Document.AccessDenied("This crate POD is outside your assigned POD section.");
+        }
+
+        if (IsRole(role, "Driver") && (submission.SubmittedByUserId == userId || uploadedByUserId == userId))
+        {
+            return true;
+        }
+
+        return Errors.Document.AccessDenied(
+            isWriteOperation
+                ? "You can only modify your own crate POD attachments."
+                : "You can only view your own crate POD attachments.");
+    }
+
+    private async Task<ErrorOr<bool>> EnsureCrateGrvAccessAsync(
+        int entityId,
+        Guid userId,
+        string role,
+        bool isWriteOperation,
+        CancellationToken cancellationToken)
+    {
+        var grv = await context.CrateGrvs
+            .AsNoTracking()
+            .Include(g => g.CrateTransaction)
+                .ThenInclude(t => t.PodSubmissions)
+            .FirstOrDefaultAsync(g => g.Id == entityId, cancellationToken);
+
+        if (grv is null)
+        {
+            return Errors.CrateTracking.GrvNotFound(entityId);
+        }
+
+        if (IsRole(role, "Admin") || IsRole(role, "Manager") || IsRole(role, "Merchandiser") || (!isWriteOperation && IsRole(role, "SalesRep")))
+        {
+            return true;
+        }
+
+        if (!isWriteOperation && IsRole(role, "Driver") && grv.CrateTransaction.PodSubmissions.Any(s =>
+                s.SubmissionRole == CrateTrackingConstants.SubmissionRoleDriver &&
+                s.SubmittedByUserId == userId))
+        {
+            return true;
+        }
+
+        return Errors.Document.AccessDenied(
+            isWriteOperation
+                ? "You do not have permission to modify crate GRV attachments."
+                : "You do not have permission to view crate GRV attachments.");
     }
 
     private async Task<ErrorOr<(Guid UserId, string Role, string? AssignedSection, bool IsApiKeyBypass)>> ResolveCurrentUserAsync(

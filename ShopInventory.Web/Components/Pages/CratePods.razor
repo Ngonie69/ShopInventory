@@ -1,0 +1,554 @@
+@page "/crates/pods"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep")]
+@inherits CratePodsPageBase
+@rendermode InteractiveServer
+
+<PageTitle>Crate POD Transactions - Shop Inventory</PageTitle>
+
+@{
+    var filteredTransactions = FilteredPodTransactions.ToList();
+    var selectedTransaction = SelectedPodTransaction;
+}
+
+<div class="container-fluid fade-in staff-dashboard staff-shell crpod-page">
+    <div class="crpod-hero">
+        <div class="crpod-hero-content">
+            <div>
+                <h2 class="crpod-hero-title">
+                    <span class="crpod-hero-icon">
+                        <i class="bi bi-boxes"></i>
+                    </span>
+                    Crate POD Transactions
+                </h2>
+                <p class="crpod-hero-subtitle">Upload crate proof-of-delivery files and work against the invoice-linked crate transaction register on its own page.</p>
+            </div>
+            <div class="crpod-hero-actions">
+                <span class="crpod-stat-pill crpod-stat-pill-neutral">
+                    <i class="bi bi-receipt-cutoff me-1"></i>@PodEligibleTransactions.Count() invoice transactions
+                </span>
+                <span class="crpod-stat-pill crpod-stat-pill-warning">
+                    <i class="bi bi-clock-history me-1"></i>@PendingPodCount pending PODs
+                </span>
+                <span class="crpod-stat-pill crpod-stat-pill-success">
+                    <i class="bi bi-check2-circle me-1"></i>@pods.Count submissions
+                </span>
+                <button type="button" class="crpod-refresh-btn" @onclick="RefreshAllAsync" disabled="@isLoading">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    <span>@(isLoading ? "Refreshing..." : "Refresh")</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="crpod-mode-toggle mb-3">
+        <a class="crpod-mode-btn" href="/pods">
+            <i class="bi bi-box-seam me-1"></i> Product PODs
+        </a>
+        <button type="button" class="crpod-mode-btn crpod-mode-active">
+            <i class="bi bi-boxes me-1"></i> Crate PODs
+        </button>
+    </div>
+
+    <div class="crpod-mode-toggle mb-4">
+        <button type="button" class="crpod-mode-btn crpod-mode-active">
+            <i class="bi bi-receipt-cutoff me-1"></i> Invoice Crate Transactions
+        </button>
+        <a class="crpod-mode-btn" href="/crates/pods/history">
+            <i class="bi bi-clock-history me-1"></i> Crate POD History
+        </a>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="crpod-status-banner @(statusIsSuccess ? "crpod-status-success" : "crpod-status-error")">
+            <i class="bi @(statusIsSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+            <span>@statusMessage</span>
+        </div>
+    }
+
+    @if (canSubmitPods)
+    {
+        <div class="crpod-mode-toggle mb-4">
+            <button type="button" class="crpod-mode-btn @(uploadMode == CratePodUploadMode.Single ? "crpod-mode-active" : string.Empty)"
+                    @onclick='() => SwitchUploadMode(CratePodUploadMode.Single)'>
+                <i class="bi bi-file-earmark-arrow-up me-1"></i> Single Upload
+            </button>
+            <button type="button" class="crpod-mode-btn @(uploadMode == CratePodUploadMode.Bulk ? "crpod-mode-active" : string.Empty)"
+                    @onclick='() => SwitchUploadMode(CratePodUploadMode.Bulk)'>
+                <i class="bi bi-files me-1"></i> Bulk Upload
+            </button>
+        </div>
+
+        @if (uploadMode == CratePodUploadMode.Single)
+        {
+            <div class="crpod-card mb-4">
+                <div class="crpod-card-header">
+                    <div>
+                        <h3 class="crpod-card-title">Upload Crate POD</h3>
+                        <p class="crpod-card-note">Match the correct invoice crate transaction, attach the supporting document, and submit the crate confirmation under the correct role.</p>
+                    </div>
+                </div>
+
+                <div class="crpod-card-body">
+                    <div class="row g-3 align-items-end mb-3">
+                        <div class="col-lg-7">
+                            <label class="crpod-label">Invoice Crate Transaction</label>
+                            <select class="form-select crpod-input" @onchange="OnSelectedPodTransactionChanged">
+                                <option value="">Select a crate transaction</option>
+                                @foreach (var transaction in PodEligibleTransactions)
+                                {
+                                    <option value="@transaction.Id" selected="@(selectedPodTransactionId == transaction.Id)">@GetTransactionLabel(transaction)</option>
+                                }
+                            </select>
+                        </div>
+                        @if (canChoosePodRole)
+                        {
+                            <div class="col-lg-2">
+                                <label class="crpod-label">Submission Role</label>
+                                <select class="form-select crpod-input" @onchange="OnSelectedPodRoleChanged">
+                                    <option value="Driver" selected="@string.Equals(selectedPodRole, "Driver", StringComparison.OrdinalIgnoreCase)">Driver</option>
+                                    <option value="Merchandiser" selected="@string.Equals(selectedPodRole, "Merchandiser", StringComparison.OrdinalIgnoreCase)">Merchandiser</option>
+                                </select>
+                            </div>
+                        }
+                        <div class="col-lg-3">
+                            @if (selectedTransaction is not null)
+                            {
+                                <div class="crpod-inline-alert crpod-inline-alert-success">
+                                    <i class="bi bi-check2-circle"></i>
+                                    <span>@GetReferenceLabel(selectedTransaction) selected for @CurrentPodRoleLabel upload.</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="crpod-inline-alert crpod-inline-alert-info">
+                                    <i class="bi bi-info-circle"></i>
+                                    <span>Select a transaction to prefill the crate quantity.</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-3">
+                            <label class="crpod-label">Quantity</label>
+                            <input type="number" min="0" step="0.01" class="form-control crpod-input" @bind="podQuantity" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="crpod-label">Document</label>
+                            <InputFile @key="podFileKey" OnChange="OnPodFileSelected" class="form-control crpod-input"
+                                       accept=".jpg,.jpeg,.png,.webp,.pdf" />
+                            <div class="crpod-help">JPG, PNG, WebP, or PDF. One supporting file per crate POD submission.</div>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="crpod-label">Notes (optional)</label>
+                            <input type="text" class="form-control crpod-input" @bind="podNotes"
+                                   placeholder="e.g. Signed crate handover sheet" />
+                        </div>
+                    </div>
+
+                    @if (podFile is not null && !isSubmittingPod)
+                    {
+                        <div class="crpod-file-chips">
+                            <span class="crpod-file-chip">
+                                <i class="bi bi-file-earmark-arrow-up me-1"></i>@podFile.Name
+                                <span class="crpod-file-chip-size">(@FormatFileSize(podFile.Size))</span>
+                            </span>
+                        </div>
+                    }
+
+                    <div class="crpod-card-actions">
+                        <button type="button" class="crpod-primary-btn" @onclick="SubmitPodAsync"
+                                disabled="@(isSubmittingPod || selectedPodTransactionId is null || podFile is null)">
+                            <i class="bi bi-cloud-arrow-up"></i>
+                            <span>@(isSubmittingPod ? "Uploading crate POD..." : $"Upload {CurrentPodRoleLabel} Crate POD")</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="crpod-card mb-4">
+                <div class="crpod-card-header">
+                    <div>
+                        <h3 class="crpod-card-title">Bulk Upload Crate PODs</h3>
+                        <p class="crpod-card-note">Validate a batch of invoice-numbered crate POD files and let each file infer its own submission role from the filename.</p>
+                    </div>
+                </div>
+
+                <div class="crpod-card-body">
+                    <div class="crpod-bulk-alert mb-3">
+                        <strong>Naming convention:</strong> start each filename with the invoice number and include a role marker such as <code>driver</code>, <code>drv</code>, <code>merch</code>, or <code>merchandiser</code>. Example: <code>10001_driver.jpg</code> or <code>10002_merch_signed.pdf</code>.
+                    </div>
+
+                    <div class="crpod-bulk-guide mb-3">
+                        <div class="crpod-bulk-guide-header">
+                            <div>
+                                <h4 class="crpod-bulk-guide-title">Filename guide</h4>
+                                <p class="crpod-bulk-guide-copy">Use one invoice number at the start, then add a driver or merch marker anywhere after it.</p>
+                            </div>
+                            <button type="button" class="crpod-secondary-btn" @onclick="CopyBulkNamingExamplesAsync">
+                                <i class="bi bi-clipboard"></i>
+                                <span>Copy examples</span>
+                            </button>
+                        </div>
+
+                        <div class="crpod-bulk-guide-grid">
+                            <div class="crpod-bulk-guide-card">
+                                <span class="crpod-label">Accepted role markers</span>
+                                <div class="crpod-guide-chips">
+                                    <span class="crpod-guide-chip">driver</span>
+                                    <span class="crpod-guide-chip">drv</span>
+                                    <span class="crpod-guide-chip">merch</span>
+                                    <span class="crpod-guide-chip">merchandiser</span>
+                                </div>
+                            </div>
+                            <div class="crpod-bulk-guide-card">
+                                <span class="crpod-label">Copyable examples</span>
+                                <pre class="crpod-bulk-code">10001_driver.jpg
+10001_drv_signed.png
+10002_merch.pdf
+10002_merchandiser_sheet.webp</pre>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(bulkNamingGuideMessage))
+                        {
+                            <div class="crpod-help mt-2">@bulkNamingGuideMessage</div>
+                        }
+                    </div>
+
+                    <div class="row g-3 align-items-end mb-3">
+                        <div class="col-lg-7">
+                            <label class="crpod-label">Crate POD Files</label>
+                            <InputFile @key="bulkPodFileKey" OnChange="OnBulkPodFilesSelected" class="form-control crpod-input"
+                                       accept=".jpg,.jpeg,.png,.webp,.pdf" multiple />
+                            <div class="crpod-help">Select multiple files. Each file is matched using the leading invoice number and role marker in its filename.</div>
+                        </div>
+                        <div class="col-lg-3">
+                            <label class="crpod-label">Notes (optional)</label>
+                            <input type="text" class="form-control crpod-input" @bind="bulkPodNotes"
+                                   placeholder="Applied to each upload" />
+                        </div>
+                        <div class="col-lg-2">
+                            <button type="button" class="crpod-primary-btn w-100" @onclick="ValidateBulkPodFilesAsync"
+                                    disabled="@(isBulkValidatingPods || !crateBulkMappings.Any())">
+                                <i class="bi bi-check2-circle"></i>
+                                <span>@(isBulkValidatingPods ? $"Validating {bulkValidationProgress}" : "Validate batch")</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (crateBulkMappings.Any())
+                    {
+                        <div class="crpod-table-wrap">
+                            <table class="table table-hover mb-0 align-middle crpod-table mobile-card-table">
+                                <thead>
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Invoice</th>
+                                        <th>Role</th>
+                                        <th>Shop</th>
+                                        <th class="text-end">Quantity</th>
+                                        <th>Existing</th>
+                                        <th>Status</th>
+                                        <th class="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var mapping in crateBulkMappings)
+                                    {
+                                        <tr class="@(mapping.Status == BulkCrateFileStatus.Error ? "table-danger" : mapping.Status == BulkCrateFileStatus.Uploaded ? "table-success" : string.Empty)">
+                                            <td data-label="Filename">
+                                                <div class="crpod-table-primary">@mapping.FileName</div>
+                                                <div class="crpod-table-sub">@FormatFileSize(mapping.FileSize)</div>
+                                            </td>
+                                            <td data-label="Invoice">
+                                                @if (mapping.InvoiceDocNum.HasValue)
+                                                {
+                                                    <span class="crpod-invoice-badge">@mapping.InvoiceDocNum</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-danger fw-semibold">No invoice #</span>
+                                                }
+                                            </td>
+                                            <td data-label="Role">
+                                                @if (!string.IsNullOrWhiteSpace(mapping.SubmissionRole))
+                                                {
+                                                    <span class="crpod-role-badge @GetSubmissionRoleTone(mapping.SubmissionRole)">@mapping.SubmissionRole</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-danger fw-semibold">No role marker</span>
+                                                }
+                                            </td>
+                                            <td data-label="Shop">
+                                                <div class="crpod-table-primary">@(mapping.ShopCardCode ?? "-")</div>
+                                                <div class="crpod-table-sub">@(mapping.ShopName ?? "Validate to resolve")</div>
+                                            </td>
+                                            <td data-label="Quantity" class="text-end">
+                                                <input type="number" min="0" step="0.01" class="form-control crpod-input crpod-bulk-qty"
+                                                       @bind="mapping.Quantity"
+                                                       disabled="@(mapping.Status is BulkCrateFileStatus.Pending or BulkCrateFileStatus.Error or BulkCrateFileStatus.Uploading or BulkCrateFileStatus.Uploaded)" />
+                                                <div class="crpod-table-sub mt-1">Expected @mapping.ExpectedQuantity.ToString("N2")</div>
+                                            </td>
+                                            <td data-label="Existing">
+                                                @if (mapping.HasExistingSubmission || mapping.ExistingAttachmentCount > 0)
+                                                {
+                                                    <span class="crpod-warning-badge">
+                                                        <i class="bi bi-exclamation-triangle me-1"></i>
+                                                        @(mapping.HasExistingSubmission ? "Existing submission" : $"{mapping.ExistingAttachmentCount} file(s)")
+                                                    </span>
+                                                }
+                                                else if (mapping.Status is not BulkCrateFileStatus.Pending and not BulkCrateFileStatus.Error)
+                                                {
+                                                    <span class="crpod-table-sub">None</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="crpod-table-sub">-</span>
+                                                }
+                                            </td>
+                                            <td data-label="Status">
+                                                @switch (mapping.Status)
+                                                {
+                                                    case BulkCrateFileStatus.Pending:
+                                                        <span class="crpod-warning-badge bg-secondary text-white">Pending</span>
+                                                        break;
+                                                    case BulkCrateFileStatus.Valid:
+                                                        <span class="crpod-status-badge crpod-status-success">Ready</span>
+                                                        break;
+                                                    case BulkCrateFileStatus.ValidWithWarning:
+                                                        <span class="crpod-warning-badge">Ready (existing)</span>
+                                                        break;
+                                                    case BulkCrateFileStatus.Uploading:
+                                                        <span class="crpod-status-badge crpod-status-pending">Uploading</span>
+                                                        break;
+                                                    case BulkCrateFileStatus.Uploaded:
+                                                        <span class="crpod-status-badge crpod-status-success">Uploaded</span>
+                                                        break;
+                                                    case BulkCrateFileStatus.Error:
+                                                        <span class="crpod-status-badge crpod-status-danger">@(mapping.ErrorMessage ?? "Error")</span>
+                                                        break;
+                                                }
+                                            </td>
+                                            <td data-label="Action" class="text-center">
+                                                @if (mapping.Status is not BulkCrateFileStatus.Uploading and not BulkCrateFileStatus.Uploaded)
+                                                {
+                                                    <button type="button" class="crpod-row-btn" @onclick="() => RemoveCrateBulkMapping(mapping)">
+                                                        Remove
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="crpod-bulk-footer">
+                            <div class="crpod-bulk-summary">
+                                @CrateBulkReadyCount ready to upload
+                                @if (crateBulkMappings.Any(mapping => mapping.Status == BulkCrateFileStatus.Error))
+                                {
+                                    <span> • @crateBulkMappings.Count(mapping => mapping.Status == BulkCrateFileStatus.Error) need attention</span>
+                                }
+                            </div>
+                            <div class="crpod-bulk-actions">
+                                @if (crateBulkMappings.Any(mapping => mapping.Status == BulkCrateFileStatus.Error && mapping.InvoiceDocNum.HasValue))
+                                {
+                                    <button type="button" class="crpod-row-btn" @onclick="RetryBulkPodValidationAsync"
+                                            disabled="@(isBulkValidatingPods || isBulkUploadingPods)">
+                                        Retry errors
+                                    </button>
+                                }
+                                <button type="button" class="crpod-secondary-btn" @onclick="ClearCrateBulkUpload"
+                                        disabled="@isBulkUploadingPods">
+                                    Clear
+                                </button>
+                                <button type="button" class="crpod-primary-btn" @onclick="ExecuteBulkPodUploadAsync"
+                                        disabled="@(isBulkUploadingPods || CrateBulkReadyCount == 0)">
+                                    <i class="bi bi-cloud-arrow-up"></i>
+                                    <span>@(isBulkUploadingPods ? $"Uploading {bulkUploadProgress}" : $"Upload {CrateBulkReadyCount} PODs")</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(bulkUploadMessage))
+                    {
+                        <div class="crpod-inline-alert @(bulkUploadSuccess ? "crpod-inline-alert-success" : "crpod-inline-alert-info") mt-3">
+                            <i class="bi @(bulkUploadSuccess ? "bi-check-circle" : "bi-info-circle")"></i>
+                            <span>@bulkUploadMessage</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="crpod-card mb-4">
+            <div class="crpod-readonly-state">
+                <div class="crpod-readonly-icon">
+                    <i class="bi bi-eye"></i>
+                </div>
+                <div>
+                    <h3 class="crpod-card-title mb-1">Read-only crate transaction access</h3>
+                    <p class="crpod-card-note mb-0">You can review invoice-linked crate transactions from this page and open the history page for submitted crate POD files, but uploads remain limited to the crate field roles.</p>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (selectedTransaction is not null && canSubmitPods && uploadMode == CratePodUploadMode.Single)
+    {
+        <div class="crpod-card mb-4">
+            <div class="crpod-card-header">
+                <div>
+                    <h3 class="crpod-card-title">Selected Transaction</h3>
+                    <p class="crpod-card-note">Crate transaction details for the current upload target.</p>
+                </div>
+                <span class="crpod-status-badge @GetTransactionStatusTone(selectedTransaction.Status)">@GetStatusLabel(selectedTransaction.Status)</span>
+            </div>
+
+            <div class="crpod-card-body">
+                <div class="crpod-detail-grid">
+                    <div class="crpod-detail-item">
+                        <span class="crpod-detail-label">Reference</span>
+                        <span class="crpod-detail-value">@GetReferenceLabel(selectedTransaction)</span>
+                        <span class="crpod-detail-sub">@selectedTransaction.EffectiveDate.ToString("dd MMM yyyy")</span>
+                    </div>
+                    <div class="crpod-detail-item">
+                        <span class="crpod-detail-label">Shop</span>
+                        <span class="crpod-detail-value">@selectedTransaction.ShopCardCode</span>
+                        <span class="crpod-detail-sub">@(selectedTransaction.ShopName ?? "No shop name")</span>
+                    </div>
+                    <div class="crpod-detail-item">
+                        <span class="crpod-detail-label">Expected</span>
+                        <span class="crpod-detail-value">@selectedTransaction.ExpectedQuantity.ToString("N2")</span>
+                        <span class="crpod-detail-sub">Invoice crate quantity</span>
+                    </div>
+                    <div class="crpod-detail-item">
+                        <span class="crpod-detail-label">Driver Count</span>
+                        <span class="crpod-detail-value">@FormatQuantity(selectedTransaction.DriverQuantity)</span>
+                        <span class="crpod-detail-sub">Document: @(selectedTransaction.HasDriverPodDocument ? "Attached" : "Pending")</span>
+                    </div>
+                    <div class="crpod-detail-item">
+                        <span class="crpod-detail-label">Merch Count</span>
+                        <span class="crpod-detail-value">@FormatQuantity(selectedTransaction.MerchandiserQuantity)</span>
+                        <span class="crpod-detail-sub">Document: @(selectedTransaction.HasMerchandiserPodDocument ? "Attached" : "Pending")</span>
+                    </div>
+                    <div class="crpod-detail-item">
+                        <span class="crpod-detail-label">Supporting Docs</span>
+                        <span class="crpod-detail-value">@selectedTransaction.SupportingDocumentCount</span>
+                        <span class="crpod-detail-sub">Across POD and related crate records</span>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(selectedTransaction.Notes))
+                {
+                    <div class="crpod-detail-note">
+                        <span class="crpod-detail-label">Transaction Notes</span>
+                        <p>@selectedTransaction.Notes</p>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="crpod-card">
+        <div class="crpod-card-header">
+            <div>
+                <h3 class="crpod-card-title">Invoice Crate Transactions</h3>
+                <p class="crpod-card-note">@(canSubmitPods
+                    ? (uploadMode == CratePodUploadMode.Single
+                        ? "Browse the invoice-linked crate register, then push the chosen row into the upload form above."
+                        : "Browse the invoice-linked crate register and confirm which invoices are eligible before bulk upload.")
+                    : "Browse the invoice-linked crate register, review driver and merchandiser counts, and open the history page below for document follow-up.")</p>
+            </div>
+            <span class="crpod-header-count">@filteredTransactions.Count matching transactions</span>
+        </div>
+
+        <div class="crpod-filter-bar">
+            <div class="crpod-filter-search">
+                <i class="bi bi-search"></i>
+                <input type="text" class="form-control crpod-input" @bind="transactionFilterSearch" @bind:event="oninput"
+                       placeholder="Search invoice #, shop, notes, or status" />
+            </div>
+            <select class="form-select crpod-input crpod-filter-select" @bind="transactionFilterStatus">
+                <option value="all">All statuses</option>
+                <option value="PendingDriverPod">Pending Driver POD</option>
+                <option value="PendingMerchandiserPod">Pending Merch POD</option>
+                <option value="Matched">Matched</option>
+                <option value="VariancePendingGrv">Variance Pending GRV</option>
+                <option value="GrvRaised">GRV Raised</option>
+            </select>
+        </div>
+
+        @if (!canViewCrateTransactions)
+        {
+            <div class="crpod-empty-state">Invoice-linked crate transactions are not available for your account.</div>
+        }
+        else if (!filteredTransactions.Any())
+        {
+            <div class="crpod-empty-state">No invoice-linked crate transactions match the current filters.</div>
+        }
+        else
+        {
+            <div class="crpod-table-wrap">
+                <table class="table table-hover mb-0 align-middle crpod-table mobile-card-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice</th>
+                            <th>Shop</th>
+                            <th class="text-end">Expected</th>
+                            <th class="text-end">Driver</th>
+                            <th class="text-end">Merch</th>
+                            <th>Status</th>
+                            @if (canSubmitPods && uploadMode == CratePodUploadMode.Single)
+                            {
+                                <th class="text-center">Action</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var transaction in filteredTransactions)
+                        {
+                            <tr class="@(uploadMode == CratePodUploadMode.Single && selectedPodTransactionId == transaction.Id ? "crpod-row-selected" : string.Empty)">
+                                <td data-label="Invoice">
+                                    <div class="crpod-table-primary">@GetReferenceLabel(transaction)</div>
+                                    <div class="crpod-table-sub">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
+                                </td>
+                                <td data-label="Shop">
+                                    <div class="crpod-table-primary">@transaction.ShopCardCode</div>
+                                    <div class="crpod-table-sub">@(transaction.ShopName ?? "-")</div>
+                                </td>
+                                <td data-label="Expected" class="text-end fw-semibold">@transaction.ExpectedQuantity.ToString("N2")</td>
+                                <td data-label="Driver" class="text-end">@FormatQuantity(transaction.DriverQuantity)</td>
+                                <td data-label="Merch" class="text-end">@FormatQuantity(transaction.MerchandiserQuantity)</td>
+                                <td data-label="Status">
+                                    <span class="crpod-status-badge @GetTransactionStatusTone(transaction.Status)">@GetStatusLabel(transaction.Status)</span>
+                                </td>
+                                @if (canSubmitPods && uploadMode == CratePodUploadMode.Single)
+                                {
+                                    <td data-label="Action" class="text-center">
+                                        <button type="button" class="crpod-row-btn @(selectedPodTransactionId == transaction.Id ? "crpod-row-btn-active" : string.Empty)"
+                                                @onclick="() => SelectPodTransaction(transaction.Id)">
+                                            @(selectedPodTransactionId == transaction.Id ? "Selected" : "Use for upload")
+                                        </button>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+<CratePodStyles />

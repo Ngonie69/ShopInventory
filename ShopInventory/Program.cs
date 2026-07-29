@@ -3,6 +3,8 @@ using Asp.Versioning.ApiExplorer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -12,21 +14,28 @@ using Microsoft.OpenApi.Models;
 using FluentValidation;
 using MediatR;
 using Serilog;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Authentication;
 using ShopInventory.Behaviors;
 using ShopInventory.Common.Caching;
+using ShopInventory.Common.ProblemDetails;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.Features.AppVersion;
+using ShopInventory.Features.InventoryTransfers;
+using ShopInventory.Features.InventoryTransfers.Queries.GetPendingRequestEdits;
+using ShopInventory.Features.VanSalesCompatibility;
 using ShopInventory.Features.SalesOrders.Commands.BackfillSalesOrderCardNames;
 using ShopInventory.Health;
 using ShopInventory.Middleware;
+using ShopInventory.Models;
 using ShopInventory.Services;
 using System.IO.Compression;
 using System.Security.Claims;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.RateLimiting;
+using ApiProblemDetails = ShopInventory.Common.ProblemDetails.ProblemDetailsDefaults;
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
@@ -64,6 +73,21 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
+    var threadPoolPerformanceOptions = builder.Configuration
+        .GetSection(ThreadPoolPerformanceOptions.SectionName)
+        .Get<ThreadPoolPerformanceOptions>()
+        ?? new ThreadPoolPerformanceOptions();
+    ApplyThreadPoolTuning(threadPoolPerformanceOptions);
+
+    // Maximum accepted request body size. POD/crate-POD image uploads are the largest
+    // payloads the app accepts. Under IIS in-process hosting the per-endpoint
+    // [RequestSizeLimit] attribute is a no-op (the body-size feature is read-only), so
+    // the limit must be applied at the server level. Kestrel is configured to match for
+    // parity when running outside IIS (e.g. local development).
+    const long MaxRequestBodyBytes = 20L * 1024 * 1024; // 20 MB
+    builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = MaxRequestBodyBytes);
+    builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = MaxRequestBodyBytes);
+
     // Use Serilog — read overrides from appsettings so production can further tune levels
     builder.Host.UseSerilog((context, services, configuration) => configuration
         .ReadFrom.Configuration(context.Configuration)
@@ -83,6 +107,36 @@ try
             options.JsonSerializerOptions.NumberHandling =
                 System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString;
         });
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var problemDetails = new ValidationProblemDetails(context.ModelState)
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "One or more validation errors occurred.",
+                Type = ApiProblemDetails.GetType(StatusCodes.Status400BadRequest),
+                Detail = "The request contains validation errors."
+            };
+            ApiProblemDetails.Apply(context.HttpContext, problemDetails);
+
+            return new BadRequestObjectResult(problemDetails)
+            {
+                ContentTypes = { "application/problem+json" }
+            };
+        };
+    });
+    builder.Services.AddProblemDetails(options =>
+    {
+        options.CustomizeProblemDetails = ApiProblemDetails.Customize;
+    });
+    builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestInputExceptionHandler>();
+    builder.Services.AddExceptionHandler<AuthorizationExceptionHandler>();
+    builder.Services.AddExceptionHandler<RequestCanceledExceptionHandler>();
+    builder.Services.AddExceptionHandler<SapExceptionHandler>();
+    builder.Services.AddExceptionHandler<DependencyExceptionHandler>();
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddApiVersioning(options =>
     {
@@ -112,6 +166,22 @@ try
         options.Level = CompressionLevel.Fastest);
     builder.Services.Configure<GzipCompressionProviderOptions>(options =>
         options.Level = CompressionLevel.Fastest);
+
+    var knownReverseProxies = builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+        options.ForwardLimit = 1;
+        options.RequireHeaderSymmetry = false;
+
+        foreach (var proxy in knownReverseProxies)
+        {
+            if (System.Net.IPAddress.TryParse(proxy, out var address))
+            {
+                options.KnownProxies.Add(address);
+            }
+        }
+    });
 
     // Add memory cache for expensive queries and SAP call results
     builder.Services.AddMemoryCache();
@@ -149,18 +219,20 @@ try
     builder.Services.AddSingleton<StartupReadinessSignal>();
     builder.Services.AddSingleton<RuntimeInstanceIdentity>();
     builder.Services.AddSingleton<SapCircuitBreakerState>();
-    builder.Services.AddSingleton<BackgroundWorkerHealthRegistry>();
+    // Retained as a Postgres advisory-lock primitive used by the price-catalog sync command
+    // handlers to prevent concurrent syncs (a scheduled Quartz run vs a manual trigger).
     builder.Services.AddSingleton<BackgroundWorkerLeaderElector>();
     builder.Services.AddHealthChecks()
         .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Process is running."), tags: ["live"])
-        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready"])
-        .AddCheck<ApplicationDbHealthCheck>("database", tags: ["ready", "dependencies"])
-        .AddCheck<DatabaseConnectionLatencyHealthCheck>("db-latency", tags: ["ready", "dependencies"])
-        .AddCheck<ApplicationSchemaHealthCheck>("schema", tags: ["ready", "dependencies"])
+        .AddCheck<StartupReadinessHealthCheck>("startup", tags: ["ready", "deploy-ready"])
+        .AddCheck<ApplicationDbHealthCheck>("database", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<DatabaseConnectionLatencyHealthCheck>("db-latency", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<ApplicationSchemaHealthCheck>("schema", tags: ["ready", "deploy-ready", "dependencies"])
         .AddCheck<OperationalSyncHealthCheck>("operations", tags: ["ready", "dependencies"])
-        .AddCheck<BackgroundWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
+        .AddCheck<QuartzWorkersHealthCheck>("workers", tags: ["ready", "dependencies"])
         .AddCheck<QueuePressureHealthCheck>("queues", tags: ["dependencies"])
-        .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "dependencies"])
+        .AddCheck<ThreadPoolPressureHealthCheck>("thread-pool", tags: ["ready", "deploy-ready", "dependencies"])
+        .AddCheck<ApiKeyExpiryHealthCheck>("api-keys", tags: ["dependencies"])
         .AddCheck<SapDependencyHealthCheck>("sap", tags: ["dependencies"]);
 
     // Configure Swagger with version-aware API metadata.
@@ -168,12 +240,17 @@ try
 
     // Configure settings
     builder.Services.Configure<PostgresConnectionPolicyOptions>(builder.Configuration.GetSection(PostgresConnectionPolicyOptions.SectionName));
+    builder.Services.Configure<ThreadPoolPerformanceOptions>(builder.Configuration.GetSection(ThreadPoolPerformanceOptions.SectionName));
     builder.Services.Configure<SAPSettings>(builder.Configuration.GetSection("SAP"));
     builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
     builder.Services.Configure<RateLimitSettings>(builder.Configuration.GetSection("RateLimit"));
     builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection("Security"));
     builder.Services.Configure<RevmaxSettings>(builder.Configuration.GetSection("Revmax"));
     builder.Services.Configure<DailyStockSettings>(builder.Configuration.GetSection("DailyStock"));
+    builder.Services.Configure<PodReportCacheSettings>(
+        builder.Configuration.GetSection(PodReportCacheSettings.SectionName));
+    builder.Services.Configure<CreditNoteSyncSettings>(
+        builder.Configuration.GetSection(CreditNoteSyncSettings.SectionName));
     builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
 
     // Get JWT settings for authentication configuration
@@ -217,6 +294,16 @@ try
             OnAuthenticationFailed = context =>
             {
                 var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+
+                if (context.Exception is SecurityTokenExpiredException expiredException)
+                {
+                    logger.LogDebug(
+                        "Expired JWT rejected for {Path}. Expired at {ExpiresUtc:O}.",
+                        context.Request.Path,
+                        expiredException.Expires);
+                    return Task.CompletedTask;
+                }
+
                 logger.LogWarning("JWT authentication failed: {Error}", context.Exception.Message);
                 return Task.CompletedTask;
             },
@@ -239,7 +326,10 @@ try
             .RequireRole("Admin")
             .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
         options.AddPolicy("ApiAccess", policy =>
-            policy.RequireRole("Admin", "ApiUser", "User", "Cashier", "StockController", "DepotController", "Manager", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab")
+            policy.RequireRole(ApplicationRoles.ApiAccessRoles)
+                  .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
+        options.AddPolicy("ApiAccessWithOperator", policy =>
+            policy.RequireRole(ApplicationRoles.ApiAccessWithOperatorRoles)
                   .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, AuthenticationSchemes.ApiKey));
     });
 
@@ -298,15 +388,17 @@ try
             if (IsRateLimitWhitelisted(httpContext, rateLimitSettings))
                 return RateLimitPartition.GetNoLimiter(GetIpPartitionKey(httpContext));
 
+            var apiRateLimitValues = GetApiRateLimitValues(httpContext, rateLimitSettings);
+
             return RateLimitPartition.GetSlidingWindowLimiter(
-                GetClientPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                GetApiPartitionKey(httpContext, rateLimitSettings, apiKeyRateLimitPartitions),
                 _ => new SlidingWindowRateLimiterOptions
                 {
-                    PermitLimit = rateLimitSettings.PermitLimit,
-                    Window = TimeSpan.FromSeconds(rateLimitSettings.WindowSeconds),
+                    PermitLimit = apiRateLimitValues.PermitLimit,
+                    Window = TimeSpan.FromSeconds(apiRateLimitValues.WindowSeconds),
                     SegmentsPerWindow = 4,
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                    QueueLimit = rateLimitSettings.QueueLimit
+                    QueueLimit = apiRateLimitValues.QueueLimit
                 });
         });
 
@@ -314,19 +406,30 @@ try
         options.OnRejected = async (context, cancellationToken) =>
         {
             var logger = context.HttpContext.RequestServices.GetRequiredService<ILogger<Program>>();
+            var apiRateLimitValues = GetApiRateLimitValues(context.HttpContext, rateLimitSettings);
             logger.LogWarning("Rate limit exceeded for client: {ClientPartition}, IP: {IpAddress}, Path: {Path}",
-                GetClientPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
+                GetApiPartitionKey(context.HttpContext, rateLimitSettings, apiKeyRateLimitPartitions),
                 context.HttpContext.Connection.RemoteIpAddress,
                 context.HttpContext.Request.Path);
 
-            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
-            context.HttpContext.Response.Headers["Retry-After"] = rateLimitSettings.WindowSeconds.ToString();
+            context.HttpContext.Response.Headers["Retry-After"] = apiRateLimitValues.WindowSeconds.ToString();
 
-            await context.HttpContext.Response.WriteAsJsonAsync(new
+            var problemDetailsService = context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+            var problemDetails = new ProblemDetails
             {
-                message = "Too many requests. Please try again later.",
-                retryAfter = rateLimitSettings.WindowSeconds
-            }, cancellationToken);
+                Status = StatusCodes.Status429TooManyRequests,
+                Title = "Too many requests.",
+                Type = ApiProblemDetails.GetType(StatusCodes.Status429TooManyRequests),
+                Detail = "Too many requests. Please try again later."
+            };
+            problemDetails.Extensions["retryAfter"] = apiRateLimitValues.WindowSeconds;
+
+            await ApiProblemDetails.WriteAsync(
+                problemDetailsService,
+                context.HttpContext,
+                null,
+                problemDetails,
+                cancellationToken);
         };
     });
 
@@ -367,6 +470,14 @@ try
 
     // Register audit service
     builder.Services.AddScoped<IAuditService, AuditService>();
+    builder.Services.AddScoped<IInventoryTransferApprovalService, InventoryTransferApprovalService>();
+    builder.Services.AddScoped<ITransferWarehouseAuthorizer, TransferWarehouseAuthorizer>();
+    builder.Services.AddScoped<IPendingInventoryTransferPoster, PendingInventoryTransferPoster>();
+    builder.Services.AddScoped<IPendingInventoryTransferEnricher, PendingInventoryTransferEnricher>();
+    builder.Services.AddScoped<IPendingTransferRequestEditApplier, PendingTransferRequestEditApplier>();
+    builder.Services.AddScoped<IPendingTransferRequestEditEnricher, PendingTransferRequestEditEnricher>();
+    builder.Services.AddScoped<VanSalesAuditFilter>();
+    builder.Services.AddScoped<MobileOrderStatusCompatibilityService>();
 
     builder.Services.AddSingleton<IMobileVersionPolicyEvaluator, MobileVersionPolicyEvaluator>();
 
@@ -390,6 +501,8 @@ try
 
     // Register reporting service
     builder.Services.AddScoped<IReportService, ReportService>();
+    builder.Services.AddScoped<IPodReportCacheStore, PodReportCacheStore>();
+    builder.Services.AddScoped<ICreditNoteProjectionSyncService, CreditNoteProjectionSyncService>();
 
     // Register notification services
     builder.Services.Configure<FirebaseSettings>(builder.Configuration.GetSection("Firebase"));
@@ -399,6 +512,9 @@ try
     // Register email service
     builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Email"));
     builder.Services.AddScoped<IEmailService, EmailService>();
+
+    // Register system health alert settings
+    builder.Services.Configure<SystemHealthAlertSettings>(builder.Configuration.GetSection("SystemHealthAlert"));
 
     // Register sync and queue services
     builder.Services.AddScoped<IOfflineQueueService, OfflineQueueService>();
@@ -420,10 +536,13 @@ try
     // Register statement service for PDF generation
     builder.Services.AddScoped<IStatementService, StatementService>();
     builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
+    builder.Services.AddScoped<IQuotationPdfService, QuotationPdfService>();
+    builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
     builder.Services.AddScoped<IIncomingPaymentService, IncomingPaymentService>();
     builder.Services.AddScoped<IInvoiceService, InvoiceService>();
     builder.Services.AddScoped<IPaymentService, PaymentService>();
     builder.Services.AddScoped<IBusinessPartnerService, BusinessPartnerService>();
+    builder.Services.AddScoped<ILocalPriceCatalogService, LocalPriceCatalogService>();
     // Register email queue service for password reset
     builder.Services.AddScoped<IEmailQueueService, EmailQueueService>();
     // Register sales order, purchase order, credit note, and quotation services
@@ -432,11 +551,14 @@ try
     builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
     builder.Services.AddScoped<ICreditNoteService, CreditNoteService>();
     builder.Services.AddScoped<IQuotationService, QuotationService>();
+    builder.Services.AddScoped<IIdempotencyRequestStore, IdempotencyRequestStore>();
 
     // Register rate limit service
     builder.Services.AddScoped<IRateLimitService, RateLimitService>();
 
     // Register backup service
+    builder.Services.Configure<ShopInventory.Features.Backups.Support.BackupCloudStorageOptions>(builder.Configuration.GetSection("Backup:CloudStorage"));
+    builder.Services.AddScoped<ShopInventory.Features.Backups.Support.IBackupCloudStorage, ShopInventory.Features.Backups.Support.GoogleCloudBackupStorage>();
     builder.Services.AddScoped<IBackupService, BackupService>();
 
     // Register document management service
@@ -450,6 +572,7 @@ try
 
     // Register invoice queue service for batch posting to SAP
     builder.Services.AddScoped<IInvoiceQueueService, InvoiceQueueService>();
+    builder.Services.AddSingleton<IInvoiceFiscalizationQueue, InvoiceFiscalizationQueue>();
 
     // Register inventory transfer queue service for batch posting to SAP
     builder.Services.AddScoped<IInventoryTransferQueueService, InventoryTransferQueueService>();
@@ -457,32 +580,19 @@ try
     // Register incoming payment queue service for durable SAP posting
     builder.Services.AddScoped<IIncomingPaymentQueueService, IncomingPaymentQueueService>();
 
-    // Register background service for cleaning up expired reservations
-    builder.Services.AddHostedService<ReservationCleanupService>();
+    // In-process invoice-fiscalization queue consumer. Stays a plain hosted service: it drains an
+    // in-memory Channel populated on this node, which cannot be handed to a clustered scheduler.
+    builder.Services.AddHostedService<InvoiceFiscalizationBackgroundService>();
 
-    // Persist cluster-visible worker heartbeat state for readiness checks.
-    builder.Services.AddHostedService<BackgroundWorkerClusterStateSyncService>();
-
-    // Register background service for mobile sales order enrichment
-    builder.Services.AddHostedService<MobileOrderPostProcessingBackgroundService>();
-
-    // Register background service for processing queued invoices
-    builder.Services.AddHostedService<InvoicePostingBackgroundService>();
-
-    // Register background service for processing queued inventory transfers
-    builder.Services.AddHostedService<InventoryTransferPostingBackgroundService>();
-
-    // Register background service for processing queued incoming payments
-    builder.Services.AddHostedService<IncomingPaymentPostingBackgroundService>();
-
-    // Register FetchDailyStockHandler for direct resolution by background service
+    // FetchDailyStockHandler is resolved directly by DailyStockSnapshotJob.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();
 
-    // Register background services for daily stock snapshot and end-of-day consolidation
-    builder.Services.AddSingleton<DailyStockSnapshotService>();
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<DailyStockSnapshotService>());
-    builder.Services.AddSingleton<EndOfDayConsolidationService>();
-    builder.Services.AddHostedService(sp => sp.GetRequiredService<EndOfDayConsolidationService>());
+    // End-of-day consolidation logic is a scoped service shared by EndOfDayConsolidationJob and
+    // the DesktopIntegrationController "run now" endpoint.
+    builder.Services.AddScoped<EndOfDayConsolidationService>();
+
+    // All other recurring background work runs on the clustered Quartz scheduler.
+    builder.Services.AddShopInventoryQuartz(builder.Configuration, defaultConnectionString);
 
     // Add permission-based authorization
     builder.Services.AddPermissionAuthorization();
@@ -492,15 +602,23 @@ try
     builder.Services.AddTransient<SAPCircuitBreakerHandler>();
     builder.Services.AddTransient<SAPConcurrencyHandler>();
     builder.Services.AddTransient<SAPRequestLoggingHandler>();
+    // The sync-history rows are written off the SAP request path: the handler only enqueues, and
+    // this drains in batches. Doing it inline put an insert, a trim query and a delete inside every
+    // SAP call, while that call held a concurrency slot.
+    builder.Services.AddSingleton<SapRequestLogQueue>();
+    builder.Services.AddHostedService<SapRequestLogWriter>();
     builder.Services.AddSingleton<CacheSyncStateRecorder>();
+    // Singleton: it opens its own scope per call, so the transient SAP client can hold it without
+    // capturing a scoped DbContext.
+    builder.Services.AddSingleton<ISapItemUomMappingStore, SapItemUomMappingStore>();
 
-    // Configure HttpClient for SAP Service Layer
-    builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((serviceProvider, client) =>
+    // Configure a longer-running SAP client for bulk sync operations.
+    builder.Services.AddHttpClient("SAPServiceLayerLongRunning", (serviceProvider, client) =>
     {
         var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
         client.BaseAddress = new Uri(sapSettings.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
         client.DefaultRequestHeaders.Add("Accept", "application/json");
-        client.Timeout = TimeSpan.FromMinutes(5); // Increased timeout for large data operations
+        client.Timeout = TimeSpan.FromMinutes(sapSettings.LongRunningRequestTimeoutMinutes);
     })
     .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
     .AddHttpMessageHandler<SAPConcurrencyHandler>()
@@ -516,6 +634,62 @@ try
 
         return new SocketsHttpHandler
         {
+            UseCookies = false,
+            MaxConnectionsPerServer = Math.Max(1, sapSettings.MaxConcurrentRequests),
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
+                {
+                    if (errors == System.Net.Security.SslPolicyErrors.None)
+                    {
+                        return true;
+                    }
+
+                    if (allowDevelopmentCertificateBypass)
+                    {
+                        return true;
+                    }
+
+                    var certificate2 = certificate as X509Certificate2 ?? (certificate != null ? new X509Certificate2(certificate) : null);
+                    var thumbprint = certificate2?.Thumbprint?.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
+
+                    return !string.IsNullOrWhiteSpace(thumbprint) && allowedThumbprints.Contains(thumbprint);
+                }
+            },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
+            KeepAlivePingPolicy = HttpKeepAlivePingPolicy.WithActiveRequests,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(30),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(10),
+            ConnectTimeout = TimeSpan.FromSeconds(30),
+            EnableMultipleHttp2Connections = true
+        };
+    });
+
+    // Configure HttpClient for SAP Service Layer
+    builder.Services.AddHttpClient<ISAPServiceLayerClient, SAPServiceLayerClient>((serviceProvider, client) =>
+    {
+        var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
+        client.BaseAddress = new Uri(sapSettings.ServiceLayerUrl ?? "https://10.10.10.6:50000/b1s/v1/");
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+        client.Timeout = TimeSpan.FromMinutes(sapSettings.RequestTimeoutMinutes);
+    })
+    .AddHttpMessageHandler<SAPCircuitBreakerHandler>()
+    .AddHttpMessageHandler<SAPConcurrencyHandler>()
+    .AddHttpMessageHandler<SAPRequestLoggingHandler>()
+    .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
+    {
+        var sapSettings = serviceProvider.GetRequiredService<IOptions<SAPSettings>>().Value;
+        var allowDevelopmentCertificateBypass = sapSettings.SkipCertificateValidation && builder.Environment.IsDevelopment();
+        var allowedThumbprints = sapSettings.AllowedServerCertificateThumbprints
+            .Where(value => !string.IsNullOrWhiteSpace(value) && !value.StartsWith("${", StringComparison.Ordinal))
+            .Select(value => value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return new SocketsHttpHandler
+        {
+            UseCookies = false,
+            MaxConnectionsPerServer = Math.Max(1, sapSettings.MaxConcurrentRequests),
             SslOptions = new System.Net.Security.SslClientAuthenticationOptions
             {
                 // Invalid certificates are only allowed when explicitly enabled in configuration.
@@ -567,6 +741,25 @@ try
     // Register fiscalization service - fiscalizes invoices after SAP posting
     builder.Services.AddScoped<IFiscalizationService, FiscalizationService>();
 
+    builder.Services.Configure<OpenWASettings>(builder.Configuration.GetSection(OpenWASettings.SectionName));
+    builder.Services.AddHttpClient<IOpenWAClient, OpenWAClient>((serviceProvider, client) =>
+    {
+        var openWaSettings = serviceProvider.GetRequiredService<IOptions<OpenWASettings>>().Value;
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+        if (!Uri.TryCreate(openWaSettings.BaseUrl, UriKind.Absolute, out var baseUri))
+        {
+            logger.LogWarning(
+                "Invalid OpenWA base URL '{BaseUrl}'. Falling back to http://localhost:2785 for client registration.",
+                openWaSettings.BaseUrl);
+            baseUri = new Uri("http://localhost:2785");
+        }
+
+        client.BaseAddress = baseUri;
+        client.Timeout = TimeSpan.FromSeconds(Math.Max(openWaSettings.TimeoutSeconds, 1));
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+    });
+
     var app = builder.Build();
     var startupReadiness = app.Services.GetRequiredService<StartupReadinessSignal>();
 
@@ -579,6 +772,9 @@ try
             var context = services.GetRequiredService<ApplicationDbContext>();
             var logger = services.GetRequiredService<ILogger<Program>>();
             await DbInitializer.InitializeAsync(context, logger, app.Environment);
+
+            // Provision the Quartz job-store tables before the scheduler starts.
+            await ShopInventory.Configuration.QuartzSchema.EnsureAsync(defaultConnectionString, "ShopInventoryApi");
 
             var mediator = services.GetRequiredService<IMediator>();
             var backfillResult = await mediator.Send(new BackfillSalesOrderCardNamesCommand(), CancellationToken.None);
@@ -609,23 +805,31 @@ try
         }
     }
 
-    // Global exception handler - ensures all unhandled errors return JSON, not empty responses
-    app.UseExceptionHandler(errorApp =>
+    app.UseForwardedHeaders();
+
+    app.UseExceptionHandler();
+    app.UseStatusCodePages(async statusCodeContext =>
     {
-        errorApp.Run(async context =>
+        var httpContext = statusCodeContext.HttpContext;
+        var statusCode = httpContext.Response.StatusCode;
+        if (statusCode < StatusCodes.Status400BadRequest || httpContext.Response.HasStarted)
         {
-            context.Response.ContentType = "application/json";
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            return;
+        }
 
-            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-            var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
-            if (exceptionFeature != null)
-            {
-                logger.LogError(exceptionFeature.Error, "Unhandled exception on {Path}", context.Request.Path);
-            }
+        var problemDetailsService = httpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        var problemDetails = new ProblemDetails
+        {
+            Status = statusCode,
+            Type = ApiProblemDetails.GetType(statusCode)
+        };
 
-            await context.Response.WriteAsJsonAsync(new { message = "An internal error occurred. Please try again." });
-        });
+        await ApiProblemDetails.WriteAsync(
+            problemDetailsService,
+            httpContext,
+            null,
+            problemDetails,
+            httpContext.RequestAborted);
     });
 
     // Response compression - must be before any middleware that writes response body
@@ -667,6 +871,7 @@ try
             endpoints = new
             {
                 live = "/health/live",
+                deployReady = "/health/deploy-ready",
                 ready = "/health/ready",
                 dependencies = "/health/dependencies"
             }
@@ -678,15 +883,22 @@ try
         Predicate = registration => registration.Tags.Contains("live")
     }).AllowAnonymous();
 
+    app.MapHealthChecks("/health/deploy-ready", new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("deploy-ready")
+    }).AllowAnonymous();
+
     app.MapHealthChecks("/health/ready", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("ready")
     }).AllowAnonymous();
 
+    // The only health endpoint whose checks reach SAP (SapDependencyHealthCheck). It is polled by
+    // monitoring rather than waited on by a person, so it stays in the background queue.
     app.MapHealthChecks("/health/dependencies", new HealthCheckOptions
     {
         Predicate = registration => registration.Tags.Contains("dependencies")
-    }).AllowAnonymous();
+    }).AllowAnonymous().WithMetadata(new SapBackgroundWorkAttribute());
 
     // Enable HSTS in production
     if (!app.Environment.IsDevelopment() && securitySettings.EnableHsts)
@@ -718,6 +930,10 @@ try
 
     // Output caching for GET endpoints
     app.UseOutputCache();
+
+    // Anything still running at this point is a person waiting on a response, so its SAP calls get
+    // the slots reserved from background work. After UseOutputCache so a cache hit claims nothing.
+    app.UseSapRequestPriority();
 
     // Map controllers with default rate limiting
     app.MapControllers().RequireRateLimiting("api");
@@ -788,10 +1004,45 @@ static string GetClientPartitionKey(
     return "anonymous";
 }
 
+static string GetApiPartitionKey(
+    HttpContext httpContext,
+    RateLimitSettings settings,
+    IReadOnlyDictionary<string, ApiKeyConfig> apiKeyRateLimitPartitions)
+{
+    var clientPartition = GetClientPartitionKey(httpContext, settings, apiKeyRateLimitPartitions);
+    return IsHighThroughputApiPath(httpContext.Request.Path)
+        ? $"{clientPartition}:bulk"
+        : clientPartition;
+}
+
+static (int PermitLimit, int WindowSeconds, int QueueLimit) GetApiRateLimitValues(
+    HttpContext httpContext,
+    RateLimitSettings settings)
+{
+    if (!IsHighThroughputApiPath(httpContext.Request.Path))
+        return (settings.PermitLimit, settings.WindowSeconds, settings.QueueLimit);
+
+    return (
+        PermitLimit: Math.Max(settings.PermitLimit * 50, 5000),
+        WindowSeconds: Math.Max(settings.WindowSeconds * 10, 600),
+        QueueLimit: Math.Max(settings.QueueLimit * 50, 200));
+}
+
 static string GetIpPartitionKey(HttpContext httpContext)
 {
     var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
     return string.IsNullOrWhiteSpace(ipAddress) ? "ip:unknown" : $"ip:{ipAddress}";
+}
+
+static bool IsHighThroughputApiPath(PathString path)
+{
+    var value = path.Value;
+    if (string.IsNullOrWhiteSpace(value))
+        return false;
+
+    return value.StartsWith("/api/notification", StringComparison.OrdinalIgnoreCase)
+        || (value.StartsWith("/api/invoice/", StringComparison.OrdinalIgnoreCase)
+            && value.EndsWith("/pod", StringComparison.OrdinalIgnoreCase));
 }
 
 static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings settings)
@@ -804,3 +1055,37 @@ static bool IsRateLimitWhitelisted(HttpContext httpContext, RateLimitSettings se
         && settings.IpWhitelist.Contains(ipAddress, StringComparer.OrdinalIgnoreCase);
 }
 
+static void ApplyThreadPoolTuning(ThreadPoolPerformanceOptions options)
+{
+    System.Threading.ThreadPool.GetMinThreads(out var currentWorkerThreads, out var currentCompletionPortThreads);
+    System.Threading.ThreadPool.GetMaxThreads(out var maxWorkerThreads, out var maxCompletionPortThreads);
+
+    var targetWorkerThreads = options.MinWorkerThreads > currentWorkerThreads
+        ? Math.Min(options.MinWorkerThreads, maxWorkerThreads)
+        : currentWorkerThreads;
+    var targetCompletionPortThreads = options.MinCompletionPortThreads > currentCompletionPortThreads
+        ? Math.Min(options.MinCompletionPortThreads, maxCompletionPortThreads)
+        : currentCompletionPortThreads;
+
+    if (targetWorkerThreads == currentWorkerThreads && targetCompletionPortThreads == currentCompletionPortThreads)
+    {
+        Log.Information(
+            "Thread pool minimums unchanged. WorkerThreads={WorkerThreads}, CompletionPortThreads={CompletionPortThreads}, MaxWorkerThreads={MaxWorkerThreads}, MaxCompletionPortThreads={MaxCompletionPortThreads}",
+            currentWorkerThreads,
+            currentCompletionPortThreads,
+            maxWorkerThreads,
+            maxCompletionPortThreads);
+        return;
+    }
+
+    var applied = System.Threading.ThreadPool.SetMinThreads(targetWorkerThreads, targetCompletionPortThreads);
+    Log.Information(
+        "Thread pool minimum tuning {Result}. WorkerThreads={CurrentWorkerThreads}->{TargetWorkerThreads}, CompletionPortThreads={CurrentCompletionPortThreads}->{TargetCompletionPortThreads}, MaxWorkerThreads={MaxWorkerThreads}, MaxCompletionPortThreads={MaxCompletionPortThreads}",
+        applied ? "applied" : "failed",
+        currentWorkerThreads,
+        targetWorkerThreads,
+        currentCompletionPortThreads,
+        targetCompletionPortThreads,
+        maxWorkerThreads,
+        maxCompletionPortThreads);
+}

@@ -1,3 +1,4 @@
+using System.Globalization;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
@@ -38,6 +39,23 @@ public sealed class UpdateSAPSettingsHandler(
             SetEnvironmentVariable(envVarsNode, xml, "SAP__CompanyDB", request.CompanyDB);
             SetEnvironmentVariable(envVarsNode, xml, "SAP__Username", request.UserName);
             SetEnvironmentVariable(envVarsNode, xml, "SAP__Password", request.Password);
+
+            if (request.InvoiceSeries.HasValue)
+            {
+                if (request.InvoiceSeries.Value <= 0)
+                    return Errors.SAPSettings.UpdateFailed("SAP invoice series must be greater than zero.");
+
+                SetEnvironmentVariable(envVarsNode, xml, "SAP__InvoiceSeries", request.InvoiceSeries.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (request.InvoiceSeriesName is not null)
+            {
+                var invoiceSeriesName = request.InvoiceSeriesName.Trim();
+                if (!string.IsNullOrWhiteSpace(invoiceSeriesName))
+                {
+                    SetEnvironmentVariable(envVarsNode, xml, "SAP__InvoiceSeriesName", invoiceSeriesName);
+                }
+            }
 
             xml.Save(webConfigPath);
 

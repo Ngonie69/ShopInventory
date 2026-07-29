@@ -127,8 +127,14 @@ public class SalesOrderDto
     [JsonPropertyName("invoiceId")]
     public int? InvoiceId { get; set; }
 
+    [JsonPropertyName("invoiceSapDocNum")]
+    public int? InvoiceSapDocNum { get; set; }
+
     [JsonPropertyName("isSynced")]
     public bool IsSynced { get; set; }
+
+    [JsonPropertyName("syncError")]
+    public string? SyncError { get; set; }
 
     [JsonPropertyName("source")]
     public SalesOrderSource Source { get; set; }
@@ -222,6 +228,12 @@ public class CreateSalesOrderRequest
     public string? MerchandiserNotes { get; set; }
     public string? DeviceInfo { get; set; }
     public string? RowVersion { get; set; }
+    /// <summary>
+    /// Stable client-generated idempotency key. Lets the server deduplicate retried
+    /// submissions (lost response, proxy retry, double-click) instead of creating a
+    /// second order that auto-posts a duplicate document to SAP.
+    /// </summary>
+    public string? ClientRequestId { get; set; }
     public List<CreateSalesOrderLineRequest> Lines { get; set; } = new();
 }
 

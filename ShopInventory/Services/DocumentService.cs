@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using ShopInventory.Common.Pods;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
@@ -22,6 +24,8 @@ public class PodStatusInfo
 public class PodUploadUserSummaryInfo
 {
     public string Username { get; set; } = string.Empty;
+    public string? Role { get; set; }
+    public string? AssignedSection { get; set; }
     public int FileCount { get; set; }
     public DateTime? LatestUploadedAt { get; set; }
 }
@@ -47,12 +51,13 @@ public interface IDocumentService
 
     // Document Attachments
     Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default);
+    Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default);
     Task<DocumentAttachmentListResponseDto> GetAttachmentsAsync(string entityType, int entityId, CancellationToken cancellationToken = default);
     Task<(Stream? stream, string? fileName, string? mimeType)> DownloadAttachmentAsync(int id, CancellationToken cancellationToken = default);
     Task<bool> DeleteAttachmentAsync(int id, CancellationToken cancellationToken = default);
 
     // POD (Proof of Delivery)
-    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null);
+    Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? uploadedByUsername = null, string? assignedSection = null, string? uploadedFromLocation = null);
     Task<List<int>> GetScopedPodInvoiceDocEntriesAsync(IEnumerable<int> candidateDocEntries, string assignedSection, CancellationToken cancellationToken = default);
     Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default);
     Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default);
@@ -81,6 +86,7 @@ public class DocumentService : IDocumentService
     private readonly IEmailService _emailService;
     private readonly ISAPServiceLayerClient _sapServiceLayerClient;
     private readonly ILogger<DocumentService> _logger;
+    private readonly IMemoryCache _memoryCache;
     private readonly string _uploadPath;
 
     public DocumentService(
@@ -88,12 +94,14 @@ public class DocumentService : IDocumentService
         IEmailService emailService,
         ISAPServiceLayerClient sapServiceLayerClient,
         ILogger<DocumentService> logger,
+        IMemoryCache memoryCache,
         IConfiguration configuration)
     {
         _context = context;
         _emailService = emailService;
         _sapServiceLayerClient = sapServiceLayerClient;
         _logger = logger;
+        _memoryCache = memoryCache;
         _uploadPath = configuration["FileStorage:UploadPath"] ?? Path.Combine(Directory.GetCurrentDirectory(), "uploads");
 
         // Ensure upload directory exists
@@ -459,6 +467,30 @@ public class DocumentService : IDocumentService
 
     public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
+        var normalizedExternalReference = NormalizeExternalReference(request.ExternalReference);
+
+        if (normalizedExternalReference is not null)
+        {
+            var existingAttachment = await FindAttachmentByExternalReferenceQuery(
+                    request.EntityType,
+                    request.EntityId,
+                    normalizedExternalReference)
+                .AsNoTracking()
+                .Include(a => a.UploadedByUser)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (existingAttachment is not null)
+            {
+                _logger.LogInformation(
+                    "Reused attachment {AttachmentId} for duplicate external reference {ExternalReference} on {EntityType} {EntityId}",
+                    existingAttachment.Id,
+                    normalizedExternalReference,
+                    request.EntityType,
+                    request.EntityId);
+                return MapToDto(existingAttachment);
+            }
+        }
+
         var isCompressibleImage = CompressibleImageTypes.Contains(mimeType);
 
         // Compressed images are always saved as JPEG
@@ -492,7 +524,7 @@ public class DocumentService : IDocumentService
         {
             EntityType = request.EntityType,
             EntityId = request.EntityId,
-            ExternalReference = request.ExternalReference,
+            ExternalReference = normalizedExternalReference,
             FileName = fileName,
             StoredFileName = fullPath,
             MimeType = mimeType,
@@ -503,10 +535,31 @@ public class DocumentService : IDocumentService
             UploadedAt = DateTime.UtcNow
         };
 
+        if (normalizedExternalReference is not null)
+        {
+            return await InsertAttachmentIdempotentlyAsync(attachment, fullPath, cancellationToken);
+        }
+
         _context.Set<DocumentAttachmentEntity>().Add(attachment);
         await _context.SaveChangesAsync(cancellationToken);
 
         return MapToDto(attachment);
+    }
+
+    public async Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default)
+    {
+        var normalizedExternalReference = NormalizeExternalReference(externalReference);
+        if (normalizedExternalReference is null)
+        {
+            return null;
+        }
+
+        var attachment = await FindAttachmentByExternalReferenceQuery(entityType, entityId, normalizedExternalReference)
+            .AsNoTracking()
+            .Include(a => a.UploadedByUser)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return attachment is null ? null : MapToDto(attachment);
     }
 
     private async Task CompressAndSaveImageAsync(Stream sourceStream, string outputPath, CancellationToken cancellationToken)
@@ -582,7 +635,7 @@ public class DocumentService : IDocumentService
         return true;
     }
 
-    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? assignedSection = null)
+    public async Task<PodAttachmentListResponseDto> GetAllPodAttachmentsAsync(int page = 1, int pageSize = 20, string? cardCode = null, CancellationToken cancellationToken = default, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, Guid? uploadedByUserId = null, string? uploadedByUsername = null, string? assignedSection = null, string? uploadedFromLocation = null)
     {
         var excludedCardCodes = PodExclusions.ExcludedCardCodes.ToArray();
 
@@ -592,6 +645,7 @@ public class DocumentService : IDocumentService
             .Select(i => i.SAPDocEntry!.Value);
 
         var query = _context.Set<DocumentAttachmentEntity>()
+            .AsNoTracking()
             .Include(a => a.UploadedByUser)
             .Where(a => a.EntityType == "Invoice")
             .Where(a => !excludedDocEntries.Contains(a.EntityId))
@@ -606,6 +660,24 @@ public class DocumentService : IDocumentService
         if (uploadedByUserId.HasValue)
         {
             query = query.Where(a => a.UploadedByUserId == uploadedByUserId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(uploadedByUsername))
+        {
+            var uploadedByPattern = $"%{uploadedByUsername.Trim()}%";
+            query = query.Where(a =>
+                a.UploadedByUser != null &&
+                a.UploadedByUser.Username != null &&
+                EF.Functions.ILike(a.UploadedByUser.Username, uploadedByPattern));
+        }
+
+        if (!string.IsNullOrWhiteSpace(uploadedFromLocation))
+        {
+            var locationPattern = $"%{uploadedFromLocation.Trim()}%";
+            query = query.Where(a =>
+                a.UploadedByUser != null &&
+                a.UploadedByUser.AssignedSection != null &&
+                EF.Functions.ILike(a.UploadedByUser.AssignedSection, locationPattern));
         }
 
         if (fromDate.HasValue)
@@ -633,7 +705,7 @@ public class DocumentService : IDocumentService
             query = query.Where(a => invoiceDocEntries.Contains(a.EntityId));
         }
 
-        // Free-text search across invoice number, customer name, and customer code
+        // Free-text search across invoice number, customer name, customer code, and uploader username
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
@@ -646,18 +718,24 @@ public class DocumentService : IDocumentService
                 ))
                 .Select(i => i.SAPDocEntry!.Value);
 
-            query = query.Where(a => matchingDocEntries.Contains(a.EntityId));
+            var matchingUploaderIds = _context.Users
+                .Where(u => u.Username != null && EF.Functions.ILike(u.Username, pattern))
+                .Select(u => u.Id);
+
+            query = query.Where(a =>
+                matchingDocEntries.Contains(a.EntityId) ||
+                (a.UploadedByUserId.HasValue && matchingUploaderIds.Contains(a.UploadedByUserId.Value)));
         }
 
         if (!string.IsNullOrWhiteSpace(assignedSection))
         {
-            var candidateDocEntries = await query
-                .Select(a => a.EntityId)
-                .Distinct()
-                .ToListAsync(cancellationToken);
+            var sectionFilterValues = PodLocationScope.GetSectionFilterValues(assignedSection)
+                .Select(value => value.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var warehouseCodes = await GetPodWarehouseCodesForAssignedSectionAsync(assignedSection, cancellationToken);
 
-            var scopedDocEntries = await GetScopedPodInvoiceDocEntriesAsync(candidateDocEntries, assignedSection, cancellationToken);
-            if (scopedDocEntries.Count == 0)
+            if (sectionFilterValues.Length == 0 && warehouseCodes.Length == 0)
             {
                 return new PodAttachmentListResponseDto
                 {
@@ -669,7 +747,15 @@ public class DocumentService : IDocumentService
                 };
             }
 
-            query = query.Where(a => scopedDocEntries.Contains(a.EntityId));
+            query = query.Where(a =>
+                (a.UploadedByUser != null &&
+                 a.UploadedByUser.AssignedSection != null &&
+                 sectionFilterValues.Contains(a.UploadedByUser.AssignedSection.ToUpper())) ||
+                _context.Invoices.Any(invoice =>
+                    invoice.SAPDocEntry == a.EntityId &&
+                    invoice.DocumentLines.Any(line =>
+                        line.WarehouseCode != null &&
+                        warehouseCodes.Contains(line.WarehouseCode.ToUpper()))));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -732,6 +818,7 @@ public class DocumentService : IDocumentService
                 Description = dto.Description,
                 UploadedAt = dto.UploadedAt,
                 UploadedByUserName = dto.UploadedByUserName,
+                UploadedFromLocation = a.UploadedByUser?.AssignedSection,
                 DownloadUrl = dto.DownloadUrl,
                 InvoiceDocEntry = a.EntityId,
                 InvoiceDocNum = inv?.DocNum ?? 0,
@@ -765,20 +852,200 @@ public class DocumentService : IDocumentService
             return [];
         }
 
-        var invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(distinctDocEntries, cancellationToken);
+        var normalizedSection = assignedSection.Trim();
+        var scopedDocEntries = new List<int>(distinctDocEntries.Count);
+        var uncachedDocEntries = new List<int>();
+
+        foreach (var docEntry in distinctDocEntries)
+        {
+            if (_memoryCache.TryGetValue(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), out bool matchesAssignedSection))
+            {
+                if (matchesAssignedSection)
+                {
+                    scopedDocEntries.Add(docEntry);
+                }
+
+                continue;
+            }
+
+            uncachedDocEntries.Add(docEntry);
+        }
+
+        if (uncachedDocEntries.Count == 0)
+        {
+            return scopedDocEntries;
+        }
+
+        var localInvoiceWarehouseRows = await _context.Invoices
+            .AsNoTracking()
+            .Where(invoice => invoice.SAPDocEntry.HasValue && uncachedDocEntries.Contains(invoice.SAPDocEntry.Value))
+            .SelectMany(invoice => invoice.DocumentLines
+                .Where(line => line.WarehouseCode != null && line.WarehouseCode != string.Empty)
+                .Select(line => new
+                {
+                    DocEntry = invoice.SAPDocEntry!.Value,
+                    line.WarehouseCode
+                }))
+            .ToListAsync(cancellationToken);
+
+        var (warehouseLocations, hasCompleteWarehouseLocations) =
+            await TryGetWarehouseLocationLookupAsync(cancellationToken);
+
+        var localScopeResults = localInvoiceWarehouseRows
+            .GroupBy(row => row.DocEntry)
+            .Select(group => new
+            {
+                DocEntry = group.Key,
+                MatchesAssignedSection = PodLocationScope.WarehouseCodesMatchAssignedSection(
+                    group.Select(row => row.WarehouseCode),
+                    normalizedSection,
+                    warehouseLocations)
+            })
+            .ToList();
+
+        var locallyResolvedDocEntries = new HashSet<int>();
+
+        foreach (var result in localScopeResults)
+        {
+            if (result.MatchesAssignedSection || hasCompleteWarehouseLocations)
+            {
+                locallyResolvedDocEntries.Add(result.DocEntry);
+                _memoryCache.Set(
+                    GetPodInvoiceSectionScopeCacheKey(normalizedSection, result.DocEntry),
+                    result.MatchesAssignedSection,
+                    TimeSpan.FromMinutes(15));
+            }
+
+            if (result.MatchesAssignedSection)
+            {
+                scopedDocEntries.Add(result.DocEntry);
+            }
+        }
+
+        var sapFallbackDocEntries = uncachedDocEntries
+            .Where(docEntry => !locallyResolvedDocEntries.Contains(docEntry))
+            .ToList();
+
+        if (sapFallbackDocEntries.Count == 0)
+        {
+            return scopedDocEntries;
+        }
+
+        _logger.LogInformation(
+            "Falling back to SAP POD section scoping for {Count} invoices in section {AssignedSection}",
+            sapFallbackDocEntries.Count,
+            normalizedSection);
+
+        List<Invoice> invoices;
+        try
+        {
+            invoices = await _sapServiceLayerClient.GetInvoiceHeadersByDocEntriesAsync(sapFallbackDocEntries, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not load SAP invoice headers for POD section scoping; returning {Count} locally scoped invoices.",
+                scopedDocEntries.Count);
+            return scopedDocEntries;
+        }
+
         if (invoices.Count == 0)
+        {
+            foreach (var docEntry in sapFallbackDocEntries)
+            {
+                _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), false, TimeSpan.FromMinutes(15));
+            }
+
+            return scopedDocEntries;
+        }
+
+        var invoicesByDocEntry = invoices
+            .GroupBy(invoice => invoice.DocEntry)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        foreach (var docEntry in sapFallbackDocEntries)
+        {
+            var matchesAssignedSection = invoicesByDocEntry.TryGetValue(docEntry, out var invoice) &&
+                PodLocationScope.InvoiceMatchesAssignedSection(invoice, normalizedSection, warehouseLocations);
+
+            if (matchesAssignedSection || hasCompleteWarehouseLocations)
+            {
+                _memoryCache.Set(GetPodInvoiceSectionScopeCacheKey(normalizedSection, docEntry), matchesAssignedSection, TimeSpan.FromMinutes(15));
+            }
+
+            if (matchesAssignedSection)
+            {
+                scopedDocEntries.Add(docEntry);
+            }
+        }
+
+        return scopedDocEntries;
+    }
+
+    private async Task<(IReadOnlyDictionary<string, string?> Locations, bool IsComplete)> TryGetWarehouseLocationLookupAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+            return (PodLocationScope.BuildWarehouseLocationLookup(warehouses), true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not load SAP warehouse locations for POD section scoping; using local warehouse-code matching only.");
+            return (new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase), false);
+        }
+    }
+
+    private static string GetPodInvoiceSectionScopeCacheKey(string assignedSection, int docEntry)
+    {
+        return $"pod-scope:{assignedSection.ToUpperInvariant()}:{docEntry}";
+    }
+
+    private async Task<string[]> GetPodWarehouseCodesForAssignedSectionAsync(
+        string assignedSection,
+        CancellationToken cancellationToken)
+    {
+        var canonicalSection = PodLocationScope.CanonicalizeSection(assignedSection);
+        if (string.IsNullOrWhiteSpace(canonicalSection))
         {
             return [];
         }
 
-        var warehouseLocations = PodLocationScope.BuildWarehouseLocationLookup(
-            await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken));
+        var cacheKey = $"pod-warehouse-codes:{canonicalSection.ToUpperInvariant()}";
+        if (_memoryCache.TryGetValue(cacheKey, out string[]? cachedWarehouseCodes) && cachedWarehouseCodes is not null)
+        {
+            return cachedWarehouseCodes;
+        }
 
-        return invoices
-            .Where(invoice => PodLocationScope.InvoiceMatchesAssignedSection(invoice, assignedSection.Trim(), warehouseLocations))
-            .Select(invoice => invoice.DocEntry)
-            .Distinct()
-            .ToList();
+        List<WarehouseDto> warehouses;
+        try
+        {
+            warehouses = await _sapServiceLayerClient.GetWarehousesAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not load SAP warehouse codes for POD section {AssignedSection}; using section names as fallback warehouse codes.",
+                canonicalSection);
+
+            return PodLocationScope.GetSectionFilterValues(canonicalSection)
+                .Select(code => code.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        var warehouseCodes = PodLocationScope.GetWarehouseCodesForAssignedSection(warehouses, canonicalSection)
+            .Select(code => code.ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        _memoryCache.Set(cacheKey, warehouseCodes, TimeSpan.FromMinutes(30));
+        return warehouseCodes;
     }
 
     public async Task EnsureInvoiceCachedAsync(int sapDocEntry, int sapDocNum, string cardCode, string? cardName, CancellationToken cancellationToken = default)
@@ -1192,6 +1459,84 @@ public class DocumentService : IDocumentService
         };
     }
 
+    private IQueryable<DocumentAttachmentEntity> FindAttachmentByExternalReferenceQuery(string entityType, int entityId, string externalReference)
+    {
+        return _context.Set<DocumentAttachmentEntity>()
+            .Where(a => a.EntityType == entityType
+                && a.EntityId == entityId
+                && a.ExternalReference == externalReference);
+    }
+
+    private async Task<DocumentAttachmentDto> InsertAttachmentIdempotentlyAsync(
+        DocumentAttachmentEntity attachment,
+        string newlyStoredFilePath,
+        CancellationToken cancellationToken)
+    {
+        var insertedCount = await _context.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "DocumentAttachments"
+                ("Description", "EntityId", "EntityType", "ExternalReference", "FileName",
+                 "FileSizeBytes", "IncludeInEmail", "MimeType", "StoredFileName", "UploadedAt", "UploadedByUserId")
+            VALUES
+                ({attachment.Description}, {attachment.EntityId}, {attachment.EntityType}, {attachment.ExternalReference},
+                 {attachment.FileName}, {attachment.FileSizeBytes}, {attachment.IncludeInEmail}, {attachment.MimeType},
+                 {attachment.StoredFileName}, {attachment.UploadedAt}, {attachment.UploadedByUserId})
+            ON CONFLICT ("EntityType", "EntityId", "ExternalReference") DO NOTHING
+            """, cancellationToken);
+
+        if (insertedCount == 0)
+        {
+            TryDeleteStoredFile(newlyStoredFilePath);
+        }
+
+        var persistedAttachment = await FindAttachmentByExternalReferenceQuery(
+                attachment.EntityType,
+                attachment.EntityId,
+                attachment.ExternalReference!)
+            .AsNoTracking()
+            .Include(a => a.UploadedByUser)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (persistedAttachment is null)
+        {
+            throw new InvalidOperationException(
+                $"Attachment persistence completed but no record was found for {attachment.EntityType} " +
+                $"{attachment.EntityId} and external reference '{attachment.ExternalReference}'.");
+        }
+
+        if (insertedCount == 0)
+        {
+            _logger.LogInformation(
+                "Reused attachment {AttachmentId} after a concurrent duplicate upload for external reference {ExternalReference} on {EntityType} {EntityId}",
+                persistedAttachment.Id,
+                attachment.ExternalReference,
+                attachment.EntityType,
+                attachment.EntityId);
+        }
+
+        return MapToDto(persistedAttachment);
+    }
+
+    private static string? NormalizeExternalReference(string? externalReference)
+    {
+        return string.IsNullOrWhiteSpace(externalReference)
+            ? null
+            : externalReference.Trim();
+    }
+
+    private static void TryDeleteStoredFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private DocumentHistoryDto MapToDto(DocumentHistoryEntity entity)
     {
         return new DocumentHistoryDto
@@ -1259,27 +1604,60 @@ public class DocumentService : IDocumentService
         return $"{len:0.##} {sizes[order]}";
     }
 
+    private sealed class PodAttachmentStatusCandidate
+    {
+        public int DocEntry { get; init; }
+        public string FileName { get; init; } = string.Empty;
+        public string? Description { get; init; }
+        public DateTime UploadedAt { get; init; }
+        public string? UploadedBy { get; init; }
+        public string? UploadedByRole { get; init; }
+        public string? UploadedFromLocation { get; init; }
+    }
+
     public async Task<Dictionary<int, PodStatusInfo>> GetPodStatusByDocEntriesAsync(List<int> docEntries, CancellationToken cancellationToken = default)
     {
-        if (docEntries.Count == 0)
+        var distinctDocEntries = docEntries
+            .Where(docEntry => docEntry > 0)
+            .Distinct()
+            .ToArray();
+
+        if (distinctDocEntries.Length == 0)
             return new Dictionary<int, PodStatusInfo>();
 
-        var podAttachments = await _context.Set<DocumentAttachmentEntity>()
-            .AsNoTracking()
-            .Include(a => a.UploadedByUser)
-            .Where(a => a.EntityType == "Invoice" && docEntries.Contains(a.EntityId))
-            .Where(a =>
-                EF.Functions.ILike(a.FileName, "%pod%") ||
-                EF.Functions.ILike(a.FileName, "%proof of delivery%") ||
-                (a.Description != null && (EF.Functions.ILike(a.Description, "%pod%") || EF.Functions.ILike(a.Description, "%proof of delivery%")))
-            )
-            .Select(a => new
-            {
-                DocEntry = a.EntityId,
-                a.UploadedAt,
-                UploadedBy = a.UploadedByUser != null ? a.UploadedByUser.Username : null
-            })
-            .ToListAsync(cancellationToken);
+        var attachmentCandidates = new List<PodAttachmentStatusCandidate>();
+        foreach (var chunk in distinctDocEntries.Chunk(500))
+        {
+            // Restrict the database query using the indexed EntityType/EntityId columns first.
+            // Applying multiple leading-wildcard ILIKE predicates in SQL caused PostgreSQL to
+            // spend minutes scanning attachments for larger month-to-date reports. The small
+            // candidate set is filtered for POD naming conventions in memory instead.
+            var chunkDocEntries = chunk.ToArray();
+            var candidates = await _context.Set<DocumentAttachmentEntity>()
+                .AsNoTracking()
+                .Where(attachment =>
+                    attachment.EntityType == "Invoice" &&
+                    chunkDocEntries.Contains(attachment.EntityId))
+                .Select(attachment => new PodAttachmentStatusCandidate
+                {
+                    DocEntry = attachment.EntityId,
+                    FileName = attachment.FileName,
+                    Description = attachment.Description,
+                    UploadedAt = attachment.UploadedAt,
+                    UploadedBy = attachment.UploadedByUser != null ? attachment.UploadedByUser.Username : null,
+                    UploadedByRole = attachment.UploadedByUser != null ? attachment.UploadedByUser.Role : null,
+                    UploadedFromLocation = attachment.UploadedByUser != null ? attachment.UploadedByUser.AssignedSection : null
+                })
+                .ToListAsync(cancellationToken);
+
+            attachmentCandidates.AddRange(candidates);
+        }
+
+        var podAttachments = attachmentCandidates
+            .Where(attachment =>
+                IsPodAttachmentText(attachment.FileName) ||
+                IsPodAttachmentText(attachment.Description))
+            .ToList();
 
         var podData = podAttachments
             .GroupBy(a => a.DocEntry)
@@ -1293,11 +1671,24 @@ public class DocumentService : IDocumentService
                     .GroupBy(
                         a => string.IsNullOrWhiteSpace(a.UploadedBy) ? "Unknown uploader" : a.UploadedBy!.Trim(),
                         StringComparer.OrdinalIgnoreCase)
-                    .Select(uploaderGroup => new PodUploadUserSummaryInfo
+                    .Select(uploaderGroup =>
                     {
-                        Username = uploaderGroup.Key,
-                        FileCount = uploaderGroup.Count(),
-                        LatestUploadedAt = uploaderGroup.Max(a => a.UploadedAt)
+                        var latestUpload = uploaderGroup
+                            .OrderByDescending(a => a.UploadedAt)
+                            .First();
+
+                        return new PodUploadUserSummaryInfo
+                        {
+                            Username = uploaderGroup.Key,
+                            Role = string.IsNullOrWhiteSpace(latestUpload.UploadedByRole)
+                                ? null
+                                : latestUpload.UploadedByRole.Trim(),
+                            AssignedSection = string.IsNullOrWhiteSpace(latestUpload.UploadedFromLocation)
+                                ? null
+                                : latestUpload.UploadedFromLocation.Trim(),
+                            FileCount = uploaderGroup.Count(),
+                            LatestUploadedAt = latestUpload.UploadedAt
+                        };
                     })
                     .OrderByDescending(uploader => uploader.LatestUploadedAt)
                     .ThenBy(uploader => uploader.Username)
@@ -1326,6 +1717,11 @@ public class DocumentService : IDocumentService
                 UploadedByUsers = p.UploadedByUsers
             });
     }
+
+    private static bool IsPodAttachmentText(string? value) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        (value.Contains("pod", StringComparison.OrdinalIgnoreCase) ||
+         value.Contains("proof of delivery", StringComparison.OrdinalIgnoreCase));
 
     #endregion
 }

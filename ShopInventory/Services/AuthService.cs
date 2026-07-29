@@ -113,10 +113,17 @@ public class AuthService : IAuthService
         _pendingStore = pendingStore;
         _twoFactorService = twoFactorService;
 
-        // Build dictionary once at construction for fast API key validation
-        _apiKeyLookup = _securitySettings.ApiKeys
-            .Where(k => k.IsActive && !string.IsNullOrEmpty(k.Key))
-            .ToDictionary(k => k.Key, k => k);
+        // Build dictionary once at construction for fast API key validation.
+        // Production config can merge appsettings + web.config arrays, so do not let a
+        // duplicated key take down every auth endpoint during service construction.
+        _apiKeyLookup = new Dictionary<string, ApiKeyConfig>();
+        foreach (var keyConfig in _securitySettings.ApiKeys.Where(static k => k.IsActive && !string.IsNullOrEmpty(k.Key)))
+        {
+            if (!_apiKeyLookup.TryAdd(keyConfig.Key, keyConfig))
+            {
+                _logger.LogWarning("Duplicate active API key configuration found for {KeyName}; ignoring duplicate entry", keyConfig.Name);
+            }
+        }
     }
 
     public async Task<AuthLoginResponse?> AuthenticateAsync(AuthLoginRequest request, string ipAddress)
@@ -204,10 +211,12 @@ public class AuthService : IAuthService
 
     public async Task<AuthLoginResponse?> RefreshTokenAsync(string refreshToken, string ipAddress)
     {
+        var refreshTokenHash = HashRefreshToken(refreshToken);
+
         // Find the refresh token in database
         var token = await _dbContext.RefreshTokens
             .Include(rt => rt.User)
-            .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
+            .FirstOrDefaultAsync(rt => rt.TokenHash == refreshTokenHash);
 
         if (token == null)
         {
@@ -237,16 +246,17 @@ public class AuthService : IAuthService
         // Generate new tokens
         var newAccessToken = GenerateAccessToken(user);
         var newRefreshTokenValue = GenerateRefreshTokenValue();
+        var newRefreshTokenHash = HashRefreshToken(newRefreshTokenValue);
         var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
 
         // Link old token to new one
-        token.ReplacedByToken = newRefreshTokenValue;
+        token.ReplacedByTokenHash = newRefreshTokenHash;
 
         // Store new refresh token in database
         var newRefreshToken = new RefreshToken
         {
             Id = Guid.NewGuid(),
-            Token = newRefreshTokenValue,
+            TokenHash = newRefreshTokenHash,
             UserId = user.Id,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationDays),
@@ -271,6 +281,9 @@ public class AuthService : IAuthService
                 Email = user.Email,
                 AssignedWarehouseCode = user.AssignedWarehouseCode,
                 AssignedWarehouseCodes = user.GetWarehouseCodes(),
+                AssignedSection = user.AssignedSection,
+                AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
+                AssignedCostCentreCode = user.AssignedCostCentreCode,
                 AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
                 DefaultGLAccount = user.DefaultGLAccount,
                 AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
@@ -281,9 +294,11 @@ public class AuthService : IAuthService
 
     public async Task RevokeTokenAsync(string refreshToken, string? ipAddress = null)
     {
+        var refreshTokenHash = HashRefreshToken(refreshToken);
+
         var token = await _dbContext.RefreshTokens
             .Include(rt => rt.User)
-            .FirstOrDefaultAsync(rt => rt.Token == refreshToken);
+            .FirstOrDefaultAsync(rt => rt.TokenHash == refreshTokenHash);
 
         if (token != null && token.IsActive)
         {
@@ -340,7 +355,7 @@ public class AuthService : IAuthService
     public async Task<AuthLoginResponse?> CompleteTwoFactorLoginAsync(
         string challengeToken, string code, bool isBackupCode, string ipAddress, CancellationToken cancellationToken)
     {
-        var userId = _pendingStore.ConsumeChallenge(challengeToken);
+        var userId = _pendingStore.GetChallengeUserId(challengeToken);
         if (userId is null)
         {
             _logger.LogWarning("Invalid or expired 2FA challenge token from IP: {IpAddress}", ipAddress);
@@ -353,6 +368,8 @@ public class AuthService : IAuthService
             _logger.LogWarning("Failed 2FA code verification for user {UserId} from IP: {IpAddress}", userId.Value, ipAddress);
             return null;
         }
+
+        _pendingStore.ConsumeChallenge(challengeToken);
 
         var user = await _dbContext.Users.FindAsync([userId.Value], cancellationToken);
         if (user is null || !user.IsActive)
@@ -574,7 +591,7 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, user.Role),
             new Claim(ClaimTypes.Email, user.Email ?? ""),
-            new Claim(JwtRegisteredClaimNames.Sub, user.Username),
+            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
         };
@@ -602,12 +619,13 @@ public class AuthService : IAuthService
     {
         var accessToken = GenerateAccessToken(user);
         var refreshTokenValue = GenerateRefreshTokenValue();
+        var refreshTokenHash = HashRefreshToken(refreshTokenValue);
         var expiresAt = DateTime.UtcNow.AddMinutes(_jwtSettings.AccessTokenExpirationMinutes);
 
         var refreshToken = new RefreshToken
         {
             Id = Guid.NewGuid(),
-            Token = refreshTokenValue,
+            TokenHash = refreshTokenHash,
             UserId = user.Id,
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddDays(_jwtSettings.RefreshTokenExpirationDays),
@@ -629,6 +647,9 @@ public class AuthService : IAuthService
                 Email = user.Email,
                 AssignedWarehouseCode = user.AssignedWarehouseCode,
                 AssignedWarehouseCodes = user.GetWarehouseCodes(),
+                AssignedSection = user.AssignedSection,
+                AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
+                AssignedCostCentreCode = user.AssignedCostCentreCode,
                 AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
                 DefaultGLAccount = user.DefaultGLAccount,
                 AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
@@ -643,6 +664,13 @@ public class AuthService : IAuthService
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
         return Convert.ToBase64String(randomBytes);
+    }
+
+    private static string HashRefreshToken(string refreshToken)
+    {
+        var tokenBytes = Encoding.UTF8.GetBytes(refreshToken);
+        var hashBytes = SHA256.HashData(tokenBytes);
+        return Convert.ToHexString(hashBytes);
     }
 
     /// <summary>

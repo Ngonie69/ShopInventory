@@ -11,5 +11,6 @@ public sealed record UploadPodCommand(
     string ContentType,
     string? Description,
     string? UploadedByUsername,
+    string? ExternalReference,
     Guid? UserId
 ) : IRequest<ErrorOr<DocumentAttachmentDto>>;

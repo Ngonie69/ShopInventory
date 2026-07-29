@@ -1,8 +1,13 @@
 using ErrorOr;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
+using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Invoices.Events;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -13,10 +18,13 @@ namespace ShopInventory.Features.Invoices.Commands.CreateInvoice;
 
 public sealed class CreateInvoiceHandler(
     ISAPServiceLayerClient sapClient,
+    ILocalPriceCatalogService localPriceCatalogService,
     IBatchInventoryValidationService batchValidation,
     IInventoryLockService lockService,
-    IFiscalizationService fiscalizationService,
+    IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
+    IIdempotencyRequestStore idempotencyRequestStore,
+    ApplicationDbContext context,
     IOptions<SAPSettings> settings,
     ILogger<CreateInvoiceHandler> logger
 ) : IRequestHandler<CreateInvoiceCommand, ErrorOr<InvoiceCreatedResponseDto>>
@@ -29,10 +37,45 @@ public sealed class CreateInvoiceHandler(
             return Errors.Invoice.SapDisabled;
 
         var request = command.Request;
+        request.U_Van_saleorder = string.IsNullOrWhiteSpace(request.U_Van_saleorder)
+            ? null
+            : request.U_Van_saleorder.Trim();
+
         List<string>? acquiredLockTokens = null;
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
 
         try
         {
+            // Prefer the U_Van_saleorder business key; fall back to a client-supplied idempotency key
+            // (Idempotency-Key header) so plain web invoices without a van-sale-order are also deduped.
+            var idempotencyKey = !string.IsNullOrWhiteSpace(request.U_Van_saleorder)
+                ? request.U_Van_saleorder
+                : (string.IsNullOrWhiteSpace(request.ClientRequestId) ? null : request.ClientRequestId.Trim());
+
+            if (idempotencyKey is not null)
+            {
+                var acquireResult = await idempotencyRequestStore.TryAcquireAsync<InvoiceCreatedResponseDto>(
+                    "invoices.create",
+                    idempotencyKey,
+                    request,
+                    cancellationToken);
+
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("invoice creation");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("invoice creation");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+            }
+
             // Step 1b: Check for duplicate invoice by U_Van_saleorder
             if (!string.IsNullOrWhiteSpace(request.U_Van_saleorder))
             {
@@ -42,8 +85,36 @@ public sealed class CreateInvoiceHandler(
                     logger.LogWarning(
                         "Duplicate invoice detected. U_Van_saleorder '{VanSaleOrder}' already exists as DocEntry {DocEntry}, DocNum {DocNum}",
                         request.U_Van_saleorder, existingInvoice.DocEntry, existingInvoice.DocNum);
-                    return Errors.Invoice.DuplicateVanSaleOrder(request.U_Van_saleorder, existingInvoice.DocNum);
+
+                    var existingResponse = new InvoiceCreatedResponseDto
+                    {
+                        Message = "Invoice already exists; returning existing document",
+                        Invoice = existingInvoice.ToDto(),
+                        Fiscalization = null
+                    };
+
+                    if (idempotencyRequestId.HasValue)
+                    {
+                        try
+                        {
+                            await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, existingResponse, cancellationToken);
+                            releaseIdempotencyRequest = false;
+                        }
+                        catch (Exception completeException)
+                        {
+                            logger.LogWarning(completeException, "Failed to persist invoice idempotency replay for request {RequestId}", idempotencyRequestId.Value);
+                        }
+                    }
+
+                    return existingResponse;
                 }
+            }
+
+            var missingPriceItems = await PopulateStoredPricesAsync(request, cancellationToken);
+            if (missingPriceItems.Count > 0)
+            {
+                return Errors.Invoice.ValidationFailed(
+                    $"No SAP price is set for item(s): {string.Join(", ", missingPriceItems)}. Please contact the admin.");
             }
 
             // Step 2: Validate basic quantities
@@ -102,18 +173,13 @@ public sealed class CreateInvoiceHandler(
             }
 
             if (!string.IsNullOrEmpty(prePostResult.LockToken))
-                acquiredLockTokens = new List<string> { prePostResult.LockToken };
-
-            // Step 7: SAP stock validation (belt and suspenders)
-            var stockValidationErrors = await sapClient.ValidateStockAvailabilityAsync(request, cancellationToken);
-            if (stockValidationErrors.Count > 0)
             {
-                logger.LogWarning("SAP stock validation failed after batch validation. {ErrorCount} items insufficient stock", stockValidationErrors.Count);
-                return Errors.Invoice.StockValidationFailed(
-                    $"SAP stock validation failed - insufficient stock: {string.Join("; ", stockValidationErrors.Select(e => e.Message))}");
+                acquiredLockTokens = prePostResult.LockTokens.Count > 0
+                    ? prePostResult.LockTokens
+                    : new List<string> { prePostResult.LockToken };
             }
 
-            // Step 8: POST to SAP
+            // Step 7: POST to SAP
             var invoice = await sapClient.CreateInvoiceAsync(request, cancellationToken);
 
             logger.LogInformation(
@@ -121,49 +187,51 @@ public sealed class CreateInvoiceHandler(
                 invoice.DocEntry, invoice.DocNum, invoice.CardCode,
                 batchValidationResult.AllocatedLines.Sum(l => l.Batches.Count), command.AllocationStrategy);
 
-            // Step 9: Fiscalize with REVMax
-            FiscalizationResult? fiscalizationResult = null;
-            try
-            {
-                try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
+            await RegisterCrateTransactionAsync(invoice, request, command.UserId, cancellationToken);
 
-                fiscalizationResult = await fiscalizationService.FiscalizeInvoiceAsync(
-                    invoice.ToDto(),
-                    new CustomerFiscalDetails { CustomerName = invoice.CardName },
-                    cancellationToken);
+            try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", invoice.DocEntry.ToString(), $"Invoice #{invoice.DocNum} created for {invoice.CardCode}", true); } catch { }
 
-                if (fiscalizationResult.Success)
-                    logger.LogInformation("Invoice {DocNum} fiscalized successfully. QRCode: {HasQR}, ReceiptGlobalNo: {ReceiptNo}",
-                        invoice.DocNum, !string.IsNullOrEmpty(fiscalizationResult.QRCode), fiscalizationResult.ReceiptGlobalNo);
-                else
-                    logger.LogWarning("Invoice {DocNum} fiscalization failed: {Message}. Invoice was created in SAP but not fiscalized.",
-                        invoice.DocNum, fiscalizationResult.Message);
-            }
-            catch (Exception fiscalEx)
-            {
-                logger.LogError(fiscalEx, "Error during fiscalization of invoice {DocNum}. Invoice was created in SAP but fiscalization failed.", invoice.DocNum);
-                fiscalizationResult = new FiscalizationResult
-                {
-                    Success = false,
-                    Message = "Fiscalization error - invoice created in SAP",
-                    ErrorDetails = fiscalEx.Message
-                };
-            }
+            var invoiceDto = invoice.ToDto();
+            var fiscalizationResult = QueueFiscalization(invoiceDto, command.UserId, command.Username);
 
-            return new InvoiceCreatedResponseDto
+            var response = new InvoiceCreatedResponseDto
             {
-                Message = fiscalizationResult?.Success == true
-                    ? "Invoice created and fiscalized successfully"
+                Message = fiscalizationResult.Queued
+                    ? "Invoice created successfully; fiscalization is running in the background"
                     : "Invoice created successfully (fiscalization pending)",
-                Invoice = invoice.ToDto(),
+                Invoice = invoiceDto,
                 Fiscalization = fiscalizationResult
             };
+
+            if (idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, response, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist invoice idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return response;
         }
         catch (ArgumentException ex)
         {
             logger.LogWarning(ex, "Validation error creating invoice");
             try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Validation error: {ex.Message}", false, ex.Message); } catch { }
             return Errors.Invoice.ValidationFailed(ex.Message);
+        }
+        catch (SapPostingPeriodException ex)
+        {
+            logger.LogWarning(
+                "SAP rejected invoice document dates starting from DocDate {DocDate}: {Message}",
+                ex.DocDate,
+                ex.Message);
+            try { await auditService.LogAsync(AuditActions.CreateInvoice, "Invoice", null, $"Posting period error for invoice dates; DocDate {ex.DocDate}", false, ex.Message); } catch { }
+            return Errors.Invoice.PostingPeriodInvalid(ex.Message);
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
@@ -194,7 +262,136 @@ public sealed class CreateInvoiceHandler(
                     logger.LogWarning(ex, "Failed to release inventory locks - they will expire automatically");
                 }
             }
+
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release invoice idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
         }
+    }
+
+    private FiscalizationResult QueueFiscalization(InvoiceDto invoice, Guid? userId, string? username)
+    {
+        var queued = fiscalizationQueue.TryQueue(new InvoiceFiscalizationWorkItem(
+            invoice,
+            new CustomerFiscalDetails { CustomerName = invoice.CardName },
+            userId,
+            username,
+            "/invoices"));
+
+        if (queued)
+        {
+            logger.LogInformation(
+                "Queued fiscalization for invoice {DocNum} (DocEntry: {DocEntry})",
+                invoice.DocNum,
+                invoice.DocEntry);
+
+            return new FiscalizationResult
+            {
+                Success = true,
+                Queued = true,
+                Message = "Fiscalization queued",
+                InvoiceNumber = invoice.DocNum.ToString()
+            };
+        }
+
+        logger.LogError(
+            "Failed to queue fiscalization for invoice {DocNum} (DocEntry: {DocEntry})",
+            invoice.DocNum,
+            invoice.DocEntry);
+
+        return new FiscalizationResult
+        {
+            Success = false,
+            Message = "Fiscalization could not be queued",
+            ErrorCode = "FISCALIZATION_QUEUE_UNAVAILABLE",
+            InvoiceNumber = invoice.DocNum.ToString()
+        };
+    }
+
+    private async Task RegisterCrateTransactionAsync(
+        Invoice invoice,
+        CreateInvoiceRequest request,
+        Guid? userId,
+        CancellationToken cancellationToken)
+    {
+        var crateQuantity = request.CrateQuantity.GetValueOrDefault();
+        if (crateQuantity <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var transaction = await context.CrateTransactions
+                .FirstOrDefaultAsync(t => t.InvoiceDocEntry == invoice.DocEntry, cancellationToken);
+
+            if (transaction is null)
+            {
+                transaction = new CrateTransactionEntity
+                {
+                    TransactionType = CrateTrackingConstants.TransactionTypeInvoice,
+                    InvoiceDocEntry = invoice.DocEntry,
+                    InvoiceDocNum = invoice.DocNum,
+                    ShopCardCode = invoice.CardCode ?? request.CardCode ?? string.Empty,
+                    ShopName = invoice.CardName,
+                    ExpectedQuantity = crateQuantity,
+                    EffectiveDate = ResolveCrateEffectiveDate(invoice.DocDate),
+                    Notes = string.IsNullOrWhiteSpace(request.Comments) ? null : request.Comments.Trim(),
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedByUserId = userId
+                };
+
+                context.CrateTransactions.Add(transaction);
+            }
+            else
+            {
+                transaction.InvoiceDocNum = invoice.DocNum;
+                transaction.ShopCardCode = invoice.CardCode ?? transaction.ShopCardCode;
+                transaction.ShopName = invoice.CardName;
+                transaction.ExpectedQuantity = crateQuantity;
+                transaction.EffectiveDate = ResolveCrateEffectiveDate(invoice.DocDate, transaction.EffectiveDate);
+                transaction.Notes = string.IsNullOrWhiteSpace(request.Comments) ? transaction.Notes : request.Comments.Trim();
+                transaction.UpdatedAt = DateTime.UtcNow;
+                transaction.CreatedByUserId ??= userId;
+            }
+
+            await context.SaveChangesAsync(cancellationToken);
+
+            try
+            {
+                await auditService.LogAsync(
+                    AuditActions.RegisterInvoiceCrates,
+                    "CrateTransaction",
+                    transaction.Id.ToString(),
+                    $"Registered {crateQuantity:N2} expected crates for invoice #{invoice.DocNum}",
+                    true);
+            }
+            catch
+            {
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to register crate tracking record for invoice {DocEntry}", invoice.DocEntry);
+        }
+    }
+
+    private static DateTime ResolveCrateEffectiveDate(string? docDate, DateTime? fallback = null)
+    {
+        if (DateTime.TryParse(docDate, out var parsedDate))
+        {
+            return DateTime.SpecifyKind(parsedDate.Date, DateTimeKind.Utc);
+        }
+
+        return fallback ?? DateTime.UtcNow.Date;
     }
 
     private static List<string> ValidateQuantities(CreateInvoiceRequest request)
@@ -212,15 +409,73 @@ public sealed class CreateInvoiceHandler(
             if (line.Quantity <= 0)
                 errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Quantity must be greater than zero. Current value: {line.Quantity}");
             if (line.UnitPrice.HasValue && line.UnitPrice.Value <= 0)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price must be greater than zero. Current value: {line.UnitPrice.Value}");
+                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
             else if (!line.UnitPrice.HasValue)
-                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): Unit price is required and must be greater than zero.");
+                errors.Add($"Line {i + 1} (Item: {line.ItemCode ?? "unknown"}): No SAP price is set for this item. Please contact the admin.");
             if (line.BatchNumbers != null)
                 for (int j = 0; j < line.BatchNumbers.Count; j++)
                     if (line.BatchNumbers[j].Quantity <= 0)
                         errors.Add($"Line {i + 1}, Batch {j + 1} (Batch: {line.BatchNumbers[j].BatchNumber ?? "unknown"}): Quantity must be greater than zero.");
         }
         return errors;
+    }
+
+    private async Task<List<string>> PopulateStoredPricesAsync(CreateInvoiceRequest request, CancellationToken cancellationToken)
+    {
+        var missingPriceItems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (request.Lines == null || request.Lines.Count == 0 || string.IsNullOrWhiteSpace(request.CardCode))
+        {
+            return [];
+        }
+
+        var itemCodes = request.Lines
+            .Select(line => line.ItemCode?.Trim())
+            .Where(itemCode => !string.IsNullOrWhiteSpace(itemCode))
+            .Select(itemCode => itemCode!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (itemCodes.Count == 0)
+        {
+            return [];
+        }
+
+        logger.LogInformation(
+            "Resolving invoice prices from the local price catalog for customer {CardCode} across {ItemCount} item(s)",
+            request.CardCode,
+            itemCodes.Count);
+
+        var pricing = await localPriceCatalogService.GetBusinessPartnerPricingAsync(request.CardCode, itemCodes, cancellationToken);
+        var priceMap = pricing?.Prices.Prices?
+            .Where(price => !string.IsNullOrWhiteSpace(price.ItemCode))
+            .ToDictionary(price => price.ItemCode!, price => price.Price, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var line in request.Lines)
+        {
+            var itemCode = line.ItemCode?.Trim();
+            if (string.IsNullOrWhiteSpace(itemCode))
+            {
+                continue;
+            }
+
+            if (priceMap.TryGetValue(itemCode, out var resolvedPrice) && resolvedPrice > 0)
+            {
+                line.UnitPrice = resolvedPrice;
+                continue;
+            }
+
+            line.UnitPrice = 0m;
+            missingPriceItems.Add(itemCode);
+
+            logger.LogWarning(
+                "No locally synced price configured for invoice item {ItemCode} and customer {CardCode}",
+                itemCode,
+                request.CardCode);
+        }
+
+        return missingPriceItems.OrderBy(itemCode => itemCode).ToList();
     }
 
     private static List<string> ValidateWarehouseCodes(CreateInvoiceRequest request)

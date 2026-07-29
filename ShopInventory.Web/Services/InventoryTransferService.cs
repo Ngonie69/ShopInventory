@@ -12,7 +12,33 @@ public interface IInventoryTransferService
     Task<InventoryTransferDateResponse?> GetTransfersByDateRangeAsync(string warehouseCode, DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
 
     // Inventory Transfer operations
-    Task<(bool Success, string Message, InventoryTransferDto? Transfer)> CreateInventoryTransferAsync(CreateInventoryTransferDto request);
+    /// <summary>
+    /// Submits an inventory transfer. It is held for approval, so <c>PendingTransfer</c> is
+    /// returned and <c>Transfer</c> stays null until the approval process completes.
+    /// </summary>
+    Task<(bool Success, string Message, InventoryTransferDto? Transfer, PendingInventoryTransferDto? PendingTransfer)> CreateInventoryTransferAsync(CreateInventoryTransferDto request);
+
+    // Direct transfers held for approval
+    Task<PendingInventoryTransferListResponse?> GetPendingTransfersAsync(string? status = null, string? warehouseCode = null, bool mineOnly = false, int page = 1, int pageSize = 20);
+    Task<PendingInventoryTransferDto?> GetPendingTransferAsync(Guid id);
+    Task<(bool Success, string Message, InventoryTransferDto? Transfer)> DecidePendingTransferAsync(Guid id, string decision, Guid? stageId = null, string? remarks = null);
+    Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RetryPendingTransferPostAsync(Guid id);
+    Task<(bool Success, string Message)> CancelPendingTransferAsync(Guid id);
+
+    /// <summary>
+    /// Changes an open transfer request's lines. Callers assigned the source warehouse update
+    /// SAP directly; for anyone else the change comes back held for approval.
+    /// </summary>
+    Task<(bool Success, string Message, TransferRequestEditResponse? Result)> EditTransferRequestAsync(
+        int docEntry, EditTransferRequestRequest request);
+
+    Task<PendingTransferRequestEditListResponse?> GetPendingRequestEditsAsync(
+        string? status = null, int? requestDocEntry = null, int pageSize = 50);
+
+    Task<(bool Success, string Message)> DecidePendingRequestEditAsync(
+        Guid id, string decision, Guid? stageId = null, string? remarks = null);
+
+    Task<(bool Success, string Message)> CancelPendingRequestEditAsync(Guid id);
 
     // Transfer Request operations
     Task<(bool Success, string Message, InventoryTransferRequestDto? TransferRequest)> CreateTransferRequestAsync(CreateTransferRequestDto request);
@@ -179,23 +205,43 @@ public class InventoryTransferService : IInventoryTransferService
 
     #region Inventory Transfer Operations
 
-    public async Task<(bool Success, string Message, InventoryTransferDto? Transfer)> CreateInventoryTransferAsync(CreateInventoryTransferDto request)
+    public async Task<(bool Success, string Message, InventoryTransferDto? Transfer, PendingInventoryTransferDto? PendingTransfer)> CreateInventoryTransferAsync(CreateInventoryTransferDto request)
     {
         try
         {
-            _logger.LogInformation("Creating inventory transfer from {FromWarehouse} to {ToWarehouse} with {LineCount} lines",
+            _logger.LogInformation("Submitting inventory transfer from {FromWarehouse} to {ToWarehouse} with {LineCount} lines",
                 request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
-            var response = await _httpClient.PostAsJsonAsync("api/inventorytransfer", request);
+            var clientRequestId = EnsureClientRequestId(request);
+
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/inventorytransfer")
+            {
+                Content = JsonContent.Create(request)
+            };
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+            var response = await _httpClient.SendAsync(httpRequest);
 
             _logger.LogInformation("Inventory transfer API response: {StatusCode}", response.StatusCode);
 
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<InventoryTransferCreatedResponse>();
-                _logger.LogInformation("Inventory transfer created successfully: DocNum={DocNum}, DocEntry={DocEntry}",
-                    result?.Transfer?.DocNum, result?.Transfer?.DocEntry);
-                return (true, result?.Message ?? "Inventory transfer created successfully", result?.Transfer);
+                if (result?.RequiresApproval == true)
+                {
+                    _logger.LogInformation("Inventory transfer submitted for approval: PendingId={PendingId}",
+                        result.PendingTransfer?.Id);
+                }
+                else
+                {
+                    _logger.LogInformation("Inventory transfer created successfully: DocNum={DocNum}, DocEntry={DocEntry}",
+                        result?.Transfer?.DocNum, result?.Transfer?.DocEntry);
+                }
+
+                return (true,
+                    result?.Message ?? "Inventory transfer submitted successfully",
+                    result?.Transfer,
+                    result?.PendingTransfer);
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
@@ -255,22 +301,247 @@ public class InventoryTransferService : IInventoryTransferService
                     ? $"{message}\n{string.Join("\n", errorMessages)}"
                     : message;
 
-                return (false, fullMessage, null);
+                return (false, fullMessage, null, null);
             }
             catch
             {
-                return (false, $"Failed to create inventory transfer (HTTP {(int)response.StatusCode}): {errorContent}", null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't submit this inventory transfer right now. Please try again."), null, null);
             }
         }
         catch (HttpRequestException httpEx)
         {
-            _logger.LogError(httpEx, "HTTP error creating inventory transfer");
-            return (false, $"Network error: {httpEx.Message}", null);
+            _logger.LogError(httpEx, "HTTP error submitting inventory transfer");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't submit this inventory transfer right now. Please try again."), null, null);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error creating inventory transfer");
-            return (false, $"Error: {ex.Message}", null);
+            _logger.LogError(ex, "Unexpected error submitting inventory transfer");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't submit this inventory transfer right now. Please try again."), null, null);
+        }
+    }
+
+    private static string EnsureClientRequestId(CreateInventoryTransferDto request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
+    }
+
+    #endregion
+
+    #region Pending (approval-held) Transfer Operations
+
+    public async Task<PendingInventoryTransferListResponse?> GetPendingTransfersAsync(
+        string? status = null, string? warehouseCode = null, bool mineOnly = false, int page = 1, int pageSize = 20)
+    {
+        try
+        {
+            var query = new List<string> { $"page={page}", $"pageSize={pageSize}" };
+            if (!string.IsNullOrWhiteSpace(status))
+                query.Add($"status={Uri.EscapeDataString(status)}");
+            if (!string.IsNullOrWhiteSpace(warehouseCode))
+                query.Add($"warehouseCode={Uri.EscapeDataString(warehouseCode)}");
+            if (mineOnly)
+                query.Add("mineOnly=true");
+
+            return await _httpClient.GetFromJsonAsync<PendingInventoryTransferListResponse>(
+                $"api/inventorytransfer/pending?{string.Join("&", query)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting inventory transfers awaiting approval");
+            return null;
+        }
+    }
+
+    public async Task<PendingInventoryTransferDto?> GetPendingTransferAsync(Guid id)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<PendingInventoryTransferDto>($"api/inventorytransfer/pending/{id}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting pending inventory transfer {PendingId}", id);
+            return null;
+        }
+    }
+
+    public Task<(bool Success, string Message, InventoryTransferDto? Transfer)> DecidePendingTransferAsync(
+        Guid id, string decision, Guid? stageId = null, string? remarks = null)
+        => SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/decision",
+            JsonContent.Create(new SubmitPendingTransferDecisionRequest { Decision = decision, StageId = stageId, Remarks = remarks }),
+            "We couldn't record that decision right now. Please try again.");
+
+    public Task<(bool Success, string Message, InventoryTransferDto? Transfer)> RetryPendingTransferPostAsync(Guid id)
+        => SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/post",
+            null,
+            "We couldn't post this transfer right now. Please try again.");
+
+    public async Task<(bool Success, string Message)> CancelPendingTransferAsync(Guid id)
+    {
+        var (success, message, _) = await SendPendingTransferActionAsync(
+            $"api/inventorytransfer/pending/{id}/cancel",
+            null,
+            "We couldn't withdraw this transfer right now. Please try again.");
+        return (success, message);
+    }
+
+    public async Task<(bool Success, string Message, TransferRequestEditResponse? Result)> EditTransferRequestAsync(
+        int docEntry, EditTransferRequestRequest request)
+    {
+        try
+        {
+            var response = await _httpClient.PatchAsJsonAsync($"api/inventorytransfer/request/{docEntry}", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<TransferRequestEditResponse>();
+                return (true, result?.Message ?? "Transfer request updated.", result);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Editing transfer request {DocEntry} failed. Status: {StatusCode}, Response: {Error}",
+                docEntry, response.StatusCode, errorContent);
+            return (false, ExtractErrorMessage(errorContent)
+                ?? ApiErrorResponse.GetFriendlyMessage(response.StatusCode, errorContent,
+                    "We couldn't save that change right now. Please try again."), null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error editing transfer request {DocEntry}", docEntry);
+            return (false, "We couldn't save that change right now. Please try again.", null);
+        }
+    }
+
+    public async Task<PendingTransferRequestEditListResponse?> GetPendingRequestEditsAsync(
+        string? status = null, int? requestDocEntry = null, int pageSize = 50)
+    {
+        try
+        {
+            var query = new List<string> { $"pageSize={pageSize}" };
+            if (!string.IsNullOrWhiteSpace(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+            if (requestDocEntry.HasValue) query.Add($"requestDocEntry={requestDocEntry.Value}");
+
+            return await _httpClient.GetFromJsonAsync<PendingTransferRequestEditListResponse>(
+                $"api/inventorytransfer/request-edits?{string.Join("&", query)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting held transfer request changes");
+            return null;
+        }
+    }
+
+    public Task<(bool Success, string Message)> DecidePendingRequestEditAsync(
+        Guid id, string decision, Guid? stageId = null, string? remarks = null)
+        => SendRequestEditActionAsync(
+            $"api/inventorytransfer/request-edits/{id}/decision",
+            JsonContent.Create(new SubmitPendingTransferDecisionRequest { Decision = decision, StageId = stageId, Remarks = remarks }),
+            "We couldn't record that decision right now. Please try again.");
+
+    public Task<(bool Success, string Message)> CancelPendingRequestEditAsync(Guid id)
+        => SendRequestEditActionAsync(
+            $"api/inventorytransfer/request-edits/{id}/cancel",
+            null,
+            "We couldn't withdraw that change right now. Please try again.");
+
+    private async Task<(bool Success, string Message)> SendRequestEditActionAsync(
+        string url,
+        HttpContent? content,
+        string fallbackMessage)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<PendingTransferRequestEditDecisionResponse>();
+                return (true, result?.Message ?? "Done.");
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Transfer request change action {Url} failed. Status: {StatusCode}, Response: {Error}",
+                url, response.StatusCode, errorContent);
+            return (false, ExtractErrorMessage(errorContent)
+                ?? ApiErrorResponse.GetFriendlyMessage(response.StatusCode, errorContent, fallbackMessage));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calling {Url}", url);
+            return (false, fallbackMessage);
+        }
+    }
+
+    private static string? ExtractErrorMessage(string errorContent)
+    {
+        try
+        {
+            var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            var message = errorResponse?.Errors?.Any() == true
+                ? string.Join("; ", errorResponse.Errors)
+                : errorResponse?.Message;
+            return string.IsNullOrWhiteSpace(message) ? null : message;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<(bool Success, string Message, InventoryTransferDto? Transfer)> SendPendingTransferActionAsync(
+        string url,
+        HttpContent? content,
+        string fallbackMessage)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<PendingInventoryTransferDecisionResponse>();
+                return (true, result?.Message ?? "Done.", result?.Transfer);
+            }
+
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Pending transfer action {Url} failed. Status: {StatusCode}, Response: {Error}",
+                url, response.StatusCode, errorContent);
+
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var errorMessage = errorResponse?.Errors?.Any() == true
+                    ? string.Join("; ", errorResponse.Errors)
+                    : errorResponse?.Message;
+                if (!string.IsNullOrWhiteSpace(errorMessage))
+                    return (false, errorMessage, null);
+            }
+            catch { }
+
+            return (false, ApiErrorResponse.GetFriendlyMessage(response.StatusCode, errorContent, fallbackMessage), null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error calling pending transfer action {Url}", url);
+            return (false, ApiErrorResponse.GetFriendlyMessage(ex, fallbackMessage), null);
         }
     }
 
@@ -317,18 +588,25 @@ public class InventoryTransferService : IInventoryTransferService
             }
             catch
             {
-                return (false, $"Failed to create transfer request: {response.StatusCode} - {errorContent}", null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't create this transfer request right now. Please try again."), null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error creating transfer request");
-            return (false, $"Network error: {httpEx.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't create this transfer request right now. Please try again."), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating transfer request");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't create this transfer request right now. Please try again."), null);
         }
     }
 
@@ -444,18 +722,25 @@ public class InventoryTransferService : IInventoryTransferService
             }
             catch
             {
-                return (false, $"Failed to convert transfer request: {response.StatusCode} - {errorContent}", null);
+                return (false, ApiErrorResponse.GetFriendlyMessage(
+                    response.StatusCode,
+                    errorContent,
+                    "We couldn't convert this transfer request right now. Please try again."), null);
             }
         }
         catch (HttpRequestException httpEx)
         {
             _logger.LogError(httpEx, "HTTP error converting transfer request");
-            return (false, $"Network error: {httpEx.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                httpEx,
+                "We couldn't convert this transfer request right now. Please try again."), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error converting transfer request");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't convert this transfer request right now. Please try again."), null);
         }
     }
 
@@ -467,17 +752,23 @@ public class InventoryTransferService : IInventoryTransferService
 
             if (response.IsSuccessStatusCode)
             {
-                return (true, $"Transfer request {docEntry} closed successfully");
+                var result = await response.Content.ReadFromJsonAsync<TransferRequestDecisionResponse>();
+                return (true, result?.Message ?? $"Transfer request {docEntry} rejected successfully");
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogError("Failed to close transfer request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
-            return (false, $"Failed to close transfer request: {errorContent}");
+            _logger.LogError("Failed to reject transfer request {DocEntry}: {StatusCode} - {Error}", docEntry, response.StatusCode, errorContent);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "We couldn't reject this transfer request right now. Please try again."));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error closing transfer request {DocEntry}", docEntry);
-            return (false, $"Error: {ex.Message}");
+            _logger.LogError(ex, "Error rejecting transfer request {DocEntry}", docEntry);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't reject this transfer request right now. Please try again."));
         }
     }
 

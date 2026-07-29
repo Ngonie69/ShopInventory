@@ -1,7 +1,9 @@
 using ErrorOr;
 using MediatR;
+using ShopInventory.Common.Fiscalization;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Mappings;
 using ShopInventory.Services;
@@ -10,11 +12,17 @@ using Microsoft.Extensions.Options;
 namespace ShopInventory.Features.Invoices.Queries.GetPagedInvoices;
 
 public sealed class GetPagedInvoicesHandler(
+    ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
+    IRevmaxClient revmaxClient,
+    ISender sender,
     IOptions<SAPSettings> settings,
+    IOptions<RevmaxSettings> revmaxSettings,
     ILogger<GetPagedInvoicesHandler> logger
 ) : IRequestHandler<GetPagedInvoicesQuery, ErrorOr<InvoiceListResponseDto>>
 {
+    private const int MaxAutomaticFiscalBackfillCount = 100;
+
     public async Task<ErrorOr<InvoiceListResponseDto>> Handle(
         GetPagedInvoicesQuery request,
         CancellationToken cancellationToken)
@@ -25,7 +33,7 @@ public sealed class GetPagedInvoicesHandler(
         if (request.Page < 1)
             return Errors.Invoice.InvalidPage;
 
-        var hasFilters = request.DocNum.HasValue || !string.IsNullOrEmpty(request.CardCode) || request.FromDate.HasValue || request.ToDate.HasValue;
+        var hasFilters = request.DocNum.HasValue || !string.IsNullOrEmpty(request.CardCode) || request.FromDate.HasValue || request.ToDate.HasValue || request.VanSalesOnly.HasValue;
         var maxPageSize = hasFilters ? 5000 : 100;
 
         if (request.PageSize < 1 || request.PageSize > maxPageSize)
@@ -34,8 +42,27 @@ public sealed class GetPagedInvoicesHandler(
         try
         {
             var skip = (request.Page - 1) * request.PageSize;
-            var invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, request.PageSize, request.DocNum, request.CardCode, request.FromDate, request.ToDate, cancellationToken);
-            var totalCount = await sapClient.GetInvoicesCountAsync(request.DocNum, request.CardCode, request.FromDate, request.ToDate, cancellationToken);
+            var invoices = await sapClient.GetPagedInvoicesByOffsetAsync(skip, request.PageSize, request.DocNum, request.CardCode, request.FromDate, request.ToDate, request.VanSalesOnly, cancellationToken);
+            var totalCount = await sapClient.GetInvoicesCountAsync(request.DocNum, request.CardCode, request.FromDate, request.ToDate, request.VanSalesOnly, cancellationToken);
+            var invoiceDtos = invoices.ToDto();
+
+            await FiscalDocumentStatusProjector.EnrichInvoicesAsync(dbContext, invoiceDtos, cancellationToken);
+
+            if (revmaxSettings.Value.Enabled)
+            {
+                var syncedCount = await InvoiceFiscalTransactionSync.SyncUnknownInvoicesAsync(
+                    invoiceDtos,
+                    revmaxClient,
+                    sender,
+                    logger,
+                    Math.Min(MaxAutomaticFiscalBackfillCount, invoiceDtos.Count),
+                    cancellationToken);
+
+                if (syncedCount > 0)
+                {
+                    await FiscalDocumentStatusProjector.EnrichInvoicesAsync(dbContext, invoiceDtos, cancellationToken);
+                }
+            }
 
             logger.LogInformation("Retrieved page {Page} of invoices ({Count} records, total: {Total})", request.Page, invoices.Count, totalCount);
 
@@ -47,7 +74,7 @@ public sealed class GetPagedInvoicesHandler(
                 TotalCount = totalCount,
                 TotalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize),
                 HasMore = invoices.Count == request.PageSize,
-                Invoices = invoices.ToDto()
+                Invoices = invoiceDtos
             };
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)

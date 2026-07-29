@@ -109,6 +109,7 @@ public class PodAttachmentItemDto
     public string? Description { get; set; }
     public DateTime UploadedAt { get; set; }
     public string? UploadedByUserName { get; set; }
+    public string? UploadedFromLocation { get; set; }
     public string DownloadUrl { get; set; } = string.Empty;
     public int InvoiceDocEntry { get; set; }
     public int InvoiceDocNum { get; set; }
@@ -335,16 +336,29 @@ public class PodUploadStatusItemDto
     public string? CardName { get; set; }
     public decimal DocTotal { get; set; }
     public string? DocCurrency { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public string? CreatedByUserCode { get; set; }
+    public string? CreatedLocation { get; set; }
+    public bool IsFullyCredited { get; set; }
+    public string? CreditNoteNumber { get; set; }
+    public string? CreditNoteReason { get; set; }
+    public bool IsCrateInvoice { get; set; }
     public bool HasPod { get; set; }
+    public bool HasProductPod { get; set; }
+    public bool HasCratePod { get; set; }
     public DateTime? PodUploadedAt { get; set; }
     public string? PodUploadedBy { get; set; }
     public List<PodUploadUserSummaryDto> PodUploadedByUsers { get; set; } = new();
     public int PodCount { get; set; }
+    public int ProductPodCount { get; set; }
+    public int CratePodCount { get; set; }
 }
 
 public class PodUploadUserSummaryDto
 {
     public string Username { get; set; } = string.Empty;
+    public string? Role { get; set; }
+    public string? AssignedSection { get; set; }
     public int FileCount { get; set; }
     public DateTime? LatestUploadedAt { get; set; }
 }
@@ -359,6 +373,8 @@ public class PodUploadStatusReportDto
     public int TotalInvoices { get; set; }
     public int UploadedCount { get; set; }
     public int PendingCount { get; set; }
+    public bool CreditNoteDataComplete { get; set; } = true;
+    public string? CreditNoteDataWarning { get; set; }
     public List<PodUploadStatusItemDto> Items { get; set; } = new();
 }
 

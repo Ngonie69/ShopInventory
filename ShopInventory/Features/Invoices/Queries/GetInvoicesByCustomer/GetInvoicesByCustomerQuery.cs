@@ -9,5 +9,7 @@ public sealed record GetInvoicesByCustomerQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     int? Page,
-    int? PageSize
+    int? PageSize,
+    Guid? RequestingUserId = null,
+    bool RestrictToAssignedCustomers = false
 ) : IRequest<ErrorOr<InvoiceDateResponseDto>>;

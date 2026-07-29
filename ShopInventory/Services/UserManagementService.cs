@@ -156,28 +156,30 @@ public class UserManagementService : IUserManagementService
         }
 
         // Validate role
-        var validRoles = new[] { "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController", "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab" };
-        if (!validRoles.Contains(request.Role))
+        if (!ApplicationRoles.IsAssignableRole(request.Role))
         {
-            return ServiceResult<UserDetailDto>.Failure($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
+            return ServiceResult<UserDetailDto>.Failure($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
         }
 
         // Validate warehouse assignment for StockController/DepotController roles
-        if ((request.Role == "StockController" || request.Role == "DepotController") && (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
+        if (ApplicationRoles.RequiresWarehouseAssignments(request.Role) &&
+            (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return ServiceResult<UserDetailDto>.Failure($"At least one assigned warehouse code is required for {request.Role} role");
         }
 
         // Validate customer assignment for Merchandiser role
-        if (request.Role == "Merchandiser" && (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
+        if (ApplicationRoles.RequiresCustomerAssignments(request.Role) &&
+            (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
         {
-            return ServiceResult<UserDetailDto>.Failure("At least one assigned customer code is required for Merchandiser role");
+            return ServiceResult<UserDetailDto>.Failure($"At least one assigned customer code is required for {request.Role} role");
         }
 
         // Validate section assignment for Driver role
-        if (request.Role == "Driver" && string.IsNullOrWhiteSpace(request.AssignedSection))
+        if (ApplicationRoles.RequiresAssignedSection(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedSection))
         {
-            return ServiceResult<UserDetailDto>.Failure("An assigned section is required for Driver role");
+            return ServiceResult<UserDetailDto>.Failure($"An assigned section is required for {request.Role} role");
         }
 
         // Determine permissions
@@ -207,7 +209,7 @@ public class UserManagementService : IUserManagementService
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             FirstName = request.FirstName,
             LastName = request.LastName,
-            Role = request.Role,
+            Role = request.Role.Trim(),
             IsActive = true,
             EmailVerified = false,
             TwoFactorEnabled = false,
@@ -215,13 +217,13 @@ public class UserManagementService : IUserManagementService
             CreatedAt = DateTime.UtcNow
         };
 
-        if (request.Role == "StockController" || request.Role == "DepotController" || request.Role == "Merchandiser")
+        if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
 
-        if (request.Role == "Merchandiser")
+        if (ApplicationRoles.SupportsCustomerAssignments(request.Role))
             user.SetCustomerCodes(request.AssignedCustomerCodes);
 
-        if (request.Role == "Driver")
+        if (ApplicationRoles.RequiresAssignedSection(request.Role))
             user.AssignedSection = request.AssignedSection;
 
         if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
@@ -281,15 +283,19 @@ public class UserManagementService : IUserManagementService
             }
         }
 
-        var effectivePermissions = await GetEffectivePermissionsAsync(userId);
+        var normalizedDirectPermissions = NormalizePermissions(directPermissions);
+        var effectivePermissions = NormalizePermissions(await GetEffectivePermissionsAsync(userId));
+        var roleDefaultPermissions = Permission.GetDefaultPermissionsForRole(user.Role);
 
         return new UserPermissionsResponse
         {
             UserId = user.Id,
             Username = user.Username,
             Role = user.Role,
-            Permissions = directPermissions,
-            EffectivePermissions = effectivePermissions
+            Permissions = normalizedDirectPermissions,
+            EffectivePermissions = effectivePermissions,
+            UsesRoleDefaults = normalizedDirectPermissions.Count == 0 ||
+                HasSamePermissions(normalizedDirectPermissions, roleDefaultPermissions)
         };
     }
 
@@ -478,6 +484,23 @@ public class UserManagementService : IUserManagementService
         _memoryCache.Remove(GetEffectivePermissionsCacheKey(userId));
     }
 
+    private static bool HasSamePermissions(IEnumerable<string> permissions, IEnumerable<string> otherPermissions)
+    {
+        return NormalizePermissions(permissions)
+            .SequenceEqual(NormalizePermissions(otherPermissions), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static List<string> NormalizePermissions(IEnumerable<string>? permissions)
+    {
+        return permissions?
+            .Where(permission => !string.IsNullOrWhiteSpace(permission))
+            .Select(permission => permission.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(permission => permission, StringComparer.OrdinalIgnoreCase)
+            .ToList()
+            ?? new List<string>();
+    }
+
     private static UserDetailDto MapToUserDetailDto(User user)
     {
         var permissions = new List<string>();
@@ -510,6 +533,8 @@ public class UserManagementService : IUserManagementService
             AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
+            AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = user.AssignedCostCentreCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt
@@ -553,6 +578,7 @@ public class UserManagementService : IUserManagementService
             Permission.DeleteCustomers => "Delete customers",
             Permission.ViewUsers => "View user accounts",
             Permission.CreateUsers => "Create new user accounts",
+            Permission.CreateMerchandiserAccounts => "Create merchandiser user accounts",
             Permission.EditUsers => "Edit user accounts",
             Permission.DeleteUsers => "Delete user accounts",
             Permission.ManageUserRoles => "Assign roles to users",

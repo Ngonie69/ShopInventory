@@ -133,7 +133,11 @@ public class InvoiceLineEntity
     [MaxLength(20)]
     public string? TaxCode { get; set; }
 
-    [Precision(5, 2)]
+    /// <summary>
+    /// Line discount percentage. Six decimals to match SAP: a special price of 0.66 against a
+    /// 0.70 list price is 5.714286%, which decimal(5,2) silently truncated to 5.71.
+    /// </summary>
+    [Precision(9, 6)]
     public decimal DiscountPercent { get; set; }
 
     [MaxLength(20)]

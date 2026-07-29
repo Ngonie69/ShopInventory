@@ -88,6 +88,16 @@ public static class SettingKeys
     public const string StatementEmailsLastWeeklySentUtc = "StatementEmails.LastWeeklySentUtc";
     public const string StatementEmailsLastMonthlySentUtc = "StatementEmails.LastMonthlySentUtc";
 
+    public const string PodReportEmailsEnabled = "PodReportEmails.Enabled";
+    public const string PodReportEmailsTo = "PodReportEmails.To";
+    public const string PodReportEmailsCc = "PodReportEmails.Cc";
+    public const string PodReportEmailsWeeklyDayOfWeek = "PodReportEmails.WeeklyDayOfWeek";
+    public const string PodReportEmailsWeeklySendHourUtc = "PodReportEmails.WeeklySendHourUtc";
+    public const string PodReportEmailsMonthlyDayOfMonth = "PodReportEmails.MonthlyDayOfMonth";
+    public const string PodReportEmailsMonthlySendHourUtc = "PodReportEmails.MonthlySendHourUtc";
+    public const string PodReportEmailsLastWeeklySentUtc = "PodReportEmails.LastWeeklySentUtc";
+    public const string PodReportEmailsLastMonthlySentUtc = "PodReportEmails.LastMonthlySentUtc";
+
     // Printing settings
     public const string AutoPrintInvoice = "AutoPrintInvoice";
     public const string PrinterName = "PrinterName";
@@ -114,6 +124,7 @@ public static class SettingCategories
     public const string Audit = "Audit";
     public const string Security = "Security";
     public const string Notifications = "Notifications";
+    public const string EmailReports = "Email Reports";
     public const string Printing = "Printing";
     public const string Payments = "Payments";
     public const string DriverAccess = "Driver Access";

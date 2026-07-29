@@ -14,7 +14,13 @@ public class PurchaseRequestDto
 
     public string? Comments { get; set; }
     public string? RequesterName { get; set; }
-    public int? Requester { get; set; }
+
+    /// <summary>
+    /// The requester's user code, e.g. "Wkshop2". A string in SAP; this was <c>int?</c>, and the
+    /// only path that populates it threw on every purchase request that had a requester, so no
+    /// client has ever received a value here.
+    /// </summary>
+    public string? Requester { get; set; }
     public string? DocStatus { get; set; }
     public decimal DocTotal { get; set; }
     public string? Source { get; set; }

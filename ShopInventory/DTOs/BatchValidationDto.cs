@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace ShopInventory.DTOs;
 
@@ -212,6 +213,12 @@ public class AllocatedBatchLine
     /// Warehouse code
     /// </summary>
     public string WarehouseCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the item is batch-managed and requires aggregate batch validation.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsBatchManaged { get; set; }
 
     /// <summary>
     /// Total quantity allocated (in inventory UoM)
@@ -492,6 +499,11 @@ public class BatchStockValidationResponseDto
     /// Lock token for use in subsequent POST (if validation succeeded)
     /// </summary>
     public string? LockToken { get; set; }
+
+    /// <summary>
+    /// Actual lock tokens acquired during validation.
+    /// </summary>
+    public List<string> LockTokens { get; set; } = new();
 
     /// <summary>
     /// Lock expiry time

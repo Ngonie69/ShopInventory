@@ -65,7 +65,7 @@
                         {
                             <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
                                 Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                                                    ?? selectedAccountFilter)
+                                                                                                                    ?? selectedAccountFilter)
                             </span>
                         }
                     }
@@ -185,7 +185,7 @@
                     @if (pagedInvoices.Any())
                     {
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle dashboard-table invoices-table">
+                            <table class="table table-hover mb-0 align-middle dashboard-table invoices-table mobile-card-table">
                                 <thead>
                                     <tr>
                                         <th>Invoice #</th>
@@ -206,28 +206,31 @@
                                     @foreach (var invoice in pagedInvoices)
                                     {
                                         <tr class="invoice-row">
-                                            <td>
+                                            <td data-label="Invoice #">
                                                 <span class="invoice-num-badge">@invoice.DocNum</span>
                                             </td>
                                             @if (isMultiAccount)
                                             {
-                                                <td>
-                                                    <small class="d-block fw-semibold">@(invoice.CardCode ?? "-")</small>
-                                                    @if (!string.IsNullOrEmpty(invoice.Currency))
-                                                    {
-                                                        <span class="badge bg-outline-dark border"
-                                                              style="font-size: 0.65rem;">@invoice.Currency</span>
-                                                    }
+                                                <td data-label="Account">
+                                                    <div class="mobile-card-inline-group">
+                                                        <small class="d-block fw-semibold">@(invoice.CardCode ?? "-")</small>
+                                                        @if (!string.IsNullOrEmpty(invoice.Currency))
+                                                        {
+                                                            <span class="badge bg-outline-dark border"
+                                                                  style="font-size: 0.65rem;">@invoice.Currency</span>
+                                                        }
+                                                    </div>
                                                 </td>
                                             }
-                                            <td>@invoice.DocDate.ToString("MMM dd, yyyy")</td>
-                                            <td>@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "-")</td>
-                                            <td class="text-end">@FormatCurrency(invoice.DocTotal)</td>
-                                            <td class="text-end">@FormatCurrency(invoice.PaidToDate)</td>
-                                            <td class="text-end fw-semibold">@FormatCurrency(invoice.Balance)</td>
-                                            <td><span class="badge status-pill @GetStatusClass(invoice)">@GetStatusText(invoice)</span>
+                                            <td data-label="Date">@invoice.DocDate.ToString("MMM dd, yyyy")</td>
+                                            <td data-label="Due Date">@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "-")</td>
+                                            <td data-label="Amount" class="text-end">@FormatCurrency(invoice.DocTotal)</td>
+                                            <td data-label="Paid" class="text-end">@FormatCurrency(invoice.PaidToDate)</td>
+                                            <td data-label="Balance" class="text-end fw-semibold">@FormatCurrency(invoice.Balance)</td>
+                                            <td data-label="Status"><span
+                                                class="badge status-pill @GetStatusClass(invoice)">@GetStatusText(invoice)</span>
                                             </td>
-                                            <td class="text-end">
+                                            <td data-label="Details" class="text-end">
                                                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
                                                            OnClick="() => ViewInvoiceDetails(invoice)">
                                                     VIEW
@@ -245,7 +248,7 @@
                             <div class="invoices-pagination">
                                 <div class="pagination-info">
                                     Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize,
-                                                                                                                                                                    filteredInvoices.Count)) of @filteredInvoices.Count invoices
+                                                                                                                                                                                                        filteredInvoices.Count)) of @filteredInvoices.Count invoices
                                 </div>
                                 <nav>
                                     <ul class="pagination pagination-sm mb-0">
@@ -335,7 +338,7 @@
                         </div>
                         <div>
                             <h5 class="modal-title mb-0">Invoice #@(selectedInvoice?.DocNum ??
-                                                                                                                                                            selectedInvoiceSummary?.DocNum)</h5>
+                                                                                                                                                                                            selectedInvoiceSummary?.DocNum)</h5>
                             </div>
                         </div>
                         <button type="button" class="invoice-modal-close" @onclick="CloseInvoiceModal">
@@ -378,12 +381,12 @@
                                 <div class="invoice-detail-card">
                                     <div class="detail-label">Amount</div>
                                     <div class="detail-value detail-value-lg">@FormatCurrencyWithCode(selectedInvoice.DocTotal,
-                                                                                                                                                                                            selectedInvoice.DocCurrency)</div>
+                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</div>
                                     </div>
                                     <div class="invoice-detail-card">
                                         <div class="detail-label">VAT</div>
                                         <div class="detail-value">@FormatCurrencyWithCode(selectedInvoice.VatSum,
-                                                                                                                                                                                                            selectedInvoice.DocCurrency)</div>
+                                                                                                                                                                                                                                                        selectedInvoice.DocCurrency)</div>
                                         </div>
                                         <div class="invoice-detail-card">
                                             <div class="detail-label">Reference</div>
@@ -431,9 +434,9 @@
                                                             <td class="text-end">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                                             <td>@(line.UoMCode ?? "-")</td>
                                                             <td class="text-end">@FormatCurrencyWithCode(line.GrossPrice,
-                                                                                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
+                                                                                                                                                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
                                                                 <td class="text-end fw-semibold">@FormatCurrencyWithCode(line.LineTotal,
-                                                                                                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
+                                                                                                                                                                                                                                                                                                                                                                                        selectedInvoice.DocCurrency)</td>
                                                                 </tr>
                                                             }
                                                         </tbody>

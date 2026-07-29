@@ -64,6 +64,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                     WarehouseCode = line.WarehouseCode ?? order.WarehouseCode ?? "",
                     UoMCode = line.UoMCode,
                     DiscountPercent = line.DiscountPercent,
+                    CostCentreCode = line.CostCentreCode,
                     AutoAllocateBatches = true
                 }).ToList();
             }
@@ -95,6 +96,7 @@ public sealed class ConvertSalesOrderToInvoiceHandler(
                     UnitPrice = l.UnitPrice ?? 0,
                     TaxCode = l.TaxCode,
                     DiscountPercent = l.DiscountPercent ?? 0,
+                    CostCentreCode = l.CostCentreCode,
                     BatchNumbers = l.BatchNumbers?.Select(b => new ReservationBatchRequest
                     {
                         BatchNumber = b.BatchNumber,

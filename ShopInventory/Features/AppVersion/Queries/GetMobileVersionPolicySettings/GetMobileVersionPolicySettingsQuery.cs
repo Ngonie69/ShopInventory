@@ -4,4 +4,4 @@ using ShopInventory.DTOs;
 
 namespace ShopInventory.Features.AppVersion.Queries.GetMobileVersionPolicySettings;
 
-public sealed record GetMobileVersionPolicySettingsQuery() : IRequest<ErrorOr<MobileVersionPolicySettingsDto>>;
+public sealed record GetMobileVersionPolicySettingsQuery(string? AppId) : IRequest<ErrorOr<MobileVersionPolicySettingsDto>>;

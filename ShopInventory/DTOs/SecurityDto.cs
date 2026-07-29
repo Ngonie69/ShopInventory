@@ -270,6 +270,8 @@ public class UserDetailDto
     public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedSection { get; set; }
+    public string? AssignedBusinessPartnerCode { get; set; }
+    public string? AssignedCostCentreCode { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
@@ -317,12 +319,12 @@ public class CreateUserDetailRequest
     public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
-    /// Default G/L account code for incoming payments (for Cashier/DepotController roles)
+    /// Default G/L account code for incoming payments (for the Cashier role)
     /// </summary>
     public string? DefaultGLAccount { get; set; }
 
     /// <summary>
-    /// Allowed business partner codes for incoming payments (for Cashier/DepotController roles)
+    /// Allowed business partner codes for incoming payments (for the Cashier role)
     /// </summary>
     public List<string>? AllowedPaymentBusinessPartners { get; set; }
 
@@ -335,6 +337,16 @@ public class CreateUserDetailRequest
     /// Assigned customer/business partner codes for Merchandiser role
     /// </summary>
     public List<string>? AssignedCustomerCodes { get; set; }
+
+    /// <summary>
+    /// Assigned business partner code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedBusinessPartnerCode { get; set; }
+
+    /// <summary>
+    /// Assigned cost centre code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
     /// Whether to send welcome email
@@ -379,12 +391,12 @@ public class UpdateUserDetailRequest
     public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
-    /// Default G/L account code for incoming payments (for Cashier/DepotController roles)
+    /// Default G/L account code for incoming payments (for the Cashier role)
     /// </summary>
     public string? DefaultGLAccount { get; set; }
 
     /// <summary>
-    /// Allowed business partner codes for incoming payments (for Cashier/DepotController roles)
+    /// Allowed business partner codes for incoming payments (for the Cashier role)
     /// </summary>
     public List<string>? AllowedPaymentBusinessPartners { get; set; }
 
@@ -397,6 +409,16 @@ public class UpdateUserDetailRequest
     /// Assigned customer/business partner codes for Merchandiser role
     /// </summary>
     public List<string>? AssignedCustomerCodes { get; set; }
+
+    /// <summary>
+    /// Assigned business partner code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedBusinessPartnerCode { get; set; }
+
+    /// <summary>
+    /// Assigned cost centre code for ADR/Sales van sales processing.
+    /// </summary>
+    public string? AssignedCostCentreCode { get; set; }
 }
 
 /// <summary>
@@ -426,6 +448,7 @@ public class UserPermissionsResponse
     public string Role { get; set; } = string.Empty;
     public List<string> Permissions { get; set; } = new();
     public List<string> EffectivePermissions { get; set; } = new();
+    public bool UsesRoleDefaults { get; set; }
 }
 
 /// <summary>
@@ -482,6 +505,8 @@ public class UserActivityItem
     public string? PageUrl { get; set; }
     public bool IsSuccess { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? AppVersion { get; set; }
+    public string? DeviceModel { get; set; }
     public DateTime Timestamp { get; set; }
 }
 

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using ShopInventory.DTOs;
@@ -38,7 +39,8 @@ public class ReportService : IReportService
     private readonly ILogger<ReportService> _logger;
     private static readonly TimeSpan ReportDataCacheDuration = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan ReportResultCacheDuration = TimeSpan.FromMinutes(2);
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CacheTelemetryCounters> CacheTelemetry = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> CacheLoadLocks = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, CacheTelemetryCounters> CacheTelemetry = new(StringComparer.Ordinal);
 
     private sealed class CacheTelemetryCounters
     {
@@ -84,11 +86,11 @@ public class ReportService : IReportService
         return $"{prefix}:{string.Join("|", normalizedParts)}";
     }
 
-    private static string BuildReportQueryCode(string prefix) =>
-        $"{prefix}_{Random.Shared.Next(100000, 999999)}";
-
+    // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form. A bare 'yyyyMMdd'
+    // string is accepted as a valid literal but never matches stored dates, so the
+    // query silently returns zero rows (SAP -2028) instead of erroring.
     private static string ToSapSqlDate(DateTime date) =>
-        date.Date.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        date.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static string SanitizeSqlValue(string value) =>
         value.Replace("'", "''");
@@ -137,8 +139,8 @@ public class ReportService : IReportService
         string queryName,
         string sqlText,
         CancellationToken cancellationToken) =>
-        _sapClient.ExecuteRawSqlQueryAsync(
-            BuildReportQueryCode(queryCodePrefix),
+        _sapClient.ExecuteScopedRawSqlQueryAsync(
+            queryCodePrefix,
             queryName,
             sqlText,
             cancellationToken);
@@ -224,15 +226,29 @@ public class ReportService : IReportService
         LogCacheMiss(cacheName, cacheKey, loadDuration, value);
     }
 
-    private Task<T> GetOrCreateCachedAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
+    private async Task<T> GetOrCreateCachedAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
         where T : class
     {
         if (TryGetCachedValue(cacheName, cacheKey, out T? cachedValue))
         {
-            return Task.FromResult(cachedValue!);
+            return cachedValue!;
         }
 
-        return CreateAndCacheAsync(cacheName, cacheKey, duration, factory, cancellationToken);
+        var cacheLock = CacheLoadLocks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
+        await cacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (TryGetCachedValue(cacheName, cacheKey, out cachedValue))
+            {
+                return cachedValue!;
+            }
+
+            return await CreateAndCacheAsync(cacheName, cacheKey, duration, factory, cancellationToken);
+        }
+        finally
+        {
+            cacheLock.Release();
+        }
     }
 
     private async Task<T> CreateAndCacheAsync<T>(string cacheName, string cacheKey, TimeSpan duration, Func<CancellationToken, Task<T>> factory, CancellationToken cancellationToken)
@@ -537,8 +553,12 @@ public class ReportService : IReportService
             {
                 _logger.LogInformation("Generating sales summary from SAP aggregates: {FromDate} to {ToDate}", fromDate, toDate);
 
-                var summaryRows = await GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
-                var dailyRows = await GetCachedDailySalesRowsAsync(fromDate, toDate, token);
+                var summaryRowsTask = GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
+                var dailyRowsTask = GetCachedDailySalesRowsAsync(fromDate, toDate, token);
+                await Task.WhenAll(summaryRowsTask, dailyRowsTask);
+
+                var summaryRows = await summaryRowsTask;
+                var dailyRows = await dailyRowsTask;
                 var summary = summaryRows.FirstOrDefault() ?? new Dictionary<string, object?>();
 
                 var totalUSD = GetRowDecimal(summary, "TotalSalesUSD");
@@ -745,24 +765,38 @@ public class ReportService : IReportService
             var warehouses = await GetCachedWarehousesAsync(cancellationToken);
             var activeWhs = warehouses.Where(w => w.IsActive).Select(w => w.WarehouseCode!).ToList();
 
-            transfers = new List<InventoryTransfer>();
-            var seen = new HashSet<int>();
-            foreach (var wh in activeWhs.Take(10)) // Limit to avoid too many SAP calls
-            {
-                try
+            var transfersByDocEntry = new ConcurrentDictionary<int, InventoryTransfer>();
+            await Parallel.ForEachAsync(
+                activeWhs,
+                new ParallelOptions
                 {
-                    var whTransfers = await GetCachedInventoryTransfersByDateRangeAsync(wh, fromDate, toDate, cancellationToken);
-                    foreach (var t in whTransfers)
+                    MaxDegreeOfParallelism = 3,
+                    CancellationToken = cancellationToken
+                },
+                async (wh, token) =>
+                {
+                    try
                     {
-                        if (seen.Add(t.DocEntry))
-                            transfers.Add(t);
+                        var warehouseTransfers = await GetCachedInventoryTransfersByDateRangeAsync(
+                            wh,
+                            fromDate,
+                            toDate,
+                            token);
+                        foreach (var transfer in warehouseTransfers)
+                        {
+                            transfersByDocEntry.TryAdd(transfer.DocEntry, transfer);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to get transfers for warehouse {Wh}", wh);
-                }
-            }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get transfers for warehouse {Wh}", wh);
+                    }
+                });
+            transfers = transfersByDocEntry.Values.ToList();
         }
 
         var movements = transfers
@@ -988,8 +1022,12 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating top customers from SAP aggregates: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
 
-        var customerInvoiceRows = await GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
-        var payments = await GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        var customerInvoiceRowsTask = GetCachedCustomerInvoiceRowsAsync(fromDate, toDate, cancellationToken);
+        var paymentsTask = GetCachedIncomingPaymentsByDateRangeAsync(fromDate, toDate, cancellationToken);
+        await Task.WhenAll(customerInvoiceRowsTask, paymentsTask);
+
+        var customerInvoiceRows = await customerInvoiceRowsTask;
+        var payments = await paymentsTask;
 
         var customerInvoices = customerInvoiceRows
             .Select(row => new
@@ -1044,32 +1082,81 @@ public class ReportService : IReportService
     }
 
     /// <summary>
-    /// Get comprehensive order fulfillment report from SAP sales orders
+    /// Get sales order vs invoice report from SAP sales orders and invoice lines
     /// </summary>
     public async Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         var cacheKey = BuildReportCacheKey("report-result:order-fulfillment", fromDate, toDate);
-        if (TryGetCachedValue("report-result:order-fulfillment", cacheKey, out OrderFulfillmentReportDto? cachedReport))
-        {
-            return cachedReport!;
-        }
+        return await GetOrCreateCachedAsync(
+            "report-result:order-fulfillment",
+            cacheKey,
+            ReportResultCacheDuration,
+            token => GenerateOrderFulfillmentAsync(fromDate, toDate, token),
+            cancellationToken);
+    }
 
-        var generationStopwatch = Stopwatch.StartNew();
+    private async Task<OrderFulfillmentReportDto> GenerateOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Generating sales order vs invoice report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        _logger.LogInformation("Generating order fulfillment report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
-
-        var fromStr = fromDate.ToString("yyyyMMdd");
-        var toStr = toDate.ToString("yyyyMMdd");
+        var fromStr = ToSapSqlDate(fromDate);
+        var toStr = ToSapSqlDate(toDate);
 
         // 1) Summary by customer + status + currency — aggregated, far fewer rows than individual orders
-        var customerSql = $@"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
+        var customerSql = $@"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' AND T0.""CANCELED"" = 'N' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
 
         // 2) Daily summary — one row per date+status+currency
-        var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
+        var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' AND T0.""CANCELED"" = 'N' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
-        // Execute both queries sequentially (SAP Session cannot handle parallel)
-        var customerRows = await _sapClient.ExecuteRawSqlQueryAsync("ORD_FULF_CUST", "Fulfillment By Customer", customerSql, cancellationToken);
-        var dailyRows = await _sapClient.ExecuteRawSqlQueryAsync("ORD_FULF_DAILY", "Fulfillment Daily", dailySql, cancellationToken);
+        // 3) Order line detail used by the dedicated order-vs-invoice page and exports.
+        var detailSql = $@"SELECT
+    T0.""DocEntry"" AS ""DocEntry"",
+    T0.""DocNum"" AS ""DocNum"",
+    T0.""DocDate"" AS ""DocDate"",
+    T0.""DocDueDate"" AS ""DocDueDate"",
+    T0.""CardCode"" AS ""CardCode"",
+    T0.""CardName"" AS ""CardName"",
+    T0.""DocCur"" AS ""DocCurrency"",
+    T0.""DocTotal"" AS ""DocTotal"",
+    T0.""DocStatus"" AS ""DocStatus"",
+    T0.""CANCELED"" AS ""CANCELED"",
+    T1.""LineNum"" AS ""LineNum"",
+    T1.""ItemCode"" AS ""ItemCode"",
+    T1.""Dscription"" AS ""ItemDescription"",
+    T1.""WhsCode"" AS ""WarehouseCode"",
+    COALESCE(T1.""Quantity"", 0) AS ""QuantityOrdered"",
+    COALESCE(T1.""Quantity"", 0) AS ""QuantityPending"",
+    COALESCE(T1.""Price"", 0) AS ""UnitPrice"",
+    COALESCE(T1.""LineTotal"", 0) AS ""LineTotal"",
+    T1.""LineStatus"" AS ""LineStatus""
+FROM ORDR T0
+INNER JOIN RDR1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
+WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+  AND T0.""CANCELED"" = 'N'
+ORDER BY T0.""DocDate"" DESC, T0.""DocNum"" DESC, T1.""LineNum""";
+
+        // Match invoices raised directly from the sales order (INV1.BaseType = 17),
+        // line-for-line on BaseEntry/BaseLine, excluding cancelled orders and invoices.
+        var directInvoiceSql = $@"SELECT
+    T1.""BaseEntry"" AS ""OrderDocEntry"",
+    T1.""BaseLine"" AS ""OrderLineNum"",
+    T0.""DocNum"" AS ""InvoiceDocNum"",
+    SUM(T1.""Quantity"") AS ""QuantityInvoiced"",
+    SUM(T1.""LineTotal"") AS ""InvoicedLineTotal""
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
+INNER JOIN ORDR O0 ON O0.""DocEntry"" = T1.""BaseEntry""
+WHERE T1.""BaseType"" = 17
+  AND T0.""CANCELED"" = 'N'
+  AND O0.""CANCELED"" = 'N'
+  AND O0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
+
+        var customerRows = await ExecuteReportSqlAsync("ORD_FULF_CUST", "Sales Order Vs Invoice By Customer", customerSql, cancellationToken);
+        var dailyRows = await ExecuteReportSqlAsync("ORD_FULF_DAILY", "Sales Order Vs Invoice Daily", dailySql, cancellationToken);
+        var detailRows = await ExecuteReportSqlAsync("ORD_FULF_LINE", "Order Vs Invoice Lines", detailSql, cancellationToken);
+        var directInvoiceRows = await ExecuteReportSqlAsync("ORDINV_DIR", "Sales Order Direct Invoice Lines", directInvoiceSql, cancellationToken);
+        ApplyOrderInvoiceMetrics(detailRows, directInvoiceRows);
 
         // Process customer aggregation into totals and by-customer breakdown
         int totalOrders = 0, openOrders = 0, closedOrders = 0, cancelledOrders = 0;
@@ -1142,7 +1229,26 @@ public class ReportService : IReportService
             .OrderByDescending(c => c.TotalOrders)
             .ToList();
 
+        var detailMetrics = BuildOrderFulfillmentOrderDetails(detailRows);
+        if (detailRows.Count > 0)
+            byCustomer = BuildInvoiceByCustomer(detailMetrics.Orders);
+
+        var hasLineDetails = detailRows.Count > 0;
+        var quantityFulfillment = detailMetrics.TotalQuantityOrdered > 0
+            ? detailMetrics.TotalQuantityDelivered / detailMetrics.TotalQuantityOrdered * 100
+            : overallFulfillment;
+
         // Process daily data
+        var dailyQuantityAgg = detailRows
+            .Where(row => GetRowString(row, "CANCELED") != "Y")
+            .GroupBy(row => GetRowDate(row, "DocDate").Date)
+            .Where(group => group.Key != DateTime.MinValue.Date)
+            .ToDictionary(
+                group => group.Key,
+                group => (
+                    QuantityOrdered: group.Sum(row => Math.Max(0, GetRowDecimal(row, "QuantityOrdered"))),
+                    QuantityDelivered: group.Sum(GetDeliveredQuantity)));
+
         var dailyAgg = new Dictionary<DateTime, (int Placed, int Closed, decimal ValueUSD)>();
         foreach (var row in dailyRows)
         {
@@ -1175,14 +1281,11 @@ public class ReportService : IReportService
                 OrdersPlaced = kvp.Value.Placed,
                 OrdersClosed = kvp.Value.Closed,
                 OrderValueUSD = kvp.Value.ValueUSD,
-                QuantityOrdered = 0,
-                QuantityDelivered = 0
+                QuantityOrdered = dailyQuantityAgg.TryGetValue(kvp.Key, out var quantities) ? quantities.QuantityOrdered : 0,
+                QuantityDelivered = dailyQuantityAgg.TryGetValue(kvp.Key, out quantities) ? quantities.QuantityDelivered : 0
             })
             .OrderBy(d => d.Date)
             .ToList();
-
-        // No individual order list — aggregated data only for performance
-        var orderItems = new List<OrderFulfillmentItemDto>();
 
         var report = new OrderFulfillmentReportDto
         {
@@ -1192,27 +1295,278 @@ public class ReportService : IReportService
             OpenOrders = openOrders,
             ClosedOrders = closedOrders,
             CancelledOrders = cancelledOrders,
-            FulfillmentRatePercent = Math.Round(overallFulfillment, 1),
+            FulfillmentRatePercent = Math.Round(quantityFulfillment, 1),
             TotalOrderValueUSD = totalUSD,
             TotalOrderValueZIG = totalZIG,
-            TotalDeliveredValueUSD = closedUSD,
-            TotalDeliveredValueZIG = closedZIG,
-            TotalPendingValueUSD = openUSD,
-            TotalPendingValueZIG = openZIG,
+            TotalDeliveredValueUSD = hasLineDetails ? Math.Round(detailMetrics.DeliveredValueUSD, 2) : closedUSD,
+            TotalDeliveredValueZIG = hasLineDetails ? Math.Round(detailMetrics.DeliveredValueZIG, 2) : closedZIG,
+            TotalPendingValueUSD = hasLineDetails ? Math.Round(detailMetrics.PendingValueUSD, 2) : openUSD,
+            TotalPendingValueZIG = hasLineDetails ? Math.Round(detailMetrics.PendingValueZIG, 2) : openZIG,
             AverageOrderValueUSD = Math.Round(avgUSD, 2),
-            TotalLineItems = closedOrders + openOrders,
-            FullyDeliveredLines = closedOrders,
-            PartiallyDeliveredLines = 0,
-            UndeliveredLines = openOrders,
-            Orders = orderItems,
+            TotalLineItems = detailMetrics.TotalLineItems,
+            FullyDeliveredLines = detailMetrics.FullyDeliveredLines,
+            PartiallyDeliveredLines = detailMetrics.PartiallyDeliveredLines,
+            UndeliveredLines = detailMetrics.UndeliveredLines,
+            Orders = detailMetrics.Orders,
             FulfillmentByCustomer = byCustomer,
             DailyFulfillment = daily
         };
 
-        generationStopwatch.Stop();
-        CacheValue("report-result:order-fulfillment", cacheKey, report, ReportResultCacheDuration, generationStopwatch.Elapsed);
-
         return report;
+    }
+
+    private static (
+        List<OrderFulfillmentItemDto> Orders,
+        int TotalLineItems,
+        int FullyDeliveredLines,
+        int PartiallyDeliveredLines,
+        int UndeliveredLines,
+        decimal TotalQuantityOrdered,
+        decimal TotalQuantityDelivered,
+        decimal DeliveredValueUSD,
+        decimal DeliveredValueZIG,
+        decimal PendingValueUSD,
+        decimal PendingValueZIG) BuildOrderFulfillmentOrderDetails(List<Dictionary<string, object?>> detailRows)
+    {
+        var orders = new List<OrderFulfillmentItemDto>();
+        var totalLineItems = 0;
+        var fullyDeliveredLines = 0;
+        var partiallyDeliveredLines = 0;
+        var undeliveredLines = 0;
+        decimal totalQuantityOrdered = 0;
+        decimal totalQuantityDelivered = 0;
+        decimal deliveredValueUSD = 0;
+        decimal deliveredValueZIG = 0;
+        decimal pendingValueUSD = 0;
+        decimal pendingValueZIG = 0;
+
+        foreach (var orderGroup in detailRows
+            .GroupBy(row => GetRowInt(row, "DocEntry"))
+            .OrderByDescending(group => GetRowDate(group.First(), "DocDate"))
+            .ThenByDescending(group => GetRowInt(group.First(), "DocNum")))
+        {
+            var first = orderGroup.First();
+            var docStatus = GetRowString(first, "DocStatus");
+            var cancelled = GetRowString(first, "CANCELED");
+            var isCancelled = cancelled == "Y";
+            var status = isCancelled ? "Cancelled" : docStatus == "C" ? "Closed" : "Open";
+            var currency = GetRowStringOrDefault(first, "DocCurrency", "USD");
+            var lines = new List<OrderLineDetailDto>();
+            decimal orderQuantityOrdered = 0;
+            decimal orderQuantityDelivered = 0;
+            decimal orderQuantityPending = 0;
+            var deliveredLines = 0;
+
+            foreach (var row in orderGroup.OrderBy(row => GetRowInt(row, "LineNum")))
+            {
+                var orderedQuantity = Math.Max(0, GetRowDecimal(row, "QuantityOrdered"));
+                var pendingQuantity = Math.Max(0, GetRowDecimal(row, "QuantityPending"));
+                var deliveredQuantity = GetDeliveredQuantity(row);
+                var lineTotal = Math.Max(0, GetRowDecimal(row, "LineTotal"));
+                var lineStatus = GetLineFulfillmentStatus(
+                    orderedQuantity,
+                    deliveredQuantity,
+                    pendingQuantity,
+                    isCancelled);
+
+                lines.Add(new OrderLineDetailDto
+                {
+                    ItemCode = GetRowStringOrDefault(row, "ItemCode", "Unknown"),
+                    ItemDescription = GetRowStringOrDefault(row, "ItemDescription", "No description"),
+                    WarehouseCode = GetRowString(row, "WarehouseCode"),
+                    QuantityOrdered = orderedQuantity,
+                    QuantityDelivered = deliveredQuantity,
+                    QuantityPending = pendingQuantity,
+                    UnitPrice = Math.Round(Math.Max(0, GetRowDecimal(row, "UnitPrice")), 2),
+                    LineTotal = Math.Round(lineTotal, 2),
+                    InvoicedValue = Math.Round(Math.Max(0, GetRowDecimal(row, "InvoicedLineTotal")), 2),
+                    LineStatus = lineStatus,
+                    InvoiceNumbers = GetRowString(row, "InvoiceNumbers")
+                });
+
+                totalLineItems++;
+                orderQuantityOrdered += orderedQuantity;
+                orderQuantityDelivered += deliveredQuantity;
+                orderQuantityPending += pendingQuantity;
+
+                if (!isCancelled)
+                {
+                    totalQuantityOrdered += orderedQuantity;
+                    totalQuantityDelivered += deliveredQuantity;
+
+                    if (pendingQuantity <= 0)
+                    {
+                        fullyDeliveredLines++;
+                        deliveredLines++;
+                    }
+                    else if (deliveredQuantity > 0)
+                    {
+                        partiallyDeliveredLines++;
+                    }
+                    else
+                    {
+                        undeliveredLines++;
+                    }
+
+                    var deliveredValue = row.ContainsKey("InvoicedLineTotal")
+                        ? Math.Max(0, GetRowDecimal(row, "InvoicedLineTotal"))
+                        : orderedQuantity > 0 ? lineTotal * deliveredQuantity / orderedQuantity : 0;
+                    var pendingValue = CalculatePendingOrderLineValue(orderedQuantity, pendingQuantity, lineTotal);
+
+                    if (IsUsdCurrency(currency))
+                    {
+                        deliveredValueUSD += deliveredValue;
+                        pendingValueUSD += pendingValue;
+                    }
+                    else if (IsZigCurrency(currency))
+                    {
+                        deliveredValueZIG += deliveredValue;
+                        pendingValueZIG += pendingValue;
+                    }
+                }
+            }
+
+            var dueDate = GetRowDate(first, "DocDueDate");
+            var isOverdue = status == "Open" && dueDate != DateTime.MinValue && dueDate.Date < DateTime.UtcNow.Date;
+
+            orders.Add(new OrderFulfillmentItemDto
+            {
+                DocNum = GetRowInt(first, "DocNum"),
+                DocEntry = GetRowInt(first, "DocEntry"),
+                OrderDate = GetRowDate(first, "DocDate"),
+                DueDate = dueDate,
+                CardCode = GetRowStringOrDefault(first, "CardCode"),
+                CardName = GetRowStringOrDefault(first, "CardName"),
+                DocCurrency = currency,
+                OrderTotal = Math.Round(GetRowDecimal(first, "DocTotal"), 2),
+                Status = status,
+                TotalLines = lines.Count,
+                DeliveredLines = deliveredLines,
+                TotalQuantityOrdered = orderQuantityOrdered,
+                TotalQuantityDelivered = orderQuantityDelivered,
+                TotalQuantityPending = orderQuantityPending,
+                FulfillmentPercent = orderQuantityOrdered > 0
+                    ? Math.Round(orderQuantityDelivered / orderQuantityOrdered * 100, 1)
+                    : 0,
+                IsOverdue = isOverdue,
+                DaysOverdue = isOverdue ? (DateTime.UtcNow.Date - dueDate.Date).Days : 0,
+                Lines = lines
+            });
+        }
+
+        return (
+            orders,
+            totalLineItems,
+            fullyDeliveredLines,
+            partiallyDeliveredLines,
+            undeliveredLines,
+            totalQuantityOrdered,
+            totalQuantityDelivered,
+            deliveredValueUSD,
+            deliveredValueZIG,
+            pendingValueUSD,
+            pendingValueZIG);
+    }
+
+    private static void ApplyOrderInvoiceMetrics(
+        List<Dictionary<string, object?>> detailRows,
+        IEnumerable<Dictionary<string, object?>> directInvoiceRows)
+    {
+        var invoiceByOrderLine = new Dictionary<(int DocEntry, int LineNum), (decimal Quantity, decimal Value, SortedSet<int> InvoiceNumbers)>();
+
+        AddInvoiceRows(directInvoiceRows);
+
+        foreach (var row in detailRows)
+        {
+            var key = (GetRowInt(row, "DocEntry"), GetRowInt(row, "LineNum"));
+            var orderedQuantity = Math.Max(0, GetRowDecimal(row, "QuantityOrdered"));
+            invoiceByOrderLine.TryGetValue(key, out var invoiceMetrics);
+
+            var invoicedQuantity = Math.Max(0, invoiceMetrics.Quantity);
+            row["QuantityInvoiced"] = invoicedQuantity;
+            row["InvoicedLineTotal"] = Math.Max(0, invoiceMetrics.Value);
+            row["QuantityPending"] = Math.Max(0, orderedQuantity - invoicedQuantity);
+            row["InvoiceNumbers"] = invoiceMetrics.InvoiceNumbers is { Count: > 0 }
+                ? string.Join(", ", invoiceMetrics.InvoiceNumbers)
+                : string.Empty;
+        }
+
+        void AddInvoiceRows(IEnumerable<Dictionary<string, object?>> rows)
+        {
+            foreach (var row in rows)
+            {
+                var key = (GetRowInt(row, "OrderDocEntry"), GetRowInt(row, "OrderLineNum"));
+                var quantity = Math.Max(0, GetRowDecimal(row, "QuantityInvoiced"));
+                var value = Math.Max(0, GetRowDecimal(row, "InvoicedLineTotal"));
+                var invoiceNumber = GetRowInt(row, "InvoiceDocNum");
+
+                if (!invoiceByOrderLine.TryGetValue(key, out var existing))
+                    existing = (0, 0, new SortedSet<int>());
+
+                if (invoiceNumber > 0)
+                    existing.InvoiceNumbers.Add(invoiceNumber);
+
+                invoiceByOrderLine[key] = (existing.Quantity + quantity, existing.Value + value, existing.InvoiceNumbers);
+            }
+        }
+    }
+
+    private static List<FulfillmentByCustomerDto> BuildInvoiceByCustomer(IEnumerable<OrderFulfillmentItemDto> orders)
+    {
+        return orders
+            .Where(order => !string.Equals(order.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(order => new { order.CardCode, order.CardName })
+            .Select(group =>
+            {
+                var totalOrdered = group.Sum(order => order.TotalQuantityOrdered);
+                var totalInvoiced = group.Sum(order => order.TotalQuantityDelivered);
+
+                return new FulfillmentByCustomerDto
+                {
+                    CardCode = group.Key.CardCode,
+                    CardName = group.Key.CardName,
+                    TotalOrders = group.Count(),
+                    OpenOrders = group.Count(order => order.TotalQuantityPending > 0),
+                    ClosedOrders = group.Count(order => order.TotalQuantityPending <= 0),
+                    TotalOrderValue = group.Sum(order => order.OrderTotal),
+                    FulfillmentRatePercent = totalOrdered > 0 ? Math.Round(totalInvoiced / totalOrdered * 100, 1) : 0,
+                    TotalPendingValue = group.Sum(order => order.Lines.Sum(line =>
+                        CalculatePendingOrderLineValue(line.QuantityOrdered, line.QuantityPending, line.LineTotal)))
+                };
+            })
+            .OrderByDescending(customer => customer.TotalOrders)
+            .ToList();
+    }
+
+    private static decimal CalculatePendingOrderLineValue(decimal orderedQuantity, decimal pendingQuantity, decimal lineTotal) =>
+        orderedQuantity > 0 ? lineTotal * pendingQuantity / orderedQuantity : 0;
+
+    private static decimal GetDeliveredQuantity(Dictionary<string, object?> row)
+    {
+        if (row.ContainsKey("QuantityInvoiced"))
+            return Math.Max(0, GetRowDecimal(row, "QuantityInvoiced"));
+
+        var orderedQuantity = Math.Max(0, GetRowDecimal(row, "QuantityOrdered"));
+        var pendingQuantity = Math.Max(0, GetRowDecimal(row, "QuantityPending"));
+        return Math.Min(orderedQuantity, Math.Max(0, orderedQuantity - pendingQuantity));
+    }
+
+    private static string GetLineFulfillmentStatus(
+        decimal orderedQuantity,
+        decimal deliveredQuantity,
+        decimal pendingQuantity,
+        bool isCancelled)
+    {
+        if (isCancelled)
+            return "Cancelled";
+
+        if (pendingQuantity <= 0 || deliveredQuantity >= orderedQuantity)
+            return "Invoiced";
+
+        if (deliveredQuantity > 0 && deliveredQuantity < orderedQuantity)
+            return "Partial";
+
+        return "Pending";
     }
 
     /// <summary>

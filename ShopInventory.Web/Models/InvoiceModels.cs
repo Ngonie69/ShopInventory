@@ -12,10 +12,17 @@ public class InvoiceDto
     public string? Comments { get; set; }
     public string? DocStatus { get; set; }
     public string? Remarks { get; set; }
+    public string? VanSaleOrderNumber { get; set; }
+    public bool IsVanSalesInvoice { get; set; }
     public decimal DocTotal { get; set; }
     public decimal VatSum { get; set; }
     public decimal PaidToDate { get; set; }
     public string? DocCurrency { get; set; }
+    public bool? IsFiscalized { get; set; }
+    public string FiscalizationStatus { get; set; } = "Unknown";
+    public string? FiscalQrCode { get; set; }
+    public int? FiscalReceiptGlobalNo { get; set; }
+    public DateTime? FiscalizedAtUtc { get; set; }
     public List<InvoiceLineDto>? Lines { get; set; }
 }
 
@@ -65,6 +72,8 @@ public class CreateInvoiceRequest
     public string? NumAtCard { get; set; }
     public string? Comments { get; set; }
     public string? DocCurrency { get; set; }
+    public decimal? CrateQuantity { get; set; }
+    public string? ClientRequestId { get; set; }
     public List<CreateInvoiceLineRequest> Lines { get; set; } = new();
 }
 
@@ -161,4 +170,7 @@ public class FiscalizationResult
     public string? ErrorDetails { get; set; }
     public string? InvoiceNumber { get; set; }
     public bool Skipped { get; set; }
+    public bool Queued { get; set; }
+    public string? RawRequestJson { get; set; }
+    public string? RawResponseJson { get; set; }
 }

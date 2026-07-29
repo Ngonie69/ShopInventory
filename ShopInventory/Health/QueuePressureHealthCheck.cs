@@ -32,28 +32,43 @@ public sealed class QueuePressureHealthCheck(IServiceScopeFactory scopeFactory) 
 
         foreach (var snapshot in snapshots)
         {
-            if (snapshot.PendingCount >= CriticalCount || snapshot.OldestPendingAge >= CriticalAge)
+            if (snapshot.ActiveCount >= CriticalCount || snapshot.OldestActiveAge >= CriticalAge)
             {
                 healthStatus = HealthStatus.Unhealthy;
-                issues.Add($"{snapshot.Name} backlog is critical ({snapshot.PendingCount} items, oldest {snapshot.OldestPendingAge.TotalMinutes:N0}m).");
+                issues.Add($"{snapshot.Name} retry backlog is critical ({snapshot.ActiveCount} items, oldest {snapshot.OldestActiveAge.TotalMinutes:N0}m).");
                 continue;
             }
 
-            if (snapshot.PendingCount >= WarningCount || snapshot.OldestPendingAge >= WarningAge)
+            if (snapshot.ActiveCount >= WarningCount || snapshot.OldestActiveAge >= WarningAge)
             {
                 if (healthStatus == HealthStatus.Healthy)
                 {
                     healthStatus = HealthStatus.Degraded;
                 }
 
-                issues.Add($"{snapshot.Name} backlog is elevated ({snapshot.PendingCount} items, oldest {snapshot.OldestPendingAge.TotalMinutes:N0}m).");
+                issues.Add($"{snapshot.Name} retry backlog is elevated ({snapshot.ActiveCount} items, oldest {snapshot.OldestActiveAge.TotalMinutes:N0}m).");
+            }
+
+            // Depth only, deliberately not age. The manual review queue drains at the rate staff
+            // work through it, so an age threshold reports "nobody has clicked yet" — which is the
+            // normal state overnight and at weekends — as a system health failure, and pins the
+            // whole service to Degraded until someone comes in. A deep queue is a real signal; an
+            // old one is not.
+            if (snapshot.ManualReviewCount >= WarningCount)
+            {
+                if (healthStatus == HealthStatus.Healthy)
+                {
+                    healthStatus = HealthStatus.Degraded;
+                }
+
+                issues.Add($"{snapshot.Name} manual review queue is elevated ({snapshot.ManualReviewCount} items, oldest {snapshot.OldestManualReviewAge.TotalMinutes:N0}m).");
             }
         }
 
         var data = new Dictionary<string, object>
         {
             ["queues"] = snapshots.Select(snapshot =>
-                $"{snapshot.Name}|count={snapshot.PendingCount}|oldestMinutes={snapshot.OldestPendingAge.TotalMinutes:N0}")
+                $"{snapshot.Name}|activeCount={snapshot.ActiveCount}|oldestActiveMinutes={snapshot.OldestActiveAge.TotalMinutes:N0}|manualReviewCount={snapshot.ManualReviewCount}|oldestManualReviewMinutes={snapshot.OldestManualReviewAge.TotalMinutes:N0}")
                 .ToArray()
         };
 
@@ -62,108 +77,163 @@ public sealed class QueuePressureHealthCheck(IServiceScopeFactory scopeFactory) 
             data["issues"] = issues.ToArray();
         }
 
+        // The per-queue detail goes in the description, not just in data: the framework's health
+        // check logger and the alert email both render Description and neither reads Data, so a
+        // summary-only description left operators with "Queue backlog is elevated" and no way to
+        // tell which queue, how deep, or how old without querying the database by hand.
         return healthStatus switch
         {
-            HealthStatus.Unhealthy => HealthCheckResult.Unhealthy("Queue backlog is critically high.", data: data),
-            HealthStatus.Degraded => HealthCheckResult.Degraded("Queue backlog is elevated.", data: data),
+            HealthStatus.Unhealthy => HealthCheckResult.Unhealthy(
+                Describe("Queue backlog is critically high.", issues),
+                data: data),
+            HealthStatus.Degraded => HealthCheckResult.Degraded(
+                Describe("Queue backlog is elevated.", issues),
+                data: data),
             _ => HealthCheckResult.Healthy("Queue backlog is healthy.", data)
         };
     }
 
+    private static string Describe(string summary, List<string> issues)
+        => issues.Count > 0 ? $"{summary} {string.Join(" ", issues)}" : summary;
+
     private static async Task<QueueSnapshot> GetInvoiceQueueSnapshotAsync(ApplicationDbContext dbContext, DateTime utcNow, CancellationToken cancellationToken)
     {
-        var pendingStatuses = new[]
+        var activeStatuses = new[]
         {
             InvoiceQueueStatus.Pending,
             InvoiceQueueStatus.Processing,
-            InvoiceQueueStatus.Failed,
-            InvoiceQueueStatus.RequiresReview
+            InvoiceQueueStatus.Failed
         };
+        var manualReviewStatuses = new[] { InvoiceQueueStatus.RequiresReview };
 
-        var pendingCount = await dbContext.InvoiceQueue
+        var activeCount = await dbContext.InvoiceQueue
             .AsNoTracking()
-            .CountAsync(queue => pendingStatuses.Contains(queue.Status), cancellationToken);
+            .CountAsync(queue => activeStatuses.Contains(queue.Status), cancellationToken);
 
-        var oldestPendingAt = await dbContext.InvoiceQueue
+        var oldestActiveAt = await dbContext.InvoiceQueue
             .AsNoTracking()
-            .Where(queue => pendingStatuses.Contains(queue.Status))
+            .Where(queue => activeStatuses.Contains(queue.Status))
             .OrderBy(queue => queue.CreatedAt)
             .Select(queue => (DateTime?)queue.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return new QueueSnapshot("invoice-queue", pendingCount, oldestPendingAt, utcNow);
+        var manualReviewCount = await dbContext.InvoiceQueue
+            .AsNoTracking()
+            .CountAsync(queue => manualReviewStatuses.Contains(queue.Status), cancellationToken);
+
+        var oldestManualReviewAt = await dbContext.InvoiceQueue
+            .AsNoTracking()
+            .Where(queue => manualReviewStatuses.Contains(queue.Status))
+            .OrderBy(queue => queue.CreatedAt)
+            .Select(queue => (DateTime?)queue.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new QueueSnapshot("invoice-queue", activeCount, oldestActiveAt, manualReviewCount, oldestManualReviewAt, utcNow);
     }
 
     private static async Task<QueueSnapshot> GetInventoryTransferQueueSnapshotAsync(ApplicationDbContext dbContext, DateTime utcNow, CancellationToken cancellationToken)
     {
-        var pendingStatuses = new[]
+        var activeStatuses = new[]
         {
             InventoryTransferQueueStatus.Pending,
             InventoryTransferQueueStatus.Processing,
-            InventoryTransferQueueStatus.Failed,
-            InventoryTransferQueueStatus.RequiresReview
+            InventoryTransferQueueStatus.Failed
         };
+        var manualReviewStatuses = new[] { InventoryTransferQueueStatus.RequiresReview };
 
-        var pendingCount = await dbContext.InventoryTransferQueue
+        var activeCount = await dbContext.InventoryTransferQueue
             .AsNoTracking()
-            .CountAsync(queue => pendingStatuses.Contains(queue.Status), cancellationToken);
+            .CountAsync(queue => activeStatuses.Contains(queue.Status), cancellationToken);
 
-        var oldestPendingAt = await dbContext.InventoryTransferQueue
+        var oldestActiveAt = await dbContext.InventoryTransferQueue
             .AsNoTracking()
-            .Where(queue => pendingStatuses.Contains(queue.Status))
+            .Where(queue => activeStatuses.Contains(queue.Status))
             .OrderBy(queue => queue.CreatedAt)
             .Select(queue => (DateTime?)queue.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return new QueueSnapshot("inventory-transfer-queue", pendingCount, oldestPendingAt, utcNow);
+        var manualReviewCount = await dbContext.InventoryTransferQueue
+            .AsNoTracking()
+            .CountAsync(queue => manualReviewStatuses.Contains(queue.Status), cancellationToken);
+
+        var oldestManualReviewAt = await dbContext.InventoryTransferQueue
+            .AsNoTracking()
+            .Where(queue => manualReviewStatuses.Contains(queue.Status))
+            .OrderBy(queue => queue.CreatedAt)
+            .Select(queue => (DateTime?)queue.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new QueueSnapshot("inventory-transfer-queue", activeCount, oldestActiveAt, manualReviewCount, oldestManualReviewAt, utcNow);
     }
 
     private static async Task<QueueSnapshot> GetMobileOrderQueueSnapshotAsync(ApplicationDbContext dbContext, DateTime utcNow, CancellationToken cancellationToken)
     {
-        var pendingStatuses = new[]
+        var activeStatuses = new[]
         {
             MobileOrderPostProcessingQueueStatus.Pending,
             MobileOrderPostProcessingQueueStatus.Processing,
-            MobileOrderPostProcessingQueueStatus.Failed,
-            MobileOrderPostProcessingQueueStatus.RequiresReview
+            MobileOrderPostProcessingQueueStatus.Failed
         };
+        var manualReviewStatuses = new[] { MobileOrderPostProcessingQueueStatus.RequiresReview };
 
-        var pendingCount = await dbContext.MobileOrderPostProcessingQueue
+        var activeCount = await dbContext.MobileOrderPostProcessingQueue
             .AsNoTracking()
-            .CountAsync(queue => pendingStatuses.Contains(queue.Status), cancellationToken);
+            .CountAsync(queue => activeStatuses.Contains(queue.Status), cancellationToken);
 
-        var oldestPendingAt = await dbContext.MobileOrderPostProcessingQueue
+        var oldestActiveAt = await dbContext.MobileOrderPostProcessingQueue
             .AsNoTracking()
-            .Where(queue => pendingStatuses.Contains(queue.Status))
+            .Where(queue => activeStatuses.Contains(queue.Status))
             .OrderBy(queue => queue.CreatedAt)
             .Select(queue => (DateTime?)queue.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return new QueueSnapshot("mobile-order-post-processing", pendingCount, oldestPendingAt, utcNow);
+        var manualReviewCount = await dbContext.MobileOrderPostProcessingQueue
+            .AsNoTracking()
+            .CountAsync(queue => manualReviewStatuses.Contains(queue.Status), cancellationToken);
+
+        var oldestManualReviewAt = await dbContext.MobileOrderPostProcessingQueue
+            .AsNoTracking()
+            .Where(queue => manualReviewStatuses.Contains(queue.Status))
+            .OrderBy(queue => queue.CreatedAt)
+            .Select(queue => (DateTime?)queue.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new QueueSnapshot("mobile-order-post-processing", activeCount, oldestActiveAt, manualReviewCount, oldestManualReviewAt, utcNow);
     }
 
     private static async Task<QueueSnapshot> GetIncomingPaymentQueueSnapshotAsync(ApplicationDbContext dbContext, DateTime utcNow, CancellationToken cancellationToken)
     {
-        var pendingStatuses = new[]
+        var activeStatuses = new[]
         {
             IncomingPaymentQueueStatus.Pending,
             IncomingPaymentQueueStatus.Processing,
-            IncomingPaymentQueueStatus.Failed,
-            IncomingPaymentQueueStatus.RequiresReview
+            IncomingPaymentQueueStatus.Failed
         };
+        var manualReviewStatuses = new[] { IncomingPaymentQueueStatus.RequiresReview };
 
-        var pendingCount = await dbContext.IncomingPaymentQueue
+        var activeCount = await dbContext.IncomingPaymentQueue
             .AsNoTracking()
-            .CountAsync(queue => pendingStatuses.Contains(queue.Status), cancellationToken);
+            .CountAsync(queue => activeStatuses.Contains(queue.Status), cancellationToken);
 
-        var oldestPendingAt = await dbContext.IncomingPaymentQueue
+        var oldestActiveAt = await dbContext.IncomingPaymentQueue
             .AsNoTracking()
-            .Where(queue => pendingStatuses.Contains(queue.Status))
+            .Where(queue => activeStatuses.Contains(queue.Status))
             .OrderBy(queue => queue.CreatedAt)
             .Select(queue => (DateTime?)queue.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return new QueueSnapshot("incoming-payment-queue", pendingCount, oldestPendingAt, utcNow);
+        var manualReviewCount = await dbContext.IncomingPaymentQueue
+            .AsNoTracking()
+            .CountAsync(queue => manualReviewStatuses.Contains(queue.Status), cancellationToken);
+
+        var oldestManualReviewAt = await dbContext.IncomingPaymentQueue
+            .AsNoTracking()
+            .Where(queue => manualReviewStatuses.Contains(queue.Status))
+            .OrderBy(queue => queue.CreatedAt)
+            .Select(queue => (DateTime?)queue.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return new QueueSnapshot("incoming-payment-queue", activeCount, oldestActiveAt, manualReviewCount, oldestManualReviewAt, utcNow);
     }
 
     private static async Task<QueueSnapshot> GetOfflineQueueSnapshotAsync(ApplicationDbContext dbContext, DateTime utcNow, CancellationToken cancellationToken)
@@ -181,11 +251,18 @@ public sealed class QueuePressureHealthCheck(IServiceScopeFactory scopeFactory) 
             .Select(queue => (DateTime?)queue.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return new QueueSnapshot("offline-queue", pendingCount, oldestPendingAt, utcNow);
+        return new QueueSnapshot("offline-queue", pendingCount, oldestPendingAt, 0, null, utcNow);
     }
 
-    private sealed record QueueSnapshot(string Name, int PendingCount, DateTime? OldestPendingAt, DateTime UtcNow)
+    private sealed record QueueSnapshot(
+        string Name,
+        int ActiveCount,
+        DateTime? OldestActiveAt,
+        int ManualReviewCount,
+        DateTime? OldestManualReviewAt,
+        DateTime UtcNow)
     {
-        public TimeSpan OldestPendingAge => OldestPendingAt.HasValue ? UtcNow - OldestPendingAt.Value : TimeSpan.Zero;
+        public TimeSpan OldestActiveAge => OldestActiveAt.HasValue ? UtcNow - OldestActiveAt.Value : TimeSpan.Zero;
+        public TimeSpan OldestManualReviewAge => OldestManualReviewAt.HasValue ? UtcNow - OldestManualReviewAt.Value : TimeSpan.Zero;
     }
 }

@@ -1,0 +1,265 @@
+@page "/mobile-push"
+@using Microsoft.AspNetCore.Authorization
+@using System.ComponentModel.DataAnnotations
+@using ShopInventory.Web.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject IPushNotificationClientService PushNotificationService
+@rendermode InteractiveServer
+
+<PageTitle>Mobile Push - Shop Inventory</PageTitle>
+
+<style>
+    .mpush-page { min-height: 100vh; padding: 1.5rem; background: var(--bg-primary, #f8fafc); color: var(--text-primary, #111827); }
+    .mpush-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .mpush-title { display: flex; align-items: center; gap: .85rem; }
+    .mpush-title-icon { width: 48px; height: 48px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #fee2e2; color: #dc2626; font-size: 1.4rem; }
+    .mpush-title h2 { margin: 0; font-size: 1.45rem; font-weight: 700; color: var(--text-primary, #111827); letter-spacing: 0; }
+    .mpush-title p { margin: .1rem 0 0; color: var(--text-secondary, #64748b); font-size: .9rem; }
+    .mpush-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem; align-items: start; }
+    .mpush-panel { background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; box-shadow: 0 1px 4px rgba(15, 23, 42, .05); overflow: hidden; }
+    .mpush-panel-head { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color, #e5e7eb); display: flex; align-items: center; gap: .6rem; font-weight: 700; color: var(--text-primary, #111827); }
+    .mpush-panel-body { padding: 1.25rem; }
+    .mpush-form { display: grid; gap: 1rem; }
+    .mpush-field { display: grid; gap: .35rem; }
+    .mpush-label { color: var(--text-secondary, #475569); font-weight: 700; font-size: .82rem; }
+    .mpush-input, .mpush-select, .mpush-textarea { width: 100%; border: 1px solid var(--border-color, #d1d5db); background: var(--input-bg, #fff); color: var(--text-primary, #111827); border-radius: 8px; padding: .65rem .75rem; font-size: .92rem; outline: none; transition: border-color .15s, box-shadow .15s; }
+    .mpush-textarea { min-height: 130px; resize: vertical; line-height: 1.45; }
+    .mpush-input:focus, .mpush-select:focus, .mpush-textarea:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, .12); }
+    .mpush-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .mpush-actions { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; padding-top: .25rem; }
+    .mpush-btn { border: none; border-radius: 8px; padding: .65rem 1rem; font-weight: 700; display: inline-flex; align-items: center; gap: .45rem; cursor: pointer; transition: transform .15s, box-shadow .15s, background .15s; }
+    .mpush-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+    .mpush-btn-primary { background: #dc2626; color: #fff; box-shadow: 0 4px 12px rgba(220, 38, 38, .2); }
+    .mpush-btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(220, 38, 38, .28); }
+    .mpush-btn-outline { background: transparent; color: var(--text-primary, #111827); border: 1px solid var(--border-color, #d1d5db); }
+    .mpush-btn-outline:hover:not(:disabled) { background: var(--bg-secondary, #f1f5f9); }
+    .mpush-alert { border-radius: 8px; padding: .85rem 1rem; display: flex; align-items: flex-start; gap: .6rem; font-size: .9rem; margin-top: 1rem; }
+    .mpush-alert-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .mpush-alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+    .mpush-meta-list { display: grid; gap: .75rem; }
+    .mpush-meta-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border-color, #e5e7eb); }
+    .mpush-meta-item:last-child { padding-bottom: 0; border-bottom: none; }
+    .mpush-meta-label { color: var(--text-secondary, #64748b); font-size: .82rem; font-weight: 700; }
+    .mpush-meta-value { color: var(--text-primary, #111827); font-weight: 700; text-align: right; }
+    .mpush-validation { color: #dc2626; font-size: .78rem; }
+    .dark-theme .mpush-page { background: var(--dark-bg, #0f172a); color: var(--dark-text, #e5e7eb); }
+    .dark-theme .mpush-title-icon { background: rgba(248, 113, 113, .16); color: #fca5a5; }
+    .dark-theme .mpush-panel { background: var(--dark-card-bg, #1e293b); border-color: var(--dark-border, #334155); box-shadow: none; }
+    .dark-theme .mpush-panel-head { border-color: var(--dark-border, #334155); color: var(--dark-text, #e5e7eb); }
+    .dark-theme .mpush-title h2, .dark-theme .mpush-meta-value { color: var(--dark-text, #e5e7eb); }
+    .dark-theme .mpush-title p, .dark-theme .mpush-label, .dark-theme .mpush-meta-label { color: var(--dark-text-secondary, #94a3b8); }
+    .dark-theme .mpush-input, .dark-theme .mpush-select, .dark-theme .mpush-textarea { background: var(--dark-input-bg, #0f172a); border-color: var(--dark-border, #334155); color: var(--dark-text, #e5e7eb); }
+    .dark-theme .mpush-btn-outline { color: var(--dark-text, #e5e7eb); border-color: var(--dark-border, #334155); }
+    .dark-theme .mpush-btn-outline:hover:not(:disabled) { background: rgba(148, 163, 184, .12); }
+    .dark-theme .mpush-alert-success { background: rgba(22, 101, 52, .25); color: #bbf7d0; border-color: rgba(134, 239, 172, .35); }
+    .dark-theme .mpush-alert-error { background: rgba(153, 27, 27, .28); color: #fecaca; border-color: rgba(252, 165, 165, .35); }
+    @@media (max-width: 900px) { .mpush-grid { grid-template-columns: 1fr; } }
+    @@media (max-width: 640px) { .mpush-page { padding: 1rem; } .mpush-row { grid-template-columns: 1fr; } .mpush-actions { align-items: stretch; } .mpush-btn { justify-content: center; width: 100%; } }
+</style>
+
+<div class="mpush-page fade-in">
+    <div class="mpush-header">
+        <div class="mpush-title">
+            <div class="mpush-title-icon"><i class="bi bi-broadcast-pin"></i></div>
+            <div>
+                <h2>Mobile Push</h2>
+                <p>Important alerts for registered Android devices</p>
+            </div>
+        </div>
+        <button class="mpush-btn mpush-btn-outline" type="button" @onclick="SendTestPush" disabled="@isSendingTest">
+            @if (isSendingTest)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+            else
+            {
+                <i class="bi bi-phone-vibrate"></i>
+            }
+            Test My Device
+        </button>
+    </div>
+
+    <div class="mpush-grid">
+        <section class="mpush-panel">
+            <div class="mpush-panel-head"><i class="bi bi-send-exclamation"></i> Send Important Push</div>
+            <div class="mpush-panel-body">
+                <EditForm Model="@form" OnValidSubmit="SendImportantPush" class="mpush-form">
+                    <DataAnnotationsValidator />
+
+                    <div class="mpush-row">
+                        <div class="mpush-field">
+                            <label class="mpush-label" for="targetMode">Target</label>
+                            <select id="targetMode" class="mpush-select" @bind="form.TargetMode">
+                                <option value="Role">Role</option>
+                                <option value="Username">User</option>
+                                <option value="All">All Devices</option>
+                            </select>
+                        </div>
+
+                        @if (form.TargetMode == "Role")
+                        {
+                            <div class="mpush-field">
+                                <label class="mpush-label" for="targetRole">Role</label>
+                                <select id="targetRole" class="mpush-select" @bind="form.TargetRole">
+                                    @foreach (var role in roleOptions)
+                                    {
+                                        <option value="@role">@role</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        else if (form.TargetMode == "Username")
+                        {
+                            <div class="mpush-field">
+                                <label class="mpush-label" for="targetUsername">Username</label>
+                                <InputText id="targetUsername" class="mpush-input" @bind-Value="form.TargetUsername" />
+                            </div>
+                        }
+                    </div>
+
+                    <div class="mpush-field">
+                        <label class="mpush-label" for="pushTitle">Title</label>
+                        <InputText id="pushTitle" class="mpush-input" @bind-Value="form.Title" />
+                        <ValidationMessage For="() => form.Title" class="mpush-validation" />
+                    </div>
+
+                    <div class="mpush-field">
+                        <label class="mpush-label" for="pushBody">Message</label>
+                        <InputTextArea id="pushBody" class="mpush-textarea" @bind-Value="form.Body" />
+                        <ValidationMessage For="() => form.Body" class="mpush-validation" />
+                    </div>
+
+                    <div class="mpush-actions">
+                        <button class="mpush-btn mpush-btn-primary" type="submit" disabled="@isSending">
+                            @if (isSending)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-send-fill"></i>
+                            }
+                            Send Push
+                        </button>
+                    </div>
+                </EditForm>
+
+                @if (!string.IsNullOrWhiteSpace(statusMessage))
+                {
+                    <div class="mpush-alert @(lastResultSucceeded ? "mpush-alert-success" : "mpush-alert-error")">
+                        <i class="bi @(lastResultSucceeded ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
+                        <span>@statusMessage</span>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <aside class="mpush-panel">
+            <div class="mpush-panel-head"><i class="bi bi-activity"></i> Last Send</div>
+            <div class="mpush-panel-body">
+                <div class="mpush-meta-list">
+                    <div class="mpush-meta-item">
+                        <span class="mpush-meta-label">Target</span>
+                        <span class="mpush-meta-value">@CurrentTargetLabel</span>
+                    </div>
+                    <div class="mpush-meta-item">
+                        <span class="mpush-meta-label">Sent</span>
+                        <span class="mpush-meta-value">@lastSentCount</span>
+                    </div>
+                    <div class="mpush-meta-item">
+                        <span class="mpush-meta-label">Priority</span>
+                        <span class="mpush-meta-value">Important</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+@code {
+    private readonly MobilePushForm form = new();
+    private readonly string[] roleOptions = ["Driver", "PodOperator", "Merchandiser", "SalesRep", "Manager", "Cashier", "StockController", "DepotController", "Admin", "User"];
+    private bool isSending;
+    private bool isSendingTest;
+    private string? statusMessage;
+    private bool lastResultSucceeded;
+    private int lastSentCount;
+
+    private string CurrentTargetLabel => form.TargetMode switch
+    {
+        "All" => "All devices",
+        "Username" => string.IsNullOrWhiteSpace(form.TargetUsername) ? "User" : form.TargetUsername.Trim(),
+        _ => form.TargetRole
+    };
+
+    private async Task SendImportantPush()
+    {
+        if (form.TargetMode == "Username" && string.IsNullOrWhiteSpace(form.TargetUsername))
+        {
+            SetStatus(false, 0, "Username is required for user-targeted pushes.");
+            return;
+        }
+
+        isSending = true;
+        statusMessage = null;
+
+        try
+        {
+            var targetUsername = form.TargetMode == "Username" ? form.TargetUsername.Trim() : null;
+            var targetRole = form.TargetMode == "Role" ? form.TargetRole : null;
+            var result = await PushNotificationService.SendImportantPushAsync(new ImportantPushRequest(
+                targetUsername,
+                targetRole,
+                form.Title.Trim(),
+                form.Body.Trim()));
+
+            SetStatus(result.IsSuccess, result.Sent, result.IsSuccess
+                ? $"Push sent to {result.Sent} device(s)."
+                : result.Message);
+        }
+        finally
+        {
+            isSending = false;
+        }
+    }
+
+    private async Task SendTestPush()
+    {
+        isSendingTest = true;
+        statusMessage = null;
+
+        try
+        {
+            var result = await PushNotificationService.SendTestPushAsync();
+            SetStatus(result.IsSuccess, result.Sent, result.IsSuccess
+                ? $"Test push sent to {result.Sent} device(s)."
+                : result.Message);
+        }
+        finally
+        {
+            isSendingTest = false;
+        }
+    }
+
+    private void SetStatus(bool succeeded, int sent, string message)
+    {
+        lastResultSucceeded = succeeded;
+        lastSentCount = sent;
+        statusMessage = message;
+    }
+
+    private sealed class MobilePushForm
+    {
+        public string TargetMode { get; set; } = "Role";
+        public string TargetRole { get; set; } = "Driver";
+        public string TargetUsername { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(80, MinimumLength = 3)]
+        public string Title { get; set; } = "Important POD alert";
+
+        [Required]
+        [StringLength(240, MinimumLength = 5)]
+        public string Body { get; set; } = string.Empty;
+    }
+}

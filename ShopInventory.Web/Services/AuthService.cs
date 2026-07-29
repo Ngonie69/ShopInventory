@@ -77,23 +77,20 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Login failed. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("Login failed. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Login failed", null);
-            }
-            catch
-            {
-                return (false, "Login failed", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Login failed"), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during login for user: {Username}", username);
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't sign you in right now. Please try again."), null);
         }
     }
 
@@ -127,23 +124,20 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("2FA challenge failed. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("2FA challenge failed. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Invalid code", null);
-            }
-            catch
-            {
-                return (false, "Invalid code", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Invalid code"), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during 2FA challenge completion");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't complete sign-in right now. Please try again."), null);
         }
     }
 
@@ -170,23 +164,20 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Failed to start passkey login. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("Failed to start passkey login. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Failed to start passkey login", null);
-            }
-            catch
-            {
-                return (false, "Failed to start passkey login", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Failed to start passkey login"), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during passkey login ceremony start");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't start passkey sign-in right now. Please try again."), null);
         }
     }
 
@@ -219,23 +210,20 @@ public class AuthService : IAuthService
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Passkey login failed. Status: {StatusCode}, Error: {Error}", response.StatusCode, errorContent);
+            _logger.LogWarning("Passkey login failed. Status: {StatusCode}, Error: {Error}",
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Passkey login failed", null);
-            }
-            catch
-            {
-                return (false, "Passkey login failed", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Passkey login failed"), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during passkey login completion");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't complete passkey sign-in right now. Please try again."), null);
         }
     }
 
@@ -270,23 +258,19 @@ public class AuthService : IAuthService
 
             var errorContent = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to register user. Status: {StatusCode}, Error: {Error}",
-                response.StatusCode, errorContent);
+                response.StatusCode, ApiErrorResponse.SanitizeForLog(errorContent));
 
-            try
-            {
-                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Registration failed", null);
-            }
-            catch
-            {
-                return (false, "Registration failed", null);
-            }
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                response.StatusCode,
+                errorContent,
+                "Registration failed"), null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Exception during user registration for: {Username}", request.Username);
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't register this user right now. Please try again."), null);
         }
     }
 }

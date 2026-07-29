@@ -49,4 +49,7 @@ public class DesktopSaleLineEntity
 
     [MaxLength(20)]
     public string? UoMCode { get; set; }
+
+    [NotMapped]
+    public string? CostCentreCode { get; set; }
 }

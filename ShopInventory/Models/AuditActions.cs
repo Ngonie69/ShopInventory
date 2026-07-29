@@ -21,6 +21,8 @@ public static class AuditActions
 
     // Invoice actions
     public const string CreateInvoice = "CreateInvoice";
+    public const string FiscalizeInvoice = "FiscalizeInvoice";
+    public const string ViewInvoices = "ViewInvoices";
 
     // Payment actions
     public const string CreatePayment = "CreatePayment";
@@ -32,6 +34,8 @@ public static class AuditActions
     public const string CreateCreditNote = "CreateCreditNote";
     public const string ApproveCreditNote = "ApproveCreditNote";
     public const string DeleteCreditNote = "DeleteCreditNote";
+    public const string BulkCancelCreditNotes = "BulkCancelCreditNotes";
+    public const string DuplicateCancelledCreditNotes = "DuplicateCancelledCreditNotes";
 
     // Sales Order actions
     public const string CreateSalesOrder = "CreateSalesOrder";
@@ -64,12 +68,29 @@ public static class AuditActions
     public const string UploadDocumentAttachment = "UploadDocumentAttachment";
     public const string DeleteDocumentAttachment = "DeleteDocumentAttachment";
     public const string UploadPod = "UploadPod";
+    public const string RegisterInvoiceCrates = "RegisterInvoiceCrates";
+    public const string CreateCrateOpeningBalance = "CreateCrateOpeningBalance";
+    public const string UpdateCrateOpeningBalance = "UpdateCrateOpeningBalance";
+    public const string DeleteCrateOpeningBalance = "DeleteCrateOpeningBalance";
+    public const string UploadCratePod = "UploadCratePod";
+    public const string DeleteCratePod = "DeleteCratePod";
+    public const string CreateCrateGrv = "CreateCrateGrv";
 
     // Inventory Transfer actions
     public const string CreateTransfer = "CreateTransfer";
     public const string CreateTransferRequest = "CreateTransferRequest";
     public const string ConvertTransferRequest = "ConvertTransferRequest";
     public const string CloseTransferRequest = "CloseTransferRequest";
+    public const string EditTransferRequest = "EditTransferRequest";
+    public const string SubmitTransferRequestEditForApproval = "SubmitTransferRequestEditForApproval";
+    public const string ApproveTransferRequestEditStage = "ApproveTransferRequestEditStage";
+    public const string RejectTransferRequestEditStage = "RejectTransferRequestEditStage";
+    public const string ApproveTransferRequestStage = "ApproveTransferRequestStage";
+    public const string RejectTransferRequestStage = "RejectTransferRequestStage";
+    public const string SubmitTransferForApproval = "SubmitTransferForApproval";
+    public const string ApproveTransferStage = "ApproveTransferStage";
+    public const string RejectTransferStage = "RejectTransferStage";
+    public const string CancelPendingTransfer = "CancelPendingTransfer";
 
     // User Management actions
     public const string CreateUser = "CreateUser";
@@ -88,6 +109,17 @@ public static class AuditActions
     public const string DeleteBackup = "DeleteBackup";
     public const string ResetDatabase = "ResetDatabase";
 
+    // REVMax actions
+    public const string ViewRevmaxCardDetails = "ViewRevmaxCardDetails";
+    public const string ViewRevmaxDayStatus = "ViewRevmaxDayStatus";
+    public const string ViewRevmaxLicense = "ViewRevmaxLicense";
+    public const string UpdateRevmaxLicense = "UpdateRevmaxLicense";
+    public const string GenerateRevmaxZReport = "GenerateRevmaxZReport";
+    public const string ViewRevmaxInvoice = "ViewRevmaxInvoice";
+    public const string ViewRevmaxUnprocessedInvoices = "ViewRevmaxUnprocessedInvoices";
+    public const string CreateRevmaxTransaction = "CreateRevmaxTransaction";
+    public const string CreateRevmaxExtendedTransaction = "CreateRevmaxExtendedTransaction";
+
     // Settings actions
     public const string UpdateSAPSettings = "UpdateSAPSettings";
     public const string UpdateMobileVersionPolicy = "UpdateMobileVersionPolicy";
@@ -99,4 +131,5 @@ public static class AuditActions
     // Timesheet actions
     public const string CheckIn = "CheckIn";
     public const string CheckOut = "CheckOut";
+    public const string ViewAssignedCustomers = "ViewAssignedCustomers";
 }

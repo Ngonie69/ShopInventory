@@ -1,6 +1,11 @@
 @page "/invoices"
+@page "/van-sales-invoices"
+@using System.Text.Encodings.Web
+@using System.Text
+@using System.Text.Json
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
+@using QRCoder
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = "Admin,Cashier")]
@@ -12,7 +17,7 @@
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>Invoices - Shop Inventory</PageTitle>
+<PageTitle>@(IsVanSalesView ? "Van Sales Invoices - Shop Inventory" : "Invoices - Shop Inventory")</PageTitle>
 
 <style>
     /* ── Page ────────────────────────────────────────── */
@@ -320,6 +325,21 @@
         color: #92400e;
     }
 
+    .status-badge.fiscalised {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .status-badge.not-fiscalised {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .status-badge.unknown {
+        background: #e5e7eb;
+        color: #475569;
+    }
+
     /* ── Alerts ──────────────────────────────────────── */
     .alert-banner {
         border-radius: 10px;
@@ -374,6 +394,83 @@
         opacity: 1;
     }
 
+    .inv-fiscal-json-panel {
+        background: var(--light-color);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+        box-shadow: var(--shadow-sm);
+    }
+
+    .inv-fiscal-json-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        background: var(--primary-light);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .inv-fiscal-json-eyebrow {
+        font-size: .72rem;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        margin-bottom: .2rem;
+    }
+
+    .inv-fiscal-json-header h6 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .inv-fiscal-json-header p {
+        margin: .2rem 0 0;
+        font-size: .82rem;
+        color: var(--text-secondary);
+    }
+
+    .inv-fiscal-json-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1rem;
+        padding: 1rem 1.25rem 1.25rem;
+    }
+
+    .inv-fiscal-json-card {
+        min-width: 0;
+    }
+
+    .inv-fiscal-json-caption {
+        font-size: .75rem;
+        font-weight: 700;
+        color: var(--text-secondary);
+        margin-bottom: .45rem;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+    }
+
+    .inv-fiscal-json-code {
+        margin: 0;
+        padding: .9rem 1rem;
+        border-radius: 10px;
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, .25);
+        font-size: .78rem;
+        line-height: 1.5;
+        max-height: 420px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: 'Cascadia Code', 'Fira Code', monospace;
+    }
+
     /* ── Empty State ─────────────────────────────────── */
     .empty-state {
         text-align: center;
@@ -406,9 +503,11 @@
     }
 
     /* ── Invoice Detail Drawer ───────────────────────── */
+    /* Offset below the app bar: the page container is a stacking context, so a drawer
+       cannot paint over the topbar however high its z-index. */
     .modal-backdrop-custom {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .45);
         z-index: 9998;
         animation: fadeIn .2s ease;
@@ -416,10 +515,10 @@
 
     .detail-drawer {
         position: fixed;
-        top: 0;
+        top: var(--kf-topbar-h, 74px);
         right: 0;
         width: min(640px, 95vw);
-        height: 100vh;
+        height: calc(100vh - var(--kf-topbar-h, 74px));
         background: #fff;
         z-index: 9999;
         box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
@@ -476,6 +575,7 @@
         gap: .5rem;
         justify-content: flex-end;
         flex-shrink: 0;
+        flex-wrap: wrap;
     }
 
     /* Detail Grid */
@@ -499,6 +599,64 @@
         font-size: .92rem;
         font-weight: 600;
         color: #1a1a2e;
+    }
+
+    .inv-fiscal-qr-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 14px;
+        padding: 1rem;
+        margin-bottom: 1.25rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
+    }
+
+    .inv-fiscal-qr-image-wrap {
+        width: 116px;
+        height: 116px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: .45rem;
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+    }
+
+    .inv-fiscal-qr-image {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .inv-fiscal-qr-copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: .35rem;
+    }
+
+    .inv-fiscal-qr-label {
+        font-size: .72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .55px;
+        color: #4f46e5;
+    }
+
+    .inv-fiscal-qr-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #1a1a2e;
+    }
+
+    .inv-fiscal-qr-copy p {
+        margin: 0;
+        color: #6b7280;
+        font-size: .86rem;
+        line-height: 1.45;
     }
 
     .detail-section-title {
@@ -612,9 +770,11 @@
     }
 
     /* ── Credit Note Modal ───────────────────────────── */
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
     .cn-modal-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .5);
         z-index: 10000;
         display: flex;
@@ -628,7 +788,7 @@
         background: #fff;
         border-radius: 14px;
         width: min(700px, 95vw);
-        max-height: 90vh;
+        max-height: calc(90vh - var(--kf-topbar-h, 74px));
         display: flex;
         flex-direction: column;
         box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
@@ -984,6 +1144,11 @@
             grid-template-columns: 1fr;
         }
 
+        .inv-fiscal-qr-card {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
         .inv-header {
             flex-direction: column;
             align-items: stretch;
@@ -1041,15 +1206,18 @@
             <div class="inv-header-left">
                 <div class="inv-header-icon"><i class="bi bi-receipt"></i></div>
                 <div>
-                    <h2>Invoices</h2>
-                    <p>View and manage sales invoices</p>
+                    <h2>@(IsVanSalesView ? "Van Sales Invoices" : "Invoices")</h2>
+                    <p>@(IsVanSalesView ? "View invoices generated by the sales-person van-sales flow" : "View and manage web-created sales invoices")</p>
                 </div>
             </div>
-            <div class="inv-header-actions">
-                <a href="/invoices/create" class="btn-inv-gradient">
-                    <i class="bi bi-plus-lg"></i> Create Invoice
-                </a>
-            </div>
+            @if (!IsVanSalesView)
+            {
+                <div class="inv-header-actions">
+                    <a href="/invoices/create" class="btn-inv-gradient">
+                        <i class="bi bi-plus-lg"></i> Create Invoice
+                    </a>
+                </div>
+            }
         </div>
 
         <!-- ━━━ Alerts ━━━ -->
@@ -1060,6 +1228,39 @@
                 <div class="alert-body">@errorMessage</div>
                 <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => errorMessage = null"
                                Size="Size.Small" />
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="alert-banner success-alert">
+                <i class="bi bi-check-circle-fill"></i>
+                <div class="alert-body">@successMessage</div>
+                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => successMessage = null"
+                               Size="Size.Small" />
+            </div>
+        }
+        @if (HasLatestFiscalizationPayload)
+        {
+            <div class="inv-fiscal-json-panel">
+                <div class="inv-fiscal-json-header">
+                    <div>
+                        <div class="inv-fiscal-json-eyebrow">Most Recent TransactM Payload</div>
+                        <h6>Invoice #@(latestFiscalizationInvoiceNumber ?? "Unknown")</h6>
+                        <p>Captured from the last invoice fiscalisation request sent from this page.</p>
+                    </div>
+                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="ClearLatestFiscalizationPayload"
+                                   Size="Size.Small" />
+                </div>
+                <div class="inv-fiscal-json-grid">
+                    <div class="inv-fiscal-json-card">
+                        <div class="inv-fiscal-json-caption">Request JSON</div>
+                        <pre class="inv-fiscal-json-code">@(latestFiscalizationRequestJson ?? "No raw request returned.")</pre>
+                    </div>
+                    <div class="inv-fiscal-json-card">
+                        <div class="inv-fiscal-json-caption">Response JSON</div>
+                        <pre class="inv-fiscal-json-code">@(latestFiscalizationResponseJson ?? "No raw response returned.")</pre>
+                    </div>
+                </div>
             </div>
         }
 
@@ -1108,6 +1309,15 @@
                 <MudTextField T="string" @bind-Value="customerCode" @bind-Value:after="OnCustomerCodeChanged"
                               Placeholder="e.g. C001" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
                               Immediate="true" Class="mt-0" />
+            </div>
+            <div class="filter-field">
+                <label>Fiscal Status</label>
+                <MudSelect T="string" @bind-Value="fiscalStatusFilter" Variant="Variant.Outlined" Margin="Margin.Dense"
+                           Clearable="true" Placeholder="All Fiscal States" Class="mt-0">
+                    <MudSelectItem T="string" Value="@("Fiscalised")">Fiscalised</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Not Fiscalised")">Not Fiscalised</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Unknown")">Unknown</MudSelectItem>
+                </MudSelect>
             </div>
             <div class="filter-field">
                 <label>From Date</label>
@@ -1163,9 +1373,11 @@
                         <MudTh>Customer</MudTh>
                         <MudTh>Date</MudTh>
                         <MudTh>Due Date</MudTh>
+                        <MudTh>Fiscal</MudTh>
                         <MudTh>Currency</MudTh>
                         <MudTh Style="text-align:right">VAT</MudTh>
                         <MudTh Style="text-align:right">Total</MudTh>
+                        <MudTh Style="width:140px;text-align:center;">Action</MudTh>
                         <MudTh Style="width:60px;text-align:center;">View</MudTh>
                     </HeaderContent>
                     <RowTemplate>
@@ -1180,14 +1392,41 @@
                         </MudTd>
                         <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
                         <MudTd DataLabel="Due Date">@FormatDate(context.DocDueDate)</MudTd>
+                        <MudTd DataLabel="Fiscal">
+                            <span
+                            class="status-badge @GetFiscalStatusClass(context.FiscalizationStatus)">@context.FiscalizationStatus</span>
+                        </MudTd>
                         <MudTd DataLabel="Currency"><span class="currency-badge">@context.DocCurrency</span></MudTd>
                         <MudTd DataLabel="VAT" Style="text-align:right"><span
                             class="vat-cell">@context.VatSum.ToString("N2")</span></MudTd>
                             <MudTd DataLabel="Total" Style="text-align:right"><span
                                 class="amount-cell">@context.DocTotal.ToString("N2")</span></MudTd>
+                                <MudTd DataLabel="Action" Style="text-align:center;">
+                                    @if (CanFiscalize(context) || IsInvoiceFiscalizeBusy(context.DocEntry))
+                                    {
+                                        <div @onclick:stopPropagation="true">
+                                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                                       Disabled="@isFiscalizingInvoice"
+                                                       OnClick="@(() => FiscalizeInvoiceAsync(context))">
+                                                @if (IsInvoiceFiscalizeBusy(context.DocEntry))
+                                                {
+                                                    <span class="spinner-border spinner-border-sm"></span>
+                                                    <span>Fiscalising...</span>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-receipt-cutoff me-1"></i>
+                                                    <span>Fiscalise</span>
+                                                }
+                                            </MudButton>
+                                        </div>
+                                    }
+                                </MudTd>
                                 <MudTd DataLabel="View" Style="text-align:center;">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
-                                                   OnClick="@(() => ViewInvoice(context.DocEntry))" />
+                                    <div @onclick:stopPropagation="true">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
+                                                       OnClick="@(() => ViewInvoice(context.DocEntry))" />
+                                    </div>
                                 </MudTd>
                             </RowTemplate>
                             <PagerContent>
@@ -1199,6 +1438,7 @@
                                             <option value="25">25</option>
                                             <option value="50">50</option>
                                             <option value="100">100</option>
+                                            <option value="200">200</option>
                                         </select>
                                         <span>per page</span>
                                     </div>
@@ -1239,9 +1479,13 @@
                         <div class="cn-warning">
                             <i class="bi bi-exclamation-triangle-fill cn-warning-icon"></i>
                             <div class="cn-warning-body">
-                                <strong>@existingCreditNotes.CreditNotes.Count credit note(s)</strong> totaling
-                                <strong>@existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency</strong>
+                                <strong>@GetActiveCreditNoteCount() credit note(s)</strong> totaling
+                                <strong>@GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency</strong>
                                 already exist for this invoice.
+                                @if (IsSelectedInvoiceFullyCredited())
+                                {
+                                    <span> This invoice has been fully credited, so new credit notes are disabled.</span>
+                                }
                                 <MudButton Class="cn-view-link" OnClick="ShowExistingCreditNotes">View Details</MudButton>
                             </div>
                         </div>
@@ -1273,6 +1517,19 @@
                             <div class="detail-label">Currency</div>
                             <div class="detail-value">@selectedInvoice.DocCurrency</div>
                         </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Fiscal Status</div>
+                            <div class="detail-value"><span
+                                class="status-badge @GetFiscalStatusClass(selectedInvoice.FiscalizationStatus)">@selectedInvoice.FiscalizationStatus</span>
+                            </div>
+                        </div>
+                        @if (selectedInvoice.FiscalReceiptGlobalNo.HasValue)
+                        {
+                            <div class="detail-item">
+                                <div class="detail-label">Fiscal Receipt #</div>
+                                <div class="detail-value">@selectedInvoice.FiscalReceiptGlobalNo</div>
+                            </div>
+                        }
                         @if (!string.IsNullOrEmpty(selectedInvoice.NumAtCard))
                         {
                             <div class="detail-item">
@@ -1288,6 +1545,23 @@
                             </div>
                         }
                     </div>
+
+                    @{
+                        var fiscalQrCodeImageSrc = BuildFiscalQrCodeImageSrc(selectedInvoice.FiscalQrCode);
+                    }
+                    @if (!string.IsNullOrWhiteSpace(fiscalQrCodeImageSrc))
+                    {
+                        <div class="inv-fiscal-qr-card">
+                            <div class="inv-fiscal-qr-image-wrap">
+                                <img class="inv-fiscal-qr-image" src="@fiscalQrCodeImageSrc" alt="REVMax fiscal QR code" />
+                            </div>
+                            <div class="inv-fiscal-qr-copy">
+                                <span class="inv-fiscal-qr-label">REVMax QR Code</span>
+                                <div class="inv-fiscal-qr-title">Scan to verify this fiscal receipt</div>
+                                <p>The same QR code is used for the drawer preview, downloaded PDF, and print output for invoice #@selectedInvoice.DocNum.</p>
+                            </div>
+                        </div>
+                    }
 
                     <!-- Invoice Lines -->
                     @if (selectedInvoice.Lines?.Any() == true)
@@ -1317,7 +1591,8 @@
                                             <td>@line.WarehouseCode</td>
                                             <td style="text-align:right;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
                                             <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                            <td style="text-align:right;">@line.DiscountPercent%</td>
+                                            @* Up to six decimals so a special-price discount reads the same here as in SAP (5.714286%), without the trailing zeros a six-scale decimal prints raw *@
+                                            <td style="text-align:right;">@line.DiscountPercent.ToString("0.0####")%</td>
                                             <td style="text-align:right; font-weight:600;">@line.LineTotal.ToString("N2")</td>
                                         </tr>
                                     }
@@ -1346,8 +1621,9 @@
                     <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintInvoicePdf" Disabled="@isPdfLoading">
                         <i class="bi bi-printer me-1"></i> Print
                     </MudButton>
-                    <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal">
-                        <i class="bi bi-file-earmark-minus"></i> Create Credit Note
+                    <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal"
+                               Disabled="@IsSelectedInvoiceFullyCredited()">
+                        <i class="bi bi-file-earmark-minus"></i> @(IsSelectedInvoiceFullyCredited() ? "Fully Credited" : "Create Credit Note")
                     </MudButton>
                     <MudButton Class="btn-secondary-action" OnClick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</MudButton>
                 </div>
@@ -1369,7 +1645,7 @@
                             <div class="alert-banner info-alert" style="margin-bottom:1rem;">
                                 <i class="bi bi-info-circle-fill"></i>
                                 <div class="alert-body">
-                                    <strong>Total Credited:</strong> @existingCreditNotes.TotalCreditedAmount.ToString("N2")
+                                    <strong>Active Total Credited:</strong> @GetActiveCreditedAmount().ToString("N2")
                                     @selectedInvoice?.DocCurrency
                                 </div>
                             </div>
@@ -1452,9 +1728,11 @@
                                     <div class="alert-banner warn-alert" style="margin-bottom:1rem;">
                                         <i class="bi bi-exclamation-triangle-fill"></i>
                                         <div class="alert-body">
-                                            <strong>Warning:</strong> This invoice already has @existingCreditNotes.CreditNotes.Count credit
+                                            <strong>Warning:</strong> This invoice already has @GetActiveCreditNoteCount() active credit
                                             note(s)
-                                            totaling @existingCreditNotes.TotalCreditedAmount.ToString("N2") @selectedInvoice.DocCurrency.
+                                            totaling @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency.
+                                            Remaining creditable amount: @GetRemainingCreditableAmount().ToString("N2")
+                                            @selectedInvoice.DocCurrency.
                                         </div>
                                     </div>
                                 }
@@ -1556,27 +1834,41 @@
                     }
 
 @code {
+    private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
+        .StartsWith("van-sales-invoices", StringComparison.OrdinalIgnoreCase);
+
     private MudTable<InvoiceDto> _table = null!;
     private int _pageSize = 10;
     private List<InvoiceDto>? invoices;
     private List<InvoiceDto>? allInvoices;
     private InvoiceDto? selectedInvoice;
     private bool isLoading = true;
+    private bool isFiscalizingInvoice;
+    private int? fiscalizingInvoiceDocEntry;
     private string? errorMessage;
+    private string? successMessage;
+    private string? latestFiscalizationInvoiceNumber;
+    private string? latestFiscalizationRequestJson;
+    private string? latestFiscalizationResponseJson;
     private int currentPage = 1;
     private int pageSize = 20;
-    private bool hasMore = false;
     private int totalPages = 1;
     private int totalCount = 0;
     private string _searchString = string.Empty;
 
     private int? docNumSearch;
     private string? customerCode;
+    private string? fiscalStatusFilter;
     private DateTime? fromDate;
     private DateTime? toDate;
 
     private CancellationTokenSource? _debounceTokenSource;
     private const int DebounceDelayMs = 300;
+    private static readonly JsonSerializerOptions FiscalJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true
+    };
 
     // PDF state
     private bool isPdfLoading = false;
@@ -1587,6 +1879,9 @@
     private bool showCreateCreditNoteModal = false;
     private bool isCreatingCreditNote = false;
     private string? creditNoteReason;
+    // Stable idempotency key for the open credit-note modal; minted when the modal opens and reused
+    // across retries so a lost-response retry is deduplicated instead of posting a duplicate credit note.
+    private string? creditNoteClientRequestId;
     private List<CreditNoteLineSelection>? creditNoteLines;
     private bool selectAllLines = false;
     private string? creditNoteMessage;
@@ -1607,6 +1902,8 @@
         if (x.CardName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
             return true;
         if (x.DocCurrency?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (x.FiscalizationStatus?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
             return true;
         if ($"{x.DocEntry} {x.DocTotal}".Contains(_searchString))
             return true;
@@ -1647,20 +1944,28 @@
 
         try
         {
-            var hasFilters = docNumSearch.HasValue || !string.IsNullOrWhiteSpace(customerCode) || fromDate.HasValue ||
-toDate.HasValue;
+            var hasFilters = docNumSearch.HasValue
+                || !string.IsNullOrWhiteSpace(customerCode)
+                || !string.IsNullOrWhiteSpace(fiscalStatusFilter)
+                || fromDate.HasValue
+                || toDate.HasValue;
             var effectivePageSize = hasFilters ? 5000 : 100;
 
-            var response = await InvoiceService.GetInvoicesAsync(currentPage, effectivePageSize, docNumSearch, customerCode,
-fromDate,
-toDate);
+            var response = await InvoiceService.GetInvoicesAsync(
+                currentPage,
+                effectivePageSize,
+                docNumSearch,
+                customerCode,
+                fromDate,
+                toDate,
+                IsVanSalesView);
             if (response != null)
             {
-                invoices = response.Invoices;
-                allInvoices = response.Invoices;
-                hasMore = response.HasMore;
-                totalCount = response.TotalCount > 0 ? response.TotalCount : response.Count;
-                totalPages = response.TotalPages > 0 ? response.TotalPages : (hasMore ? currentPage + 1 : currentPage);
+                var loadedInvoices = response.Invoices ?? new List<InvoiceDto>();
+                allInvoices = loadedInvoices;
+                invoices = ApplyFiscalStatusFilter(loadedInvoices);
+                totalCount = invoices.Count;
+                totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
             }
             else
             {
@@ -1743,6 +2048,7 @@ toDate);
     {
         docNumSearch = null;
         customerCode = null;
+        fiscalStatusFilter = null;
         fromDate = null;
         toDate = null;
         currentPage = 1;
@@ -1751,6 +2057,36 @@ toDate);
         await LoadInvoices();
     }
 
+    private List<InvoiceDto> ApplyFiscalStatusFilter(IEnumerable<InvoiceDto> source)
+    {
+        if (string.IsNullOrWhiteSpace(fiscalStatusFilter))
+        {
+            return source.ToList();
+        }
+
+        return source
+            .Where(invoice => MatchesFiscalStatus(invoice.FiscalizationStatus, fiscalStatusFilter))
+            .ToList();
+    }
+
+    private static bool MatchesFiscalStatus(string? actualStatus, string? filterStatus)
+        => NormalizeFiscalStatus(actualStatus) == NormalizeFiscalStatus(filterStatus);
+
+    private static string NormalizeFiscalStatus(string? status)
+        => status?.Trim().ToLowerInvariant() switch
+        {
+            "fiscalised" => "fiscalised",
+            "not fiscalised" => "not fiscalised",
+            _ => "unknown"
+        };
+
+    private static bool CanFiscalize(InvoiceDto? invoice)
+        => invoice is { DocEntry: > 0 }
+           && NormalizeFiscalStatus(invoice.FiscalizationStatus) != "fiscalised";
+
+    private bool IsInvoiceFiscalizeBusy(int docEntry)
+        => isFiscalizingInvoice && fiscalizingInvoiceDocEntry == docEntry;
+
     private async Task ViewInvoice(int docEntry)
     {
         selectedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
@@ -1758,6 +2094,140 @@ toDate);
         {
             existingCreditNotes = await CreditNoteService.GetCreditNotesForInvoiceAsync(docEntry);
             await AuditService.LogAsync(AuditActions.ViewInvoice, "Invoice", docEntry.ToString());
+        }
+    }
+
+    private async Task FiscalizeInvoiceAsync(InvoiceDto invoice)
+    {
+        if (invoice == null || isFiscalizingInvoice)
+        {
+            return;
+        }
+
+        var docEntry = invoice.DocEntry;
+        var docNum = invoice.DocNum;
+
+        isFiscalizingInvoice = true;
+        fiscalizingInvoiceDocEntry = docEntry;
+        errorMessage = null;
+        successMessage = null;
+        ClearLatestFiscalizationPayload();
+
+        try
+        {
+            var result = await InvoiceService.FiscalizeInvoiceAsync(docEntry);
+            CaptureFiscalizationPayload(docNum.ToString(), result);
+            if (result.Success || result.Skipped)
+            {
+                var refreshedInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(docEntry);
+                if (refreshedInvoice != null)
+                {
+                    if (selectedInvoice?.DocEntry == docEntry)
+                    {
+                        selectedInvoice = refreshedInvoice;
+                    }
+
+                    UpsertInvoice(refreshedInvoice);
+                }
+                else
+                {
+                    await LoadInvoices();
+                }
+
+                successMessage = result.Message ?? $"Invoice #{docNum} fiscalised successfully.";
+                await AuditService.LogAsync(
+                    AuditActions.FiscalizeInvoice,
+                    "Invoice",
+                    docEntry.ToString(),
+                    successMessage,
+                    true);
+            }
+            else
+            {
+                errorMessage = result.Message ?? $"Failed to fiscalise invoice #{docNum}.";
+                await AuditService.LogAsync(
+                    AuditActions.FiscalizeInvoice,
+                    "Invoice",
+                    docEntry.ToString(),
+                    errorMessage,
+                    false,
+                    errorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ApiErrorResponse.GetFriendlyMessage(ex, $"Failed to fiscalise invoice #{docNum}.");
+            await AuditService.LogAsync(
+                AuditActions.FiscalizeInvoice,
+                "Invoice",
+                docEntry.ToString(),
+                errorMessage,
+                false,
+                errorMessage);
+        }
+        finally
+        {
+            isFiscalizingInvoice = false;
+            fiscalizingInvoiceDocEntry = null;
+        }
+    }
+
+    private void UpsertInvoice(InvoiceDto updatedInvoice)
+    {
+        if (allInvoices != null)
+        {
+            var existingIndex = allInvoices.FindIndex(invoice => invoice.DocEntry == updatedInvoice.DocEntry);
+            if (existingIndex >= 0)
+            {
+                allInvoices[existingIndex] = updatedInvoice;
+            }
+        }
+
+        invoices = ApplyFiscalStatusFilter(allInvoices ?? new List<InvoiceDto>());
+        totalCount = invoices.Count;
+        totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
+    }
+
+    private bool HasLatestFiscalizationPayload
+        => !string.IsNullOrWhiteSpace(latestFiscalizationRequestJson)
+           || !string.IsNullOrWhiteSpace(latestFiscalizationResponseJson);
+
+    private void CaptureFiscalizationPayload(string fallbackInvoiceNumber, FiscalizationResult? result)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        latestFiscalizationInvoiceNumber = string.IsNullOrWhiteSpace(result.InvoiceNumber)
+            ? fallbackInvoiceNumber
+            : result.InvoiceNumber;
+        latestFiscalizationRequestJson = PrettyPrintJson(result.RawRequestJson);
+        latestFiscalizationResponseJson = PrettyPrintJson(result.RawResponseJson);
+    }
+
+    private void ClearLatestFiscalizationPayload()
+    {
+        latestFiscalizationInvoiceNumber = null;
+        latestFiscalizationRequestJson = null;
+        latestFiscalizationResponseJson = null;
+    }
+
+    private static string? PrettyPrintJson(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(value);
+            return JsonSerializer.Serialize(document.RootElement, FiscalJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return value;
         }
     }
 
@@ -1777,7 +2247,7 @@ toDate);
         isPdfLoading = true;
         try
         {
-            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry);
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry, selectedInvoice.FiscalQrCode);
             if (pdfBytes == null || pdfBytes.Length == 0)
             {
                 errorMessage = "Failed to retrieve invoice PDF.";
@@ -1804,7 +2274,7 @@ toDate);
         isPdfLoading = true;
         try
         {
-            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry);
+            var pdfBytes = await InvoiceService.GetInvoicePdfAsync(selectedInvoice.DocEntry, selectedInvoice.FiscalQrCode);
             if (pdfBytes == null || pdfBytes.Length == 0)
             {
                 errorMessage = "Failed to retrieve invoice PDF for printing.";
@@ -1824,6 +2294,28 @@ toDate);
         }
     }
 
+    private static string? BuildFiscalQrCodeImageSrc(string? fiscalQrCode)
+    {
+        if (string.IsNullOrWhiteSpace(fiscalQrCode))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var generator = new QRCodeGenerator();
+            using var data = generator.CreateQrCode(fiscalQrCode.Trim(), QRCodeGenerator.ECCLevel.Q);
+            var qrCode = new SvgQRCode(data);
+            var svg = qrCode.GetGraphic(8);
+            var bytes = Encoding.UTF8.GetBytes(svg);
+            return $"data:image/svg+xml;base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private void ShowExistingCreditNotes()
     {
         showExistingCreditNotesModal = true;
@@ -1831,7 +2323,17 @@ toDate);
 
     private void OpenCreateCreditNoteModal()
     {
-        if (selectedInvoice?.Lines == null) return;
+        if (selectedInvoice?.Lines == null)
+        {
+            return;
+        }
+
+        if (IsSelectedInvoiceFullyCredited())
+        {
+            creditNoteSuccess = false;
+            creditNoteMessage = $"Invoice #{selectedInvoice.DocNum} has already been fully credited.";
+            return;
+        }
 
         creditNoteLines = selectedInvoice.Lines.Select(line => new CreditNoteLineSelection
         {
@@ -1847,6 +2349,7 @@ toDate);
 
         selectAllLines = true;
         creditNoteReason = null;
+        creditNoteClientRequestId = Guid.NewGuid().ToString("N");
         showCreateCreditNoteModal = true;
     }
 
@@ -1875,6 +2378,13 @@ toDate);
         if (selectedInvoice == null || creditNoteLines == null || string.IsNullOrWhiteSpace(creditNoteReason))
             return;
 
+        if (IsSelectedInvoiceFullyCredited())
+        {
+            creditNoteSuccess = false;
+            creditNoteMessage = $"Invoice #{selectedInvoice.DocNum} has already been fully credited.";
+            return;
+        }
+
         isCreatingCreditNote = true;
         creditNoteMessage = null;
         creditNoteProgress = 0;
@@ -1901,7 +2411,8 @@ toDate);
             var result = await CreditNoteService.CreateFromInvoiceAsync(
             selectedInvoice.DocEntry,
             selectedLines,
-            creditNoteReason
+            creditNoteReason,
+            creditNoteClientRequestId
             );
 
             _progressCancellationTokenSource?.Cancel();
@@ -1994,6 +2505,46 @@ toDate);
         CreditNoteStatus.Voided => "",
         _ => ""
     };
+
+    private static string GetFiscalStatusClass(string? status)
+        => status?.Trim().ToLowerInvariant() switch
+        {
+            "fiscalised" => "fiscalised",
+            "not fiscalised" => "not-fiscalised",
+            _ => "unknown"
+        };
+
+    private int GetActiveCreditNoteCount()
+    {
+        return existingCreditNotes?.CreditNotes?.Count(IsActiveCreditNote) ?? 0;
+    }
+
+    private decimal GetActiveCreditedAmount()
+    {
+        return existingCreditNotes?.CreditNotes?
+            .Where(IsActiveCreditNote)
+            .Sum(note => note.DocTotal) ?? 0m;
+    }
+
+    private decimal GetRemainingCreditableAmount()
+    {
+        if (selectedInvoice == null)
+        {
+            return 0m;
+        }
+
+        return Math.Max(0m, selectedInvoice.DocTotal - GetActiveCreditedAmount());
+    }
+
+    private bool IsSelectedInvoiceFullyCredited()
+    {
+        return selectedInvoice != null && GetRemainingCreditableAmount() <= 0.01m;
+    }
+
+    private static bool IsActiveCreditNote(CreditNoteDto creditNote)
+    {
+        return creditNote.Status != CreditNoteStatus.Cancelled && creditNote.Status != CreditNoteStatus.Voided;
+    }
 
     private string TruncateText(string? text, int maxLength)
     {

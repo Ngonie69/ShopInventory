@@ -98,6 +98,8 @@ public class SAPConnectionSettingsDto
     public string? ServiceLayerUrl { get; set; }
     public string? CompanyDB { get; set; }
     public string? UserName { get; set; }
+    public int? InvoiceSeries { get; set; }
+    public string? InvoiceSeriesName { get; set; }
     public bool IsConfigured { get; set; }
     public bool IsConnected { get; set; }
     public DateTime? LastConnectionTime { get; set; }
@@ -121,6 +123,10 @@ public class UpdateSAPSettingsRequest
     [Required]
     public string Password { get; set; } = null!;
 
+    public int? InvoiceSeries { get; set; }
+
+    public string? InvoiceSeriesName { get; set; }
+
     public bool TestConnection { get; set; } = true;
 }
 
@@ -143,6 +149,8 @@ public class SAPSettingsDto
     public string? ServiceLayerUrl { get; set; }
     public string? CompanyDB { get; set; }
     public string? UserName { get; set; }
+    public int? InvoiceSeries { get; set; }
+    public string? InvoiceSeriesName { get; set; }
     public bool IsConfigured { get; set; }
     public bool IsConnected { get; set; }
     public DateTime? LastConnectionTime { get; set; }

@@ -61,6 +61,7 @@ public class NotificationService : INotificationService
 
         var notification = new Notification
         {
+            UserId = request.TargetUserId,
             TargetUsername = request.TargetUsername,
             TargetRole = request.TargetRole,
             Title = request.Title,
@@ -160,7 +161,10 @@ public class NotificationService : INotificationService
 
             if (sentCount == 0)
             {
-                _logger.LogWarning(
+                // A user or role may legitimately have no registered/active devices. The
+                // notification remains available in-app, so this is operational context rather
+                // than a delivery-system failure.
+                _logger.LogInformation(
                     "Push notification {NotificationId} reached no active devices for target {Target}",
                     notification.Id,
                     request.TargetUsername ?? request.TargetRole ?? targetUserId?.ToString() ?? "all");
@@ -267,6 +271,7 @@ public class NotificationService : INotificationService
         bool asTracking = false)
     {
         var normalizedRoles = NotificationAudienceRules.NormalizeRoles(roles);
+        var isDriver = NotificationAudienceRules.HasAnyRole(normalizedRoles, ["Driver"]);
         var hasUsername = !string.IsNullOrWhiteSpace(username);
         var hasRoles = normalizedRoles.Length > 0;
         var canSeeSystemNotifications = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SystemAudienceRoles);
@@ -277,6 +282,7 @@ public class NotificationService : INotificationService
         var canSeeInventoryBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.InventoryAudienceRoles);
         var canSeePurchasingBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PurchasingAudienceRoles);
         var canSeePodBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PodAudienceRoles);
+        var canSeeAppVersionNotifications = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.AppVersionAudienceRoles);
         var canSeeLabBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.LabAudienceRoles);
         var canSeeDashboardRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.DashboardAudienceRoles);
         var canSeeSalesOrderRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesOrderPageAudienceRoles);
@@ -305,20 +311,43 @@ public class NotificationService : INotificationService
         }
 
         return query.Where(n =>
-                ((hasUsername && n.TargetUsername == username) ||
-                 (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole)) ||
-                 (n.TargetUsername == null && n.TargetRole == null)) &&
-                ((canSeeSystemNotifications && NotificationAudienceRules.SystemBroadcastCategories.Contains(n.Category)) ||
-                 (canSeeSecurityNotifications && NotificationAudienceRules.SecurityBroadcastCategories.Contains(n.Category)) ||
-                 (canSeeSalesBroadcasts && NotificationAudienceRules.SalesBroadcastCategories.Contains(n.Category)) ||
-                 (canSeeInvoiceBroadcasts && NotificationAudienceRules.InvoiceBroadcastCategories.Contains(n.Category)) ||
-                 (canSeePaymentBroadcasts && NotificationAudienceRules.PaymentBroadcastCategories.Contains(n.Category)) ||
-                 (canSeeInventoryBroadcasts && NotificationAudienceRules.InventoryBroadcastCategories.Contains(n.Category)) ||
-                 (canSeePurchasingBroadcasts && NotificationAudienceRules.PurchasingBroadcastCategories.Contains(n.Category)) ||
-                 (canSeePodBroadcasts && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
-                 (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category))))
+                                (hasUsername && n.TargetUsername == username && n.Category == "TransferApproval") ||
+                                (isDriver &&
+                                 ((hasUsername && n.TargetUsername == username && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
+                                    (((hasUsername && n.TargetUsername == username) ||
+                                        (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole))) &&
+                                     n.Category == "Security" &&
+                                     n.EntityType == "BusinessPartner" &&
+                                     n.ActionUrl == null) ||
+                                    (((hasUsername && n.TargetUsername == username) ||
+                                        (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole))) &&
+                                     n.EntityType == "AppVersion"))) ||
+                                (((hasUsername && n.TargetUsername == username) ||
+                                    (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole)) ||
+                                    (n.TargetUsername == null && n.TargetRole == null)) &&
+                                 ((canSeeSystemNotifications && NotificationAudienceRules.SystemBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeSecurityNotifications && NotificationAudienceRules.SecurityBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeSalesBroadcasts && NotificationAudienceRules.SalesBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeInvoiceBroadcasts && NotificationAudienceRules.InvoiceBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeePaymentBroadcasts && NotificationAudienceRules.PaymentBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeInventoryBroadcasts && NotificationAudienceRules.InventoryBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeePurchasingBroadcasts && NotificationAudienceRules.PurchasingBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeePodBroadcasts && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeAppVersionNotifications && NotificationAudienceRules.AppVersionBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category)))))
             .Where(n =>
-                string.IsNullOrEmpty(n.ActionUrl) ||
+                                (hasUsername && n.TargetUsername == username && n.Category == "TransferApproval") ||
+                                (isDriver &&
+                                 ((hasUsername && n.TargetUsername == username && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
+                                    (((hasUsername && n.TargetUsername == username) ||
+                                        (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole))) &&
+                                     n.Category == "Security" &&
+                                     n.EntityType == "BusinessPartner" &&
+                                     n.ActionUrl == null) ||
+                                    (((hasUsername && n.TargetUsername == username) ||
+                                        (hasRoles && n.TargetRole != null && normalizedRoles.Contains(n.TargetRole))) &&
+                                     n.EntityType == "AppVersion"))) ||
+                                string.IsNullOrEmpty(n.ActionUrl) ||
                 (canSeeDashboardRoutes && (n.ActionUrl == "/" || n.ActionUrl.StartsWith("/dashboard"))) ||
                 (canSeeLabBroadcasts && n.ActionUrl.StartsWith("/lab/batch-status")) ||
                 (canSeeSalesOrderEditRoutes && n.ActionUrl.StartsWith("/sales-orders/edit")) ||

@@ -46,6 +46,9 @@ public class SAPQuotation
     [JsonPropertyName("DocCurrency")]
     public string? DocCurrency { get; set; }
 
+    [JsonPropertyName("U_OrderNumber")]
+    public string? U_OrderNumber { get; set; }
+
     [JsonPropertyName("SalesPersonCode")]
     public int? SalesPersonCode { get; set; }
 

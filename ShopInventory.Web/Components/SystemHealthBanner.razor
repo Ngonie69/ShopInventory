@@ -1,0 +1,138 @@
+@using ShopInventory.Web.Models
+@using ShopInventory.Web.Services
+@inject ISystemHealthService SystemHealthService
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+@if (_hasFailures && !_dismissed)
+{
+
+    <div class="syshb-banner @(_isCritical ? "syshb-critical" : "syshb-degraded")" role="alert">
+        <div class="syshb-inner">
+            <div class="syshb-icon-wrap">
+                @if (_isCritical)
+                {
+                    <svg class="syshb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                }
+                else
+                {
+                    <svg class="syshb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M12 9v3.75m9.303 3.376c.866 1.5-.217 3.374-1.948 3.374H4.645c-1.73 0-2.813-1.874-1.948-3.374l7.703-13.373c.866-1.5 3.032-1.5 3.898 0L21.303 16.126zM12 15.75h.007v.008H12v-.008z" />
+                    </svg>
+                }
+            </div>
+            <div class="syshb-content">
+                <span class="syshb-title">
+                    @(_isCritical ? "System Failure Detected" : "System Degraded")
+                </span>
+                <span class="syshb-checks">
+                    @foreach (var check in _failingChecks)
+                    {
+                        <span
+                            class="syshb-check-pill @(check.Status == "Unhealthy" ? "syshb-pill-critical" : "syshb-pill-warn")">
+                            @FriendlyName(check.Name)
+                        </span>
+                    }
+                </span>
+                @if (!string.IsNullOrWhiteSpace(_primaryFailureDescription))
+                {
+                    <span class="syshb-desc">
+                        @_primaryFailureDescription
+                    </span>
+                }
+            </div>
+            <div class="syshb-actions">
+                @if (ShowDetailsButton)
+                {
+                    <button class="syshb-btn-link" @onclick="GoToSyncStatus">View Details</button>
+                }
+                <button class="syshb-dismiss" @onclick="Dismiss" aria-label="Dismiss">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+        @if (_checkedAtCat.HasValue)
+        {
+            <div class="syshb-timestamp">Last checked: @_checkedAtCat.Value.ToString("HH:mm:ss")</div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public bool ShowDetailsButton { get; set; } = true;
+
+    private bool _hasFailures;
+    private bool _isCritical;
+    private bool _dismissed;
+    private List<SystemHealthCheckEntry> _failingChecks = new();
+    private string? _primaryFailureDescription;
+    private DateTime? _checkedAtCat;
+    private Timer? _timer;
+    private CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await PollAsync();
+        _timer = new Timer(async _ => await SafePollAsync(), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    private async Task SafePollAsync()
+    {
+        try { await InvokeAsync(async () => { await PollAsync(); StateHasChanged(); }); }
+        catch { /* circuit is disposed */ }
+    }
+
+    private async Task PollAsync()
+    {
+        if (_cts.IsCancellationRequested) return;
+
+        var health = await SystemHealthService.GetHealthAsync(_cts.Token);
+        if (health?.Dependencies is null) return;
+
+        _checkedAtCat = DateTime.UtcNow.AddHours(2); // CAT = UTC+2
+        _failingChecks = health.Dependencies.Checks
+            .Where(c => c.Status is "Unhealthy" or "Degraded")
+            .OrderByDescending(c => c.Status == "Unhealthy") // critical first
+            .ToList();
+        _primaryFailureDescription = _failingChecks
+            .Select(c => c.Description)
+            .FirstOrDefault(description => !string.IsNullOrWhiteSpace(description));
+
+        _hasFailures = _failingChecks.Count > 0;
+        _isCritical = _failingChecks.Any(c => c.Status == "Unhealthy");
+
+        // Reset dismissal when a new failure appears that wasn't previously dismissed
+        if (_hasFailures) _dismissed = false;
+    }
+
+    private void Dismiss() => _dismissed = true;
+
+    private void GoToSyncStatus() => NavigationManager.NavigateTo("/sync-status");
+
+    private static string FriendlyName(string name) => name switch
+    {
+        "database" => "Database",
+        "schema" => "DB Schema",
+        "db-latency" => "DB Latency",
+        "operations" => "Operations",
+        "workers" => "Background Workers",
+        "queues" => "Queue Pressure",
+        "thread-pool" => "Thread Pool",
+        "sap" => "SAP Connection",
+        "api" => "API Unreachable",
+        _ => name
+    };
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

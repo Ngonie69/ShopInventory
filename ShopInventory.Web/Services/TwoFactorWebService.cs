@@ -23,7 +23,7 @@ public interface ITwoFactorWebService
     /// <summary>
     /// Enable 2FA by verifying setup code
     /// </summary>
-    Task<(bool Success, string Message)> EnableTwoFactorAsync(string code);
+    Task<(bool Success, string Message, List<string>? BackupCodes)> EnableTwoFactorAsync(string code);
 
     /// <summary>
     /// Disable 2FA
@@ -33,7 +33,7 @@ public interface ITwoFactorWebService
     /// <summary>
     /// Regenerate backup codes
     /// </summary>
-    Task<List<string>?> RegenerateBackupCodesAsync(string code);
+    Task<(bool Success, string Message, List<string>? BackupCodes)> RegenerateBackupCodesAsync(string code);
 
     /// <summary>
     /// Change password for current user
@@ -152,7 +152,10 @@ public class TwoFactorWebService : ITwoFactorWebService
 
             var error = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("Failed to initiate 2FA setup (HTTP {StatusCode}): {Error}", (int)response.StatusCode, error);
-            throw new HttpRequestException($"API returned {(int)response.StatusCode}: {error}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                error,
+                "We couldn't start two-factor setup right now. Please try again.");
         }
         catch (HttpRequestException)
         {
@@ -165,7 +168,7 @@ public class TwoFactorWebService : ITwoFactorWebService
         }
     }
 
-    public async Task<(bool Success, string Message)> EnableTwoFactorAsync(string code)
+    public async Task<(bool Success, string Message, List<string>? BackupCodes)> EnableTwoFactorAsync(string code)
     {
         try
         {
@@ -175,7 +178,23 @@ public class TwoFactorWebService : ITwoFactorWebService
 
             if (response.IsSuccessStatusCode)
             {
-                return (true, "Two-factor authentication enabled successfully");
+                var content = await response.Content.ReadAsStringAsync();
+
+                try
+                {
+                    using var payload = System.Text.Json.JsonDocument.Parse(content);
+                    var message = payload.RootElement.TryGetProperty("message", out var messageElement)
+                        ? messageElement.GetString()
+                        : "Two-factor authentication enabled successfully";
+                    var backupCodes = payload.RootElement.TryGetProperty("backupCodes", out var codesElement)
+                        ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(codesElement.GetRawText())
+                        : null;
+                    return (true, message ?? "Two-factor authentication enabled successfully", backupCodes);
+                }
+                catch
+                {
+                    return (true, "Two-factor authentication enabled successfully", null);
+                }
             }
 
             var errorContent = await response.Content.ReadAsStringAsync();
@@ -185,17 +204,19 @@ public class TwoFactorWebService : ITwoFactorWebService
             {
                 var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                return (false, errorResponse?.Message ?? "Failed to enable 2FA");
+                return (false, errorResponse?.Message ?? "Failed to enable 2FA", null);
             }
             catch
             {
-                return (false, "Failed to enable 2FA");
+                return (false, "Failed to enable 2FA", null);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error enabling 2FA");
-            return (false, $"Error: {ex.Message}");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't enable two-factor authentication right now. Please try again."), null);
         }
     }
 
@@ -229,11 +250,13 @@ public class TwoFactorWebService : ITwoFactorWebService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error disabling 2FA");
-            return (false, $"Error: {ex.Message}");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't disable two-factor authentication right now. Please try again."));
         }
     }
 
-    public async Task<List<string>?> RegenerateBackupCodesAsync(string code)
+    public async Task<(bool Success, string Message, List<string>? BackupCodes)> RegenerateBackupCodesAsync(string code)
     {
         try
         {
@@ -243,17 +266,45 @@ public class TwoFactorWebService : ITwoFactorWebService
 
             if (response.IsSuccessStatusCode)
             {
-                return await response.Content.ReadFromJsonAsync<List<string>>();
+                var content = await response.Content.ReadAsStringAsync();
+
+                try
+                {
+                    using var payload = System.Text.Json.JsonDocument.Parse(content);
+                    var message = payload.RootElement.TryGetProperty("message", out var messageElement)
+                        ? messageElement.GetString()
+                        : "Backup codes regenerated successfully";
+                    var backupCodes = payload.RootElement.TryGetProperty("backupCodes", out var codesElement)
+                        ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(codesElement.GetRawText())
+                        : null;
+                    return (true, message ?? "Backup codes regenerated successfully", backupCodes);
+                }
+                catch
+                {
+                    return (true, "Backup codes regenerated successfully", null);
+                }
             }
 
-            var error = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Failed to regenerate backup codes: {Error}", error);
-            return null;
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Failed to regenerate backup codes: {Error}", errorContent);
+
+            try
+            {
+                var errorResponse = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(errorContent,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return (false, errorResponse?.Message ?? "Failed to regenerate backup codes", null);
+            }
+            catch
+            {
+                return (false, "Failed to regenerate backup codes", null);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error regenerating backup codes");
-            return null;
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't regenerate backup codes right now. Please try again."), null);
         }
     }
 
@@ -285,7 +336,9 @@ public class TwoFactorWebService : ITwoFactorWebService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error changing password");
-            return (false, $"Error: {ex.Message}");
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't change the password right now. Please try again."));
         }
     }
 
@@ -361,7 +414,9 @@ public class TwoFactorWebService : ITwoFactorWebService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating credentials");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't update these credentials right now. Please try again."), null);
         }
     }
 
@@ -424,7 +479,9 @@ public class TwoFactorWebService : ITwoFactorWebService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting passkey registration");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't start passkey registration right now. Please try again."), null);
         }
     }
 
@@ -465,7 +522,9 @@ public class TwoFactorWebService : ITwoFactorWebService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error completing passkey registration");
-            return (false, $"Error: {ex.Message}", null);
+            return (false, ApiErrorResponse.GetFriendlyMessage(
+                ex,
+                "We couldn't complete passkey registration right now. Please try again."), null);
         }
     }
 }

@@ -13,12 +13,6 @@ public sealed class RegisterHandler(
     ILogger<RegisterHandler> logger
 ) : IRequestHandler<RegisterCommand, ErrorOr<UserInfo>>
 {
-    private static readonly string[] ValidRoles =
-    [
-        "Admin", "Manager", "Cashier", "StockController", "DepotController",
-        "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab"
-    ];
-
     public async Task<ErrorOr<UserInfo>> Handle(
         RegisterCommand command,
         CancellationToken cancellationToken)
@@ -26,7 +20,7 @@ public sealed class RegisterHandler(
         logger.LogInformation("Admin {Admin} attempting to register new user: {Username}",
             command.AdminUsername, command.Username);
 
-        if (!ValidRoles.Contains(command.Role, StringComparer.OrdinalIgnoreCase))
+        if (!ApplicationRoles.IsAssignableRole(command.Role))
         {
             return Errors.Auth.InvalidRole(command.Role);
         }
@@ -35,7 +29,7 @@ public sealed class RegisterHandler(
             command.Username,
             command.Email ?? string.Empty,
             command.Password,
-            command.Role);
+            command.Role.Trim());
 
         if (user is null)
         {

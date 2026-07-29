@@ -5,6 +5,7 @@
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerRegister> Logger
+@inject WebClientAuditContext ClientAuditContext
 @attribute [AllowAnonymous]
 @rendermode InteractiveServer
 @layout EmptyLayout
@@ -528,7 +529,7 @@
                 registerModel.CardCode.Trim(),
                 registerModel.Email.Trim(),
                 registerModel.Password,
-                "self-service"
+                GetClientIpAddress()
             );
 
             if (success)
@@ -550,4 +551,8 @@
             isLoading = false;
         }
     }
+
+    private string GetClientIpAddress() => string.IsNullOrWhiteSpace(ClientAuditContext.IpAddress)
+        ? "unknown"
+        : ClientAuditContext.IpAddress;
 }

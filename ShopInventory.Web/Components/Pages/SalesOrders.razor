@@ -1,4 +1,5 @@
 @page "/sales-orders"
+@using System.Diagnostics
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier,SalesRep")]
@@ -6,6 +7,7 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
 @inject IPriceService PriceService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -447,9 +449,11 @@
     }
 
     /* ── Drawer ──────────────────────────────────────── */
+    /* Offset below the app bar: the page container is a stacking context, so a drawer
+       cannot paint over the topbar however high its z-index. */
     .modal-backdrop-custom {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .45);
         z-index: 9998;
         animation: fadeIn .2s ease;
@@ -457,10 +461,10 @@
 
     .detail-drawer {
         position: fixed;
-        top: 0;
+        top: var(--kf-topbar-h, 74px);
         right: 0;
         width: min(640px, 95vw);
-        height: 100vh;
+        height: calc(100vh - var(--kf-topbar-h, 74px));
         background: #fff;
         z-index: 9999;
         box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
@@ -517,6 +521,7 @@
         gap: .5rem;
         justify-content: flex-end;
         flex-shrink: 0;
+        flex-wrap: wrap;
     }
 
     .detail-grid {
@@ -655,9 +660,11 @@
     }
 
     /* ── Create Modal ────────────────────────────────── */
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
     .create-modal-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .5);
         z-index: 10000;
         display: flex;
@@ -671,7 +678,7 @@
         background: #fff;
         border-radius: 14px;
         width: min(780px, 95vw);
-        max-height: 90vh;
+        max-height: calc(90vh - var(--kf-topbar-h, 74px));
         display: flex;
         flex-direction: column;
         box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
@@ -815,6 +822,151 @@
         background: #f9fafb;
     }
 
+    .approval-modal {
+        width: min(560px, 95vw);
+    }
+
+    .approval-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: .75rem;
+        margin-bottom: 1rem;
+    }
+
+    .approval-summary-item {
+        min-width: 0;
+        padding: .75rem .85rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f8fafc;
+    }
+
+    .approval-summary-item.customer {
+        grid-column: 1 / -1;
+    }
+
+    .approval-summary-label {
+        color: #6b7280;
+        font-size: .7rem;
+        font-weight: 700;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+    }
+
+    .approval-summary-value {
+        overflow: hidden;
+        margin-top: .2rem;
+        color: #111827;
+        font-size: .92rem;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .approval-impact {
+        display: flex;
+        gap: .7rem;
+        padding: .85rem;
+        border: 1px solid #a7f3d0;
+        border-radius: 10px;
+        background: #ecfdf5;
+        color: #065f46;
+        font-size: .84rem;
+        line-height: 1.45;
+    }
+
+    .approval-impact i {
+        flex: 0 0 auto;
+        margin-top: .05rem;
+        font-size: 1.05rem;
+    }
+
+    .approval-processing {
+        padding: .35rem 0 .15rem;
+        text-align: center;
+    }
+
+    .approval-processing-icon {
+        display: inline-flex;
+        width: 54px;
+        height: 54px;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: .8rem;
+        border-radius: 50%;
+        background: #ecfdf5;
+        color: #059669;
+        font-size: 1.45rem;
+    }
+
+    .approval-processing h6 {
+        margin-bottom: .35rem;
+        color: #111827;
+        font-weight: 700;
+    }
+
+    .approval-processing p {
+        max-width: 430px;
+        margin: 0 auto;
+        color: #6b7280;
+        font-size: .86rem;
+        line-height: 1.5;
+    }
+
+    .approval-progress-bar {
+        height: 5px;
+        margin: 1rem auto .8rem;
+        overflow: hidden;
+        border-radius: 999px;
+        background: #d1fae5;
+    }
+
+    .approval-progress-bar span {
+        display: block;
+        width: 45%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #10b981, #047857);
+        animation: approvalProgress 1.25s ease-in-out infinite;
+    }
+
+    .approval-includes {
+        margin-top: .85rem;
+        color: #6b7280;
+        font-size: .76rem;
+        text-align: center;
+    }
+
+    .btn-approve-order {
+        background: linear-gradient(135deg, #059669, #047857);
+    }
+
+    .btn-approve-order:hover {
+        box-shadow: 0 4px 14px rgba(5, 150, 105, .28);
+    }
+
+    .dark-theme .approval-summary-item {
+        border-color: #374151;
+        background: #172033;
+    }
+
+    .dark-theme .approval-summary-label,
+    .dark-theme .approval-processing p,
+    .dark-theme .approval-includes {
+        color: #a7b0c0;
+    }
+
+    .dark-theme .approval-summary-value,
+    .dark-theme .approval-processing h6 {
+        color: #f3f4f6;
+    }
+
+    .dark-theme .approval-impact {
+        border-color: #065f46;
+        background: rgba(6, 95, 70, .2);
+        color: #a7f3d0;
+    }
+
     /* ── Empty / Loading ─────────────────────────────── */
     .empty-state {
         text-align: center;
@@ -919,6 +1071,16 @@
         }
     }
 
+    @@keyframes approvalProgress {
+        from {
+            transform: translateX(-110%);
+        }
+
+        to {
+            transform: translateX(245%);
+        }
+    }
+
     @@media (max-width:768px) {
         .so-header {
             flex-direction: column;
@@ -963,12 +1125,17 @@
         }
 
         .detail-grid,
-        .form-grid {
+        .form-grid,
+        .approval-summary {
             grid-template-columns: 1fr;
         }
 
         .form-field.full {
             grid-column: span 1;
+        }
+
+        .approval-summary-item.customer {
+            grid-column: auto;
         }
     }
 </style>
@@ -1189,7 +1356,7 @@
                                                                 <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
                                                                                Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
                                                                                Disabled="@IsOrderActionBusy(context.Id)"
-                                                                               OnClick="() => ApproveOrder(context.Id)" />
+                                                                               OnClick="() => OpenApprovalModal(context)" />
                                                             }
                                                         }
                                                             @if (CanRejectOrder(context))
@@ -1237,6 +1404,7 @@
                                                         <option value="25">25</option>
                                                         <option value="50">50</option>
                                                         <option value="100">100</option>
+                                                        <option value="200">200</option>
                                                     </select>
                                                     <span>per page</span>
                                                 </div>
@@ -1390,6 +1558,16 @@
                                         }
                                     </MudButton>
                                 }
+                                @if (selectedOrder.Status == SalesOrderStatus.Pending && !selectedOrder.IsSynced)
+                                {
+                                    <MudButton Class="btn-so-gradient"
+                                               Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
+                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                               OnClick="() => OpenApprovalModal(selectedOrder)">
+                                        <i class="bi bi-check-circle me-1"></i>
+                                        <span>Review &amp; Approve</span>
+                                    </MudButton>
+                                }
                                 @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
                                 {
                                     <MudButton Class="btn-so-gradient"
@@ -1407,7 +1585,113 @@
                                         }
                                     </MudButton>
                                 }
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintSalesOrderPdf"
+                                           Disabled="@isPdfLoading">
+                                    <i class="bi bi-printer me-1"></i> Print
+                                </MudButton>
                                 <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
+                            </div>
+                        </div>
+                    }
+
+                    @if (approvalOrder != null)
+                    {
+                        <div class="create-modal-overlay" @onclick="CloseApprovalModal">
+                            <div class="create-modal approval-modal"
+                                 role="dialog"
+                                 aria-modal="true"
+                                 aria-labelledby="approval-dialog-title"
+                                 @onclick:stopPropagation="true">
+                                <div class="create-modal-header">
+                                    <h5 id="approval-dialog-title">
+                                        <i class="bi bi-check-circle text-success"></i>
+                                        Approve Sales Order
+                                    </h5>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                                   Class="btn-close-modal"
+                                                   OnClick="CloseApprovalModal"
+                                                   Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)" />
+                                </div>
+                                <div class="create-modal-body">
+                                    @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                                    {
+                                        <div class="approval-processing" aria-live="polite">
+                                            <div class="approval-processing-icon">
+                                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                            </div>
+                                            <h6>Approving and posting to SAP</h6>
+                                            <p>
+                                                Current SAP pricing is being validated, duplicate safeguards are being checked,
+                                                and the order is being posted. Please keep this window open.
+                                            </p>
+                                            <div class="approval-progress-bar" aria-hidden="true"><span></span></div>
+                                            <div class="approval-includes">
+                                                Order @approvalOrder.OrderNumber · retries are protected
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="approval-summary">
+                                            <div class="approval-summary-item customer">
+                                                <div class="approval-summary-label">Customer</div>
+                                                <div class="approval-summary-value" title="@approvalOrder.CardName">
+                                                    @approvalOrder.CardCode — @approvalOrder.CardName
+                                                </div>
+                                            </div>
+                                            <div class="approval-summary-item">
+                                                <div class="approval-summary-label">Order</div>
+                                                <div class="approval-summary-value">@approvalOrder.OrderNumber</div>
+                                            </div>
+                                            <div class="approval-summary-item">
+                                                <div class="approval-summary-label">Amount</div>
+                                                <div class="approval-summary-value">
+                                                    @approvalOrder.Currency @approvalOrder.DocTotal.ToString("N2")
+                                                </div>
+                                            </div>
+                                            @if (approvalOrder.Lines?.Count > 0)
+                                            {
+                                                <div class="approval-summary-item">
+                                                    <div class="approval-summary-label">Lines</div>
+                                                    <div class="approval-summary-value">@approvalOrder.Lines.Count</div>
+                                                </div>
+                                            }
+                                            <div class="approval-summary-item">
+                                                <div class="approval-summary-label">Created by</div>
+                                                <div class="approval-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
+                                            </div>
+                                        </div>
+                                        <div class="approval-impact">
+                                            <i class="bi bi-info-circle-fill"></i>
+                                            <div>
+                                                <strong>This action also posts the order to SAP.</strong>
+                                                Prices will be refreshed from SAP before posting, so the final amount may reflect
+                                                the customer's current pricing.
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="create-modal-footer">
+                                    <MudButton Class="btn-secondary-action"
+                                               OnClick="CloseApprovalModal"
+                                               Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                                        Cancel
+                                    </MudButton>
+                                    <MudButton Class="btn-create btn-approve-order"
+                                               OnClick="ConfirmApproval"
+                                               Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                                        @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                                        {
+                                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                            <span>Approving…</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-cloud-check"></i>
+                                            <span>Approve &amp; Post to SAP</span>
+                                        }
+                                    </MudButton>
+                                </div>
                             </div>
                         </div>
                     }
@@ -1503,7 +1787,7 @@
                                                                 {
                                                                     <span
                                                                         style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                                                        @customerPriceListPrices.Count items
+                                                                        @customerPricing.Count items
                                                                     </span>
                                                                 }
                                                             </div>
@@ -1568,9 +1852,14 @@
                                         <div class="form-field">
                                             <label>Currency</label>
                                             <select @bind="newOrder.Currency">
+                                                <option value="">Select currency</option>
                                                 <option value="USD">USD — US Dollar</option>
                                                 <option value="ZIG">ZIG — Zimbabwe Gold</option>
                                             </select>
+                                            @if (createValidationErrors.ContainsKey("Currency"))
+                                            {
+                                                <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]</div>
+                                            }
                                         </div>
                                         <div class="form-field">
                                             <label>Customer Reference</label>
@@ -1670,7 +1959,7 @@
                                                                 @foreach (var product in lineState.FilteredProducts.Take(10))
                                                                 {
                                                                     var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
-                                                                    var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                                                    var displayPrice = GetPricingForItem(product.ItemCode, product.Price).NetPrice;
                                                                     <div class="dropdown-item @(isSelected ? "selected" : "")"
                                                                          @onmousedown="async () => await SelectProduct(index, product)">
                                                                         <div class="d-flex justify-content-between align-items-center">
@@ -1741,9 +2030,16 @@
                                                                 <label
                                                                     style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
                                                                     %</label>
+                                                                    @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                                                     <input type="number"
                                                                            style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                                                           @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                                                           @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
+                                                                    @if (HasSpecialPrice(line.ItemCode))
+                                                                    {
+                                                                        <div style="color:#059669; font-size:.7rem; margin-top:.2rem;">
+                                                                            <i class="bi bi-tag-fill me-1"></i>Customer special price
+                                                                        </div>
+                                                                    }
                                                                 </div>
                                                                 <div class="col-3">
                                                                     <label
@@ -1824,7 +2120,9 @@
 @code {
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
+    private SalesOrderDto? approvalOrder;
     private bool isLoading = true;
+    private bool isPdfLoading = false;
     private bool isCreating = false;
     private bool isRejecting = false;
     private bool showCreateModal = false;
@@ -1878,7 +2176,7 @@
     private List<WarehouseDto> cachedWarehouses = new();
 
     // Customer price list
-    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
     private int? customerPriceListNum;
     private bool isLoadingCustomerPrices = false;
 
@@ -2084,6 +2382,38 @@
         NavigationManager.NavigateTo($"/sales-orders/edit/{id}");
     }
 
+    private async Task PrintSalesOrderPdf()
+    {
+        if (selectedOrder == null || isPdfLoading)
+            return;
+
+        isPdfLoading = true;
+        try
+        {
+            var useLocal = !selectedOrder.IsSynced || !selectedOrder.SAPDocEntry.HasValue;
+            var pdfId = useLocal ? selectedOrder.Id : selectedOrder.SAPDocEntry!.Value;
+            var pdfBytes = await SalesOrderService.GetSalesOrderPdfAsync(pdfId, useLocal);
+
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                errorMessage = "Failed to retrieve sales order PDF for printing.";
+                return;
+            }
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            await JSRuntime.InvokeVoidAsync("printPdfFromBase64", base64, 1);
+            await AuditService.LogAsync(AuditActions.PrintSalesOrderPdf, "SalesOrder", selectedOrder.OrderNumber);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Print failed: {ex.Message}";
+        }
+        finally
+        {
+            isPdfLoading = false;
+        }
+    }
+
     private bool TryBeginOrderAction(int id, OrderActionType action)
     {
         if (orderActionStates.ContainsKey(id))
@@ -2103,18 +2433,46 @@
     private bool IsOrderActionBusy(int id, OrderActionType action)
         => orderActionStates.TryGetValue(id, out var currentAction) && currentAction == action;
 
-    private async Task ApproveOrder(int id)
+    private void OpenApprovalModal(SalesOrderDto order)
     {
-        if (!TryBeginOrderAction(id, OrderActionType.Approve))
+        if (IsOrderActionBusy(order.Id))
             return;
 
+        approvalOrder = order;
+    }
+
+    private void CloseApprovalModal()
+    {
+        if (approvalOrder != null && IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+            return;
+
+        approvalOrder = null;
+    }
+
+    private async Task ConfirmApproval()
+    {
+        if (approvalOrder == null)
+            return;
+
+        var approved = await ApproveOrder(approvalOrder.Id);
+        if (approved)
+            approvalOrder = null;
+    }
+
+    private async Task<bool> ApproveOrder(int id)
+    {
+        if (!TryBeginOrderAction(id, OrderActionType.Approve))
+            return false;
+
         StateHasChanged();
+        var approvalTimer = Stopwatch.StartNew();
 
         try
         {
             var result = await SalesOrderService.ApproveAsync(id);
             if (result != null)
             {
+                approvalTimer.Stop();
                 selectedOrder = result;
                 var approvalMessage = result.IsSynced
                     ? result.SAPDocNum.HasValue
@@ -2122,27 +2480,47 @@
                         : $"Order {result.OrderNumber} approved and posted to SAP successfully."
                     : $"Order {result.OrderNumber} approved successfully.";
                 Snackbar.Add(approvalMessage, Severity.Success);
+                Logger.LogInformation(
+                    "Sales order {OrderId} approval completed in {ApprovalDurationMs} ms. SAPDocNum={SAPDocNum}",
+                    id,
+                    approvalTimer.ElapsedMilliseconds,
+                    result.SAPDocNum);
                 var auditMessage = result.IsSynced && result.SAPDocNum.HasValue
                     ? $"Approved and posted to SAP as Doc #{result.SAPDocNum}"
                     : "Approved";
                 await AuditService.LogAsync(AuditActions.ApproveSalesOrder, "SalesOrder", id.ToString(), auditMessage, true);
                 await LoadOrders();
+                return true;
             }
-            else
-            {
-                Snackbar.Add("Failed to approve order. Please try again.", Severity.Error);
-            }
+
+            Snackbar.Add("Failed to approve order. Please try again.", Severity.Error);
+            return false;
         }
         catch (HttpRequestException ex)
         {
+            approvalTimer.Stop();
+            Logger.LogWarning(
+                ex,
+                "Sales order {OrderId} approval failed after {ApprovalDurationMs} ms",
+                id,
+                approvalTimer.ElapsedMilliseconds);
             Snackbar.Add(ex.Message, Severity.Error);
+            return false;
         }
         catch (Exception ex)
         {
+            approvalTimer.Stop();
+            Logger.LogError(
+                ex,
+                "Sales order {OrderId} approval failed after {ApprovalDurationMs} ms",
+                id,
+                approvalTimer.ElapsedMilliseconds);
             Snackbar.Add($"Error approving order: {ex.Message}", Severity.Error);
+            return false;
         }
         finally
         {
+            approvalTimer.Stop();
             EndOrderAction(id);
             StateHasChanged();
         }
@@ -2384,7 +2762,7 @@
         selectedBusinessPartner = null;
         bpSearchTerm = null;
         showBPDropdown = false;
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = null;
         lineStates.Clear();
         createValidationErrors.Clear();
@@ -2462,22 +2840,16 @@
         bpSearchTerm = bp.DisplayName;
         showBPDropdown = false;
 
-        if (!string.IsNullOrEmpty(bp.Currency))
+        if (!string.IsNullOrWhiteSpace(bp.Currency))
         {
-            newOrder.Currency = bp.Currency;
+            newOrder.Currency = bp.Currency.Trim().ToUpperInvariant();
         }
 
         createValidationErrors.Remove("Customer");
+        createValidationErrors.Remove("Currency");
 
-        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
-        {
-            await LoadCustomerPriceList(bp.PriceListNum.Value);
-        }
-        else
-        {
-            customerPriceListPrices.Clear();
-            customerPriceListNum = null;
-        }
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
     }
 
     private void SelectBusinessPartner(BusinessPartnerDto bp)
@@ -2491,40 +2863,40 @@
         newOrder.CardCode = string.Empty;
         newOrder.CardName = null;
         bpSearchTerm = null;
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = null;
+        UpdateExistingLinePrices();
     }
 
-    private async Task LoadCustomerPriceList(int priceListNum)
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newOrder.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
     {
         isLoadingCustomerPrices = true;
         StateHasChanged();
 
         try
         {
-            var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
-            if (response?.Prices != null && response.Prices.Any())
-            {
-                customerPriceListPrices.Clear();
-                foreach (var price in response.Prices)
-                {
-                    if (!string.IsNullOrEmpty(price.ItemCode))
-                    {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
-                    }
-                }
-                customerPriceListNum = priceListNum;
-            }
-            else
-            {
-                customerPriceListPrices.Clear();
-                customerPriceListNum = null;
-            }
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPricing = lookup.Pricing;
+            customerPriceListNum = lookup.PriceListNum;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
-            customerPriceListPrices.Clear();
+            Logger.LogError(ex, "Error loading customer prices for {CardCode}", bp.CardCode);
+            customerPricing.Clear();
             customerPriceListNum = null;
         }
         finally
@@ -2534,11 +2906,26 @@
         }
     }
 
-    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
     {
-        if (string.IsNullOrEmpty(itemCode)) return defaultPrice;
-        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice) ? customerPrice : defaultPrice;
+        if (string.IsNullOrEmpty(itemCode)) return ResolvedItemPrice.Flat(defaultPrice);
+        return customerPricing.TryGetValue(itemCode, out var customerPrice) ? customerPrice : ResolvedItemPrice.Flat(defaultPrice);
     }
+
+    /// <summary>
+    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
+    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// </summary>
+    private static void ApplyPricing(CreateSalesOrderLineRequest line, ResolvedItemPrice pricing)
+    {
+        line.UnitPrice = pricing.UnitPrice;
+        line.DiscountPercent = pricing.DiscountPercent;
+    }
+
+    private bool HasSpecialPrice(string? itemCode)
+        => !string.IsNullOrEmpty(itemCode)
+            && customerPricing.TryGetValue(itemCode, out var pricing)
+            && pricing.DiscountPercent > 0;
 
     private async Task OnBPSearchBlur()
     {
@@ -2703,25 +3090,23 @@
         var line = newOrder.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
-        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
 
-        // If price is still 0, fetch from the price API
-        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
-                if (priceInfo != null)
-                {
-                    var currency = newOrder.Currency ?? "USD";
-                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
-                    ? priceInfo.UsdPrice ?? 0
-                    : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
-                }
+                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
+                    product.ItemCode,
+                    newOrder.Currency,
+                    product.Price,
+                    newOrder.CardCode,
+                    customerPriceListNum,
+                    customerPricing));
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+                Logger.LogWarning(ex, "Failed to resolve BP-aware price for item {ItemCode}", product.ItemCode);
             }
         }
 
@@ -2786,6 +3171,9 @@
         if (selectedBusinessPartner == null || string.IsNullOrEmpty(newOrder.CardCode))
             createValidationErrors["Customer"] = "Please select a customer";
 
+        if (string.IsNullOrWhiteSpace(newOrder.Currency))
+            createValidationErrors["Currency"] = "Please select a currency";
+
         if (!newOrder.Lines.Any())
             createValidationErrors["Lines"] = "At least one line item is required";
 
@@ -2817,7 +3205,10 @@
             if (result != null)
             {
                 showCreateModal = false;
-                Snackbar.Add($"Sales order {result.OrderNumber} created successfully!", Severity.Success);
+                var createWarningMessage = GetCreateWarningMessage(result);
+                Snackbar.Add(
+                    createWarningMessage ?? $"Sales order {result.OrderNumber} created successfully!",
+                    createWarningMessage is null ? Severity.Success : Severity.Warning);
                 await LoadOrders();
             }
             else
@@ -2827,11 +3218,12 @@
         }
         catch (HttpRequestException ex)
         {
-            Snackbar.Add($"Failed to create order: {ex.Message}", Severity.Error);
+            Snackbar.Add(ex.Message, Severity.Error);
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error creating order: {ex.Message}", Severity.Error);
+            Logger.LogError(ex, "Unexpected error creating sales order");
+            Snackbar.Add("We couldn't create this sales order right now. Please try again.", Severity.Error);
         }
         finally
         {
@@ -2851,6 +3243,36 @@
         SalesOrderStatus.Rejected => "rejected",
         _ => "draft"
     };
+
+    private static string? GetCreateWarningMessage(SalesOrderDto order)
+    {
+        if (order.IsSynced)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(order.SyncError))
+            return $"Sales order {order.OrderNumber} was created as a draft because it could not be posted to SAP.";
+
+        var reason = order.SyncError.Trim().TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(reason))
+            return $"Sales order {order.OrderNumber} was created as a draft because it could not be posted to SAP.";
+
+        var clause = ToSentenceClause(reason);
+        return reason.Contains("SAP", StringComparison.OrdinalIgnoreCase)
+            ? $"Sales order {order.OrderNumber} was created as a draft because {clause}."
+            : $"Sales order {order.OrderNumber} was created as a draft because {clause} in SAP.";
+    }
+
+    private static string ToSentenceClause(string value)
+    {
+        var trimmedValue = value.Trim().TrimEnd('.');
+        if (string.IsNullOrWhiteSpace(trimmedValue))
+            return "it could not be posted";
+
+        if (trimmedValue.Length > 1 && char.IsUpper(trimmedValue[0]) && !char.IsUpper(trimmedValue[1]))
+            return char.ToLowerInvariant(trimmedValue[0]) + trimmedValue[1..];
+
+        return trimmedValue;
+    }
 
     private static RejectedStatusNote? GetRejectedNote(SalesOrderDto order)
     {

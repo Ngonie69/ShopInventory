@@ -12,20 +12,25 @@ namespace ShopInventory.Services;
 /// </summary>
 public class CreditNoteService : ICreditNoteService
 {
+    private const decimal CreditAmountTolerance = 0.01m;
+
     private readonly ApplicationDbContext _context;
     private readonly ISAPServiceLayerClient _sapClient;
     private readonly IFiscalizationService _fiscalizationService;
+    private readonly ICreditNoteProjectionSyncService _projectionSyncService;
     private readonly ILogger<CreditNoteService> _logger;
 
     public CreditNoteService(
         ApplicationDbContext context,
         ISAPServiceLayerClient sapClient,
         IFiscalizationService fiscalizationService,
+        ICreditNoteProjectionSyncService projectionSyncService,
         ILogger<CreditNoteService> logger)
     {
         _context = context;
         _sapClient = sapClient;
         _fiscalizationService = fiscalizationService;
+        _projectionSyncService = projectionSyncService;
         _logger = logger;
     }
 
@@ -61,6 +66,7 @@ public class CreditNoteService : ICreditNoteService
             .Include(c => c.Lines)
             .Include(c => c.CreatedByUser)
             .Include(c => c.ApprovedByUser)
+            .Include(c => c.OriginalInvoice)
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.CreditNoteNumber == creditNoteNumber, cancellationToken);
 
@@ -123,8 +129,9 @@ public class CreditNoteService : ICreditNoteService
             else
             {
                 // No filters at all - use date range default to avoid fetching entire SAP dataset
-                var defaultFrom = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
-                var defaultTo = DateTime.Today;
+                var todayUtc = DateTime.UtcNow.Date;
+                var defaultFrom = new DateTime(todayUtc.Year, todayUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var defaultTo = todayUtc;
                 sapCreditNotes = await _sapClient.GetCreditNotesByDateRangeAsync(defaultFrom, defaultTo, cancellationToken);
                 totalCount = sapCreditNotes.Count;
             }
@@ -148,6 +155,9 @@ public class CreditNoteService : ICreditNoteService
     private async Task<CreditNoteListResponseDto> GetAllFromLocalAsync(int page, int pageSize, CreditNoteStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
+        var fromDateUtc = NormalizeUtcDateStart(fromDate);
+        var toDateExclusiveUtc = NormalizeUtcDateExclusiveEnd(toDate);
+
         var query = _context.CreditNotes
             .AsNoTracking()
             .AsQueryable();
@@ -158,11 +168,11 @@ public class CreditNoteService : ICreditNoteService
         if (!string.IsNullOrEmpty(cardCode))
             query = query.Where(c => c.CardCode == cardCode);
 
-        if (fromDate.HasValue)
-            query = query.Where(c => c.CreditNoteDate >= fromDate.Value);
+        if (fromDateUtc.HasValue)
+            query = query.Where(c => c.CreditNoteDate >= fromDateUtc.Value);
 
-        if (toDate.HasValue)
-            query = query.Where(c => c.CreditNoteDate <= toDate.Value);
+        if (toDateExclusiveUtc.HasValue)
+            query = query.Where(c => c.CreditNoteDate < toDateExclusiveUtc.Value);
 
         var totalCount = await query.CountAsync(cancellationToken);
         var creditNotes = await query
@@ -335,6 +345,7 @@ public class CreditNoteService : ICreditNoteService
                         Quantity = Math.Abs(l.Quantity),
                         UnitPrice = l.UnitPrice,
                         LineTotal = Math.Abs(l.LineTotal),
+                        TaxCode = l.TaxCode,
                         WarehouseCode = l.WarehouseCode
                     }).ToList()
                 };
@@ -399,6 +410,20 @@ public class CreditNoteService : ICreditNoteService
         _context.CreditNotes.Add(creditNote);
         await _context.SaveChangesAsync(cancellationToken);
 
+        try
+        {
+            await _projectionSyncService.UpsertAsync([sapCreditNote], cancellationToken);
+        }
+        catch (Exception projectionException)
+        {
+            // SAP and the operational credit-note record are authoritative. Projection repair is
+            // best-effort here and the clustered sync job will reconcile it shortly.
+            _logger.LogWarning(
+                projectionException,
+                "Failed to write through SAP credit note {DocEntry} to the local projection",
+                sapCreditNote.DocEntry);
+        }
+
         _logger.LogInformation("Created credit note {CreditNoteNumber} for customer {CardCode} with SAP DocEntry {DocEntry}",
             creditNoteNumber, request.CardCode, creditNote.SAPDocEntry);
 
@@ -430,6 +455,24 @@ public class CreditNoteService : ICreditNoteService
 
         _logger.LogInformation("Found invoice {InvoiceId} in SAP with CardCode {CardCode}, Lines: {LineCount}",
             invoiceId, sapInvoice.CardCode, sapInvoice.DocumentLines?.Count ?? 0);
+
+        var existingCreditNotes = await GetByInvoiceIdAsync(invoiceId, cancellationToken);
+        var activeCreditedAmount = CalculateActiveCreditedAmount(existingCreditNotes);
+        var requestedCreditAmount = CalculateCreditNoteRequestTotal(lines);
+        var remainingCreditableAmount = Math.Max(0m, sapInvoice.DocTotal - activeCreditedAmount);
+        var currency = string.IsNullOrWhiteSpace(sapInvoice.DocCurrency) ? "USD" : sapInvoice.DocCurrency;
+
+        if (remainingCreditableAmount <= CreditAmountTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Invoice #{sapInvoice.DocNum} has already been fully credited. No additional credit note can be created.");
+        }
+
+        if (requestedCreditAmount > remainingCreditableAmount + CreditAmountTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Requested credit amount {requestedCreditAmount:N2} {currency} exceeds the remaining creditable amount {remainingCreditableAmount:N2} {currency} for invoice #{sapInvoice.DocNum}.");
+        }
 
         // Log invoice lines for debugging
         if (sapInvoice.DocumentLines != null)
@@ -663,6 +706,8 @@ public class CreditNoteService : ICreditNoteService
             Status = entity.Status,
             OriginalInvoiceId = entity.OriginalInvoiceId,
             OriginalInvoiceDocEntry = entity.OriginalInvoiceDocEntry,
+            OriginalInvoiceSAPDocEntry = entity.OriginalInvoice?.SAPDocEntry,
+            OriginalInvoiceSAPDocNum = entity.OriginalInvoice?.SAPDocNum,
             Reason = entity.Reason,
             Comments = entity.Comments,
             Currency = entity.Currency,
@@ -704,6 +749,7 @@ public class CreditNoteService : ICreditNoteService
     private static CreditNoteDto MapFromSAP(SAPCreditNote sap)
     {
         DateTime.TryParse(sap.DocDate, out var docDate);
+        var originalInvoiceDocEntry = ResolveOriginalInvoiceDocEntry(sap);
 
         return new CreditNoteDto
         {
@@ -716,7 +762,8 @@ public class CreditNoteService : ICreditNoteService
             CardName = sap.CardName,
             Type = CreditNoteType.Return, // Default type for SAP credit notes
             Status = MapSAPStatusToLocal(sap.DocumentStatus, sap.Cancelled),
-            OriginalInvoiceDocEntry = sap.BaseEntry,
+            OriginalInvoiceDocEntry = originalInvoiceDocEntry,
+            OriginalInvoiceSAPDocEntry = originalInvoiceDocEntry,
             Reason = sap.Comments,
             Comments = sap.Comments,
             Currency = sap.DocCurrency,
@@ -734,12 +781,35 @@ public class CreditNoteService : ICreditNoteService
                 ItemDescription = l.ItemDescription,
                 Quantity = l.Quantity,
                 UnitPrice = l.UnitPrice,
-                DiscountPercent = l.DiscountPercent,
+                DiscountPercent = l.DiscountPercent ?? 0,
+                TaxCode = l.TaxCode,
                 LineTotal = l.LineTotal,
                 WarehouseCode = l.WarehouseCode,
                 IsRestocked = false
             }).ToList() ?? new List<CreditNoteLineDto>()
         };
+    }
+
+    private static int? ResolveOriginalInvoiceDocEntry(SAPCreditNote sap)
+        => sap.BaseEntry
+        ?? sap.DocumentLines?
+            .FirstOrDefault(line => line.BaseType == 13 && line.BaseEntry.HasValue)
+            ?.BaseEntry;
+
+    private static DateTime? NormalizeUtcDateStart(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc);
+    }
+
+    private static DateTime? NormalizeUtcDateExclusiveEnd(DateTime? value)
+    {
+        if (!value.HasValue)
+            return null;
+
+        return DateTime.SpecifyKind(value.Value.Date.AddDays(1), DateTimeKind.Utc);
     }
 
     private static CreditNoteStatus MapSAPStatusToLocal(string? documentStatus, string? cancelled)
@@ -753,6 +823,28 @@ public class CreditNoteService : ICreditNoteService
             "bost_Close" => CreditNoteStatus.Applied,
             _ => CreditNoteStatus.Draft
         };
+    }
+
+    private static decimal CalculateCreditNoteRequestTotal(IEnumerable<CreateCreditNoteLineRequest> lines)
+    {
+        return lines.Sum(line =>
+        {
+            var lineTotal = line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100);
+            var lineTax = lineTotal * line.TaxPercent / 100;
+            return lineTotal + lineTax;
+        });
+    }
+
+    private static decimal CalculateActiveCreditedAmount(IEnumerable<CreditNoteDto> creditNotes)
+    {
+        return creditNotes
+            .Where(IsActiveCreditNote)
+            .Sum(note => note.DocTotal);
+    }
+
+    private static bool IsActiveCreditNote(CreditNoteDto creditNote)
+    {
+        return creditNote.Status != CreditNoteStatus.Cancelled;
     }
 
     private async Task CaptureCreditNoteFiscalizationIncidentAsync(

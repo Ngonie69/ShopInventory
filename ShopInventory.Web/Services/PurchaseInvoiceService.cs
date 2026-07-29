@@ -98,7 +98,10 @@ public class PurchaseInvoiceService(HttpClient httpClient, ILogger<PurchaseInvoi
             }
 
             logger.LogWarning("Failed to create purchase invoice: {StatusCode} - {Content}", response.StatusCode, content);
-            throw new HttpRequestException($"API returned {(int)response.StatusCode}: {content}");
+            throw ApiErrorResponse.CreateHttpRequestException(
+                response.StatusCode,
+                content,
+                "We couldn't create this purchase invoice right now. Please try again.");
         }
         catch (HttpRequestException)
         {

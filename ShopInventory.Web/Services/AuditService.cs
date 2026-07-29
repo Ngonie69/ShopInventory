@@ -59,6 +59,13 @@ public interface IAuditService
     Task<ActivityLogResult> GetActivityLogsAsync(DateTime startDate, DateTime endDate, string? username = null, string? action = null, int page = 1, int pageSize = 50);
     Task<List<string>> GetUniqueUsersAsync(DateTime startDate, DateTime endDate);
     Task<List<string>> GetUniqueActionsAsync(DateTime startDate, DateTime endDate);
+    Task<ActivityDashboardResult> GetActivityDashboardAsync(
+        DateTime startDate,
+        DateTime endDate,
+        string? username = null,
+        string? action = null,
+        int page = 1,
+        int pageSize = 50);
 }
 
 public class ActivityStats
@@ -74,6 +81,17 @@ public class ActivityLogResult
     public List<ActivityLog> Items { get; set; } = new();
     public int TotalCount { get; set; }
     public int TotalPages { get; set; }
+}
+
+public sealed class ActivityDashboardResult
+{
+    public ActivityStats Stats { get; init; } = new();
+    public List<UserActivitySummary> MostActiveUsers { get; init; } = [];
+    public List<ActionCount> ActionBreakdown { get; init; } = [];
+    public List<HourlyCount> HourlyActivity { get; init; } = [];
+    public ActivityLogResult Activities { get; init; } = new();
+    public List<string> Users { get; init; } = [];
+    public List<string> Actions { get; init; } = [];
 }
 
 public class AuditLogPageResult
@@ -105,6 +123,8 @@ internal sealed class ApiAuditLogItem
     public string? PageUrl { get; set; }
     public bool IsSuccess { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? AppVersion { get; set; }
+    public string? DeviceModel { get; set; }
     public DateTime Timestamp { get; set; }
 }
 
@@ -120,17 +140,24 @@ public class AuditService : IAuditService
     private readonly HttpClient _httpClient;
     private readonly ILogger<AuditService> _logger;
     private readonly AuthenticationStateProvider _authStateProvider;
+    private readonly WebClientAuditContext _clientAuditContext;
 
     private const int ApiActivityPageSize = 500;
     private const int LocalAuditPageSize = 500;
     private static readonly TimeSpan AuditDeduplicationWindow = TimeSpan.FromSeconds(5);
 
-    public AuditService(IDbContextFactory<WebAppDbContext> dbContextFactory, HttpClient httpClient, ILogger<AuditService> logger, AuthenticationStateProvider authStateProvider)
+    public AuditService(
+        IDbContextFactory<WebAppDbContext> dbContextFactory,
+        HttpClient httpClient,
+        ILogger<AuditService> logger,
+        AuthenticationStateProvider authStateProvider,
+        WebClientAuditContext clientAuditContext)
     {
         _dbContextFactory = dbContextFactory;
         _httpClient = httpClient;
         _logger = logger;
         _authStateProvider = authStateProvider;
+        _clientAuditContext = clientAuditContext;
     }
 
     public async Task LogAsync(string action, string username, string userRole, string? entityType = null,
@@ -149,6 +176,8 @@ public class AuditService : IAuditService
                 EntityType = entityType,
                 EntityId = entityId,
                 Details = details,
+                IpAddress = TruncateOrNull(_clientAuditContext.IpAddress, 50),
+                UserAgent = TruncateOrNull(_clientAuditContext.UserAgent, 500),
                 PageUrl = pageUrl,
                 IsSuccess = isSuccess,
                 ErrorMessage = errorMessage,
@@ -164,6 +193,17 @@ public class AuditService : IAuditService
         {
             _logger.LogError(ex, "Failed to create audit log for action {Action}", action);
         }
+    }
+
+    private static string? TruncateOrNull(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
     }
 
     public async Task<List<AuditLog>> GetLogsAsync(DateTime? fromDate = null, DateTime? toDate = null,
@@ -401,6 +441,108 @@ public class AuditService : IAuditService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(a => a)
             .ToList();
+    }
+
+    public async Task<ActivityDashboardResult> GetActivityDashboardAsync(
+        DateTime startDate,
+        DateTime endDate,
+        string? username = null,
+        string? action = null,
+        int page = 1,
+        int pageSize = 50)
+    {
+        var logs = await GetMergedAuditLogsAsync(startDate, endDate);
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Max(1, pageSize);
+
+        var stats = new ActivityStats
+        {
+            ActiveUsers = logs
+                .Select(log => log.Username)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count(),
+            TotalActions = logs.Count,
+            LoginCount = logs.Count(log => log.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)),
+            FailedActions = logs.Count(log => !log.IsSuccess)
+        };
+
+        var mostActiveUsers = logs
+            .Where(log => !string.IsNullOrWhiteSpace(log.Username))
+            .GroupBy(log => log.Username, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new UserActivitySummary
+            {
+                Username = group.Key,
+                ActionCount = group.Count(),
+                LastActivityAt = group.Max(log => log.Timestamp)
+            })
+            .OrderByDescending(summary => summary.ActionCount)
+            .Take(10)
+            .ToList();
+
+        var actionBreakdown = logs
+            .Where(log => !string.IsNullOrWhiteSpace(log.Action))
+            .GroupBy(log => log.Action)
+            .Select(group => new ActionCount
+            {
+                Action = group.Key,
+                Count = group.Count()
+            })
+            .OrderByDescending(summary => summary.Count)
+            .ToList();
+
+        var hourlyCounts = logs
+            .GroupBy(log => log.Timestamp.Hour)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var hourlyActivity = Enumerable.Range(0, 24)
+            .Select(hour => new HourlyCount
+            {
+                Hour = hour,
+                Count = hourlyCounts.GetValueOrDefault(hour)
+            })
+            .ToList();
+
+        var users = logs
+            .Select(log => log.Username)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+        var actions = logs
+            .Select(log => log.Action)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value)
+            .ToList();
+
+        var filteredLogs = logs
+            .Where(log => string.IsNullOrWhiteSpace(username) ||
+                          string.Equals(log.Username, username, StringComparison.OrdinalIgnoreCase))
+            .Where(log => string.IsNullOrWhiteSpace(action) ||
+                          string.Equals(log.Action, action, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var totalCount = filteredLogs.Count;
+        var activities = new ActivityLogResult
+        {
+            Items = filteredLogs
+                .Skip((safePage - 1) * safePageSize)
+                .Take(safePageSize)
+                .Select(MapToActivityLog)
+                .ToList(),
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)safePageSize)
+        };
+
+        return new ActivityDashboardResult
+        {
+            Stats = stats,
+            MostActiveUsers = mostActiveUsers,
+            ActionBreakdown = actionBreakdown,
+            HourlyActivity = hourlyActivity,
+            Activities = activities,
+            Users = users,
+            Actions = actions
+        };
     }
 
     private async Task<List<AuditLog>> GetMergedAuditLogsAsync(DateTime? startDate = null, DateTime? endDate = null)
@@ -758,6 +900,8 @@ public class AuditService : IAuditService
         PageUrl = item.PageUrl,
         IsSuccess = item.IsSuccess,
         ErrorMessage = item.ErrorMessage,
+        AppVersion = item.AppVersion,
+        DeviceModel = item.DeviceModel,
         Timestamp = item.Timestamp
     };
 
@@ -811,15 +955,36 @@ public class AuditService : IAuditService
 
     private static string BuildDedupKey(AuditLog log)
     {
+        var entityType = NormalizeDedupToken(log.EntityType);
+        var entityId = NormalizeDedupToken(log.EntityId);
+        var detailsFingerprint = string.IsNullOrWhiteSpace(entityType) && string.IsNullOrWhiteSpace(entityId)
+            ? NormalizeDedupToken(log.Details)
+            : string.Empty;
+        var errorFingerprint = log.IsSuccess
+            ? string.Empty
+            : NormalizeDedupToken(log.ErrorMessage);
+
         return string.Join('\u001F',
-            (log.Username ?? string.Empty).ToUpperInvariant(),
-            (log.UserRole ?? string.Empty).ToUpperInvariant(),
-            log.Action ?? string.Empty,
-            log.EntityType ?? string.Empty,
-            log.EntityId ?? string.Empty,
-            log.Details ?? string.Empty,
-            log.ErrorMessage ?? string.Empty,
-            log.PageUrl ?? string.Empty,
+            NormalizeDedupToken(log.Username),
+            NormalizeDedupToken(log.UserRole),
+            NormalizeDedupToken(log.Action),
+            entityType,
+            entityId,
+            detailsFingerprint,
+            errorFingerprint,
             log.IsSuccess);
+    }
+
+    private static string NormalizeDedupToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return new string(value
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray());
     }
 }

@@ -42,7 +42,8 @@ public sealed class GetDriverBusinessPartnerAccessHandler(
                     Currency = businessPartner.Currency,
                     Balance = businessPartner.Balance,
                     IsActive = businessPartner.IsActive,
-                    PriceListNum = businessPartner.PriceListNum
+                    PriceListNum = businessPartner.PriceListNum,
+                    Channel = businessPartner.Channel
                 })
                 .ToListAsync(cancellationToken);
             var settingTask = appSettingsService.GetValueAsync(SettingKeys.DriverVisibleBusinessPartners);

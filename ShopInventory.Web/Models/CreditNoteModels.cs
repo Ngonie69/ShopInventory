@@ -20,8 +20,8 @@ public enum CreditNoteStatus
     Pending = 1,
     Approved = 2,
     Applied = 3,
-    PartiallyApplied = 4,
-    Cancelled = 5,
+    Cancelled = 4,
+    PartiallyApplied = 5,
     Voided = 6
 }
 
@@ -43,6 +43,8 @@ public class CreditNoteDto
     public string StatusName => Status.ToString();
     public int? OriginalInvoiceId { get; set; }
     public int? OriginalInvoiceDocEntry { get; set; }
+    public int? OriginalInvoiceSAPDocEntry { get; set; }
+    public int? OriginalInvoiceSAPDocNum { get; set; }
     public string? Reason { get; set; }
     public string? Comments { get; set; }
     public string? Currency { get; set; }
@@ -62,6 +64,10 @@ public class CreditNoteDto
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public bool IsSynced { get; set; }
+    public bool? IsFiscalized { get; set; }
+    public string FiscalizationStatus { get; set; } = "Unknown";
+    public int? FiscalReceiptGlobalNo { get; set; }
+    public DateTime? FiscalizedAtUtc { get; set; }
     public List<CreditNoteLineDto> Lines { get; set; } = new();
 }
 
@@ -78,6 +84,7 @@ public class CreditNoteLineDto
     public decimal UnitPrice { get; set; }
     public decimal DiscountPercent { get; set; }
     public decimal TaxPercent { get; set; }
+    public string? TaxCode { get; set; }
     public decimal LineTotal { get; set; }
     public string? WarehouseCode { get; set; }
     public string? ReturnReason { get; set; }
@@ -99,6 +106,7 @@ public class CreateCreditNoteRequest
     public string? Currency { get; set; } = "USD";
     public bool RestockItems { get; set; } = true;
     public string? RestockWarehouseCode { get; set; }
+    public string? ClientRequestId { get; set; }
     public List<CreateCreditNoteLineRequest> Lines { get; set; } = new();
 }
 

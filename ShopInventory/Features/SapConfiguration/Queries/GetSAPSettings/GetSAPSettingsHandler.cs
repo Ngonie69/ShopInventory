@@ -19,6 +19,8 @@ public sealed class GetSAPSettingsHandler(
             ServiceLayerUrl = settings.ServiceLayerUrl,
             CompanyDB = settings.CompanyDB,
             UserName = settings.Username,
+            InvoiceSeries = settings.InvoiceSeries,
+            InvoiceSeriesName = settings.InvoiceSeriesName,
             IsConfigured = !string.IsNullOrEmpty(settings.ServiceLayerUrl)
                            && !string.IsNullOrEmpty(settings.CompanyDB)
                            && !string.IsNullOrEmpty(settings.Username)

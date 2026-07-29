@@ -1,7 +1,8 @@
 @page "/merchandiser-account"
+@using ShopInventory.Web.Data
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
-@attribute [Authorize(Roles = "Admin,SalesRep")]
+@attribute [Authorize(Roles = UserRoles.MerchandiserAccountManagementRoles)]
 @rendermode InteractiveServer
 
 <PageTitle>Manage Merchandiser Accounts - Shop Inventory</PageTitle>

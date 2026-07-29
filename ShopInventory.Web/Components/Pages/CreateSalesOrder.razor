@@ -6,6 +6,7 @@
 @inject IBusinessPartnerService BusinessPartnerService
 @inject IMasterDataCacheService CacheService
 @inject IPriceService PriceService
+@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
 @using ShopInventory.Web.Data
@@ -383,7 +384,7 @@
                                             {
                                                 <span
                                                     style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                                    @customerPriceListPrices.Count items
+                                                    @customerPricing.Count items
                                                 </span>
                                             }
                                         </div>
@@ -451,9 +452,15 @@
                     <div class="form-field">
                         <label>Currency</label>
                         <select @bind="newOrder.Currency">
+                            <option value="">Select currency</option>
                             <option value="USD">USD — US Dollar</option>
                             <option value="ZIG">ZIG — Zimbabwe Gold</option>
                         </select>
+                        @if (createValidationErrors.ContainsKey("Currency"))
+                        {
+                            <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]
+                            </div>
+                        }
                     </div>
                     <div class="form-field">
                         <label>Customer Reference</label>
@@ -504,7 +511,7 @@
                                 <div class="d-flex align-items-center gap-2">
                                     <span
                                         style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                                                            + 1)</span>
+                                                                                                                                                                                            + 1)</span>
                     @if (!string.IsNullOrEmpty(line.ItemDescription))
                     {
                         <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
@@ -545,7 +552,7 @@
                                     @foreach (var product in lineState.FilteredProducts.Take(10))
                                     {
                                         var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
-                                        var displayPrice = GetPriceForItem(product.ItemCode, product.Price);
+                                        var displayPrice = GetPricingForItem(product.ItemCode, product.Price).NetPrice;
                                         <div class="dropdown-item @(isSelected ? "selected" : "")"
                                              @onmousedown="async () => await SelectProduct(index, product)">
                                             <div class="d-flex justify-content-between align-items-center">
@@ -553,7 +560,7 @@
                                                     <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
                                                     <small
                                                         style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                                                25)</small>
+                                                                                                                                                                                                                                                                                25)</small>
                                                     </div>
                                                     <span
                                                         style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
@@ -615,9 +622,16 @@
                                     <label
                                         style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
                                         %</label>
+                                        @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                         <input type="number"
                                                style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                               @bind="line.DiscountPercent" min="0" max="100" step="0.01" />
+                                               @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
+                                        @if (HasSpecialPrice(line.ItemCode))
+                                        {
+                                            <div style="color:#059669; font-size:.7rem; margin-top:.2rem;">
+                                                <i class="bi bi-tag-fill me-1"></i>Customer special price
+                                            </div>
+                                        }
                                     </div>
                                     <div class="col-3">
                                         <label
@@ -697,8 +711,15 @@
     </div>
 
 @code {
-    private CreateSalesOrderRequest newOrder = new();
+    private CreateSalesOrderRequest newOrder = new()
+    {
+        Currency = string.Empty
+    };
     private bool isCreating = false;
+    // Stable idempotency key for this order-entry session. Generated once and reused across
+    // retries so a lost-response retry (or proxy/double-click resubmit) is deduplicated by the
+    // server instead of creating a second order that auto-posts a duplicate SAP document.
+    private readonly string clientRequestId = Guid.NewGuid().ToString();
 
     // Business Partner autocomplete state
     private List<BusinessPartnerDto> allBusinessPartners = new();
@@ -713,7 +734,7 @@
     private List<WarehouseDto> cachedWarehouses = new();
 
     // Customer price list
-    private Dictionary<string, decimal> customerPriceListPrices = new();
+    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
     private int? customerPriceListNum;
     private bool isLoadingCustomerPrices = false;
 
@@ -804,22 +825,16 @@
         bpSearchTerm = bp.DisplayName;
         showBPDropdown = false;
 
-        if (!string.IsNullOrEmpty(bp.Currency))
+        if (!string.IsNullOrWhiteSpace(bp.Currency))
         {
-            newOrder.Currency = bp.Currency;
+            newOrder.Currency = bp.Currency.Trim().ToUpperInvariant();
         }
 
         createValidationErrors.Remove("Customer");
+        createValidationErrors.Remove("Currency");
 
-        if (bp.PriceListNum.HasValue && bp.PriceListNum.Value > 0)
-        {
-            await LoadCustomerPriceList(bp.PriceListNum.Value);
-        }
-        else
-        {
-            customerPriceListPrices.Clear();
-            customerPriceListNum = null;
-        }
+        await LoadBusinessPartnerPricesAsync(bp);
+        UpdateExistingLinePrices();
     }
 
     private void SelectBusinessPartner(BusinessPartnerDto bp)
@@ -833,40 +848,40 @@
         newOrder.CardCode = string.Empty;
         newOrder.CardName = null;
         bpSearchTerm = null;
-        customerPriceListPrices.Clear();
+        customerPricing.Clear();
         customerPriceListNum = null;
+        UpdateExistingLinePrices();
     }
 
-    private async Task LoadCustomerPriceList(int priceListNum)
+    private void UpdateExistingLinePrices()
+    {
+        foreach (var line in newOrder.Lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line.ItemCode))
+            {
+                var product = cachedProducts.FirstOrDefault(p =>
+                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
+                var defaultPrice = product?.Price ?? line.UnitPrice;
+                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
+            }
+        }
+    }
+
+    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
     {
         isLoadingCustomerPrices = true;
         StateHasChanged();
 
         try
         {
-            var response = await PriceService.GetPricesByPriceListAsync(priceListNum);
-            if (response?.Prices != null && response.Prices.Any())
-            {
-                customerPriceListPrices.Clear();
-                foreach (var price in response.Prices)
-                {
-                    if (!string.IsNullOrEmpty(price.ItemCode))
-                    {
-                        customerPriceListPrices[price.ItemCode] = price.Price;
-                    }
-                }
-                customerPriceListNum = priceListNum;
-            }
-            else
-            {
-                customerPriceListPrices.Clear();
-                customerPriceListNum = null;
-            }
+            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
+            customerPricing = lookup.Pricing;
+            customerPriceListNum = lookup.PriceListNum;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error loading customer price list {PriceListNum}", priceListNum);
-            customerPriceListPrices.Clear();
+            Logger.LogError(ex, "Error loading customer prices for {CardCode}", bp.CardCode);
+            customerPricing.Clear();
             customerPriceListNum = null;
         }
         finally
@@ -876,11 +891,26 @@
         }
     }
 
-    private decimal GetPriceForItem(string? itemCode, decimal defaultPrice)
+    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
     {
-        if (string.IsNullOrEmpty(itemCode)) return defaultPrice;
-        return customerPriceListPrices.TryGetValue(itemCode, out var customerPrice) ? customerPrice : defaultPrice;
+        if (string.IsNullOrEmpty(itemCode)) return ResolvedItemPrice.Flat(defaultPrice);
+        return customerPricing.TryGetValue(itemCode, out var customerPrice) ? customerPrice : ResolvedItemPrice.Flat(defaultPrice);
     }
+
+    /// <summary>
+    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
+    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// </summary>
+    private static void ApplyPricing(CreateSalesOrderLineRequest line, ResolvedItemPrice pricing)
+    {
+        line.UnitPrice = pricing.UnitPrice;
+        line.DiscountPercent = pricing.DiscountPercent;
+    }
+
+    private bool HasSpecialPrice(string? itemCode)
+        => !string.IsNullOrEmpty(itemCode)
+            && customerPricing.TryGetValue(itemCode, out var pricing)
+            && pricing.DiscountPercent > 0;
 
     private async Task OnBPSearchBlur()
     {
@@ -1044,24 +1074,23 @@ state.FilteredProducts.Count;
         var line = newOrder.Lines[index];
         line.ItemCode = product.ItemCode ?? string.Empty;
         line.ItemDescription = product.ItemName ?? string.Empty;
-        line.UnitPrice = GetPriceForItem(product.ItemCode, product.Price);
+        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
 
-        if (line.UnitPrice == 0 && !string.IsNullOrEmpty(product.ItemCode))
+        if (!string.IsNullOrEmpty(product.ItemCode))
         {
             try
             {
-                var priceInfo = await PriceService.GetPriceByItemCodeAsync(product.ItemCode);
-                if (priceInfo != null)
-                {
-                    var currency = newOrder.Currency ?? "USD";
-                    line.UnitPrice = currency.Equals("USD", StringComparison.OrdinalIgnoreCase)
-                        ? priceInfo.UsdPrice ?? 0
-                        : priceInfo.ZigPrice ?? priceInfo.UsdPrice ?? 0;
-                }
+                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
+                    product.ItemCode,
+                    newOrder.Currency,
+                    product.Price,
+                    newOrder.CardCode,
+                    customerPriceListNum,
+                    customerPricing));
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "Failed to fetch price for item {ItemCode}", product.ItemCode);
+                Logger.LogWarning(ex, "Failed to resolve BP-aware price for item {ItemCode}", product.ItemCode);
             }
         }
 
@@ -1126,6 +1155,9 @@ state.FilteredProducts.Count;
         if (selectedBusinessPartner == null || string.IsNullOrEmpty(newOrder.CardCode))
             createValidationErrors["Customer"] = "Please select a customer";
 
+        if (string.IsNullOrWhiteSpace(newOrder.Currency))
+            createValidationErrors["Currency"] = "Please select a currency";
+
         if (!newOrder.Lines.Any())
             createValidationErrors["Lines"] = "At least one line item is required";
 
@@ -1153,6 +1185,7 @@ state.FilteredProducts.Count;
         isCreating = true;
         try
         {
+            newOrder.ClientRequestId = clientRequestId;
             var result = await SalesOrderService.CreateSalesOrderAsync(newOrder);
             if (result != null)
             {

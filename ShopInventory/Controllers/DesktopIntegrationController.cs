@@ -21,6 +21,7 @@ using ShopInventory.Features.DesktopIntegration.Commands.RetryQueuedTransfer;
 using ShopInventory.Features.DesktopIntegration.Commands.ValidateTransfer;
 using ShopInventory.Features.DesktopIntegration.Queries.DownloadInvoicePdf;
 using ShopInventory.Features.DesktopIntegration.Queries.GetAvailableBatches;
+using ShopInventory.Features.DesktopIntegration.Queries.GetCreditNoteByDocNum;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoice;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoiceByDocNum;
 using ShopInventory.Features.DesktopIntegration.Queries.GetInvoicesByCustomer;
@@ -51,10 +52,14 @@ using ShopInventory.Features.DesktopIntegration.Queries.ValidateInvoice;
 using ShopInventory.Features.DesktopIntegration.Queries.ValidateStockAvailability;
 using ShopInventory.Features.DesktopIntegration.Commands.CreateDesktopSale;
 using ShopInventory.Features.DesktopIntegration.Commands.ConsolidateDailySales;
+using ShopInventory.Features.DesktopIntegration.Commands.BackfillFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock;
 using ShopInventory.Features.DesktopIntegration.Commands.ProcessTransferEvent;
+using ShopInventory.Features.DesktopIntegration.Commands.SyncFiscalTransaction;
 using ShopInventory.Features.DesktopIntegration.Queries.GenerateEndOfDayReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetDesktopSales;
+using ShopInventory.Middleware;
+using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalTransactions;
 using ShopInventory.Features.DesktopIntegration.Queries.GetFiscalizedSalesReport;
 using ShopInventory.Features.DesktopIntegration.Queries.GetLocalStock;
 using ShopInventory.Features.DesktopIntegration.Queries.GetMonitoredWarehouses;
@@ -62,10 +67,12 @@ using ShopInventory.Features.Prices.Queries.GetPricesByPriceList;
 using ShopInventory.Features.Prices.Queries.GetPriceLists;
 using ShopInventory.Features.Prices.Queries.GetItemPriceFromList;
 using ShopInventory.Features.Prices.Queries.GetPricesByBusinessPartner;
+using ShopInventory.Features.Prices.Commands.SyncPriceCatalog;
 using ShopInventory.Features.Prices.Commands.SyncItemPricesForPriceList;
 using ShopInventory.Features.Prices.Commands.SyncPriceLists;
 using ShopInventory.Services;
 using System.Security.Claims;
+using ShopInventory.Common.Security;
 
 namespace ShopInventory.Controllers;
 
@@ -75,6 +82,9 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
 {
     private string? GetUserId() =>
         User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("client_id")?.Value;
+
+    private string? GetUsername() =>
+        User.Identity?.Name ?? User.FindFirst(ClaimTypes.Name)?.Value;
 
     #region Stock Reservations
 
@@ -297,6 +307,51 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    [HttpPost("fiscal-transactions")]
+    public async Task<IActionResult> SyncFiscalTransaction(
+        [FromBody] SyncFiscalTransactionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new SyncFiscalTransactionCommand(request, GetUserId(), GetUsername()), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpGet("fiscal-transactions")]
+    public async Task<IActionResult> GetFiscalTransactions(
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? documentType = null,
+        [FromQuery] string? sourceSystem = null,
+        [FromQuery] string? clientTransactionPrefix = null,
+        [FromQuery] DateTime? fromUtc = null,
+        [FromQuery] DateTime? toUtc = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetFiscalTransactionsQuery(search, status, documentType, sourceSystem, clientTransactionPrefix, fromUtc, toUtc, page, pageSize),
+            cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("fiscal-transactions/backfill")]
+    [SapBackgroundWork]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> BackfillFiscalTransactions(
+        [FromBody] BackfillFiscalTransactionsRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new BackfillFiscalTransactionsCommand(
+                request ?? new BackfillFiscalTransactionsRequest(),
+                GetUserId(),
+                GetUsername()),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
     [HttpDelete("queue/{externalReference}")]
     public async Task<IActionResult> CancelQueuedInvoice(
         string externalReference,
@@ -334,6 +389,13 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    [HttpGet("credit-notes/by-docnum/{docNum:int}")]
+    public async Task<IActionResult> GetCreditNoteByDocNum(int docNum, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new GetCreditNoteByDocNumQuery(docNum), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
     [HttpGet("invoices/customer/{cardCode}")]
     public async Task<IActionResult> GetInvoicesByCustomer(
         string cardCode,
@@ -366,9 +428,12 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpGet("invoices/{docEntry:int}/pdf")]
-    public async Task<IActionResult> DownloadInvoicePdf(int docEntry, CancellationToken cancellationToken)
+    public async Task<IActionResult> DownloadInvoicePdf(
+        int docEntry,
+        [FromQuery] string? fiscalQrCode,
+        CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new DownloadInvoicePdfQuery(docEntry), cancellationToken);
+        var result = await mediator.Send(new DownloadInvoicePdfQuery(docEntry, fiscalQrCode), cancellationToken);
         return result.Match(
             value => File(value.PdfBytes, "application/pdf", value.FileName),
             errors => Problem(errors));
@@ -407,6 +472,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Direct Stock Transfers
 
     [HttpPost("transfers")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateTransferDirect(
         [FromBody] CreateDesktopTransferRequest request,
         CancellationToken cancellationToken)
@@ -527,18 +593,28 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     }
 
     [HttpPost("transfer-requests/{docEntry:int}/convert")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> ConvertTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new ConvertTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(
             value => CreatedAtAction(nameof(GetTransfer), new { docEntry = value.Transfer?.DocEntry }, value),
             errors => Problem(errors));
     }
 
     [HttpPost("transfer-requests/{docEntry:int}/close")]
+    [Authorize(Roles = "Admin,StockController,DepotController")]
     public async Task<IActionResult> CloseTransferRequest(int docEntry, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry), cancellationToken);
+        var userId = UserClaimReader.GetUserId(User);
+        if (userId is null)
+            return Unauthorized();
+
+        var result = await mediator.Send(new CloseTransferRequestCommand(docEntry, userId.Value), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
     }
 
@@ -547,6 +623,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     #region Queued Inventory Transfers
 
     [HttpPost("transfers/queued")]
+    [Authorize(Roles = "Admin,ApiUser")]
     public async Task<IActionResult> CreateQueuedTransfer(
         [FromBody] CreateDesktopTransferRequest request,
         CancellationToken cancellationToken)
@@ -630,12 +707,18 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     /// Runs in background — returns 202 Accepted immediately.
     /// </summary>
     [HttpPost("stock/fetch-daily")]
+    [SapBackgroundWork]
     public IActionResult FetchDailyStock([FromBody] FetchDailyStockCommand? command)
     {
         var cmd = command ?? new FetchDailyStockCommand();
 
         _ = Task.Run(async () =>
         {
+            // The request returns 202 immediately, so nobody is waiting on what follows. SAP
+            // priority is an AsyncLocal and would otherwise flow in from the request that started
+            // this; dropping it here means the endpoint's annotation is not the only thing
+            // standing between a whole-warehouse stock fetch and the interactive reservation.
+            using var background = SapRequestPriority.SuppressInteractive();
             using var scope = scopeFactory.CreateScope();
             var scopedMediator = scope.ServiceProvider.GetRequiredService<IMediator>();
             try
@@ -765,7 +848,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         {
             return BadRequest(new
             {
-                Message = "Use POST api/DesktopIntegration/prices/pricelists/sync to refresh price lists. Normal GET responses use the cached sync path."
+                Message = "Price lists are served from the local database. Use POST api/DesktopIntegration/prices/sync to refresh local price data from SAP."
             });
         }
 
@@ -776,7 +859,16 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
     [HttpPost("prices/pricelists/sync")]
     public async Task<IActionResult> SyncPriceLists(CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new SyncPriceListsCommand(), cancellationToken);
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("prices/sync")]
+    public async Task<IActionResult> SyncPriceCatalog(CancellationToken cancellationToken = default)
+    {
+        using var syncTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        var result = await mediator.Send(new SyncPriceCatalogCommand(), syncTimeout.Token);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
@@ -794,7 +886,7 @@ public class DesktopIntegrationController(IMediator mediator, IServiceScopeFacto
         {
             return BadRequest(new
             {
-                Message = $"Use POST api/DesktopIntegration/prices/pricelists/{priceListNum}/sync to refresh item prices. Normal GET responses use the cached sync path."
+                Message = $"Prices are served from the local database. Use POST api/DesktopIntegration/prices/pricelists/{priceListNum}/sync or POST api/DesktopIntegration/prices/sync to refresh from SAP."
             });
         }
 

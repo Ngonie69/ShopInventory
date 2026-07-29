@@ -418,11 +418,20 @@ public class InventoryTransferCacheService : IInventoryTransferCacheService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var now = DateTime.UtcNow;
+        var distinctTransfers = transfers
+            .GroupBy(transfer => transfer.DocEntry)
+            .Select(group => group.Last())
+            .ToList();
+        var docEntries = distinctTransfers.Select(transfer => transfer.DocEntry).ToList();
+        var existingByDocEntry = (await dbContext.CachedInventoryTransfers
+                .Where(transfer => docEntries.Contains(transfer.DocEntry))
+                .ToListAsync())
+            .GroupBy(transfer => transfer.DocEntry)
+            .ToDictionary(group => group.Key, group => group.First());
 
-        foreach (var transfer in transfers)
+        foreach (var transfer in distinctTransfers)
         {
-            var existing = await dbContext.CachedInventoryTransfers
-                .FirstOrDefaultAsync(t => t.DocEntry == transfer.DocEntry);
+            existingByDocEntry.TryGetValue(transfer.DocEntry, out var existing);
 
             var cached = existing ?? new CachedInventoryTransfer();
             MapDtoToCached(transfer, cached);

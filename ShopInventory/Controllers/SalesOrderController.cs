@@ -12,6 +12,7 @@ using ShopInventory.Features.SalesOrders.Commands.PostToSAP;
 using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrder;
 using ShopInventory.Features.SalesOrders.Commands.UpdateSalesOrderStatus;
 using ShopInventory.Features.SalesOrders.Queries.GetAllSalesOrders;
+using ShopInventory.Features.SalesOrders.Queries.DownloadSalesOrderPdf;
 using ShopInventory.Features.SalesOrders.Queries.GetLocalSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderByNumber;
@@ -43,10 +44,11 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? toDate = null,
         [FromQuery] SalesOrderSource? source = null,
         [FromQuery] string? search = null,
+        [FromQuery] bool? vanSalesUsersOnly = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source, search),
+            new GetAllSalesOrdersQuery(page, pageSize, status, cardCode, fromDate, toDate, source, search, vanSalesUsersOnly),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));
@@ -92,6 +94,32 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
+    /// Download sales order as PDF
+    /// </summary>
+    [HttpGet("{id:int}/pdf")]
+    [RequirePermission(Permission.ViewSalesOrders)]
+    public async Task<IActionResult> DownloadPdf(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new DownloadSalesOrderPdfQuery(id), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Download locally persisted sales order as PDF
+    /// </summary>
+    [HttpGet("local/{id:int}/pdf")]
+    [RequirePermission(Permission.ViewSalesOrders)]
+    public async Task<IActionResult> DownloadLocalPdf(int id, CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(new DownloadSalesOrderPdfQuery(id, true), cancellationToken);
+        return result.Match(
+            pdf => File(pdf.PdfBytes, "application/pdf", pdf.FileName),
+            errors => Problem(errors));
+    }
+
+    /// <summary>
     /// Create a new sales order
     /// </summary>
     [HttpPost]
@@ -116,7 +144,7 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
-    /// Update a sales order (Draft only)
+    /// Update a sales order (Draft or Pending only)
     /// </summary>
     [HttpPut("{id}")]
     [RequirePermission(Permission.EditSalesOrders)]

@@ -15,6 +15,45 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   {
   }
 
+  public override int SaveChanges()
+      => SaveChanges(acceptAllChangesOnSuccess: true);
+
+  public override int SaveChanges(bool acceptAllChangesOnSuccess)
+  {
+    EnsureApprovedSalesOrdersHaveSapDocNum();
+    return base.SaveChanges(acceptAllChangesOnSuccess);
+  }
+
+  public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+      => SaveChangesAsync(acceptAllChangesOnSuccess: true, cancellationToken);
+
+  public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+  {
+    EnsureApprovedSalesOrdersHaveSapDocNum();
+    return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+  }
+
+  private void EnsureApprovedSalesOrdersHaveSapDocNum()
+  {
+    if (!ChangeTracker.HasChanges())
+    {
+      return;
+    }
+
+    var invalidOrder = ChangeTracker.Entries<SalesOrderEntity>()
+        .Where(entry => entry.State is EntityState.Added or EntityState.Modified)
+        .Select(entry => entry.Entity)
+        .FirstOrDefault(order =>
+            order.Status == SalesOrderStatus.Approved
+            && order.SAPDocNum.GetValueOrDefault() <= 0);
+
+    if (invalidOrder != null)
+    {
+      throw new InvalidOperationException(
+          $"Sales order {invalidOrder.OrderNumber} cannot be saved as Approved until SAP returns a document number.");
+    }
+  }
+
   // Authentication tables
   public DbSet<User> Users { get; set; }
   public DbSet<RefreshToken> RefreshTokens { get; set; }
@@ -38,6 +77,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Item Price tables
   public DbSet<ItemPriceEntity> ItemPrices { get; set; }
   public DbSet<PriceListEntity> PriceLists { get; set; }
+  public DbSet<BusinessPartnerPriceProfileEntity> BusinessPartnerPriceProfiles { get; set; }
+  public DbSet<BusinessPartnerSpecialPriceEntity> BusinessPartnerSpecialPrices { get; set; }
 
   // Incoming Payment tables
   public DbSet<IncomingPaymentEntity> IncomingPayments { get; set; }
@@ -58,6 +99,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Webhook tables
   public DbSet<Webhook> Webhooks { get; set; }
   public DbSet<WebhookDelivery> WebhookDeliveries { get; set; }
+  public DbSet<WhatsAppWebhookEventEntity> WhatsAppWebhookEvents { get; set; }
 
   // Payment tables
   public DbSet<PaymentTransaction> PaymentTransactions { get; set; }
@@ -74,6 +116,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SalesOrderEntity> SalesOrders { get; set; }
   public DbSet<SalesOrderLineEntity> SalesOrderLines { get; set; }
 
+  // Route customer tables
+  public DbSet<RouteCustomerEntity> RouteCustomers { get; set; }
+
   // Purchase Order tables
   public DbSet<PurchaseOrderEntity> PurchaseOrders { get; set; }
   public DbSet<PurchaseOrderLineEntity> PurchaseOrderLines { get; set; }
@@ -81,6 +126,8 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Credit Note tables
   public DbSet<CreditNoteEntity> CreditNotes { get; set; }
   public DbSet<CreditNoteLineEntity> CreditNoteLines { get; set; }
+  public DbSet<SapCreditNoteSnapshotEntity> SapCreditNoteSnapshots { get; set; }
+  public DbSet<SapCreditNoteLineSnapshotEntity> SapCreditNoteLineSnapshots { get; set; }
 
   // Quotation tables
   public DbSet<QuotationEntity> Quotations { get; set; }
@@ -94,6 +141,13 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<UserPermissionEntity> UserPermissions { get; set; }
   public DbSet<RoleEntity> Roles { get; set; }
   public DbSet<RolePermissionEntity> RolePermissions { get; set; }
+  public DbSet<IdempotencyRequestEntity> IdempotencyRequests { get; set; }
+  public DbSet<ApprovalStageDefinitionEntity> ApprovalStageDefinitions { get; set; }
+  public DbSet<ApprovalTemplateDefinitionEntity> ApprovalTemplateDefinitions { get; set; }
+  public DbSet<ApprovalRequestEntity> ApprovalRequests { get; set; }
+  public DbSet<ApprovalDecisionEntity> ApprovalDecisions { get; set; }
+  public DbSet<PendingInventoryTransferEntity> PendingInventoryTransfers { get; set; }
+  public DbSet<PendingTransferRequestEditEntity> PendingTransferRequestEdits { get; set; }
   public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
   // Document Management tables
@@ -120,6 +174,11 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   // Mobile order post-processing queue for durable price enrichment and notifications
   public DbSet<MobileOrderPostProcessingQueueEntity> MobileOrderPostProcessingQueue { get; set; }
 
+  // Crate tracking tables
+  public DbSet<CrateTransactionEntity> CrateTransactions { get; set; }
+  public DbSet<CratePodSubmissionEntity> CratePodSubmissions { get; set; }
+  public DbSet<CrateGrvEntity> CrateGrvs { get; set; }
+
   // Merchandiser Product assignments
   public DbSet<MerchandiserProductEntity> MerchandiserProducts { get; set; }
 
@@ -133,6 +192,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<DesktopSaleLineEntity> DesktopSaleLines { get; set; }
   public DbSet<SaleConsolidationEntity> SaleConsolidations { get; set; }
   public DbSet<StockTransferAdjustmentEntity> StockTransferAdjustments { get; set; }
+  public DbSet<DesktopFiscalTransactionEntity> DesktopFiscalTransactions { get; set; }
+  public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
+  public DbSet<PodReportCacheEntryEntity> PodReportCacheEntries { get; set; }
 
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
@@ -141,6 +203,163 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     modelBuilder.Entity<DataProtectionKey>(entity =>
     {
       entity.ToTable("DataProtectionKeys");
+    });
+
+    modelBuilder.Entity<IdempotencyRequestEntity>(entity =>
+    {
+      entity.ToTable("IdempotencyRequests");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.Scope, e.IdempotencyKey })
+            .IsUnique();
+
+      entity.HasIndex(e => e.ExpiresAtUtc);
+
+      entity.Property(e => e.Scope)
+            .IsRequired()
+            .HasMaxLength(120);
+
+      entity.Property(e => e.IdempotencyKey)
+            .IsRequired()
+            .HasMaxLength(200);
+
+      entity.Property(e => e.RequestHash)
+            .IsRequired()
+            .HasMaxLength(64);
+
+      entity.Property(e => e.Status)
+            .HasConversion<string>()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.ResponsePayload)
+            .HasColumnType("text");
+    });
+
+    modelBuilder.Entity<SapItemUomMappingEntity>(entity =>
+    {
+      entity.ToTable("SapItemUomMappings");
+      entity.HasKey(e => e.Id);
+
+      // Approvals read this by the exact pair, and the upsert relies on the uniqueness to let
+      // two nodes resolving the same item concurrently collapse onto one row.
+      entity.HasIndex(e => new { e.ItemCode, e.RequestedUomCode })
+            .IsUnique();
+
+      entity.Property(e => e.ItemCode)
+            .IsRequired()
+            .HasMaxLength(100);
+
+      entity.Property(e => e.RequestedUomCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+      entity.Property(e => e.UoMCode)
+            .HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<PodReportCacheEntryEntity>(entity =>
+    {
+      entity.ToTable("PodReportCacheEntries");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.CacheKey)
+            .IsUnique();
+      entity.HasIndex(e => e.ExpiresAtUtc);
+
+      entity.Property(e => e.FromDate)
+            .HasColumnType("date");
+      entity.Property(e => e.ToDate)
+            .HasColumnType("date");
+      entity.Property(e => e.PayloadJson)
+            .HasColumnType("jsonb");
+    });
+
+    modelBuilder.Entity<ApprovalStageDefinitionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalStageDefinitions");
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.AuthorizerUserIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.AuthorizerRolesJson).IsRequired().HasColumnType("text");
+    });
+
+    modelBuilder.Entity<ApprovalTemplateDefinitionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalTemplateDefinitions");
+      entity.HasIndex(e => e.Name).IsUnique();
+      entity.HasIndex(e => new { e.DocumentType, e.IsActive, e.Priority });
+      entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.Description).HasMaxLength(500);
+      entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(80);
+      entity.Property(e => e.OriginatorUserIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.OriginatorRolesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.StageIdsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+    });
+
+    modelBuilder.Entity<ApprovalRequestEntity>(entity =>
+    {
+      entity.ToTable("ApprovalRequests");
+      entity.HasIndex(e => new { e.DocumentType, e.DocumentKey }).IsUnique();
+      entity.HasIndex(e => new { e.Status, e.CreatedAtUtc });
+      entity.Property(e => e.TemplateName).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(80);
+      entity.Property(e => e.DocumentKey).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.DocumentNumber).HasMaxLength(120);
+      entity.Property(e => e.OriginatorName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.OriginatorRole).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.FromWarehouse).HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).HasMaxLength(50);
+      entity.Property(e => e.StageSnapshotsJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(40);
+      entity.HasMany(e => e.Decisions)
+        .WithOne(e => e.ApprovalRequest)
+        .HasForeignKey(e => e.ApprovalRequestId)
+        .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<ApprovalDecisionEntity>(entity =>
+    {
+      entity.ToTable("ApprovalDecisions");
+      entity.HasIndex(e => new { e.ApprovalRequestId, e.StageId, e.AuthorizerUserId }).IsUnique();
+      entity.Property(e => e.StageName).IsRequired().HasMaxLength(120);
+      entity.Property(e => e.AuthorizerName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.AuthorizerRole).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.Decision).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.Remarks).HasMaxLength(1000);
+    });
+
+    modelBuilder.Entity<PendingInventoryTransferEntity>(entity =>
+    {
+      entity.ToTable("PendingInventoryTransfers");
+      entity.HasIndex(e => e.ClientRequestId).IsUnique().HasFilter("\"ClientRequestId\" IS NOT NULL");
+      entity.HasIndex(e => e.DraftNumber).IsUnique().HasFilter("\"DraftNumber\" IS NOT NULL");
+      entity.Property(e => e.DraftNumber).HasMaxLength(30);
+      entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.PayloadJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.CreatedByName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.CreatedByRole).HasMaxLength(50);
+      entity.Property(e => e.ClientRequestId).HasMaxLength(200);
+      entity.Property(e => e.Comments).HasMaxLength(500);
+      entity.Property(e => e.LastError).HasMaxLength(2000);
+    });
+
+    modelBuilder.Entity<PendingTransferRequestEditEntity>(entity =>
+    {
+      entity.ToTable("PendingTransferRequestEdits");
+      entity.Property(e => e.FromWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ToWarehouse).IsRequired().HasMaxLength(50);
+      entity.Property(e => e.ProposedLinesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.OriginalLinesJson).IsRequired().HasColumnType("text");
+      entity.Property(e => e.Status).IsRequired().HasMaxLength(30);
+      entity.Property(e => e.CreatedByName).IsRequired().HasMaxLength(150);
+      entity.Property(e => e.CreatedByRole).HasMaxLength(50);
+      entity.Property(e => e.Reason).HasMaxLength(500);
+      entity.Property(e => e.LastError).HasMaxLength(2000);
     });
 
     // User configuration
@@ -172,7 +391,53 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.Property(u => u.AssignedWarehouseCodes)
                 .HasMaxLength(500);
 
+      entity.Property(u => u.AssignedBusinessPartnerCode)
+                .HasMaxLength(100);
+
+      entity.Property(u => u.AssignedCostCentreCode)
+                .HasMaxLength(50);
+
       entity.Ignore(u => u.AssignedWarehouseCode);
+    });
+
+    modelBuilder.Entity<RouteCustomerEntity>(entity =>
+    {
+      entity.ToTable("RouteCustomers");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.AssignedBusinessPartnerCode);
+      entity.HasIndex(e => new { e.AssignedBusinessPartnerCode, e.IsActive });
+      entity.HasIndex(e => new { e.AssignedBusinessPartnerCode, e.Code })
+            .IsUnique();
+
+      entity.Property(e => e.AssignedBusinessPartnerCode)
+            .IsRequired()
+            .HasMaxLength(100);
+
+      entity.Property(e => e.Code)
+            .IsRequired()
+            .HasMaxLength(50);
+
+      entity.Property(e => e.Name)
+            .IsRequired()
+            .HasMaxLength(200);
+
+      entity.Property(e => e.Phone)
+            .HasMaxLength(50);
+
+      entity.Property(e => e.Email)
+            .HasMaxLength(255);
+
+      entity.Property(e => e.Address)
+            .HasMaxLength(500);
+
+      entity.Property(e => e.VatNumber)
+            .HasMaxLength(100);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
     });
 
     // RefreshToken configuration
@@ -180,8 +445,15 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.ToTable("RefreshTokens");
 
-      entity.HasIndex(rt => rt.Token)
+      entity.HasIndex(rt => rt.TokenHash)
                 .IsUnique();
+
+      entity.Property(rt => rt.TokenHash)
+            .IsRequired()
+            .HasMaxLength(128);
+
+      entity.Property(rt => rt.ReplacedByTokenHash)
+            .HasMaxLength(128);
 
       entity.HasOne(rt => rt.User)
                 .WithMany(u => u.RefreshTokens)
@@ -394,6 +666,23 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
     {
       entity.HasIndex(p => p.ListNum).IsUnique();
       entity.HasIndex(p => p.IsActive);
+    });
+
+    modelBuilder.Entity<BusinessPartnerPriceProfileEntity>(entity =>
+    {
+      entity.HasIndex(p => p.CardCode).IsUnique();
+      entity.HasIndex(p => p.PriceListNum);
+      entity.HasIndex(p => p.IsActive);
+    });
+
+    modelBuilder.Entity<BusinessPartnerSpecialPriceEntity>(entity =>
+    {
+      entity.HasIndex(p => new { p.CardCode, p.ItemCode }).IsUnique();
+      entity.HasIndex(p => p.CardCode);
+      entity.HasIndex(p => p.ItemCode);
+      entity.HasIndex(p => p.IsActive);
+
+      entity.ToTable(t => t.HasCheckConstraint("CK_BusinessPartnerSpecialPrices_Price_NonNegative", "\"Price\" >= 0"));
     });
 
     // Incoming Payment configuration with CHECK constraints
@@ -620,6 +909,67 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                   .WithMany()
                   .HasForeignKey(d => d.WebhookId)
                   .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    modelBuilder.Entity<WhatsAppWebhookEventEntity>(entity =>
+    {
+      entity.ToTable("WhatsAppWebhookEvents");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.IdempotencyKey)
+                  .IsUnique();
+      entity.HasIndex(e => e.ReceivedAtUtc);
+      entity.HasIndex(e => e.OccurredAtUtc);
+      entity.HasIndex(e => e.EventType);
+      entity.HasIndex(e => e.MessageId);
+      entity.HasIndex(e => e.SessionName);
+      entity.HasIndex(e => e.ChatId);
+      entity.HasIndex(e => e.DeliveryId);
+
+      entity.Property(e => e.IdempotencyKey)
+                  .HasMaxLength(255);
+
+      entity.Property(e => e.DeliveryId)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.EventType)
+                  .IsRequired()
+                  .HasMaxLength(100);
+
+      entity.Property(e => e.SessionName)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.MessageId)
+                  .HasMaxLength(200);
+
+      entity.Property(e => e.ChatId)
+                  .HasMaxLength(160);
+
+      entity.Property(e => e.SenderNumber)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.SenderDisplayName)
+                  .HasMaxLength(160);
+
+      entity.Property(e => e.MessageType)
+                  .HasMaxLength(50);
+
+      entity.Property(e => e.Direction)
+                  .IsRequired()
+                  .HasMaxLength(20);
+
+      entity.Property(e => e.Status)
+                  .HasMaxLength(40);
+
+      entity.Property(e => e.SourcePath)
+                  .HasMaxLength(120);
+
+      entity.Property(e => e.TextBody)
+                  .HasColumnType("text");
+
+      entity.Property(e => e.RawPayload)
+                  .IsRequired()
+                  .HasColumnType("text");
     });
 
     // Payment Transaction configuration
@@ -869,6 +1219,36 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .OnDelete(DeleteBehavior.SetNull);
     });
 
+    modelBuilder.Entity<SapCreditNoteSnapshotEntity>(entity =>
+    {
+      entity.ToTable("SapCreditNoteSnapshots");
+      entity.HasKey(e => e.SapDocEntry);
+
+      // DocEntry is globally unique for the object type. DocNum can repeat across SAP series.
+      entity.HasIndex(e => e.SapDocNum);
+      entity.HasIndex(e => e.DocDate);
+      entity.HasIndex(e => e.SapUpdateDate);
+      entity.HasIndex(e => e.SyncedAtUtc);
+      entity.HasIndex(e => new { e.IsCancelled, e.DocDate });
+
+      entity.Property(e => e.DocDate).HasColumnType("date");
+      entity.Property(e => e.SapUpdateDate).HasColumnType("date");
+    });
+
+    modelBuilder.Entity<SapCreditNoteLineSnapshotEntity>(entity =>
+    {
+      entity.ToTable("SapCreditNoteLineSnapshots");
+      entity.HasKey(e => new { e.CreditNoteDocEntry, e.LineNum });
+
+      entity.HasIndex(e => new { e.BaseType, e.BaseEntry });
+      entity.HasIndex(e => e.ItemCode);
+
+      entity.HasOne(e => e.CreditNote)
+            .WithMany(e => e.Lines)
+            .HasForeignKey(e => e.CreditNoteDocEntry)
+            .OnDelete(DeleteBehavior.Cascade);
+    });
+
     // Quotation configuration
     modelBuilder.Entity<QuotationEntity>(entity =>
     {
@@ -876,6 +1256,7 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
       entity.HasKey(e => e.Id);
 
       entity.HasIndex(e => e.QuotationNumber).IsUnique();
+      entity.HasIndex(e => e.ClientRequestId).IsUnique();
       entity.HasIndex(e => e.CardCode);
       entity.HasIndex(e => e.Status);
       entity.HasIndex(e => e.QuotationDate);
@@ -1062,6 +1443,118 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
 
       // CHECK constraint to prevent negative batch quantities
       entity.ToTable(t => t.HasCheckConstraint("CK_StockReservationBatches_ReservedQuantity_Positive", "\"ReservedQuantity\" > 0"));
+    });
+
+    // Crate tracking configuration
+    modelBuilder.Entity<CrateTransactionEntity>(entity =>
+    {
+      entity.ToTable("CrateTransactions");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.InvoiceDocEntry)
+            .IsUnique();
+
+      entity.HasIndex(e => e.ShopCardCode);
+      entity.HasIndex(e => e.TransactionType);
+      entity.HasIndex(e => e.EffectiveDate);
+      entity.HasIndex(e => e.CreatedAt);
+
+      entity.Property(e => e.TransactionType)
+            .IsRequired()
+            .HasMaxLength(30);
+
+      entity.Property(e => e.ShopCardCode)
+            .IsRequired()
+            .HasMaxLength(50);
+
+      entity.Property(e => e.ShopName)
+            .HasMaxLength(200);
+
+      entity.Property(e => e.Notes)
+            .HasMaxLength(500);
+
+      entity.HasMany(e => e.PodSubmissions)
+            .WithOne(e => e.CrateTransaction)
+            .HasForeignKey(e => e.CrateTransactionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.Grv)
+            .WithOne(e => e.CrateTransaction)
+            .HasForeignKey<CrateGrvEntity>(e => e.CrateTransactionId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t => t.HasCheckConstraint("CK_CrateTransactions_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0"));
+    });
+
+    modelBuilder.Entity<CratePodSubmissionEntity>(entity =>
+    {
+      entity.ToTable("CratePodSubmissions");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => new { e.CrateTransactionId, e.SubmissionRole })
+            .IsUnique();
+
+      entity.HasIndex(e => e.SubmittedAt);
+
+      entity.Property(e => e.SubmissionRole)
+            .IsRequired()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.Notes)
+            .HasMaxLength(500);
+
+      entity.HasOne(e => e.SubmittedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.SubmittedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t => t.HasCheckConstraint("CK_CratePodSubmissions_Quantity_NonNegative", "\"Quantity\" >= 0"));
+    });
+
+    modelBuilder.Entity<CrateGrvEntity>(entity =>
+    {
+      entity.ToTable("CrateGrvs");
+      entity.HasKey(e => e.Id);
+
+      entity.HasIndex(e => e.CrateTransactionId)
+            .IsUnique();
+
+      entity.HasIndex(e => e.GrvNumber)
+            .IsUnique();
+
+      entity.HasIndex(e => e.CreatedAt);
+      entity.HasIndex(e => e.Status);
+
+      entity.Property(e => e.GrvNumber)
+            .HasMaxLength(30);
+
+      entity.Property(e => e.Direction)
+            .IsRequired()
+            .HasMaxLength(20);
+
+      entity.Property(e => e.Reason)
+            .IsRequired()
+            .HasMaxLength(1000);
+
+      entity.Property(e => e.Status)
+            .IsRequired()
+            .HasMaxLength(20);
+
+      entity.HasOne(e => e.CreatedByUser)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedByUserId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+      entity.ToTable(t =>
+          {
+            t.HasCheckConstraint("CK_CrateGrvs_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+            t.HasCheckConstraint("CK_CrateGrvs_ActualQuantity_NonNegative", "\"ActualQuantity\" >= 0");
+          });
     });
 
     // Merchandiser Product configuration

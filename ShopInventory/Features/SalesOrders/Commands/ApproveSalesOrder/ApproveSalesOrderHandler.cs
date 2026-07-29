@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Features.SalesOrders;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -15,45 +17,100 @@ public sealed class ApproveSalesOrderHandler(
     ILogger<ApproveSalesOrderHandler> logger
 ) : IRequestHandler<ApproveSalesOrderCommand, ErrorOr<SalesOrderDto>>
 {
+    private static readonly TimeSpan SlowApprovalThreshold = TimeSpan.FromSeconds(30);
+
     public async Task<ErrorOr<SalesOrderDto>> Handle(
         ApproveSalesOrderCommand command,
         CancellationToken cancellationToken)
     {
+        var approvalTimer = Stopwatch.StartNew();
+
         try
         {
             var order = await salesOrderService.ApproveAsync(command.Id, command.UserId, cancellationToken);
-            if (order.Source == SalesOrderSource.Mobile && !string.IsNullOrWhiteSpace(order.CreatedByUserName))
+            approvalTimer.Stop();
+
+            if (approvalTimer.Elapsed >= SlowApprovalThreshold)
             {
+                logger.LogWarning(
+                    "Slow sales order approval completed for order {OrderId} ({OrderNumber}) in {ApprovalDurationMs} ms. SAPDocNum={SAPDocNum}",
+                    command.Id,
+                    order.OrderNumber,
+                    approvalTimer.ElapsedMilliseconds,
+                    order.SAPDocNum);
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Sales order approval completed for order {OrderId} ({OrderNumber}) in {ApprovalDurationMs} ms. SAPDocNum={SAPDocNum}",
+                    command.Id,
+                    order.OrderNumber,
+                    approvalTimer.ElapsedMilliseconds,
+                    order.SAPDocNum);
+            }
+
+            if (order.Source == SalesOrderSource.Mobile)
+            {
+                // Approval and SAP posting are committed before notifications begin. A browser
+                // disconnect must not cancel these durable post-approval side effects.
+                var postApprovalCancellationToken = CancellationToken.None;
+                var customerName = string.IsNullOrWhiteSpace(order.CardName)
+                    ? order.CardCode
+                    : order.CardName;
+                var notificationTitle = $"Sales Order Approved: {order.OrderNumber}";
+                var creatorNotificationMessage = order.SAPDocNum.HasValue
+                    ? $"Your mobile sales order {order.OrderNumber} for {customerName} was approved and posted to SAP as document #{order.SAPDocNum}."
+                    : $"Your mobile sales order {order.OrderNumber} for {customerName} was approved successfully.";
+                var staffNotificationMessage = order.SAPDocNum.HasValue
+                    ? $"Mobile sales order {order.OrderNumber} for {customerName} was approved and posted to SAP as document #{order.SAPDocNum}."
+                    : $"Mobile sales order {order.OrderNumber} for {customerName} was approved successfully.";
+                var notificationData = new Dictionary<string, string>
+                {
+                    ["sapDocNum"] = order.SAPDocNum?.ToString() ?? string.Empty,
+                    ["action"] = "Approved"
+                };
+
+                var creatorNotification = SalesOrderLifecycleNotificationFactory.CreateCreatorNotification(
+                    order,
+                    notificationTitle,
+                    creatorNotificationMessage,
+                    "Success",
+                    notificationData);
+
+                if (creatorNotification is not null)
+                {
+                    try
+                    {
+                        await notificationService.CreateNotificationAsync(creatorNotification, postApprovalCancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(
+                            ex,
+                            "Failed to notify creator {Username} about approved mobile sales order {OrderId}",
+                            order.CreatedByUserName,
+                            order.Id);
+                    }
+                }
+
                 try
                 {
-                    var notificationMessage = order.SAPDocNum.HasValue
-                        ? $"Your mobile sales order {order.OrderNumber} for {order.CardName ?? order.CardCode} was approved and posted to SAP as document #{order.SAPDocNum}."
-                        : $"Your mobile sales order {order.OrderNumber} for {order.CardName ?? order.CardCode} was approved successfully.";
-
-                    await notificationService.CreateNotificationAsync(new CreateNotificationRequest
+                    foreach (var staffNotification in SalesOrderLifecycleNotificationFactory.CreateStaffNotifications(
+                                 order,
+                                 notificationTitle,
+                                 staffNotificationMessage,
+                                 "Success",
+                                 notificationData))
                     {
-                        Title = $"Sales Order Approved: {order.OrderNumber}",
-                        Message = notificationMessage,
-                        Type = "Success",
-                        Category = "SalesOrder",
-                        EntityType = "SalesOrder",
-                        EntityId = order.OrderNumber,
-                        ActionUrl = "/mobile-drafts",
-                        TargetUsername = order.CreatedByUserName,
-                        Data = new Dictionary<string, string>
-                        {
-                            ["orderId"] = order.Id.ToString(),
-                            ["orderNumber"] = order.OrderNumber,
-                            ["cardCode"] = order.CardCode,
-                            ["customerCode"] = order.CardCode,
-                            ["customerName"] = order.CardName ?? order.CardCode,
-                            ["status"] = order.Status.ToString(),
-                            ["sapDocNum"] = order.SAPDocNum?.ToString() ?? string.Empty
-                        }
-                    }, cancellationToken);
+                        await notificationService.CreateNotificationAsync(staffNotification, postApprovalCancellationToken);
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    logger.LogWarning(
+                        ex,
+                        "Failed to publish staff approval notifications for mobile sales order {OrderId}",
+                        order.Id);
                 }
             }
 
@@ -69,19 +126,43 @@ public sealed class ApproveSalesOrderHandler(
             }
             return order;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            approvalTimer.Stop();
+            // The caller went away (client disconnect or request timeout), not a failure.
+            // Any SAP post / local approval already committed inside ApproveAsync stands;
+            // don't log it as an unexpected error or report a false approval failure.
+            logger.LogInformation(
+                "Approval request for sales order {OrderId} was canceled by the caller after {ApprovalDurationMs} ms.",
+                command.Id,
+                approvalTimer.ElapsedMilliseconds);
+            throw;
+        }
         catch (InvalidOperationException ex)
         {
-            logger.LogWarning(ex, "Failed to approve sales order {OrderId} for user {UserId}", command.Id, command.UserId);
+            approvalTimer.Stop();
+            logger.LogWarning(
+                ex,
+                "Failed to approve sales order {OrderId} for user {UserId} after {ApprovalDurationMs} ms",
+                command.Id,
+                command.UserId,
+                approvalTimer.ElapsedMilliseconds);
             return Errors.SalesOrder.InvalidOperation(ex.Message);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unexpected error approving sales order {OrderId} for user {UserId}", command.Id, command.UserId);
+            approvalTimer.Stop();
+            logger.LogError(
+                ex,
+                "Unexpected error approving sales order {OrderId} for user {UserId} after {ApprovalDurationMs} ms",
+                command.Id,
+                command.UserId,
+                approvalTimer.ElapsedMilliseconds);
 
             SalesOrderDto? order = null;
             try
             {
-                order = await salesOrderService.GetByIdFromLocalAsync(command.Id, cancellationToken);
+                order = await salesOrderService.GetByIdFromLocalAsync(command.Id, CancellationToken.None);
             }
             catch (Exception lookupEx)
             {

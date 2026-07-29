@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.Prices;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -14,6 +15,7 @@ public sealed class SyncItemPricesForPriceListHandler(
     ISAPServiceLayerClient sapClient,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
+    BackgroundWorkerLeaderElector leaderElector,
     ILogger<SyncItemPricesForPriceListHandler> logger
 ) : IRequestHandler<SyncItemPricesForPriceListCommand, ErrorOr<object>>
 {
@@ -24,9 +26,28 @@ public sealed class SyncItemPricesForPriceListHandler(
         if (!settings.Value.Enabled)
             return Errors.Price.SapDisabled;
 
+        using var syncLease = await PriceCatalogSyncGate.TryEnterAsync(cancellationToken);
+        if (syncLease is null)
+        {
+            logger.LogWarning(
+                "Skipped item price sync for price list {PriceListNum} because another SAP price sync is already running",
+                command.PriceListNum);
+            return Errors.Price.SyncAlreadyRunning;
+        }
+
+        await using var clusterLease = await leaderElector.TryAcquireAsync(PriceCatalogSyncGate.ClusterLockName, cancellationToken);
+        if (clusterLease is null)
+        {
+            logger.LogWarning(
+                "Skipped item price sync for price list {PriceListNum} because another API instance is already running SAP price sync",
+                command.PriceListNum);
+            return Errors.Price.SyncAlreadyRunning;
+        }
+
         try
         {
             logger.LogInformation("Starting item price sync for price list {PriceListNum}...", command.PriceListNum);
+            using var priceResolutionScope = sapClient.BeginPriceListResolutionScope();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             var sapPrices = await sapClient.GetPricesByPriceListAsync(command.PriceListNum, cancellationToken);
@@ -60,6 +81,8 @@ public sealed class SyncItemPricesForPriceListHandler(
                     existing.Price = sapPrice.Price;
                     existing.PriceListName = sapPrice.PriceListName;
                     existing.Currency = sapPrice.Currency;
+                    existing.BasePriceList = sapPrice.BasePriceList;
+                    existing.Factor = sapPrice.Factor;
                     existing.LastSyncedAt = syncTime;
                     existing.UpdatedAt = syncTime;
                 }
@@ -74,6 +97,8 @@ public sealed class SyncItemPricesForPriceListHandler(
                         Price = sapPrice.Price,
                         PriceListName = sapPrice.PriceListName,
                         Currency = sapPrice.Currency,
+                        BasePriceList = sapPrice.BasePriceList,
+                        Factor = sapPrice.Factor,
                         SyncedFromSAP = true,
                         CreatedAt = syncTime,
                         LastSyncedAt = syncTime

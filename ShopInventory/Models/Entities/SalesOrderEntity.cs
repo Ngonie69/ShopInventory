@@ -302,9 +302,10 @@ public class SalesOrderLineEntity
     public decimal UnitPrice { get; set; }
 
     /// <summary>
-    /// Line discount percentage
+    /// Line discount percentage. Six decimals to match SAP: a special price of 0.66 against a
+    /// 0.70 list price is 5.714286%, which decimal(5,2) silently truncated to 5.71.
     /// </summary>
-    [Column(TypeName = "decimal(5,2)")]
+    [Column(TypeName = "decimal(9,6)")]
     public decimal DiscountPercent { get; set; }
 
     /// <summary>
@@ -336,6 +337,12 @@ public class SalesOrderLineEntity
     /// </summary>
     [MaxLength(100)]
     public string? BatchNumber { get; set; }
+
+    /// <summary>
+    /// SAP dimension 1 cost centre code for this line.
+    /// </summary>
+    [MaxLength(50)]
+    public string? CostCentreCode { get; set; }
 
     /// <summary>
     /// Product ID reference

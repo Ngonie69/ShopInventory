@@ -8,7 +8,12 @@ public interface IQuotationService
     Task<QuotationListResponse?> GetQuotationsAsync(int page = 1, int pageSize = 20, QuotationStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<QuotationListResponse?> GetQuotationsFromSAPAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null);
     Task<QuotationDto?> GetQuotationByIdAsync(int id);
+    Task<QuotationDto?> GetQuotationFromSAPByDocEntryAsync(int docEntry);
     Task<QuotationDto?> GetQuotationByNumberAsync(string quotationNumber);
+    Task<byte[]?> GetQuotationPdfAsync(int id);
+    Task<byte[]?> GetQuotationPdfFromSAPAsync(int docEntry);
+    Task<QuotationDto?> ApplyStandardVatAsync(int id);
+    Task<QuotationDto?> RepriceQuotationAsync(int id, CreateQuotationRequest request);
     Task<QuotationDto?> CreateQuotationAsync(CreateQuotationRequest request);
     Task<QuotationDto?> UpdateQuotationAsync(int id, CreateQuotationRequest request);
     Task<QuotationDto?> UpdateStatusAsync(int id, QuotationStatus status, string? comments = null);
@@ -127,6 +132,19 @@ public class QuotationService : IQuotationService
         }
     }
 
+    public async Task<QuotationDto?> GetQuotationFromSAPByDocEntryAsync(int docEntry)
+    {
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<QuotationDto>($"api/quotation/sap/{docEntry}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching SAP quotation {DocEntry}", docEntry);
+            return null;
+        }
+    }
+
     public async Task<QuotationDto?> GetQuotationByNumberAsync(string quotationNumber)
     {
         try
@@ -140,9 +158,97 @@ public class QuotationService : IQuotationService
         }
     }
 
+    public async Task<byte[]?> GetQuotationPdfAsync(int id)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/quotation/{id}/pdf");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+
+            _logger.LogWarning("Failed to download quotation PDF for {Id}: {StatusCode}", id, response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading quotation PDF for {Id}", id);
+            return null;
+        }
+    }
+
+    public async Task<byte[]?> GetQuotationPdfFromSAPAsync(int docEntry)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"api/quotation/sap/{docEntry}/pdf");
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+
+            _logger.LogWarning("Failed to download SAP quotation PDF for {DocEntry}: {StatusCode}", docEntry, response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading SAP quotation PDF for {DocEntry}", docEntry);
+            return null;
+        }
+    }
+
+    public async Task<QuotationDto?> ApplyStandardVatAsync(int id)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsync($"api/quotation/{id}/apply-standard-vat", null);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<QuotationDto>();
+            }
+
+            _logger.LogWarning("Failed to apply standard VAT to quotation {Id}: {StatusCode}", id, response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error applying standard VAT to quotation {Id}", id);
+            return null;
+        }
+    }
+
+    public async Task<QuotationDto?> RepriceQuotationAsync(int id, CreateQuotationRequest request)
+    {
+        try
+        {
+            var response = await _httpClient.PutAsJsonAsync($"api/quotation/{id}/reprice", request);
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<QuotationDto>();
+            }
+
+            _logger.LogWarning("Failed to reprice quotation {Id}: {StatusCode}", id, response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error repricing quotation {Id}", id);
+            return null;
+        }
+    }
+
     public async Task<QuotationDto?> CreateQuotationAsync(CreateQuotationRequest request)
     {
-        var response = await _httpClient.PostAsJsonAsync("api/quotation", request);
+        var clientRequestId = EnsureClientRequestId(request);
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/quotation")
+        {
+            Content = JsonContent.Create(request)
+        };
+        httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+
+        var response = await _httpClient.SendAsync(httpRequest);
         if (response.IsSuccessStatusCode)
         {
             return await response.Content.ReadFromJsonAsync<QuotationDto>();
@@ -150,7 +256,22 @@ public class QuotationService : IQuotationService
 
         var errorBody = await response.Content.ReadAsStringAsync();
         _logger.LogWarning("Failed to create quotation: {StatusCode} - {Error}", response.StatusCode, errorBody);
-        throw new HttpRequestException($"Server returned {(int)response.StatusCode}: {errorBody}");
+        throw ApiErrorResponse.CreateHttpRequestException(
+            response.StatusCode,
+            errorBody,
+            "We couldn't create this quotation right now. Please try again.");
+    }
+
+    private static string EnsureClientRequestId(CreateQuotationRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ClientRequestId))
+        {
+            request.ClientRequestId = request.ClientRequestId.Trim();
+            return request.ClientRequestId;
+        }
+
+        request.ClientRequestId = Guid.NewGuid().ToString("N");
+        return request.ClientRequestId;
     }
 
     public async Task<QuotationDto?> UpdateQuotationAsync(int id, CreateQuotationRequest request)

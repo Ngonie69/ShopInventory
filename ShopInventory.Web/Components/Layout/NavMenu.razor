@@ -229,7 +229,7 @@
     <AuthorizeView>
         <Authorized>
             @* ── Overview ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager,SalesRep"
+            <AuthorizeView Roles="@UserRoles.DashboardRoles"
                            Context="dashboardCtx">
                 <Authorized>
                     <div class="nav-section-label">Overview</div>
@@ -252,6 +252,12 @@
                         </span>
                         <span class="snav-text">Invoices</span>
                     </NavLink>
+                    <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Van Sales Invoices</span>
+                    </NavLink>
                     <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
@@ -264,11 +270,23 @@
                         </span>
                         <span class="snav-text">Sales Orders</span>
                     </NavLink>
+                    <NavLink class="snav-link sub-link" href="/van-sales-orders" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Van Sales Orders</span>
+                    </NavLink>
                     <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
                         </span>
                         <span class="snav-text">Create Sale Order</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Signpost" />
+                        </span>
+                        <span class="snav-text">Route Customers</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -292,7 +310,7 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
                         </span>
-                        <span class="snav-text">Mobile Drafts</span>
+                        <span class="snav-text">Mobile Orders</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
@@ -321,7 +339,7 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
                         </span>
-                        <span class="snav-text">Mobile Drafts</span>
+                        <span class="snav-text">Mobile Orders</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -356,7 +374,7 @@
             </AuthorizeView>
 
             @* ── Inventory ── *@
-            <AuthorizeView Roles="Admin,StockController,DepotController" Context="transferCtx">
+            <AuthorizeView Roles="@UserRoles.InventoryTransferRoles" Context="transferCtx">
                 <Authorized>
                     <div class="nav-section-label">Inventory</div>
                     <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
@@ -365,11 +383,29 @@
                         </span>
                         <span class="snav-text">Transfers</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
+                    <AuthorizeView Roles="Admin,StockController,DepotController" Context="localStockCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Inventory" />
+                                </span>
+                                <span class="snav-text">Local Stock</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
+                </Authorized>
+            </AuthorizeView>
+
+            @* Depot controllers only see Transfers and Local Stock, so their account
+               self-service link lives here rather than in the System section. *@
+            <AuthorizeView Roles="DepotController" Context="depotAccountCtx">
+                <Authorized>
+                    <div class="nav-section-label">Account</div>
+                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Inventory" />
+                            <MudIcon Icon="@Icons.Material.Filled.Security" />
                         </span>
-                        <span class="snav-text">Local Stock</span>
+                        <span class="snav-text">Security</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -442,7 +478,7 @@
             </AuthorizeView>
 
             @* ── Payments ── *@
-            <AuthorizeView Roles="Admin,Cashier,DepotController" Context="paymentCtx">
+            <AuthorizeView Roles="@UserRoles.PaymentRoles" Context="paymentCtx">
                 <Authorized>
                     <div class="nav-section-label">Payments</div>
                     <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
@@ -461,7 +497,7 @@
             </AuthorizeView>
 
             @* ── Catalogue ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="catalogueCtx">
+            <AuthorizeView Roles="@UserRoles.CatalogueRoles" Context="catalogueCtx">
                 <Authorized>
                     <div class="nav-section-label">Catalogue</div>
                     <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
@@ -506,17 +542,21 @@
                         </span>
                         <span class="snav-text">Status History</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Security" />
-                        </span>
-                        <span class="snav-text">Security</span>
-                    </NavLink>
+                    <AuthorizeView Roles="Lab" Context="labSecurityCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                                </span>
+                                <span class="snav-text">Security</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
 
             @* ── Insights ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsCtx">
+            <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="insightsCtx">
                 <Authorized>
                     <div class="nav-section-label">Insights</div>
                     <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
@@ -524,6 +564,12 @@
                             <MudIcon Icon="@Icons.Material.Filled.TrendingUp" />
                         </span>
                         <span class="snav-text">Reports</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                        </span>
+                        <span class="snav-text">Sales Order vs Invoice</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -549,6 +595,26 @@
                             <MudIcon Icon="@Icons.Material.Filled.Receipt" />
                         </span>
                         <span class="snav-text">Fiscalized Sales</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="Admin,Manager,Cashier" Context="fiscalTransactionCtx">
+                <Authorized>
+                    <NavLink class="snav-link sub-link" href="/reports/fiscal-transactions" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                        </span>
+                        <span class="snav-text">Fiscal Txn Log</span>
+                    </NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="@UserRoles.InsightsRoles" Context="accountSalesPaymentsCtx">
+                <Authorized>
+                    <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Payments" />
+                        </span>
+                        <span class="snav-text">Account Sales & Payments</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -583,13 +649,13 @@
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
-                        <span class="snav-text">Proof of Delivery</span>
+                        <span class="snav-text">Product PODs</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.Assessment" />
                         </span>
-                        <span class="snav-text">POD Report</span>
+                        <span class="snav-text">Product POD Report</span>
                     </NavLink>
                     <div class="nav-section-label">Account</div>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
@@ -601,32 +667,48 @@
                 </Authorized>
             </AuthorizeView>
 
-            <AuthorizeView Roles="Admin,Cashier,PodOperator,Driver" Context="podCtx">
+            <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver" Context="podCtx">
                 <Authorized>
                     <AuthorizeView Roles="PodOperator,Driver" Context="podLabelCtx">
                         <Authorized>
                             <div class="nav-section-label">Insights</div>
                         </Authorized>
                     </AuthorizeView>
-                    <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Speed" />
-                        </span>
-                        <span class="snav-text">POD Dashboard</span>
-                    </NavLink>
+                    @if (!podCtx.User.IsInRole("Operator"))
+                    {
+                        <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.Speed" />
+                            </span>
+                            <span class="snav-text">POD Dashboard</span>
+                        </NavLink>
+                    }
                     <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
-                        <span class="snav-text">Proof of Delivery</span>
+                        <span class="snav-text">Product PODs</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
-                        </span>
-                        <span class="snav-text">POD Report</span>
-                    </NavLink>
-                    <AuthorizeView Roles="PodOperator,Driver" Context="podSecCtx">
+                    @if (!podCtx.User.IsInRole("Operator"))
+                    {
+                        <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                            </span>
+                            <span class="snav-text">Product POD Report</span>
+                        </NavLink>
+                    }
+                    <AuthorizeView Roles="PodOperator" Context="driverAccountCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                                </span>
+                                <span class="snav-text">Driver Accounts</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
+                    <AuthorizeView Roles="PodOperator,Driver,Operator" Context="podSecCtx">
                         <Authorized>
                             <div class="nav-section-label">Account</div>
                             <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
@@ -639,25 +721,35 @@
                     </AuthorizeView>
                 </Authorized>
             </AuthorizeView>
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="insightsExtraCtx">
+            <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep" Context="crateCtx">
                 <Authorized>
-                    <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                    <div class="nav-section-label">Crates</div>
+                    <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Description" />
+                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
                         </span>
-                        <span class="snav-text">Templates</span>
+                        <span class="snav-text">Crate PODs</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
-                        </span>
-                        <span class="snav-text">AI Assistant</span>
-                    </NavLink>
+                    @if (!crateCtx.User.IsInRole("PodOperator") && !crateCtx.User.IsInRole("Operator"))
+                    {
+                        <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                            </span>
+                            <span class="snav-text">Opening Balances</span>
+                        </NavLink>
+                        <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
+                            <span class="snav-icon">
+                                <MudIcon Icon="@Icons.Material.Filled.AssignmentReturn" />
+                            </span>
+                            <span class="snav-text">Crate GRVs</span>
+                        </NavLink>
+                    }
                 </Authorized>
             </AuthorizeView>
 
             @* ── System ── *@
-            <AuthorizeView Roles="Admin,Cashier,StockController,DepotController,Manager" Context="systemCtx">
+            <AuthorizeView Roles="@UserRoles.SystemRoles" Context="systemCtx">
                 <Authorized>
                     <div class="nav-section-label">System</div>
                     <NavLink class="snav-link" href="/exception-center" Match="NavLinkMatch.Prefix">
@@ -678,6 +770,28 @@
                         </span>
                         <span class="snav-text">Notifications</span>
                     </NavLink>
+                    <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Description" />
+                        </span>
+                        <span class="snav-text">Templates</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
+                        </span>
+                        <span class="snav-text">AI Assistant</span>
+                    </NavLink>
+                    <AuthorizeView Roles="Admin" Context="mobilePushCtx">
+                        <Authorized>
+                            <NavLink class="snav-link" href="/mobile-push" Match="NavLinkMatch.Prefix">
+                                <span class="snav-icon">
+                                    <MudIcon Icon="@Icons.Material.Filled.Campaign" />
+                                </span>
+                                <span class="snav-text">Mobile Push</span>
+                            </NavLink>
+                        </Authorized>
+                    </AuthorizeView>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.Security" />
@@ -694,6 +808,20 @@
                             <MudIcon Icon="@Icons.Material.Filled.Memory" />
                         </span>
                         <span class="snav-text">REVMax Fiscal</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/revmax/cross-device-credit-note"
+                             Match="NavLinkMatch.All">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" />
+                        </span>
+                        <span class="snav-text">Cross-Device CN</span>
+                    </NavLink>
+                    <NavLink class="snav-link sub-link" href="/revmax/cross-device-credit-note/history"
+                             Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.History" />
+                        </span>
+                        <span class="snav-text">Cross-Device CN History</span>
                     </NavLink>
                 </Authorized>
             </AuthorizeView>
@@ -732,6 +860,12 @@
                         </span>
                         <span class="snav-text">User Management</span>
                     </NavLink>
+                    <NavLink class="snav-link" href="/approval-process/setup" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.AccountTree" />
+                        </span>
+                        <span class="snav-text">Approval Process</span>
+                    </NavLink>
                     <NavLink class="snav-link" href="/driver-business-partners" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
@@ -767,6 +901,12 @@
                             <MudIcon Icon="@Icons.Material.Filled.CellTower" />
                         </span>
                         <span class="snav-text">Webhooks</span>
+                    </NavLink>
+                    <NavLink class="snav-link" href="/whatsapp-inbox" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <MudIcon Icon="@Icons.Material.Filled.Chat" />
+                        </span>
+                        <span class="snav-text">WhatsApp Inbox</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/swagger" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">

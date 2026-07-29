@@ -6,10 +6,20 @@ namespace ShopInventory.Web.Services;
 
 public interface IProductService
 {
-    Task<WarehouseProductsResponse?> GetProductsInWarehouseAsync(string warehouseCode);
-    Task<WarehouseProductsPagedResponse?> GetPagedProductsAsync(string warehouseCode, int page = 1, int pageSize = 20);
-    Task<ProductBatchesResponse?> GetProductBatchesAsync(string itemCode, string warehouseCode);
-    Task<ProductDto?> SearchProductByBarcodeAsync(string barcode, string warehouseCode);
+    Task<WarehouseProductsResponse?> GetProductsInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
+    Task<WarehouseProductsPagedResponse?> GetPagedProductsAsync(
+        string warehouseCode,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default);
+    Task<ProductBatchesResponse?> GetProductBatchesAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken = default);
+    Task<ProductDto?> SearchProductByBarcodeAsync(
+        string barcode,
+        string warehouseCode,
+        CancellationToken cancellationToken = default);
 }
 
 public class ProductService : IProductService
@@ -32,12 +42,15 @@ public class ProductService : IProductService
         _logger = logger;
     }
 
-    public async Task<WarehouseProductsResponse?> GetProductsInWarehouseAsync(string warehouseCode)
+    public async Task<WarehouseProductsResponse?> GetProductsInWarehouseAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("GetProductsInWarehouseAsync called for warehouse {WarehouseCode}", warehouseCode);
         try
         {
             // Use cached stock service - gets ALL items (no pagination limit)
+            cancellationToken.ThrowIfCancellationRequested();
             var response = await _stockCacheService.GetAllCachedStockAsync(warehouseCode);
             if (response == null)
             {
@@ -57,13 +70,21 @@ public class ProductService : IProductService
         }
     }
 
-    public async Task<WarehouseProductsPagedResponse?> GetPagedProductsAsync(string warehouseCode, int page = 1, int pageSize = 20)
+    public async Task<WarehouseProductsPagedResponse?> GetPagedProductsAsync(
+        string warehouseCode,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("GetPagedProductsAsync called for warehouse {WarehouseCode}, page {Page}, pageSize {PageSize}", warehouseCode, page, pageSize);
         try
         {
             // Use cached stock service
-            var result = await _stockCacheService.GetCachedStockAsync(warehouseCode, page, pageSize);
+            var result = await _stockCacheService.GetCachedStockAsync(
+                warehouseCode,
+                page,
+                pageSize,
+                cancellationToken);
             _logger.LogInformation("GetCachedStockAsync returned {Count} products for warehouse {WarehouseCode}",
                 result?.Products?.Count ?? 0, warehouseCode);
             return result;
@@ -75,12 +96,15 @@ public class ProductService : IProductService
         }
     }
 
-    public async Task<ProductBatchesResponse?> GetProductBatchesAsync(string itemCode, string warehouseCode)
+    public async Task<ProductBatchesResponse?> GetProductBatchesAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             return await _httpClient.GetFromJsonAsync<ProductBatchesResponse>(
-                $"api/product/{itemCode}/batches/{warehouseCode}", _jsonOptions);
+                $"api/product/{itemCode}/batches/{warehouseCode}", _jsonOptions, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -89,12 +113,15 @@ public class ProductService : IProductService
         }
     }
 
-    public async Task<ProductDto?> SearchProductByBarcodeAsync(string barcode, string warehouseCode)
+    public async Task<ProductDto?> SearchProductByBarcodeAsync(
+        string barcode,
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             return await _httpClient.GetFromJsonAsync<ProductDto>(
-                $"api/product/barcode/{barcode}/warehouse/{warehouseCode}", _jsonOptions);
+                $"api/product/barcode/{barcode}/warehouse/{warehouseCode}", _jsonOptions, cancellationToken);
         }
         catch (Exception ex)
         {

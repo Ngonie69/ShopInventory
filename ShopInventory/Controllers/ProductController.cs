@@ -63,10 +63,12 @@ public class ProductController(IMediator mediator) : ApiControllerBase
         string warehouseCode,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] string? businessPartnerCode = null,
+        [FromQuery] int? priceListNum = null,
         CancellationToken cancellationToken = default)
     {
         var result = await mediator.Send(
-            new GetPagedProductsInWarehouseQuery(warehouseCode, page, pageSize), cancellationToken);
+            new GetPagedProductsInWarehouseQuery(warehouseCode, page, pageSize, businessPartnerCode, priceListNum), cancellationToken);
 
         return result.Match(
             value => Ok(value),

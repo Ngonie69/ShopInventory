@@ -49,6 +49,7 @@ public sealed class CreateQueuedInvoiceHandler(
                     UnitPrice = l.UnitPrice ?? 0,
                     TaxCode = l.TaxCode,
                     DiscountPercent = l.DiscountPercent ?? 0,
+                    CostCentreCode = l.CostCentreCode,
                     BatchNumbers = l.BatchNumbers?.Select(b => new ReservationBatchRequest
                     {
                         BatchNumber = b.BatchNumber,

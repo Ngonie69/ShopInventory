@@ -89,6 +89,9 @@ public class QuotationEntity
     [MaxLength(50)]
     public string? WarehouseCode { get; set; }
 
+    [MaxLength(100)]
+    public string? ClientRequestId { get; set; }
+
     public Guid? CreatedByUserId { get; set; }
 
     public Guid? ApprovedByUserId { get; set; }
@@ -135,7 +138,9 @@ public class QuotationLineEntity
     [Column(TypeName = "decimal(18,4)")]
     public decimal UnitPrice { get; set; }
 
-    [Column(TypeName = "decimal(5,2)")]
+    // Six decimals to match SAP: a special price of 0.66 against a 0.70 list price is 5.714286%,
+    // and decimal(5,2) silently truncated that to 5.71 before the line reached SAP.
+    [Column(TypeName = "decimal(9,6)")]
     public decimal DiscountPercent { get; set; }
 
     [Column(TypeName = "decimal(5,2)")]

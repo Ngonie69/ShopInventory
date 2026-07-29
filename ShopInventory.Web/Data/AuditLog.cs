@@ -63,6 +63,16 @@ public class AuditLog
     public string? ErrorMessage { get; set; }
 
     /// <summary>
+    /// App version of the mobile client, if applicable
+    /// </summary>
+    public string? AppVersion { get; set; }
+
+    /// <summary>
+    /// Device model of the mobile client, if applicable
+    /// </summary>
+    public string? DeviceModel { get; set; }
+
+    /// <summary>
     /// The timestamp when the action occurred
     /// </summary>
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
@@ -83,6 +93,7 @@ public static class AuditActions
     public const string ViewInvoices = "ViewInvoices";
     public const string ViewInvoice = "ViewInvoice";
     public const string CreateInvoice = "CreateInvoice";
+    public const string FiscalizeInvoice = "FiscalizeInvoice";
     public const string UpdateInvoice = "UpdateInvoice";
     public const string DeleteInvoice = "DeleteInvoice";
 
@@ -110,11 +121,16 @@ public static class AuditActions
     public const string CreateCreditNote = "CreateCreditNote";
     public const string ApproveCreditNote = "ApproveCreditNote";
     public const string DeleteCreditNote = "DeleteCreditNote";
+    public const string BulkCancelCreditNotes = "BulkCancelCreditNotes";
+    public const string DuplicateCancelledCreditNotes = "DuplicateCancelledCreditNotes";
+    public const string FiscalizeCrossDeviceCreditNote = "FiscalizeCrossDeviceCreditNote";
 
     // Quotation actions
     public const string ViewQuotations = "ViewQuotations";
     public const string CreateQuotation = "CreateQuotation";
+    public const string UpdateQuotation = "UpdateQuotation";
     public const string ApproveQuotation = "ApproveQuotation";
+    public const string ApplyQuotationVat = "ApplyQuotationVat";
     public const string ConvertQuotationToOrder = "ConvertQuotationToOrder";
     public const string DeleteQuotation = "DeleteQuotation";
 
@@ -153,9 +169,14 @@ public static class AuditActions
     // POD actions
     public const string UploadPod = "UploadPod";
     public const string BulkUploadPod = "BulkUploadPod";
+    public const string ViewPod = "ViewPod";
+    public const string DownloadPod = "DownloadPod";
+    public const string SendPodReportEmail = "SendPodReportEmail";
 
     // Customer actions
     public const string ViewCustomers = "ViewCustomers";
+    public const string UpdateRouteCustomer = "UpdateRouteCustomer";
+    public const string DeleteRouteCustomer = "DeleteRouteCustomer";
     public const string GenerateStatement = "GenerateStatement";
 
     // Stock actions
@@ -187,6 +208,9 @@ public static class AuditActions
     // Document actions
     public const string DownloadInvoicePdf = "DownloadInvoicePdf";
     public const string PrintInvoicePdf = "PrintInvoicePdf";
+    public const string DownloadQuotationPdf = "DownloadQuotationPdf";
+    public const string PrintQuotationPdf = "PrintQuotationPdf";
+    public const string PrintSalesOrderPdf = "PrintSalesOrderPdf";
 
     // Settings actions
     public const string ViewSettings = "ViewSettings";

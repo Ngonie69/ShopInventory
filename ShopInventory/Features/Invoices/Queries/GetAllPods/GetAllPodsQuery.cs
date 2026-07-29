@@ -11,6 +11,8 @@ public sealed record GetAllPodsQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     string? Search,
+    string? UploadedByUsername,
+    string? UploadedFromLocation,
     Guid? UploadedByUserId,
     Guid UserId
 ) : IRequest<ErrorOr<PodAttachmentListResponseDto>>;

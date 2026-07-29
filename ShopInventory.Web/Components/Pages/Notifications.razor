@@ -1,8 +1,9 @@
 @page "/notifications"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Services
 @using ShopInventory.Web.Models
-@attribute [Authorize]
+@attribute [Authorize(Roles = UserRoles.SystemRoles)]
 @inject INotificationClientService NotificationService
 @inject NavigationManager Navigation
 @inject IAppSettingsProvider AppSettings

@@ -9,8 +9,14 @@ public static partial class Errors
         public static Error NotFound(int id) =>
             Error.NotFound("Backup.NotFound", $"Backup with ID {id} not found");
 
+        public static Error ValidationFailed(string message) =>
+            Error.Validation("Backup.ValidationFailed", message);
+
         public static Error CreationFailed(string message) =>
             Error.Failure("Backup.CreationFailed", message);
+
+        public static Error CloudUploadFailed(string message) =>
+            Error.Failure("Backup.CloudUploadFailed", message);
 
         public static Error RestoreFailed(string message) =>
             Error.Failure("Backup.RestoreFailed", message);

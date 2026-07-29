@@ -17,7 +17,7 @@ namespace ShopInventory.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.3")
+                .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -162,6 +162,252 @@ namespace ShopInventory.Migrations
                     b.ToTable("ApiRateLimits", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ApprovalDecisionEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ApprovalRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AuthorizerName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("AuthorizerRole")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("AuthorizerUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("StageId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StageName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalRequestId", "StageId", "AuthorizerUserId")
+                        .IsUnique();
+
+                    b.ToTable("ApprovalDecisions", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ApprovalRequestEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApprovalTemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DocumentKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("FromWarehouse")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("GeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("GeneratedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("GeneratedDocumentEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("GeneratedDocumentNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OriginatorName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("OriginatorRole")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("OriginatorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StageSnapshotsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("TemplateName")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("ToWarehouse")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentType", "DocumentKey")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "CreatedAtUtc");
+
+                    b.ToTable("ApprovalRequests", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ApprovalStageDefinitionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ApprovalsRequired")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("AuthorizerRolesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("AuthorizerUserIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<int>("RejectionsRequired")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("ApprovalStageDefinitions", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.ApprovalTemplateDefinitionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("FromWarehouse")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("OriginatorRolesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("OriginatorUserIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StageIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToWarehouse")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.HasIndex("DocumentType", "IsActive", "Priority");
+
+                    b.ToTable("ApprovalTemplateDefinitions", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.AuditLog", b =>
                 {
                     b.Property<int>("Id")
@@ -174,7 +420,13 @@ namespace ShopInventory.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("AppVersion")
+                        .HasColumnType("text");
+
                     b.Property<string>("Details")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DeviceModel")
                         .HasColumnType("text");
 
                     b.Property<string>("EntityId")
@@ -354,6 +606,117 @@ namespace ShopInventory.Migrations
                     b.ToTable("Backups", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.BusinessPartnerPriceProfileEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PriceListNum")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("SyncedFromSAP")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardCode")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("PriceListNum");
+
+                    b.ToTable("BusinessPartnerPriceProfiles");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.BusinessPartnerSpecialPriceEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<bool>("SyncedFromSAP")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ValidFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ValidTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardCode");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("ItemCode");
+
+                    b.HasIndex("CardCode", "ItemCode")
+                        .IsUnique();
+
+                    b.ToTable("BusinessPartnerSpecialPrices", t =>
+                        {
+                            t.HasCheckConstraint("CK_BusinessPartnerSpecialPrices_Price_NonNegative", "\"Price\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.CacheSyncStateEntity", b =>
                 {
                     b.Property<string>("CacheKey")
@@ -391,6 +754,190 @@ namespace ShopInventory.Migrations
                     b.HasIndex("LastSyncedAt");
 
                     b.ToTable("CacheSyncStates", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateGrvEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("ActualQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("CrateTransactionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("ExpectedQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("GrvNumber")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("VarianceQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CrateTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("GrvNumber")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("CrateGrvs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CrateGrvs_ActualQuantity_NonNegative", "\"ActualQuantity\" >= 0");
+
+                            t.HasCheckConstraint("CK_CrateGrvs_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CratePodSubmissionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CrateTransactionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SubmissionRole")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubmittedAt");
+
+                    b.HasIndex("SubmittedByUserId");
+
+                    b.HasIndex("CrateTransactionId", "SubmissionRole")
+                        .IsUnique();
+
+                    b.ToTable("CratePodSubmissions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CratePodSubmissions_Quantity_NonNegative", "\"Quantity\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateTransactionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("EffectiveDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("ExpectedQuantity")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("InvoiceDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("InvoiceDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ShopCardCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ShopName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TransactionType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EffectiveDate");
+
+                    b.HasIndex("InvoiceDocEntry")
+                        .IsUnique();
+
+                    b.HasIndex("ShopCardCode");
+
+                    b.HasIndex("TransactionType");
+
+                    b.ToTable("CrateTransactions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CrateTransactions_ExpectedQuantity_NonNegative", "\"ExpectedQuantity\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.CreditNoteEntity", b =>
@@ -535,7 +1082,7 @@ namespace ShopInventory.Migrations
                         .HasColumnType("integer");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(5,2)");
+                        .HasColumnType("decimal(9,6)");
 
                     b.Property<bool>("IsRestocked")
                         .HasColumnType("boolean");
@@ -687,6 +1234,121 @@ namespace ShopInventory.Migrations
 
                             t.HasCheckConstraint("CK_SnapshotItems_OriginalQuantity_NonNegative", "\"OriginalQuantity\" >= 0");
                         });
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.DesktopFiscalTransactionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CardCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("ClientTransactionId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CreatedByUsername")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Currency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("DeviceId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("DeviceSerialNumber")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<int>("DocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("DocTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("FiscalDay")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("LastSyncedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Message")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("OriginalInvoiceNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("QRCode")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("RawRequest")
+                        .HasColumnType("text");
+
+                    b.Property<string>("RawResponse")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ReceiptGlobalNo")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("TimestampUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("VatSum")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("VerificationCode")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientTransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("TimestampUtc");
+
+                    b.HasIndex("Status", "DocumentType", "TimestampUtc");
+
+                    b.ToTable("DesktopFiscalTransactions");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.DesktopSaleEntity", b =>
@@ -944,6 +1606,9 @@ namespace ShopInventory.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UploadedByUserId");
+
+                    b.HasIndex("EntityType", "EntityId", "ExternalReference")
+                        .IsUnique();
 
                     b.ToTable("DocumentAttachments");
                 });
@@ -1364,6 +2029,56 @@ namespace ShopInventory.Migrations
                     b.HasIndex("FromCurrency", "ToCurrency", "EffectiveDate");
 
                     b.ToTable("ExchangeRates", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.IdempotencyRequestEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResponsePayload")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("Scope", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("IdempotencyRequests", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.IncomingPaymentCheckEntity", b =>
@@ -2147,8 +2862,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)");
 
                     b.Property<int>("InvoiceId")
                         .HasColumnType("integer");
@@ -2353,8 +3068,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(10)");
 
                     b.Property<decimal?>("Factor")
-                        .HasPrecision(10, 6)
-                        .HasColumnType("numeric(10,6)");
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
 
                     b.Property<string>("ForeignName")
                         .HasMaxLength(200)
@@ -2544,6 +3259,233 @@ namespace ShopInventory.Migrations
                     b.ToTable("MobileOrderPostProcessingQueue");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.PendingInventoryTransferEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ApprovalRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClientRequestId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("CreatedByRole")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("DocDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DraftNumber")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime?>("DueDate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FromWarehouse")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("LineCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PostedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PostedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("SapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("SapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("ToWarehouse")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("TotalQuantity")
+                        .HasColumnType("decimal(18,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientRequestId")
+                        .IsUnique()
+                        .HasFilter("\"ClientRequestId\" IS NOT NULL");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DraftNumber")
+                        .IsUnique()
+                        .HasFilter("\"DraftNumber\" IS NOT NULL");
+
+                    b.HasIndex("FromWarehouse");
+
+                    b.HasIndex("Status", "CreatedAtUtc");
+
+                    b.ToTable("PendingInventoryTransfers", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.PendingTransferRequestEditEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AppliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ApprovalRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("CreatedByRole")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DecidedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FromWarehouse")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("OriginalLinesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProposedLinesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("RequestDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RequestDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("ToWarehouse")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("RequestDocEntry");
+
+                    b.HasIndex("Status", "CreatedAtUtc");
+
+                    b.ToTable("PendingTransferRequestEdits", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.PodReportCacheEntryEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CacheKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("FromDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("RefreshedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ScopeKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTime>("ToDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CacheKey")
+                        .IsUnique();
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.ToTable("PodReportCacheEntries", (string)null);
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.PriceListEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -2563,8 +3505,8 @@ namespace ShopInventory.Migrations
                         .HasColumnType("character varying(10)");
 
                     b.Property<decimal?>("Factor")
-                        .HasPrecision(10, 6)
-                        .HasColumnType("numeric(10,6)");
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -2992,6 +3934,10 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("ClientRequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<string>("Comments")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -3090,6 +4036,9 @@ namespace ShopInventory.Migrations
 
                     b.HasIndex("CardCode");
 
+                    b.HasIndex("ClientRequestId")
+                        .IsUnique();
+
                     b.HasIndex("CreatedByUserId");
 
                     b.HasIndex("QuotationDate");
@@ -3115,7 +4064,7 @@ namespace ShopInventory.Migrations
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(5,2)");
+                        .HasColumnType("decimal(9,6)");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()
@@ -3229,6 +4178,71 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.ToTable("RolePermissions", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.RouteCustomerEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("AssignedBusinessPartnerCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VatNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedBusinessPartnerCode");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("AssignedBusinessPartnerCode", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("AssignedBusinessPartnerCode", "IsActive");
+
+                    b.ToTable("RouteCustomers", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.SaleConsolidationEntity", b =>
@@ -3491,8 +4505,12 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("CostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<decimal>("DiscountPercent")
-                        .HasColumnType("decimal(5,2)");
+                        .HasColumnType("decimal(9,6)");
 
                     b.Property<string>("ItemCode")
                         .IsRequired()
@@ -3544,6 +4562,142 @@ namespace ShopInventory.Migrations
                     b.HasIndex("SalesOrderId");
 
                     b.ToTable("SalesOrderLines", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SapCreditNoteLineSnapshotEntity", b =>
+                {
+                    b.Property<int>("CreditNoteDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LineNum")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BaseEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BaseLine")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BaseType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CreditReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ItemCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("LineTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("VatSum")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("CreditNoteDocEntry", "LineNum");
+
+                    b.HasIndex("ItemCode");
+
+                    b.HasIndex("BaseType", "BaseEntry");
+
+                    b.ToTable("SapCreditNoteLineSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SapCreditNoteSnapshotEntity", b =>
+                {
+                    b.Property<int>("SapDocEntry")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CardCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CardName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("DocCurrency")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("DocDate")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("DocTotal")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("DocumentStatus")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<bool>("IsCancelled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastSeenInSapAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("SapDocNum")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SapUpdateDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("SyncedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("VatSum")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("SapDocEntry");
+
+                    b.HasIndex("DocDate");
+
+                    b.HasIndex("SapDocNum");
+
+                    b.HasIndex("SapUpdateDate");
+
+                    b.HasIndex("SyncedAtUtc");
+
+                    b.HasIndex("IsCancelled", "DocDate");
+
+                    b.ToTable("SapCreditNoteSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SapItemUomMappingEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ItemCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("RequestedUomCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UoMCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("UoMEntry")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemCode", "RequestedUomCode")
+                        .IsUnique();
+
+                    b.ToTable("SapItemUomMappings", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationBatchEntity", b =>
@@ -3707,6 +4861,10 @@ namespace ShopInventory.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<decimal>("DiscountPercent")
                         .HasPrecision(5, 2)
@@ -3990,6 +5148,102 @@ namespace ShopInventory.Migrations
                         .IsUnique();
 
                     b.ToTable("UserPermissions", (string)null);
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.WhatsAppWebhookEventEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChatId")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("DeliveryId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsFromMe")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("MessageType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RawPayload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("ReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SenderDisplayName")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("SenderNumber")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("SourcePath")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("TextBody")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatId");
+
+                    b.HasIndex("DeliveryId");
+
+                    b.HasIndex("EventType");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("MessageId");
+
+                    b.HasIndex("OccurredAtUtc");
+
+                    b.HasIndex("ReceivedAtUtc");
+
+                    b.HasIndex("SessionName");
+
+                    b.ToTable("WhatsAppWebhookEvents", (string)null);
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Notification", b =>
@@ -4473,9 +5727,9 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<string>("ReplacedByToken")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                    b.Property<string>("ReplacedByTokenHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone");
@@ -4484,17 +5738,17 @@ namespace ShopInventory.Migrations
                         .HasMaxLength(45)
                         .HasColumnType("character varying(45)");
 
-                    b.Property<string>("Token")
+                    b.Property<string>("TokenHash")
                         .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Token")
+                    b.HasIndex("TokenHash")
                         .IsUnique();
 
                     b.HasIndex("UserId");
@@ -4547,6 +5801,14 @@ namespace ShopInventory.Migrations
 
                     b.Property<string>("AllowedPaymentMethods")
                         .HasColumnType("text");
+
+                    b.Property<string>("AssignedBusinessPartnerCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("AssignedCostCentreCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("AssignedCustomerCodes")
                         .HasColumnType("text");
@@ -4618,6 +5880,9 @@ namespace ShopInventory.Migrations
 
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
+
+                    b.Property<long?>("TwoFactorLastUsedTimeStep")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("TwoFactorSecret")
                         .HasMaxLength(256)
@@ -4785,7 +6050,64 @@ namespace ShopInventory.Migrations
                     b.ToTable("WebhookDeliveries", (string)null);
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ApprovalDecisionEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.ApprovalRequestEntity", "ApprovalRequest")
+                        .WithMany("Decisions")
+                        .HasForeignKey("ApprovalRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ApprovalRequest");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.BackupEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateGrvEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.CrateTransactionEntity", "CrateTransaction")
+                        .WithOne("Grv")
+                        .HasForeignKey("ShopInventory.Models.Entities.CrateGrvEntity", "CrateTransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CrateTransaction");
+
+                    b.Navigation("CreatedByUser");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CratePodSubmissionEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.CrateTransactionEntity", "CrateTransaction")
+                        .WithMany("PodSubmissions")
+                        .HasForeignKey("CrateTransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ShopInventory.Models.User", "SubmittedByUser")
+                        .WithMany()
+                        .HasForeignKey("SubmittedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CrateTransaction");
+
+                    b.Navigation("SubmittedByUser");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateTransactionEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "CreatedByUser")
                         .WithMany()
@@ -5139,6 +6461,16 @@ namespace ShopInventory.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.RouteCustomerEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("CreatedByUser");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
                 {
                     b.HasOne("ShopInventory.Models.User", "ApprovedByUser")
@@ -5179,6 +6511,17 @@ namespace ShopInventory.Migrations
                     b.Navigation("Product");
 
                     b.Navigation("SalesOrder");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SapCreditNoteLineSnapshotEntity", b =>
+                {
+                    b.HasOne("ShopInventory.Models.Entities.SapCreditNoteSnapshotEntity", "CreditNote")
+                        .WithMany("Lines")
+                        .HasForeignKey("CreditNoteDocEntry")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreditNote");
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.StockReservationBatchEntity", b =>
@@ -5308,6 +6651,18 @@ namespace ShopInventory.Migrations
                     b.Navigation("Webhook");
                 });
 
+            modelBuilder.Entity("ShopInventory.Models.Entities.ApprovalRequestEntity", b =>
+                {
+                    b.Navigation("Decisions");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.CrateTransactionEntity", b =>
+                {
+                    b.Navigation("Grv");
+
+                    b.Navigation("PodSubmissions");
+                });
+
             modelBuilder.Entity("ShopInventory.Models.Entities.CreditNoteEntity", b =>
                 {
                     b.Navigation("Lines");
@@ -5386,6 +6741,11 @@ namespace ShopInventory.Migrations
                 });
 
             modelBuilder.Entity("ShopInventory.Models.Entities.SalesOrderEntity", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("ShopInventory.Models.Entities.SapCreditNoteSnapshotEntity", b =>
                 {
                     b.Navigation("Lines");
                 });

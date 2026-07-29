@@ -1,8 +1,11 @@
 @page "/mobile-drafts"
+@page "/van-sales-orders"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier,Merchandiser,SalesRep")]
 @inject ISalesOrderService SalesOrderService
+@inject IPodService PodService
 @inject IPurchaseOrderService PurchaseOrderService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
@@ -11,9 +14,10 @@
 @inject ILogger<MobileDrafts> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IPriceService PriceService
+@inject IReportExportService ExportService
 @rendermode InteractiveServer
 
-<PageTitle>Mobile Drafts - Shop Inventory</PageTitle>
+<PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Mobile Orders - Shop Inventory")</PageTitle>
 
 <style>
     /* ── Page ────────────────────────────────────────── */
@@ -122,58 +126,115 @@
         color: #9ca3af;
     }
 
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
+    /* ── Table Filters ───────────────────────────────── */
+    .md-table-tools {
         display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: .6rem;
         flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
+    }
+
+    .md-clear-filters {
+        background: #fff;
+        color: #6b7280;
+        border: 1px solid #d1d5db;
+        padding: .35rem .7rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .78rem;
+        cursor: pointer;
+        transition: all .15s;
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+    }
+
+    .md-clear-filters:hover {
+        background: #f3f4f6;
+    }
+
+    .md-clear-filters:disabled {
+        opacity: .55;
+        cursor: not-allowed;
+    }
+
+    /* ── Filter Panel ─────────────────────────────── */
+    .md-filter-panel {
         background: #fff;
         border: 1px solid #e5e7eb;
         border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
+        padding: .85rem 1.25rem;
+        margin-bottom: .75rem;
+        box-shadow: 0 1px 4px rgba(0,0,0,.04);
     }
 
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 140px;
+    /* A grid rather than a wrapping flex row: flex lets the items on the final
+       row grow to fill it, which stretched a lone "SAP Doc #" across the whole
+       panel. Grid columns are shared by every row, so each field keeps its width
+       wherever it lands. */
+    .md-filter-panel-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: .65rem .7rem;
+        align-items: end;
     }
 
-    .filter-bar .filter-field label {
-        display: block;
+    .md-filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: .28rem;
+        min-width: 0;
+    }
+
+    /* Only widen once there are at least two columns to span, otherwise this
+       would create an implicit second column on a narrow screen. */
+    @@media (min-width: 640px) {
+        .md-filter-group.wide {
+            grid-column: span 2;
+        }
+    }
+
+    /* Its own full-width row, right-aligned. Letting it flow inline would drop it
+       into whichever column happened to be free, which moves as the panel resizes. */
+    .md-filter-actions {
+        display: flex;
+        grid-column: 1 / -1;
+        justify-content: flex-end;
+        min-width: 0;
+    }
+
+    .md-filter-label {
         font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
+        font-weight: 700;
+        color: #475569;
         text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
+        letter-spacing: .45px;
+        white-space: nowrap;
     }
 
-    .filter-bar .filter-field input,
-    .filter-bar .filter-field select {
+    .md-filter-input,
+    .md-filter-select {
         width: 100%;
-        padding: .5rem .75rem;
+        min-height: 34px;
+        padding: .4rem .55rem;
         border: 1px solid #d1d5db;
         border-radius: 8px;
-        font-size: .88rem;
+        font-size: .8rem;
         color: #374151;
         background: #fff;
         transition: all .15s;
     }
 
-    .filter-bar .filter-field input:focus,
-    .filter-bar .filter-field select:focus {
+    .md-filter-input::placeholder {
+        color: #94a3b8;
+    }
+
+    .md-filter-input:focus,
+    .md-filter-select:focus {
         outline: none;
         border-color: #2563eb;
         box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
     }
 
     .btn-search {
@@ -222,6 +283,10 @@
         box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
     }
 
+    .md-table-wrap .mud-table-container {
+        overflow-x: auto;
+    }
+
     .md-table-header {
         padding: .85rem 1.25rem;
         display: flex;
@@ -253,6 +318,62 @@
         color: #1e40af;
     }
 
+    .md-order-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: .25rem;
+    }
+
+    .md-order-actions .mud-icon-button {
+        width: 30px !important;
+        height: 30px !important;
+        min-width: 30px !important;
+        padding: 4px !important;
+        flex-shrink: 0;
+    }
+
+    .md-order-actions .mud-icon-button .mud-icon-root {
+        font-size: 1rem !important;
+    }
+
+    .md-order-actions-header,
+    .md-order-actions-cell {
+        white-space: nowrap;
+        border-left: 1px solid #e5e7eb;
+    }
+
+    .md-table-wrap .mud-table-body .mud-table-row .md-order-actions-cell {
+        background: #fff;
+    }
+
+    .md-table-wrap .mud-table-body .mud-table-row:nth-of-type(even) .md-order-actions-cell {
+        background: #f8fafc;
+    }
+
+    .md-table-wrap .mud-table-body .mud-table-row:hover .md-order-actions-cell,
+    .md-table-wrap .mud-table-body .mud-table-row.mud-table-row-selected .md-order-actions-cell {
+        background: #eef2ff;
+    }
+
+    @@media (min-width:769px) {
+        .md-order-actions-header,
+        .md-order-actions-cell {
+            position: sticky;
+            right: 0;
+            box-shadow: -10px 0 18px -18px rgba(15, 23, 42, .7);
+        }
+
+        .md-order-actions-header {
+            background: #f8fafc;
+            z-index: 5;
+        }
+
+        .md-order-actions-cell {
+            z-index: 2;
+        }
+    }
+
     /* ── Status Badges ───────────────────────────────── */
     .status-badge {
         display: inline-flex;
@@ -270,6 +391,7 @@
     .status-badge.approved { background: #d1fae5; color: #065f46; }
     .status-badge.partial { background: #e0e7ff; color: #3730a3; }
     .status-badge.fulfilled { background: #dbeafe; color: #1e40af; }
+    .status-badge.delivered { background: #dcfce7; color: #166534; }
     .status-badge.invoiced { background: #d1fae5; color: #065f46; }
     .status-badge.cancelled {
         background-color: #dc2626 !important;
@@ -341,9 +463,11 @@
     }
 
     /* ── Drawer ──────────────────────────────────────── */
+    /* Offset below the app bar: the page container is a stacking context, so a drawer
+       cannot paint over the topbar however high its z-index. */
     .modal-backdrop-custom {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(0, 0, 0, .45);
         z-index: 9998;
         animation: fadeIn .2s ease;
@@ -351,10 +475,10 @@
 
     .detail-drawer {
         position: fixed;
-        top: 0;
+        top: var(--kf-topbar-h, 74px);
         right: 0;
         width: min(640px, 95vw);
-        height: 100vh;
+        height: calc(100vh - var(--kf-topbar-h, 74px));
         background: #fff;
         z-index: 9999;
         box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
@@ -401,6 +525,7 @@
         gap: .5rem;
         justify-content: flex-end;
         flex-shrink: 0;
+        flex-wrap: wrap;
     }
 
     .detail-grid {
@@ -582,9 +707,11 @@
 
     .btn-secondary-action:hover { background: #f9fafb; }
 
+    /* Centres below the app bar, not the viewport: the page container is a stacking
+       context, so the bar paints over anything centred against the full viewport. */
     .md-po-viewer-overlay {
         position: fixed;
-        inset: 0;
+        inset: var(--kf-topbar-h, 74px) 0 0;
         background: rgba(15, 23, 42, 0.65);
         backdrop-filter: blur(4px);
         z-index: 10000;
@@ -598,7 +725,7 @@
         background: #fff;
         border-radius: 16px;
         width: min(1100px, 92vw);
-        max-height: 92vh;
+        max-height: calc(92vh - var(--kf-topbar-h, 74px));
         display: flex;
         flex-direction: column;
         overflow: hidden;
@@ -627,7 +754,7 @@
         background: #f8fafc;
         overflow: auto;
         min-height: 320px;
-        max-height: calc(92vh - 78px);
+        max-height: calc(92vh - var(--kf-topbar-h, 74px) - 78px);
     }
 
     .md-po-viewer-image {
@@ -638,7 +765,7 @@
 
     .md-po-viewer-pdf {
         width: 100%;
-        height: calc(92vh - 78px);
+        height: calc(92vh - var(--kf-topbar-h, 74px) - 78px);
         border: none;
         background: #fff;
     }
@@ -671,18 +798,23 @@
         color: #6ee7b7;
     }
 
+    .dark-theme .status-badge.delivered {
+        background: rgba(34, 197, 94, .22);
+        color: #86efac;
+    }
+
     @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
     @@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
     @@media (max-width:768px) {
         .md-header { flex-direction: column; }
-        .filter-bar { flex-direction: column; }
+        .md-table-tools { width: 100%; justify-content: space-between; }
         .stat-row { grid-template-columns: 1fr 1fr; }
         .detail-grid { grid-template-columns: 1fr; }
         .md-po-viewer-overlay { padding: .75rem; }
         .md-po-viewer-header { padding: .85rem 1rem; align-items: flex-start; }
-        .md-po-viewer-container { width: 100%; max-height: 94vh; }
+        .md-po-viewer-container { width: 100%; max-height: calc(94vh - var(--kf-topbar-h, 74px)); }
     }
 </style>
 
@@ -694,8 +826,8 @@
             <div class="md-header-left">
                 <div class="md-header-icon"><i class="bi bi-phone"></i></div>
                 <div>
-                    <h2>Mobile Draft Orders</h2>
-                    <p>Review and approve sales orders submitted from the mobile app</p>
+                    <h2>@(IsVanSalesView ? "Van Sales Orders" : "Mobile Orders")</h2>
+                    <p>@(IsVanSalesView ? "Review ADR and sales-person orders captured against route customers" : "Review pending sales orders submitted from the mobile app")</p>
                 </div>
             </div>
         </div>
@@ -720,7 +852,7 @@
                     <div class="stat-icon total"><i class="bi bi-phone"></i></div>
                     <div class="stat-info">
                         <div class="stat-value">@totalCount</div>
-                        <div class="stat-label">Total Drafts</div>
+                        <div class="stat-label">Total Orders</div>
                     </div>
                 </div>
                 <div class="stat-card">
@@ -747,74 +879,100 @@
             </div>
         }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Customer</label>
-                <input type="text" @bind="customerFilter" placeholder="Customer code" />
-            </div>
-            <div class="filter-field">
-                <label>Order / SAP Doc #</label>
-                <input type="text" @bind="orderSearchFilter" placeholder="Order number or SAP doc #" />
-            </div>
-            <div class="filter-field">
-                <label>Status</label>
-                <select @bind="statusFilter">
-                    <option value="">All Statuses</option>
-                    @foreach (var statusOption in GetStatusFilterOptions())
-                    {
-                        <option value="@(((int)statusOption.Value).ToString())">@statusOption.Label</option>
-                    }
-                </select>
-            </div>
-            <div class="filter-field">
-                <label>From Date</label>
-                <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-            </div>
-            <div class="filter-field">
-                <label>To Date</label>
-                <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-            </div>
-            <div class="filter-actions-row">
-                <MudButton Class="btn-search" OnClick="ApplyFilter">
-                    <i class="bi bi-search"></i> Search
-                </MudButton>
-                <MudButton Class="btn-clear" OnClick="ClearFilter">
-                    <i class="bi bi-x-circle"></i> Clear
-                </MudButton>
-            </div>
-        </div>
-
         <!-- ━━━ Content ━━━ -->
         @if (isLoading)
         {
             <div class="loading-state">
                 <div class="spinner-border" style="color:#2563eb;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading mobile drafts...</p>
+                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading mobile orders...</p>
             </div>
         }
         else if (orders?.Any() == true)
         {
+            <!-- ━━━ Filter Panel ━━━ -->
+            <div class="md-filter-panel">
+                <div class="md-filter-panel-row">
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">Order #</label>
+                        <input class="md-filter-input" type="text" @bind="orderNumberFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Search" />
+                    </div>
+                    <div class="md-filter-group wide">
+                        <label class="md-filter-label">Customer</label>
+                        <input class="md-filter-input" type="text" @bind="customerFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Name or code" />
+                    </div>
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">Order Date</label>
+                        <input class="md-filter-input" type="date" @bind="orderDateFilter" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">Delivery</label>
+                        <input class="md-filter-input" type="date" @bind="deliveryDateFilter" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">Status</label>
+                        <select class="md-filter-select" @bind="statusFilter" @bind:after="ResetToFirstPage">
+                            <option value="">All</option>
+                            @foreach (var statusOption in GetStatusFilterOptions())
+                            {
+                                <option value="@statusOption.Value">@statusOption.Label</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">Currency</label>
+                        <select class="md-filter-select" @bind="currencyFilter" @bind:after="ResetToFirstPage">
+                            <option value="">All</option>
+                            @foreach (var currencyOption in GetCurrencyFilterOptions())
+                            {
+                                <option value="@currencyOption">@currencyOption</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">Total</label>
+                        <input class="md-filter-input" type="text" @bind="totalFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Amount" />
+                    </div>
+                    <div class="md-filter-group">
+                        <label class="md-filter-label">SAP Doc #</label>
+                        <input class="md-filter-input" type="text" @bind="sapDocFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="SAP #" />
+                    </div>
+                    @if (HasActiveFilters())
+                    {
+                        <div class="md-filter-actions">
+                            <button type="button" class="md-clear-filters" @onclick="ClearFilter">
+                                <i class="bi bi-x-circle"></i> Clear
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+
             <div class="md-table-wrap">
                 <div class="md-table-header">
-                    <h6><i class="bi bi-phone"></i> Mobile Draft Orders</h6>
-                    <span class="md-count-badge">@totalCount total</span>
+                    <h6><i class="bi bi-phone"></i> Mobile Orders</h6>
+                    <div class="md-table-tools">
+                        <span class="md-count-badge">@GetOrderCountSummary()</span>
+                        @if (HasActiveFilters())
+                        {
+                            <button type="button" class="md-clear-filters" @onclick="ClearFilter">
+                                <i class="bi bi-x-circle"></i> Clear filters
+                            </button>
+                        }
+                    </div>
                 </div>
-                <MudTable @ref="@_table" Items="@orders" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
+                <MudTable @ref="@_table" Items="@GetFilteredOrders()" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
                           Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary" T="SalesOrderDto"
                           Elevation="0" Style="background:transparent;">
                     <HeaderContent>
-                        <MudTh>Order #</MudTh>
-                        <MudTh>Customer</MudTh>
-                        <MudTh>Order Date</MudTh>
-                        <MudTh>Delivery</MudTh>
-                        <MudTh>Status</MudTh>
-                        <MudTh>Currency</MudTh>
-                        <MudTh Style="text-align:right">Total</MudTh>
-                        <MudTh>SAP Doc #</MudTh>
-                        <MudTh Style="width:150px">Actions</MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.OrderNumber ?? string.Empty)">Order #</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.CardName ?? string.Empty)">Customer</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.OrderDate)">Order Date</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.DeliveryDate ?? DateTime.MinValue)">Delivery</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => GetDisplayStatusSortOrder(x))">Status</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.Currency ?? string.Empty)">Currency</MudTableSortLabel></MudTh>
+                        <MudTh Style="text-align:right"><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.DocTotal)">Total</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.SAPDocNum ?? 0)">SAP Doc #</MudTableSortLabel></MudTh>
+                        <MudTh Class="md-order-actions-header">Actions</MudTh>
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
@@ -824,10 +982,15 @@
                                 <span class="code">@context.CardCode</span>
                             </div>
                         </MudTd>
-                        <MudTd DataLabel="Order Date"><span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span></MudTd>
+                        <MudTd DataLabel="Order Date">
+                            <div style="display:flex; flex-direction:column; gap:.15rem;">
+                                <span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
+                                <span style="font-size:.72rem;color:#6b7280;">Received @IAuditService.ToCAT(context.CreatedAt).ToString("HH:mm") CAT</span>
+                            </div>
+                        </MudTd>
                         <MudTd DataLabel="Delivery"><span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")</span></MudTd>
                         <MudTd DataLabel="Status">
-                            <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
+                            <span class="status-badge @GetDisplayStatusCssClass(context)">@GetDisplayStatusName(context)</span>
                         </MudTd>
                         <MudTd DataLabel="Currency"><span style="font-size:.85rem;color:#6b7280;">@context.Currency</span></MudTd>
                         <MudTd DataLabel="Total" Style="text-align:right">
@@ -849,12 +1012,19 @@
                                 <span class="sync-dot unsynced"><i class="bi bi-circle-fill"></i> Pending</span>
                             }
                         </MudTd>
-                        <MudTd DataLabel="Actions">
-                            <MudStack Row="true" Spacing="1">
+                        <MudTd DataLabel="Actions" Class="md-order-actions-cell">
+                            <div class="md-order-actions">
                                 <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.View) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Visibility)" Size="Size.Small"
                                                Variant="Variant.Outlined" Color="Color.Primary" title="View Details"
                                                Disabled="@IsOrderActionBusy(context.Id)"
                                                OnClick="() => ViewOrder(context)" />
+                                @if (CanViewOrderPod(context))
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.LocalShipping" Size="Size.Small"
+                                                   Variant="Variant.Outlined" Color="Color.Success" title="View POD"
+                                                   Disabled="@IsOrderActionBusy(context.Id)"
+                                                   OnClick="() => NavigateToPod(context)" />
+                                }
                                 @if ((context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending) && !context.IsSynced)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
@@ -924,23 +1094,33 @@
                                         </Authorized>
                                     </AuthorizeView>
                                 }
-                            </MudStack>
+                            </div>
                         </MudTd>
                     </RowTemplate>
+                    <NoRecordsContent>
+                        <div class="empty-state py-4">
+                            <div class="empty-icon"><i class="bi bi-funnel"></i></div>
+                            <h6>No matching mobile orders</h6>
+                            <p>Adjust the header filters or clear them to see more orders.</p>
+                            <button type="button" class="md-clear-filters" @onclick="ClearFilter" disabled="@(!HasActiveFilters())">
+                                <i class="bi bi-x-circle"></i> Clear filters
+                            </button>
+                        </div>
+                    </NoRecordsContent>
                     <PagerContent>
                         <div class="pager-row">
                             <div class="page-size-wrap">
                                 <span>Show</span>
-                                <select @bind="_pageSize">
-                                    <option value="10">10</option>
-                                    <option value="25">25</option>
-                                    <option value="50">50</option>
-                                    <option value="100">100</option>
+                                <select @bind="_pageSize" @bind:after="OnPageSizeChanged">
+                                    @foreach (var size in GetPageSizeOptions())
+                                    {
+                                        <option value="@size">@size</option>
+                                    }
                                 </select>
                                 <span>per page</span>
                             </div>
                             <MudPagination SelectedChanged="PageChanged"
-                                           Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
+                                           Count="@GetVisiblePageCount()"
                                            Class="pa-4" />
                         </div>
                     </PagerContent>
@@ -951,7 +1131,7 @@
         {
             <div class="empty-state">
                 <div class="empty-icon"><i class="bi bi-phone"></i></div>
-                <h6>No mobile draft orders found</h6>
+                <h6>No mobile orders found</h6>
                 <p>Orders submitted from the mobile app will appear here for review.</p>
             </div>
         }
@@ -979,12 +1159,16 @@
                     <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
                 </div>
                 <div class="detail-item">
+                    <div class="detail-label">Received From Mobile</div>
+                    <div class="detail-value">@IAuditService.ToCAT(selectedOrder.CreatedAt).ToString("dd MMM yyyy HH:mm") CAT</div>
+                </div>
+                <div class="detail-item">
                     <div class="detail-label">Delivery Date</div>
                     <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Status</div>
-                    <div class="detail-value"><span class="status-badge @GetStatusCssClass(GetSelectedOrderStatus())">@GetSelectedOrderStatusName()</span></div>
+                    <div class="detail-value"><span class="status-badge @GetSelectedOrderStatusCssClass()">@GetSelectedOrderStatusName()</span></div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">Currency</div>
@@ -1003,6 +1187,13 @@
                     <div class="detail-item">
                         <div class="detail-label">SAP Document #</div>
                         <div class="detail-value" style="color:#059669; font-family:'Space Grotesk',monospace;">@selectedOrder.SAPDocNum</div>
+                    </div>
+                }
+                @if (GetSelectedOrderInvoiceDocNum().HasValue)
+                {
+                    <div class="detail-item">
+                        <div class="detail-label">@(CanViewSelectedOrderPod() ? "POD Invoice #" : "Invoice #")</div>
+                        <div class="detail-value" style="color:#166534; font-family:'Space Grotesk',monospace;">@GetSelectedOrderInvoiceDocNum()</div>
                     </div>
                 }
             </div>
@@ -1126,6 +1317,7 @@
                             <th>Item</th>
                             <th>Description</th>
                             <th style="text-align:right">Qty</th>
+                            <th>UoM</th>
                             <th style="text-align:right">Unit Price</th>
                             <th style="text-align:right">Total</th>
                         </tr>
@@ -1137,6 +1329,7 @@
                                 <td><span style="font-weight:600;color:#2563eb;">@line.ItemCode</span></td>
                                 <td>@line.ItemDescription</td>
                                 <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                <td>@(string.IsNullOrWhiteSpace(line.UoMCode) ? "-" : line.UoMCode)</td>
                                 <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
                                 <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
                             </tr>
@@ -1144,15 +1337,15 @@
                     </tbody>
                     <tfoot>
                         <tr>
-                            <td colspan="4" style="text-align:right;font-weight:600;">Item Count:</td>
+                            <td colspan="5" style="text-align:right;font-weight:600;">Item Count:</td>
                             <td style="text-align:right;font-weight:600;">@FormatOrderItemCount(selectedOrder)</td>
                         </tr>
                         <tr>
-                            <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
+                            <td colspan="5" style="text-align:right;font-weight:600;">Subtotal:</td>
                             <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
                         </tr>
                         <tr>
-                            <td colspan="4" style="text-align:right;font-weight:600;">Tax:</td>
+                            <td colspan="5" style="text-align:right;font-weight:600;">Tax:</td>
                             <td style="text-align:right;">@selectedOrder.TaxAmount.ToString("N2")</td>
                         </tr>
                     </tfoot>
@@ -1165,6 +1358,27 @@
             }
         </div>
         <div class="drawer-footer">
+            <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
+                       Disabled="@isGeneratingOrderPdf"
+                       OnClick="CreateSelectedOrderPdfAsync">
+                @if (isGeneratingOrderPdf)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    <span>Creating PDF...</span>
+                }
+                else
+                {
+                    <i class="bi bi-file-earmark-pdf me-1"></i>
+                    <span>Create PDF</span>
+                }
+            </MudButton>
+            @if (CanViewSelectedOrderPod())
+            {
+                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#15803d,#166534);"
+                           OnClick="NavigateToSelectedOrderPod">
+                    <i class="bi bi-truck me-1"></i> View POD
+                </MudButton>
+            }
             @if (CanEditSelectedOrder())
             {
                 <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
@@ -1255,6 +1469,10 @@
 }
 
 @code {
+    private static readonly int[] DefaultPageSizeOptions = [10, 25, 50, 100, 200];
+    private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
+        .StartsWith("van-sales-orders", StringComparison.OrdinalIgnoreCase);
+
     private MudTable<SalesOrderDto> _table = null!;
     private int _pageSize = 10;
     private List<SalesOrderDto>? orders;
@@ -1266,11 +1484,15 @@
     private string? purchaseOrderAttachmentError;
     private bool showPurchaseOrderViewer;
     private bool isLoadingPurchaseOrderViewer;
+    private bool isGeneratingOrderPdf;
     private string? purchaseOrderViewerDataUri;
     private string? purchaseOrderViewerFileName;
     private string? purchaseOrderViewerMimeType;
     private DocumentAttachmentDto? purchaseOrderViewerAttachment;
     private readonly Dictionary<int, OrderActionType> orderActionStates = new();
+    private readonly HashSet<int> backgroundPriceRefreshOrderIds = new();
+    private readonly object backgroundPriceRefreshLock = new();
+    private readonly Dictionary<int, BulkPodValidationResult> podStatusByOrderId = new();
     private readonly HashSet<SalesOrderStatus> availableStatusFilters = new()
     {
         SalesOrderStatus.Draft,
@@ -1278,27 +1500,33 @@
         SalesOrderStatus.Approved
     };
     private int ordersLoadVersion;
+    private const string DeliveredStatusFilterValue = "delivered";
+    private const int PodStatusBatchSize = 100;
 
-    private sealed record StatusFilterOption(SalesOrderStatus Value, string Label);
+    private sealed record StatusFilterOption(string Value, string Label);
 
     private static readonly StatusFilterOption[] AllStatusFilterOptions =
     [
-        new(SalesOrderStatus.Draft, "Draft"),
-        new(SalesOrderStatus.Pending, "Pending"),
-        new(SalesOrderStatus.Approved, "Approved"),
-        new(SalesOrderStatus.PartiallyFulfilled, "Partially Fulfilled"),
-        new(SalesOrderStatus.Fulfilled, "Fulfilled"),
-        new(SalesOrderStatus.Cancelled, "Cancelled"),
-        new(SalesOrderStatus.OnHold, "On Hold"),
-        new(SalesOrderStatus.Rejected, "Rejected")
+        new("0", "Draft"),
+        new("1", "Pending"),
+        new("2", "Approved"),
+        new("3", "Partially Fulfilled"),
+        new("4", "Fulfilled"),
+        new(DeliveredStatusFilterValue, "Delivered"),
+        new("5", "Cancelled"),
+        new("6", "On Hold"),
+        new("7", "Rejected")
     ];
 
     // Filters
+    private string? orderNumberFilter;
     private string? customerFilter;
-    private string? orderSearchFilter;
+    private DateTime? orderDateFilter;
+    private DateTime? deliveryDateFilter;
     private string? statusFilter;
-    private DateTime? fromDate;
-    private DateTime? toDate;
+    private string? currencyFilter;
+    private string? totalFilter;
+    private string? sapDocFilter;
 
     // Pagination
     private int currentPage = 1;
@@ -1318,7 +1546,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _pageSize = AppSettings.PageSize;
+        _pageSize = ResolveInitialPageSize(AppSettings.PageSize);
         await LoadOrders();
     }
 
@@ -1327,15 +1555,64 @@
         _table?.NavigateTo(i - 1);
     }
 
+    private IEnumerable<int> GetPageSizeOptions()
+    {
+        if (DefaultPageSizeOptions.Contains(_pageSize))
+        {
+            return DefaultPageSizeOptions;
+        }
+
+        return DefaultPageSizeOptions
+            .Append(_pageSize)
+            .Where(size => size > 0)
+            .Distinct()
+            .OrderBy(size => size)
+            .ToArray();
+    }
+
+    private Task OnPageSizeChanged()
+    {
+        _table?.NavigateTo(0);
+        return Task.CompletedTask;
+    }
+
+    private Task ResetToFirstPage()
+    {
+        _table?.NavigateTo(0);
+        return Task.CompletedTask;
+    }
+
+    private static int ResolveInitialPageSize(int configuredPageSize)
+    {
+        return configuredPageSize > 0 ? configuredPageSize : DefaultPageSizeOptions[0];
+    }
+
+    private static bool TryParseStatusFilterValue(string? value, out SalesOrderStatus status)
+    {
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var statusInt)
+            && Enum.IsDefined(typeof(SalesOrderStatus), statusInt))
+        {
+            status = (SalesOrderStatus)statusInt;
+            return true;
+        }
+
+        status = default;
+        return false;
+    }
+
+    private static bool IsDeliveredStatusFilterValue(string? value)
+        => string.Equals(value, DeliveredStatusFilterValue, StringComparison.OrdinalIgnoreCase);
+
     private SalesOrderStatus? GetSelectedStatusFilter()
     {
-        if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
-        {
-            return (SalesOrderStatus)statusInt;
-        }
+        if (TryParseStatusFilterValue(statusFilter, out var selectedStatus))
+            return selectedStatus;
 
         return null;
     }
+
+    private bool IsDeliveredStatusFilterSelected()
+        => IsDeliveredStatusFilterValue(statusFilter);
 
     private IEnumerable<StatusFilterOption> GetStatusFilterOptions()
     {
@@ -1345,7 +1622,154 @@
             availableStatusFilters.Add(selectedStatus.Value);
         }
 
-        return AllStatusFilterOptions.Where(option => availableStatusFilters.Contains(option.Value));
+        return AllStatusFilterOptions.Where(option =>
+        {
+            if (IsDeliveredStatusFilterValue(option.Value))
+                return IsDeliveredStatusFilterSelected() || HasDeliveredOrders();
+
+            return TryParseStatusFilterValue(option.Value, out var parsedStatus)
+                && availableStatusFilters.Contains(parsedStatus);
+        });
+    }
+
+    private bool HasDeliveredOrders()
+        => orders?.Any(IsOrderDelivered) == true;
+
+    private IEnumerable<string> GetCurrencyFilterOptions()
+    {
+        var options = orders?
+            .Select(order => order.Currency?.Trim())
+            .Where(currency => !string.IsNullOrWhiteSpace(currency))
+            .Select(currency => currency!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(currency => currency, StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        if (!string.IsNullOrWhiteSpace(currencyFilter) && !options.Contains(currencyFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            options.Add(currencyFilter);
+            options = options.OrderBy(currency => currency, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        return options;
+    }
+
+    private IEnumerable<SalesOrderDto> GetFilteredOrders()
+    {
+        return orders?.Where(MatchesColumnFilters) ?? Enumerable.Empty<SalesOrderDto>();
+    }
+
+    private bool MatchesColumnFilters(SalesOrderDto order)
+    {
+        if (!string.IsNullOrWhiteSpace(orderNumberFilter) &&
+            !(order.OrderNumber?.Contains(orderNumberFilter.Trim(), StringComparison.OrdinalIgnoreCase) ?? false))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(customerFilter))
+        {
+            var customerTerm = customerFilter.Trim();
+            var matchesCustomer = (order.CardName?.Contains(customerTerm, StringComparison.OrdinalIgnoreCase) ?? false)
+                || (order.CardCode?.Contains(customerTerm, StringComparison.OrdinalIgnoreCase) ?? false);
+
+            if (!matchesCustomer)
+            {
+                return false;
+            }
+        }
+
+        if (orderDateFilter.HasValue && order.OrderDate.Date != orderDateFilter.Value.Date)
+        {
+            return false;
+        }
+
+        if (deliveryDateFilter.HasValue
+            && (!order.DeliveryDate.HasValue || order.DeliveryDate.Value.Date != deliveryDateFilter.Value.Date))
+        {
+            return false;
+        }
+
+        var selectedStatus = GetSelectedStatusFilter();
+        if (IsDeliveredStatusFilterSelected())
+        {
+            if (!IsOrderDelivered(order))
+            {
+                return false;
+            }
+        }
+        else if (selectedStatus.HasValue && (IsOrderDelivered(order) || order.Status != selectedStatus.Value))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currencyFilter) &&
+            !string.Equals(order.Currency, currencyFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(totalFilter))
+        {
+            var totalTerm = totalFilter.Trim();
+            var formattedTotal = order.DocTotal.ToString("N2");
+            var compactTotal = order.DocTotal.ToString("0.##");
+
+            if (!formattedTotal.Contains(totalTerm, StringComparison.OrdinalIgnoreCase)
+                && !compactTotal.Contains(totalTerm, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(sapDocFilter))
+        {
+            var sapDocNumber = order.SAPDocNum?.ToString() ?? string.Empty;
+            if (!sapDocNumber.Contains(sapDocFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool HasActiveFilters()
+    {
+        return !string.IsNullOrWhiteSpace(orderNumberFilter)
+            || !string.IsNullOrWhiteSpace(customerFilter)
+            || orderDateFilter.HasValue
+            || deliveryDateFilter.HasValue
+            || !string.IsNullOrWhiteSpace(statusFilter)
+            || !string.IsNullOrWhiteSpace(currencyFilter)
+            || !string.IsNullOrWhiteSpace(totalFilter)
+            || !string.IsNullOrWhiteSpace(sapDocFilter);
+    }
+
+    private int GetVisibleOrderCount()
+    {
+        return GetFilteredOrders().Count();
+    }
+
+    private string GetOrderCountSummary()
+    {
+        if (totalCount <= 0)
+        {
+            return "0 total";
+        }
+
+        if (!HasActiveFilters())
+        {
+            return $"{totalCount} total";
+        }
+
+        return $"{GetVisibleOrderCount()} of {totalCount}";
+    }
+
+    private int GetVisiblePageCount()
+    {
+        var visibleCount = GetVisibleOrderCount();
+        return Math.Max(1, (visibleCount + _pageSize - 1) / _pageSize);
     }
 
     private void TrackAvailableStatusFilters(IEnumerable<SalesOrderDto>? loadedOrders)
@@ -1367,9 +1791,11 @@
 
         try
         {
-            var status = GetSelectedStatusFilter();
-
-            var response = await SalesOrderService.GetSalesOrdersAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate, SalesOrderSource.Mobile, orderSearchFilter);
+            var response = await SalesOrderService.GetSalesOrdersAsync(
+                currentPage,
+                pageSize,
+                source: SalesOrderSource.Mobile,
+                vanSalesUsersOnly: IsVanSalesView ? true : null);
             if (loadVersion != ordersLoadVersion)
                 return;
 
@@ -1380,15 +1806,15 @@
                 totalPages = response.TotalPages;
                 TrackAvailableStatusFilters(orders);
 
-                await PopulateMissingOrderPricesAsync(orders);
+                await PopulateMissingOrderPricesAsync(orders, loadVersion);
                 if (loadVersion != ordersLoadVersion)
                     return;
 
-                await RefreshSelectedOrderAsync();
+                _ = LoadOrderPodStatusesInBackgroundAsync(loadVersion);
             }
             else
             {
-                errorMessage = "Failed to load mobile draft orders.";
+                errorMessage = "Failed to load mobile orders.";
             }
         }
         catch (Exception ex)
@@ -1407,17 +1833,33 @@
         }
     }
 
-    private async Task ApplyFilter() => await LoadOrders();
-
-    private async Task ClearFilter()
+    private async Task LoadOrderPodStatusesInBackgroundAsync(int loadVersion)
     {
+        var currentOrders = orders;
+        if (currentOrders == null)
+            return;
+
+        await LoadOrderPodStatusesAsync(currentOrders, loadVersion);
+        if (loadVersion != ordersLoadVersion)
+            return;
+
+        await RefreshSelectedOrderAsync();
+
+        if (loadVersion == ordersLoadVersion)
+            await InvokeAsync(StateHasChanged);
+    }
+
+    private void ClearFilter()
+    {
+        orderNumberFilter = null;
         customerFilter = null;
-        orderSearchFilter = null;
+        orderDateFilter = null;
+        deliveryDateFilter = null;
         statusFilter = null;
-        fromDate = null;
-        toDate = null;
-        currentPage = 1;
-        await LoadOrders();
+        currencyFilter = null;
+        totalFilter = null;
+        sapDocFilter = null;
+        _table?.NavigateTo(0);
     }
 
     private async Task ViewOrder(SalesOrderDto order)
@@ -1440,10 +1882,15 @@
 
             await LoadPurchaseOrderAttachmentsAsync(detailOrder);
 
-            // If order lines have no prices (mobile drafts), fetch from SAP using the BP's price list
+            // Hydrate missing mobile draft prices from the local BP catalog; approval re-verifies against live SAP pricing.
             if (OrderHasMissingPrices(detailOrder))
             {
                 await PopulateOrderPricesAsync(detailOrder);
+            }
+
+            if (CanRefreshOrderPricesInBackground(detailOrder))
+            {
+                _ = RefreshOrderPricesInBackgroundAsync(detailOrder.Id, ordersLoadVersion);
             }
 
             StateHasChanged();
@@ -1497,6 +1944,133 @@
         {
             isLoadingPurchaseOrderAttachments = false;
         }
+    }
+
+    private async Task LoadOrderPodStatusesAsync(IEnumerable<SalesOrderDto> loadedOrders, int loadVersion)
+    {
+        podStatusByOrderId.Clear();
+
+        var ordersBySalesOrderDocNum = loadedOrders
+            .Where(ShouldCheckPodStatus)
+            .OrderByDescending(order => order.OrderDate)
+            .GroupBy(order => order.SAPDocNum!.Value)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        if (ordersBySalesOrderDocNum.Count == 0)
+            return;
+
+        try
+        {
+            foreach (var salesOrderDocNumBatch in ordersBySalesOrderDocNum.Keys.Chunk(PodStatusBatchSize))
+            {
+                var response = await PodService.ValidateBulkSalesOrderPodsAsync(salesOrderDocNumBatch);
+                if (loadVersion != ordersLoadVersion)
+                    return;
+
+                foreach (var podStatus in response?.Results ?? Enumerable.Empty<BulkPodValidationResult>())
+                {
+                    if (!podStatus.SalesOrderDocNum.HasValue || !ordersBySalesOrderDocNum.TryGetValue(podStatus.SalesOrderDocNum.Value, out var matchingOrders))
+                        continue;
+
+                    foreach (var order in matchingOrders)
+                    {
+                        podStatusByOrderId[order.Id] = podStatus;
+                    }
+                }
+
+                if (loadVersion == ordersLoadVersion)
+                    await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (loadVersion != ordersLoadVersion)
+                return;
+
+            Logger.LogWarning(ex, "Failed to load POD delivery status for mobile orders.");
+        }
+    }
+
+    private static bool ShouldCheckPodStatus(SalesOrderDto order)
+    {
+        return order.SAPDocNum is > 0
+            && order.Status is SalesOrderStatus.Approved
+                or SalesOrderStatus.PartiallyFulfilled
+                or SalesOrderStatus.Fulfilled;
+    }
+
+    private bool IsOrderDelivered(SalesOrderDto order)
+    {
+        return podStatusByOrderId.TryGetValue(order.Id, out var podStatus)
+            && podStatus.Found
+            && podStatus.ExistingPodCount > 0;
+    }
+
+    private string GetDisplayStatusName(SalesOrderDto order)
+        => IsOrderDelivered(order) ? "Delivered" : order.Status.ToString();
+
+    private string GetDisplayStatusCssClass(SalesOrderDto order)
+        => IsOrderDelivered(order) ? "delivered" : GetStatusCssClass(order.Status);
+
+    private static int GetStatusSortOrder(SalesOrderStatus status) => status switch
+    {
+        SalesOrderStatus.Draft => 0,
+        SalesOrderStatus.Pending => 1,
+        SalesOrderStatus.Approved => 2,
+        SalesOrderStatus.PartiallyFulfilled => 3,
+        SalesOrderStatus.Fulfilled => 4,
+        SalesOrderStatus.Cancelled => 6,
+        SalesOrderStatus.OnHold => 7,
+        SalesOrderStatus.Rejected => 8,
+        _ => 9
+    };
+
+    private int GetDisplayStatusSortOrder(SalesOrderDto order)
+        => IsOrderDelivered(order) ? 5 : GetStatusSortOrder(order.Status);
+
+    private int? GetOrderPodInvoiceDocNum(SalesOrderDto order)
+    {
+        if (!podStatusByOrderId.TryGetValue(order.Id, out var podStatus)
+            || !podStatus.Found
+            || podStatus.ExistingPodCount <= 0
+            || (!podStatus.ResolvedInvoiceDocNum.HasValue && podStatus.DocNum <= 0))
+        {
+            return null;
+        }
+
+        return podStatus.ResolvedInvoiceDocNum is > 0
+            ? podStatus.ResolvedInvoiceDocNum
+            : podStatus.DocNum;
+    }
+
+    private int? GetSelectedOrderInvoiceDocNum()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        if (order == null)
+            return null;
+
+        if (podStatusByOrderId.TryGetValue(order.Id, out var podStatus))
+        {
+            if (podStatus.ResolvedInvoiceDocNum is > 0)
+                return podStatus.ResolvedInvoiceDocNum;
+
+            if (podStatus.DocNum > 0)
+                return podStatus.DocNum;
+        }
+
+        return order.InvoiceSapDocNum;
+    }
+
+    private bool CanViewOrderPod(SalesOrderDto order)
+        => GetOrderPodInvoiceDocNum(order).HasValue;
+
+    private void NavigateToPod(SalesOrderDto order)
+    {
+        var invoiceDocNum = GetOrderPodInvoiceDocNum(order);
+        if (!invoiceDocNum.HasValue)
+            return;
+
+        NavigationManager.NavigateTo($"/pods?docNum={invoiceDocNum.Value.ToString(CultureInfo.InvariantCulture)}&viewLatest=true");
     }
 
     private static string? GetPurchaseOrderReference(SalesOrderDto order)
@@ -1596,6 +2170,144 @@
         }
     }
 
+    private async Task CreateSelectedOrderPdfAsync()
+    {
+        if (selectedOrder == null || isGeneratingOrderPdf)
+            return;
+
+        isGeneratingOrderPdf = true;
+
+        try
+        {
+            var orderForExport = await SalesOrderService.GetSalesOrderDetailsAsync(selectedOrder) ?? selectedOrder;
+            selectedOrder = orderForExport;
+
+            var exportHtml = BuildSelectedOrderPdfHtml(
+                orderForExport,
+                purchaseOrderAttachments.ToList(),
+                purchaseOrderAttachmentError);
+
+            await JS.InvokeVoidAsync("printReportHtml", exportHtml);
+            Snackbar.Add("Print dialog opened. Choose Save as PDF to create the mobile order PDF.", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create PDF for mobile order {OrderId}", selectedOrder.Id);
+            Snackbar.Add("Failed to create the mobile order PDF.", Severity.Error);
+        }
+        finally
+        {
+            isGeneratingOrderPdf = false;
+        }
+    }
+
+    private string BuildSelectedOrderPdfHtml(
+        SalesOrderDto order,
+        IReadOnlyCollection<DocumentAttachmentDto> attachments,
+        string? attachmentError)
+    {
+        var builder = new System.Text.StringBuilder();
+
+        builder.Append("<div class='kpi-row'>");
+        AppendSelectedOrderPdfKpi(builder, order.OrderNumber, "Order");
+        AppendSelectedOrderPdfKpi(builder, GetOrderStatusLabel(order), "Status", GetOrderPdfStatusClass(order.Status));
+        AppendSelectedOrderPdfKpi(builder, FormatOrderLineCount(order), "Lines");
+        AppendSelectedOrderPdfKpi(builder, FormatOrderItemCount(order), "Items");
+        AppendSelectedOrderPdfKpi(builder, FormatOrderPdfMoney(order.Currency, order.DocTotal), "Total");
+        AppendSelectedOrderPdfKpi(builder, attachments.Count.ToString("N0"), "Uploaded PO Files");
+        builder.Append("</div>");
+
+        builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Order Summary</h3>");
+        builder.Append("<table><thead><tr><th>Field</th><th>Value</th><th>Field</th><th>Value</th></tr></thead><tbody>");
+        builder.Append($"<tr><th>Order Number</th><td>{Html(order.OrderNumber)}</td><th>Status</th><td>{Html(GetOrderStatusLabel(order))}</td></tr>");
+        builder.Append($"<tr><th>Customer</th><td>{Html($"{order.CardCode} - {order.CardName}")}</td><th>Received From Mobile</th><td>{Html(FormatOrderPdfCatDateTime(order.CreatedAt))}</td></tr>");
+        builder.Append($"<tr><th>PO Reference</th><td>{Html(GetPurchaseOrderReference(order) ?? "Not provided")}</td><th>Delivery Date</th><td>{Html(order.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")}</td></tr>");
+        builder.Append($"<tr><th>Created By</th><td>{Html(order.CreatedByUserName ?? "Unknown")}</td><th>Currency</th><td>{Html(order.Currency ?? "USD")}</td></tr>");
+        builder.Append($"<tr><th>SAP Document</th><td>{Html(order.SAPDocNum?.ToString() ?? "Not synced")}</td><th>SAP DocEntry</th><td>{Html(order.SAPDocEntry?.ToString() ?? "Not synced")}</td></tr>");
+        builder.Append($"<tr><th>Subtotal</th><td>{Html(FormatOrderPdfMoney(order.Currency, order.SubTotal))}</td><th>Tax</th><td>{Html(FormatOrderPdfMoney(order.Currency, order.TaxAmount))}</td></tr>");
+        builder.Append($"<tr><th>Total</th><td>{Html(FormatOrderPdfMoney(order.Currency, order.DocTotal))}</td><th>Device Info</th><td>{Html(string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Not captured" : order.DeviceInfo)}</td></tr>");
+        builder.Append($"<tr><th>Merchandiser Notes</th><td colspan='3'>{Html(string.IsNullOrWhiteSpace(order.MerchandiserNotes) ? "No merchandiser notes" : order.MerchandiserNotes)}</td></tr>");
+        builder.Append("</tbody></table>");
+
+        if (order.Latitude.HasValue && order.Longitude.HasValue)
+        {
+            builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Location</h3>");
+            builder.Append("<table><thead><tr><th>Latitude</th><th>Longitude</th><th>Maps Link</th></tr></thead><tbody>");
+            builder.Append($"<tr><td>{Html(order.Latitude.Value.ToString("F6"))}</td><td>{Html(order.Longitude.Value.ToString("F6"))}</td><td>{Html($"https://www.google.com/maps?q={order.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},{order.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}")}</td></tr>");
+            builder.Append("</tbody></table>");
+        }
+
+        builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Physical Purchase Order</h3>");
+        if (!string.IsNullOrWhiteSpace(attachmentError))
+        {
+            builder.Append($"<p style='color:#b91c1c;font-weight:600;'>{Html(attachmentError)}</p>");
+        }
+        else if (attachments.Count == 0)
+        {
+            builder.Append($"<p style='color:#616161;font-style:italic;'>No uploaded physical purchase order was found for reference {Html(GetPurchaseOrderReference(order) ?? order.OrderNumber)}.</p>");
+        }
+        else
+        {
+            builder.Append("<table><thead><tr><th>File Name</th><th>Size</th><th>Uploaded</th><th>Uploaded By</th><th>Description</th></tr></thead><tbody>");
+            foreach (var attachment in attachments)
+            {
+                builder.Append($"<tr><td>{Html(attachment.FileName)}</td><td>{Html(attachment.FileSizeFormatted)}</td><td>{Html(FormatOrderPdfCatDateTime(attachment.UploadedAt))}</td><td>{Html(string.IsNullOrWhiteSpace(attachment.UploadedByUserName) ? "Unknown uploader" : attachment.UploadedByUserName)}</td><td>{Html(string.IsNullOrWhiteSpace(attachment.Description) ? "-" : attachment.Description)}</td></tr>");
+            }
+            builder.Append("</tbody></table>");
+        }
+
+        builder.Append("<h3 style='font-size:14px;margin-top:20px;'>Order Lines</h3>");
+        if (order.Lines?.Any() == true)
+        {
+            builder.Append("<table><thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>UoM</th><th>Warehouse</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>");
+            foreach (var line in order.Lines)
+            {
+                builder.Append($"<tr><td>{Html(line.ItemCode)}</td><td>{Html(line.ItemDescription)}</td><td class='text-end'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td><td>{Html(string.IsNullOrWhiteSpace(line.UoMCode) ? "-" : line.UoMCode)}</td><td>{Html(string.IsNullOrWhiteSpace(line.WarehouseCode) ? "-" : line.WarehouseCode)}</td><td class='text-end'>{Html(FormatOrderPdfMoney(order.Currency, line.UnitPrice))}</td><td class='text-end'>{Html(FormatOrderPdfMoney(order.Currency, line.LineTotal))}</td></tr>");
+            }
+            builder.Append("</tbody></table>");
+
+            builder.Append("<table style='margin-top:14px;'><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>");
+            builder.Append($"<tr><td>Item Count</td><td>{Html(FormatOrderItemCount(order))}</td></tr>");
+            builder.Append($"<tr><td>Subtotal</td><td>{Html(FormatOrderPdfMoney(order.Currency, order.SubTotal))}</td></tr>");
+            builder.Append($"<tr><td>Tax</td><td>{Html(FormatOrderPdfMoney(order.Currency, order.TaxAmount))}</td></tr>");
+            builder.Append($"<tr><td><strong>Total</strong></td><td><strong>{Html(FormatOrderPdfMoney(order.Currency, order.DocTotal))}</strong></td></tr>");
+            builder.Append("</tbody></table>");
+        }
+        else
+        {
+            builder.Append("<p style='color:#616161;font-style:italic;'>No line items were returned for this mobile order.</p>");
+        }
+
+        return ExportService.GeneratePrintableHtml($"Mobile Order {order.OrderNumber}", builder.ToString());
+    }
+
+    private static void AppendSelectedOrderPdfKpi(System.Text.StringBuilder builder, string value, string label, string? cssClass = null)
+    {
+        var classSuffix = string.IsNullOrWhiteSpace(cssClass) ? string.Empty : $" {cssClass}";
+        builder.Append($"<div class='kpi{classSuffix}'><h3>{Html(value)}</h3><p>{Html(label)}</p></div>");
+    }
+
+    private static string GetOrderStatusLabel(SalesOrderDto order) => order.Status.ToString();
+
+    private static string? GetOrderPdfStatusClass(SalesOrderStatus status) => status switch
+    {
+        SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => "success",
+        SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => "warning",
+        SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected => "danger",
+        _ => null
+    };
+
+    private static string FormatOrderPdfMoney(string? currency, decimal amount) =>
+        string.IsNullOrWhiteSpace(currency) ? amount.ToString("N2") : $"{currency} {amount:N2}";
+
+    private static string FormatOrderPdfCatDateTime(DateTime value)
+    {
+        var utcValue = value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        return $"{IAuditService.ToCAT(utcValue):dd MMM yyyy HH:mm} CAT";
+    }
+
+    private static string Html(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
+
     private async Task RefreshSelectedOrderAsync()
     {
         if (selectedOrder == null)
@@ -1625,11 +2337,19 @@
     private static bool OrderHasMissingPrices(SalesOrderDto order)
     {
         return order.Source == SalesOrderSource.Mobile
+            && (!order.IsSynced || !order.SAPDocEntry.HasValue || order.SAPDocEntry.Value <= 0)
             && order.Lines?.Any() == true
             && order.Lines.Any(l => l.UnitPrice <= 0 || l.LineTotal <= 0);
     }
 
-    private async Task PopulateMissingOrderPricesAsync(IEnumerable<SalesOrderDto> loadedOrders)
+    private static bool CanRefreshOrderPricesInBackground(SalesOrderDto order)
+    {
+        return order.Source == SalesOrderSource.Mobile
+            && (!order.IsSynced || !order.SAPDocEntry.HasValue || order.SAPDocEntry.Value <= 0)
+            && order.Lines?.Any() == true;
+    }
+
+    private async Task PopulateMissingOrderPricesAsync(IEnumerable<SalesOrderDto> loadedOrders, int loadVersion)
     {
         var missingPriceOrders = loadedOrders
             .Where(OrderHasMissingPrices)
@@ -1644,43 +2364,63 @@
         }
 
         StateHasChanged();
+        QueueBackgroundLivePriceRefresh(missingPriceOrders, loadVersion);
     }
 
-    private async Task PopulateOrderPricesAsync(SalesOrderDto order)
+    private async Task<bool> PopulateOrderPricesAsync(SalesOrderDto order, bool useLivePricing = false)
     {
+        if (order.IsSynced && order.SAPDocEntry.HasValue && order.SAPDocEntry.Value > 0)
+            return false;
+
         try
         {
-            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode);
+            var itemCodes = order.Lines?
+                .Select(line => line.ItemCode)
+                .Where(itemCode => !string.IsNullOrWhiteSpace(itemCode))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? [];
+
+            if (itemCodes.Count == 0)
+                return false;
+
+            var bpPrices = await PriceService.GetPricesByBusinessPartnerAsync(order.CardCode, itemCodes, useLivePricing);
             if (bpPrices?.Prices == null || bpPrices.Prices.Count == 0)
-                return;
+                return false;
 
             var priceMap = bpPrices.Prices
                 .Where(p => p.ItemCode != null)
                 .ToDictionary(p => p.ItemCode!, p => p.Price, StringComparer.OrdinalIgnoreCase);
 
             var pricesChanged = false;
+            var updatedLines = new List<CreateSalesOrderLineRequest>();
 
             foreach (var line in order.Lines!)
             {
+                var updatedUnitPrice = line.UnitPrice;
                 if (priceMap.TryGetValue(line.ItemCode, out var price))
                 {
                     if (line.UnitPrice != price)
                         pricesChanged = true;
 
-                    line.UnitPrice = price;
-                    var discountMultiplier = line.DiscountPercent > 0 ? (1 - line.DiscountPercent / 100m) : 1m;
-                    line.LineTotal = Math.Round(line.Quantity * price * discountMultiplier, 2);
+                    updatedUnitPrice = price;
                 }
+
+                updatedLines.Add(new CreateSalesOrderLineRequest
+                {
+                    ItemCode = line.ItemCode,
+                    ItemDescription = line.ItemDescription,
+                    Quantity = line.Quantity,
+                    UnitPrice = updatedUnitPrice,
+                    DiscountPercent = line.DiscountPercent,
+                    TaxPercent = line.TaxPercent,
+                    WarehouseCode = line.WarehouseCode,
+                    UoMCode = line.UoMCode,
+                    BatchNumber = line.BatchNumber
+                });
             }
 
-            order.SubTotal = order.Lines!.Sum(l => l.LineTotal);
-            var taxRate = order.Lines!.FirstOrDefault()?.TaxPercent ?? 0m;
-            order.TaxAmount = taxRate > 0 ? Math.Round(order.SubTotal * taxRate / 100m, 2) : 0m;
-            var orderDiscountMultiplier = order.DiscountPercent > 0 ? (1 - order.DiscountPercent / 100m) : 1m;
-            order.DocTotal = Math.Round((order.SubTotal + order.TaxAmount) * orderDiscountMultiplier, 2);
-
             if (!pricesChanged)
-                return;
+                return false;
 
             var updateRequest = new CreateSalesOrderRequest
             {
@@ -1700,35 +2440,151 @@
                 MerchandiserNotes = order.MerchandiserNotes,
                 DeviceInfo = order.DeviceInfo,
                 RowVersion = order.RowVersion,
-                Lines = order.Lines.Select(line => new CreateSalesOrderLineRequest
-                {
-                    ItemCode = line.ItemCode,
-                    ItemDescription = line.ItemDescription,
-                    Quantity = line.Quantity,
-                    UnitPrice = line.UnitPrice,
-                    DiscountPercent = line.DiscountPercent,
-                    TaxPercent = line.TaxPercent,
-                    WarehouseCode = line.WarehouseCode,
-                    UoMCode = line.UoMCode,
-                    BatchNumber = line.BatchNumber
-                }).ToList()
+                Lines = updatedLines
             };
 
             var updatedOrder = await SalesOrderService.UpdateSalesOrderAsync(order.Id, updateRequest);
             if (updatedOrder != null)
             {
-                order.SubTotal = updatedOrder.SubTotal;
-                order.TaxAmount = updatedOrder.TaxAmount;
-                order.DiscountAmount = updatedOrder.DiscountAmount;
-                order.DocTotal = updatedOrder.DocTotal;
-                order.RowVersion = updatedOrder.RowVersion;
-                order.Lines = updatedOrder.Lines;
+                ApplyUpdatedOrderPricingState(order, updatedOrder);
+                return true;
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to fetch BP prices for order {OrderId} ({CardCode})", order.Id, order.CardCode);
+            Logger.LogWarning(
+                ex,
+                "Failed to fetch {PricingSource} BP prices for order {OrderId} ({CardCode})",
+                useLivePricing ? "live" : "locally stored",
+                order.Id,
+                order.CardCode);
         }
+
+        return false;
+    }
+
+    private void QueueBackgroundLivePriceRefresh(IEnumerable<SalesOrderDto> ordersToRefresh, int loadVersion)
+    {
+        var refreshCandidates = ordersToRefresh
+            .Where(CanRefreshOrderPricesInBackground)
+            .GroupBy(order => order.Id)
+            .Select(group => group.First())
+            .Where(order => !IsOrderActionBusy(order.Id))
+            .ToList();
+
+        if (refreshCandidates.Count == 0)
+            return;
+
+        _ = RefreshOrderPricesInBackgroundAsync(refreshCandidates, loadVersion);
+    }
+
+    private async Task RefreshOrderPricesInBackgroundAsync(IReadOnlyCollection<SalesOrderDto> ordersToRefresh, int loadVersion)
+    {
+        foreach (var order in ordersToRefresh)
+        {
+            if (loadVersion != ordersLoadVersion)
+                return;
+
+            if (!TryBeginBackgroundPriceRefresh(order.Id))
+                continue;
+
+            try
+            {
+                if (IsOrderActionBusy(order.Id))
+                    continue;
+
+                var pricesUpdated = await PopulateOrderPricesAsync(order, useLivePricing: true);
+                if (!pricesUpdated || loadVersion != ordersLoadVersion)
+                    continue;
+
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed background live price refresh for order {OrderId} ({CardCode})", order.Id, order.CardCode);
+            }
+            finally
+            {
+                EndBackgroundPriceRefresh(order.Id);
+            }
+        }
+    }
+
+    private async Task RefreshOrderPricesInBackgroundAsync(int orderId, int loadVersion)
+    {
+        if (!TryBeginBackgroundPriceRefresh(orderId))
+            return;
+
+        try
+        {
+            var order = FindOrderForPricingRefresh(orderId);
+            if (order == null || loadVersion != ordersLoadVersion || !CanRefreshOrderPricesInBackground(order))
+                return;
+
+            await PopulateOrderPricesAsync(order, useLivePricing: true);
+
+            if (loadVersion == ordersLoadVersion)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        finally
+        {
+            EndBackgroundPriceRefresh(orderId);
+        }
+    }
+
+    private SalesOrderDto? FindOrderForPricingRefresh(int orderId)
+    {
+        if (selectedOrder?.Id == orderId)
+            return selectedOrder;
+
+        return orders?.FirstOrDefault(order => order.Id == orderId);
+    }
+
+    private bool TryBeginBackgroundPriceRefresh(int orderId)
+    {
+        lock (backgroundPriceRefreshLock)
+        {
+            return backgroundPriceRefreshOrderIds.Add(orderId);
+        }
+    }
+
+    private void EndBackgroundPriceRefresh(int orderId)
+    {
+        lock (backgroundPriceRefreshLock)
+        {
+            backgroundPriceRefreshOrderIds.Remove(orderId);
+        }
+    }
+
+    private void ApplyUpdatedOrderPricingState(SalesOrderDto currentOrder, SalesOrderDto updatedOrder)
+    {
+        CopyUpdatedOrderPricingState(currentOrder, updatedOrder);
+
+        var listOrder = orders?.FirstOrDefault(order => order.Id == updatedOrder.Id);
+        if (listOrder != null && !ReferenceEquals(listOrder, currentOrder))
+        {
+            CopyUpdatedOrderPricingState(listOrder, updatedOrder);
+        }
+
+        if (selectedOrder != null
+            && selectedOrder.Id == updatedOrder.Id
+            && !ReferenceEquals(selectedOrder, currentOrder)
+            && !ReferenceEquals(selectedOrder, listOrder))
+        {
+            CopyUpdatedOrderPricingState(selectedOrder, updatedOrder);
+        }
+    }
+
+    private static void CopyUpdatedOrderPricingState(SalesOrderDto target, SalesOrderDto source)
+    {
+        target.SubTotal = source.SubTotal;
+        target.TaxAmount = source.TaxAmount;
+        target.DiscountAmount = source.DiscountAmount;
+        target.DocTotal = source.DocTotal;
+        target.RowVersion = source.RowVersion;
+        target.Lines = source.Lines;
     }
 
     private void NavigateToEdit(int id)
@@ -1767,10 +2623,34 @@
         => GetSelectedOrderListState()?.Status ?? selectedOrder?.Status ?? SalesOrderStatus.Draft;
 
     private string GetSelectedOrderStatusName()
-        => GetSelectedOrderStatus().ToString();
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order == null ? SalesOrderStatus.Draft.ToString() : GetDisplayStatusName(order);
+    }
+
+    private string GetSelectedOrderStatusCssClass()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order == null ? GetStatusCssClass(SalesOrderStatus.Draft) : GetDisplayStatusCssClass(order);
+    }
 
     private bool IsSelectedOrderSynced()
         => GetSelectedOrderListState()?.IsSynced ?? selectedOrder?.IsSynced == true;
+
+    private bool CanViewSelectedOrderPod()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        return order != null && CanViewOrderPod(order);
+    }
+
+    private void NavigateToSelectedOrderPod()
+    {
+        var order = GetSelectedOrderListState() ?? selectedOrder;
+        if (order != null)
+        {
+            NavigateToPod(order);
+        }
+    }
 
     private bool CanEditSelectedOrder()
         => selectedOrder != null && !IsSelectedOrderSynced() && GetSelectedOrderStatus() is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
@@ -1998,7 +2878,7 @@
         => !order.IsSynced && order.Status == SalesOrderStatus.Cancelled;
 
     private static bool CanDeleteOrder(SalesOrderDto order)
-        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Cancelled);
+        => !order.IsSynced && (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending || order.Status == SalesOrderStatus.Cancelled);
 
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";
@@ -2032,6 +2912,8 @@
         {
             await ClearSelectedOrder();
         }
+
+        podStatusByOrderId.Remove(id);
 
         if (orders == null)
             return;

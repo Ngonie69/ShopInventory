@@ -19,6 +19,9 @@ public class SAPCreditNote
     [JsonPropertyName("DocDueDate")]
     public string? DocDueDate { get; set; }
 
+    [JsonPropertyName("UpdateDate")]
+    public string? UpdateDate { get; set; }
+
     [JsonPropertyName("CardCode")]
     public string? CardCode { get; set; }
 
@@ -53,10 +56,10 @@ public class SAPCreditNote
     public string? Cancelled { get; set; } // tYES, tNO
 
     [JsonPropertyName("DiscountPercent")]
-    public decimal DiscountPercent { get; set; }
+    public decimal? DiscountPercent { get; set; }
 
     [JsonPropertyName("TotalDiscount")]
-    public decimal TotalDiscount { get; set; }
+    public decimal? TotalDiscount { get; set; }
 
     [JsonPropertyName("Address")]
     public string? Address { get; set; }
@@ -101,6 +104,9 @@ public class SAPCreditNoteLine
     [JsonPropertyName("LineTotal")]
     public decimal LineTotal { get; set; }
 
+    [JsonPropertyName("VatSum")]
+    public decimal VatSum { get; set; }
+
     [JsonPropertyName("WarehouseCode")]
     public string? WarehouseCode { get; set; }
 
@@ -108,7 +114,7 @@ public class SAPCreditNoteLine
     public string? TaxCode { get; set; }
 
     [JsonPropertyName("DiscountPercent")]
-    public decimal DiscountPercent { get; set; }
+    public decimal? DiscountPercent { get; set; }
 
     [JsonPropertyName("UoMCode")]
     public string? UoMCode { get; set; }
@@ -128,4 +134,7 @@ public class SAPCreditNoteLine
 
     [JsonPropertyName("BaseType")]
     public int? BaseType { get; set; } // 13 = A/R Invoice
+
+    [JsonPropertyName("U_Reasons")]
+    public string? CreditReason { get; set; }
 }

@@ -11,6 +11,7 @@ namespace ShopInventory.Features.InventoryTransfers.Queries.GetTransferRequestBy
 
 public sealed class GetTransferRequestByDocEntryHandler(
     ISAPServiceLayerClient sapClient,
+    IInventoryTransferApprovalService approvalService,
     IOptions<SAPSettings> settings,
     ILogger<GetTransferRequestByDocEntryHandler> logger
 ) : IRequestHandler<GetTransferRequestByDocEntryQuery, ErrorOr<InventoryTransferRequestDto>>
@@ -28,7 +29,9 @@ public sealed class GetTransferRequestByDocEntryHandler(
             if (transferRequest is null)
                 return Errors.InventoryTransfer.TransferRequestNotFound(request.DocEntry);
 
-            return transferRequest.ToDto();
+            var transferRequestDto = transferRequest.ToDto();
+            await approvalService.EnrichAsync([transferRequestDto], cancellationToken);
+            return transferRequestDto;
         }
         catch (Exception ex)
         {

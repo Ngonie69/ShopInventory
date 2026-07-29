@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Security;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -26,15 +27,15 @@ public sealed class CreateUserHandler(
     {
         var request = command.Request;
 
-        var currentUserIdClaim = httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(currentUserIdClaim, out var currentUserId))
+        var currentUserId = UserClaimReader.GetUserId(httpContextAccessor.HttpContext?.User);
+        if (currentUserId is null)
         {
             return Errors.UserManagement.Unauthenticated;
         }
 
         var currentUser = await context.Users
             .AsNoTracking()
-            .Where(user => user.Id == currentUserId)
+            .Where(user => user.Id == currentUserId.Value)
             .Select(user => new { user.Role, user.IsActive })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -43,9 +44,9 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.Unauthenticated;
         }
 
-        if (string.Equals(currentUser.Role, "SalesRep", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(currentUser.Role, ApplicationRoles.SalesRep, StringComparison.OrdinalIgnoreCase))
         {
-            if (!string.Equals(request.Role, "Merchandiser", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(request.Role, ApplicationRoles.Merchandiser, StringComparison.OrdinalIgnoreCase))
             {
                 return Errors.UserManagement.SalesRepCanOnlyCreateMerchandisers;
             }
@@ -53,6 +54,19 @@ public sealed class CreateUserHandler(
             if (request.Permissions is { Count: > 0 })
             {
                 return Errors.UserManagement.SalesRepCannotAssignCustomPermissions;
+            }
+        }
+
+        if (string.Equals(currentUser.Role, ApplicationRoles.PodOperator, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.Equals(request.Role, ApplicationRoles.Driver, StringComparison.OrdinalIgnoreCase))
+            {
+                return Errors.UserManagement.PodOperatorCanOnlyCreateDrivers;
+            }
+
+            if (request.Permissions is { Count: > 0 })
+            {
+                return Errors.UserManagement.PodOperatorCannotAssignCustomPermissions;
             }
         }
 
@@ -66,31 +80,39 @@ public sealed class CreateUserHandler(
             return Errors.UserManagement.CreationFailed("Email already exists");
         }
 
-        var validRoles = new[]
+        if (!ApplicationRoles.IsAssignableRole(request.Role))
         {
-            "Admin", "Manager", "User", "ReadOnly", "Cashier", "StockController", "DepotController",
-            "PodOperator", "Driver", "Merchandiser", "SalesRep", "MerchandiserPurchaseOrderViewer", "Lab"
-        };
-
-        if (!validRoles.Contains(request.Role, StringComparer.Ordinal))
-        {
-            return Errors.UserManagement.CreationFailed($"Invalid role. Valid roles: {string.Join(", ", validRoles)}");
+            return Errors.UserManagement.CreationFailed($"Invalid role. Valid roles: {ApplicationRoles.DescribeAssignableRoles()}");
         }
 
-        if ((request.Role == "StockController" || request.Role == "DepotController") &&
+        if (ApplicationRoles.RequiresWarehouseAssignments(request.Role) &&
             (request.AssignedWarehouseCodes == null || request.AssignedWarehouseCodes.Count == 0))
         {
             return Errors.UserManagement.CreationFailed($"At least one assigned warehouse code is required for {request.Role} role");
         }
 
-        if (request.Role == "Merchandiser" && (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
+        if (ApplicationRoles.RequiresCustomerAssignments(request.Role) &&
+            (request.AssignedCustomerCodes == null || request.AssignedCustomerCodes.Count == 0))
         {
-            return Errors.UserManagement.CreationFailed("At least one assigned customer code is required for Merchandiser role");
+            return Errors.UserManagement.CreationFailed($"At least one assigned customer code is required for {request.Role} role");
         }
 
-        if (request.Role == "Driver" && string.IsNullOrWhiteSpace(request.AssignedSection))
+        if (ApplicationRoles.RequiresAssignedSection(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedSection))
         {
-            return Errors.UserManagement.CreationFailed("An assigned section is required for Driver role");
+            return Errors.UserManagement.CreationFailed($"An assigned section is required for {request.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedBusinessPartnerCode))
+        {
+            return Errors.UserManagement.CreationFailed($"An assigned business partner code is required for {request.Role} role");
+        }
+
+        if (ApplicationRoles.RequiresAssignedCostCentreCode(request.Role) &&
+            string.IsNullOrWhiteSpace(request.AssignedCostCentreCode))
+        {
+            return Errors.UserManagement.CreationFailed($"An assigned cost centre code is required for {request.Role} role");
         }
 
         List<string> permissions;
@@ -118,7 +140,7 @@ public sealed class CreateUserHandler(
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             FirstName = request.FirstName,
             LastName = request.LastName,
-            Role = request.Role,
+            Role = request.Role.Trim(),
             IsActive = true,
             EmailVerified = false,
             TwoFactorEnabled = false,
@@ -126,19 +148,25 @@ public sealed class CreateUserHandler(
             CreatedAt = DateTime.UtcNow
         };
 
-        if (request.Role == "StockController" || request.Role == "DepotController" || request.Role == "Merchandiser")
+        if (ApplicationRoles.SupportsWarehouseAssignments(request.Role))
         {
             user.SetWarehouseCodes(request.AssignedWarehouseCodes);
         }
 
-        if (request.Role == "Merchandiser" || request.Role == "Driver")
+        if (ApplicationRoles.SupportsCustomerAssignments(request.Role))
         {
             user.SetCustomerCodes(request.AssignedCustomerCodes);
         }
 
-        if (request.Role == "Driver")
+        if (ApplicationRoles.RequiresAssignedSection(request.Role))
         {
             user.AssignedSection = request.AssignedSection;
+        }
+
+        if (ApplicationRoles.RequiresAssignedBusinessPartnerCode(request.Role))
+        {
+            user.AssignedBusinessPartnerCode = request.AssignedBusinessPartnerCode?.Trim();
+            user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
         }
 
         if (request.AllowedPaymentMethods is { Count: > 0 })
@@ -214,6 +242,8 @@ public sealed class CreateUserHandler(
             AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
+            AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
+            AssignedCostCentreCode = user.AssignedCostCentreCode,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
             LastLoginAt = user.LastLoginAt
