@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -30,6 +31,9 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
 
+        // Tracking is left at the EF default here because that is how the API registers the
+        // context. Anything that changes there has to change here too, or these tests stop
+        // describing the app they are testing.
         _context = new ApplicationDbContext(
             new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseSqlite(_connection)
@@ -237,6 +241,60 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     }
 
     [Fact]
+    public async Task An_approval_decision_survives_being_read_back()
+    {
+        // Reported from the field: DT-2026-00001 was approved and posted to SAP, yet the screen
+        // kept showing it awaiting a stock officer. The decision was only ever applied in memory,
+        // so the approval completed, SAP took the transfer, and nothing was written down.
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        var context = ApprovalDocumentContext.ForPendingTransfer(pending);
+        await ApprovalService().EnsureRequestAsync(context, submitter.Id, default);
+        StartNewRequestScope();
+
+        await ApprovalService().SubmitDecisionAsync(
+            context, stockOfficer.Id, ApprovalDecisionValues.Approved, null, "Stock confirmed", default);
+
+        var stored = await _context.ApprovalRequests
+            .AsNoTracking()
+            .Include(request => request.Decisions)
+            .SingleAsync(request =>
+                request.DocumentType == ApprovalDocumentTypes.InventoryTransfer &&
+                request.DocumentKey == pending.Id.ToString());
+
+        Assert.Equal(ApprovalRequestStatuses.Approved, stored.Status);
+        var decision = Assert.Single(stored.Decisions);
+        Assert.Equal(ApprovalDecisionValues.Approved, decision.Decision);
+        Assert.Equal(stockOfficer.Id, decision.AuthorizerUserId);
+        Assert.Equal("Stock confirmed", decision.Remarks);
+    }
+
+    [Fact]
+    public async Task A_posted_transfer_is_marked_generated_in_storage()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        var context = ApprovalDocumentContext.ForPendingTransfer(pending);
+        await ApprovalService().SubmitDecisionAsync(
+            context, stockOfficer.Id, ApprovalDecisionValues.Approved, null, null, default);
+        StartNewRequestScope();
+
+        await ApprovalService().MarkGeneratedAsync(
+            ApprovalDocumentTypes.InventoryTransfer, pending.Id.ToString(),
+            9001, 501, stockOfficer.Id, byAuthorizer: true, default);
+
+        var stored = await _context.ApprovalRequests
+            .AsNoTracking()
+            .SingleAsync(request => request.DocumentKey == pending.Id.ToString());
+
+        Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, stored.Status);
+        Assert.Equal(9001, stored.GeneratedDocumentEntry);
+        Assert.Equal(501, stored.GeneratedDocumentNumber);
+    }
+
+    [Fact]
     public async Task Rejecting_a_stage_marks_the_approval_rejected()
     {
         var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
@@ -366,6 +424,96 @@ public sealed class InventoryTransferApprovalTests : IDisposable
             .CountAsync(item => item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest));
     }
 
+    // ── Remarks carried into SAP ────────────────────────
+
+    [Fact]
+    public async Task Remarks_carry_the_reason_the_requester_and_the_approver()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var stockOfficer = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        pending.Comments = "Restocking the front counter";
+        var context = ApprovalDocumentContext.ForPendingTransfer(pending);
+        await ApprovalService().SubmitDecisionAsync(
+            context, stockOfficer.Id, ApprovalDecisionValues.Approved, null, null, default);
+        var (_, stages) = await ApprovalService().GetProgressAsync(context, default);
+
+        var remarks = InventoryTransferRemarks.Build(pending, stages);
+
+        Assert.Contains("Reason: Restocking the front counter", remarks);
+        Assert.Contains($"Requested by {submitter.Username} on ", remarks);
+        Assert.Contains($"Approved by {stockOfficer.Username} on ", remarks);
+        Assert.Contains(AuditService.ToCAT(pending.CreatedAtUtc).ToString("dd MMM yyyy HH:mm"), remarks);
+    }
+
+    [Fact]
+    public async Task Remarks_name_every_approver_in_the_order_they_signed()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        var first = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var second = await AddUserAsync(ApplicationRoles.Admin);
+        var stages = new List<ApprovalStageProgressDto>
+        {
+            StageWith(
+                Decision(second, new DateTime(2026, 7, 29, 12, 0, 0, DateTimeKind.Utc)),
+                Decision(first, new DateTime(2026, 7, 29, 9, 0, 0, DateTimeKind.Utc)))
+        };
+
+        var remarks = InventoryTransferRemarks.Build(pending, stages);
+
+        Assert.Contains($"Approved by {first.Username} on ", remarks);
+        Assert.True(
+            remarks.IndexOf(first.Username, StringComparison.Ordinal) <
+            remarks.IndexOf(second.Username, StringComparison.Ordinal),
+            "Approvers should read in the order they signed.");
+    }
+
+    [Fact]
+    public async Task A_rejection_is_never_reported_as_an_approval()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var refuser = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        var decision = Decision(refuser, DateTime.UtcNow);
+        decision.Decision = ApprovalDecisionValues.NotApproved;
+
+        var remarks = InventoryTransferRemarks.Build(pending, [StageWith(decision)]);
+
+        Assert.DoesNotContain("Approved by", remarks);
+        Assert.DoesNotContain(refuser.Username, remarks);
+    }
+
+    [Fact]
+    public async Task A_long_reason_is_trimmed_rather_than_the_audit_trail()
+    {
+        // SAP takes 254 characters. Losing the tail of someone's note is recoverable; losing who
+        // authorised the stock movement is the whole point of writing it there.
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var approver = await AddUserAsync(ApplicationRoles.StockController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+        pending.Comments = new string('x', 400);
+
+        var remarks = InventoryTransferRemarks.Build(pending, [StageWith(Decision(approver, DateTime.UtcNow))]);
+
+        Assert.True(remarks.Length <= InventoryTransferRemarks.MaxLength, $"Length was {remarks.Length}.");
+        Assert.Contains($"Requested by {submitter.Username} on ", remarks);
+        Assert.Contains($"Approved by {approver.Username} on ", remarks);
+    }
+
+    [Fact]
+    public async Task Remarks_still_name_the_requester_when_nothing_has_been_approved_yet()
+    {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
+        var pending = await AddPendingTransferAsync(submitter);
+
+        var remarks = InventoryTransferRemarks.Build(pending, []);
+
+        Assert.Contains($"Requested by {submitter.Username} on ", remarks);
+        Assert.DoesNotContain("Approved by", remarks);
+        Assert.DoesNotContain("Reason:", remarks);
+    }
+
     // ── Seeding repairs itself ──────────────────────────
 
     [Fact]
@@ -434,6 +582,13 @@ public sealed class InventoryTransferApprovalTests : IDisposable
 
     private ITransferWarehouseAuthorizer Authorizer() => new TransferWarehouseAuthorizer(_context);
 
+    /// <summary>
+    /// Stands in for the next HTTP request. A transfer is submitted in one request and approved in
+    /// a later one, so the approval arrives at a context that has never seen the request before and
+    /// has to load it from storage — which is precisely where a no-tracking load loses the decision.
+    /// </summary>
+    private void StartNewRequestScope() => _context.ChangeTracker.Clear();
+
     private IInventoryTransferApprovalService ApprovalService() => new InventoryTransferApprovalService(
         _context,
         new NoOpNotificationService(),
@@ -456,6 +611,22 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         await _context.SaveChangesAsync();
         return user;
     }
+
+    private static ApprovalDecisionDto Decision(User authorizer, DateTime decidedAtUtc) => new()
+    {
+        AuthorizerUserId = authorizer.Id,
+        AuthorizerName = authorizer.Username,
+        AuthorizerRole = authorizer.Role,
+        Decision = ApprovalDecisionValues.Approved,
+        DecidedAtUtc = decidedAtUtc
+    };
+
+    private static ApprovalStageProgressDto StageWith(params ApprovalDecisionDto[] decisions) => new()
+    {
+        StageId = Guid.NewGuid(),
+        StageName = "Stock Officer Approval",
+        Decisions = [.. decisions]
+    };
 
     private async Task<PendingInventoryTransferEntity> AddPendingTransferAsync(User submitter)
     {

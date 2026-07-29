@@ -35,7 +35,9 @@ public sealed class DecidePendingTransferHandler(
         if (!approving && !rejecting)
             return Errors.InventoryTransfer.ValidationFailed("Decision must be Approved or NotApproved.");
 
+        // Tracked: the decision moves this record to Approved and the post moves it to Posted.
         var pending = await context.PendingInventoryTransfers
+            .AsTracking()
             .FirstOrDefaultAsync(item => item.Id == command.PendingTransferId, cancellationToken);
         if (pending is null)
             return Errors.InventoryTransfer.PendingTransferNotFound(command.PendingTransferId);

@@ -51,6 +51,14 @@ public sealed class PendingInventoryTransferPoster(
             return await FailAsync(pending, exception.Message, cancellationToken);
         }
 
+        // SAP is the only record some people ever see, so the document carries the reason, who
+        // raised it and who approved it. The payload is rebuilt from storage on every attempt,
+        // so a retried post recomposes these rather than appending to them.
+        payload.Comments = InventoryTransferRemarks.Build(
+            pending,
+            await LoadApprovalProgressAsync(pending, cancellationToken),
+            payload.Comments);
+
         try
         {
             // Stock may have moved while the transfer waited for approval, so this check —
@@ -104,6 +112,32 @@ public sealed class PendingInventoryTransferPoster(
             await FailAsync(pending, exception.Message, cancellationToken);
             return Errors.InventoryTransfer.CreationFailed(
                 $"The transfer was approved but could not be posted to SAP: {exception.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Approval progress for the remarks. A transfer that cannot be routed still has a reason and
+    /// an originator worth recording, so a failure here costs the approver names, not the post.
+    /// </summary>
+    private async Task<IReadOnlyList<ApprovalStageProgressDto>> LoadApprovalProgressAsync(
+        PendingInventoryTransferEntity pending,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (_, stages) = await approvalService.GetProgressAsync(
+                ApprovalDocumentContext.ForPendingTransfer(pending), cancellationToken);
+            return stages;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Could not read approval progress for the SAP remarks on pending transfer {PendingId}", pending.Id);
+            return [];
         }
     }
 

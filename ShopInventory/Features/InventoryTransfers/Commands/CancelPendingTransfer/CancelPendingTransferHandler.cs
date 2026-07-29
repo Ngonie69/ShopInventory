@@ -20,6 +20,7 @@ public sealed class CancelPendingTransferHandler(
         CancellationToken cancellationToken)
     {
         var pending = await context.PendingInventoryTransfers
+            .AsTracking()
             .FirstOrDefaultAsync(item => item.Id == command.PendingTransferId, cancellationToken);
         if (pending is null)
             return Errors.InventoryTransfer.PendingTransferNotFound(command.PendingTransferId);
@@ -44,6 +45,7 @@ public sealed class CancelPendingTransferHandler(
         if (pending.ApprovalRequestId is { } approvalRequestId)
         {
             var approvalRequest = await context.ApprovalRequests
+                .AsTracking()
                 .FirstOrDefaultAsync(item => item.Id == approvalRequestId, cancellationToken);
             if (approvalRequest is not null)
             {
