@@ -30,20 +30,22 @@
 }
 
 <div class="itx">
+<div class="itx-shell">
 
     <!-- ── Header ─────────────────────────────────────────── -->
     <div class="itx-head">
         <div>
+            <div class="itx-kicker">Warehousing</div>
             <h1>Inventory Transfers</h1>
-            <p>Manage stock movements between warehouses</p>
+            <p>Stock movements between warehouses, vans and bonds.</p>
         </div>
         <div class="itx-head-actions">
             <a href="/transfer-request/create" class="itx-btn">
-                <i class="bi bi-file-earmark-plus"></i> New Request
+                <i class="bi bi-file-earmark-plus"></i> New request
             </a>
             <AuthorizeView Roles="@UserRoles.InventoryTransferRoles">
                 <a href="/inventory-transfer/create" class="itx-btn itx-btn-primary">
-                    <i class="bi bi-plus-lg"></i> New Transfer
+                    <i class="bi bi-plus-lg"></i> New transfer
                 </a>
             </AuthorizeView>
         </div>
@@ -67,35 +69,34 @@
         </div>
     }
 
-    <!-- ── Panel ──────────────────────────────────────────── -->
-    <div class="itx-panel">
-
-        <div class="itx-tabs">
-            <button type="button" class="itx-tab @(activeTabIndex == 0 ? "active" : "")" @onclick="() => SwitchTab(0)">
-                <i class="bi bi-arrow-left-right"></i>
-                Completed Transfers
-                @if (totalCount > 0)
-                {
-                    <span class="itx-tab-count">@totalCount</span>
-                }
-            </button>
-            <button type="button" class="itx-tab @(activeTabIndex == 1 ? "active" : "")" @onclick="() => SwitchTab(1)">
-                <i class="bi bi-file-earmark-text"></i>
-                Transfer Requests
-                @if (transferRequestCount > 0)
-                {
-                    <span class="itx-tab-count">@transferRequestCount</span>
-                }
-            </button>
-            <button type="button" class="itx-tab @(activeTabIndex == 2 ? "active" : "")" @onclick="() => SwitchTab(2)">
-                <i class="bi bi-hourglass-split"></i>
-                Awaiting Approval
-                @if (pendingTransferCount > 0)
-                {
-                    <span class="itx-tab-count">@pendingTransferCount</span>
-                }
-            </button>
-        </div>
+    <!-- ── Tabs ───────────────────────────────────────────── -->
+    <div class="itx-tabs">
+        <button type="button" class="itx-tab @(activeTabIndex == 0 ? "active" : "")" @onclick="() => SwitchTab(0)">
+            <i class="bi bi-arrow-left-right"></i>
+            Completed
+            @if (totalCount > 0)
+            {
+                <span class="itx-tab-count">@totalCount</span>
+            }
+        </button>
+        <button type="button" class="itx-tab @(activeTabIndex == 1 ? "active" : "")" @onclick="() => SwitchTab(1)">
+            <i class="bi bi-file-earmark-text"></i>
+            Requests
+            @if (transferRequestCount > 0)
+            {
+                <span class="itx-tab-count">@transferRequestCount</span>
+            }
+        </button>
+        <button type="button" class="itx-tab @(activeTabIndex == 2 ? "active" : "")" @onclick="() => SwitchTab(2)">
+            <i class="bi bi-hourglass-split"></i>
+            Awaiting approval
+            @* The queue the user is expected to clear keeps the accent whichever tab is open. *@
+            @if (pendingTransferCount > 0)
+            {
+                <span class="itx-tab-count is-urgent">@pendingTransferCount</span>
+            }
+        </button>
+    </div>
 
         @if (activeTabIndex == 0)
         {
@@ -136,32 +137,32 @@
                     <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
                 </div>
 
-                <button type="button" class="itx-btn itx-btn-primary" @onclick="LoadTransfers"
-                        disabled="@(selectedWarehouse == null || isLoading)">
-                    @if (isLoading)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-search"></i>
-                    }
-                    Search
-                </button>
-                <button type="button" class="itx-btn" @onclick="ClearFilter">Clear</button>
+                <div class="itx-grow itx-grow-sm">
+                    <MudTextField @bind-Value="_transferSearchString" Label="Find in results"
+                                  Placeholder="Doc #, warehouse, comment"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Clearable="true"
+                                  Class="mt-0" />
+                </div>
 
-                <div class="itx-spacer"></div>
-
-                @if (transfers?.Any() == true)
-                {
-                    <div class="itx-field">
-                        <MudTextField @bind-Value="_transferSearchString" Placeholder="Filter results…"
-                                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
-                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Clearable="true"
-                                      Class="mt-0" />
-                    </div>
-                }
+                <div class="itx-toolbar-actions">
+                    <button type="button" class="itx-btn itx-btn-primary" @onclick="LoadTransfers"
+                            disabled="@(selectedWarehouse == null || isLoading)">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-search"></i>
+                        }
+                        Search
+                    </button>
+                    <button type="button" class="itx-btn itx-btn-quiet" @onclick="ClearFilter">Clear</button>
+                </div>
             </div>
+
+            <div class="itx-panel">
 
             @if (isLoading)
             {
@@ -172,20 +173,49 @@
             }
             else if (transfers?.Any() == true)
             {
-                <div class="itx-meta">
-                    @transfers.Count transfer(s) in @selectedWarehouse?.WarehouseCode
+                <div class="itx-summary">
+                    <div class="itx-summary-item">
+                        <div class="itx-summary-k">Transfers</div>
+                        <div class="itx-summary-v">
+                            @FilteredTransferCount
+                            <span class="itx-summary-scope">@ScopeLabel</span>
+                        </div>
+                    </div>
+                    <div class="itx-summary-item">
+                        <div class="itx-summary-k">Units moved</div>
+                        <div class="itx-summary-v">@QuantityDisplay.Format(FilteredTransfers.Sum(TransferUnits))</div>
+                    </div>
+                    <div class="itx-summary-item accent">
+                        <div class="itx-summary-k">Lines</div>
+                        <div class="itx-summary-v">@FilteredTransfers.Sum(x => x.Lines?.Count ?? 0)</div>
+                    </div>
+                    <div class="itx-summary-range">@RangeLabel</div>
                 </div>
                 <div class="itx-body">
-                    <MudTable @ref="@_transfersTable" Items="@transfers" RowsPerPage="@_pageSize" Hover="true" Dense="true"
+                    <MudTable @ref="@_transfersTable" Items="@SortedTransfers" RowsPerPage="@_pageSize" Hover="true" Dense="true"
                               Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info" Elevation="0"
+                              T="InventoryTransferDto" RowClassFunc="@TransferRowClass"
+                              OnRowClick="@OnTransferRowClicked"
                               Filter="new Func<InventoryTransferDto, bool>(_transferQuickFilter)">
                         <HeaderContent>
-                            <MudTh>Doc #</MudTh>
+                            <MudTh>
+                                <button type="button" class="itx-th-sort" @onclick="@(() => SortTransfers(SortKeyDoc))">
+                                    Doc #@TransferSortArrow(SortKeyDoc)
+                                </button>
+                            </MudTh>
                             <MudTh>Route</MudTh>
-                            <MudTh>Date</MudTh>
-                            <MudTh>Due Date</MudTh>
-                            <MudTh>Items</MudTh>
-                            <MudTh Style="width:60px;text-align:center;">View</MudTh>
+                            <MudTh style="width:130px;">
+                                <button type="button" class="itx-th-sort" @onclick="@(() => SortTransfers(SortKeyDate))">
+                                    Raised@TransferSortArrow(SortKeyDate)
+                                </button>
+                            </MudTh>
+                            <MudTh style="width:130px;">Due</MudTh>
+                            <MudTh style="width:90px;text-align:right;">
+                                <button type="button" class="itx-th-sort" @onclick="@(() => SortTransfers(SortKeyItems))">
+                                    Items@TransferSortArrow(SortKeyItems)
+                                </button>
+                            </MudTh>
+                            <MudTh style="width:110px;text-align:right;">&nbsp;</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Doc #"><span class="itx-doc">#@context.DocNum</span></MudTd>
@@ -194,39 +224,52 @@
                                     <span class="itx-wh src">@context.FromWarehouse</span>
                                     <i class="bi bi-arrow-right itx-arrow"></i>
                                     <span class="itx-wh dst">@context.ToWarehouse</span>
+                                    <span class="itx-dest">@WarehouseName(context.ToWarehouse)</span>
                                 </span>
                             </MudTd>
-                            <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
-                            <MudTd DataLabel="Due Date">@FormatDate(context.DueDate)</MudTd>
-                            <MudTd DataLabel="Items"><span class="itx-wh count">@(context.Lines?.Count ?? 0)</span></MudTd>
-                            <MudTd DataLabel="View" Style="text-align:center;">
-                                <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
-                                               OnClick="() => ViewTransfer(context)" />
+                            <MudTd DataLabel="Raised" Class="itx-num">@FormatDate(context.DocDate)</MudTd>
+                            <MudTd DataLabel="Due" Class="itx-num">@FormatDate(context.DueDate)</MudTd>
+                            <MudTd DataLabel="Items" Style="text-align:right;">
+                                <span class="itx-wh count">@(context.Lines?.Count ?? 0)</span>
+                            </MudTd>
+                            <MudTd DataLabel="" Style="text-align:right;">
+                                <span class="itx-open">Open <i class="bi bi-chevron-right"></i></span>
                             </MudTd>
                         </RowTemplate>
                         <NoRecordsContent>
                             <div class="itx-empty">
                                 <i class="bi bi-funnel itx-empty-icon"></i>
-                                <h6>No Matching Transfers</h6>
+                                <h6>Nothing matches those filters</h6>
                                 <p>No transfers match "@_transferSearchString".</p>
+                                <button type="button" class="itx-btn" @onclick="@(() => _transferSearchString = null)">
+                                    Clear filters
+                                </button>
                             </div>
                         </NoRecordsContent>
                         <PagerContent>
-                            <div class="pager-row">
-                                <div class="page-size-wrap">
-                                    <span>Show</span>
-                                    <select @bind="_pageSize">
-                                        <option value="10">10</option>
-                                        <option value="25">25</option>
-                                        <option value="50">50</option>
-                                        <option value="100">100</option>
-                                        <option value="200">200</option>
-                                    </select>
-                                    <span>per page</span>
-                                </div>
-                                <MudPagination SelectedChanged="TransferPageChanged"
-                                               Count="@((_transfersTable.GetFilteredItemsCount() + _transfersTable.RowsPerPage - 1) / _transfersTable.RowsPerPage)"
-                                               Class="pa-4" />
+                            <div class="itx-foot">
+                                <span>
+                                    Showing @FilteredTransferCount of @totalCount ·
+                                    sorted by @TransferSortLabel
+                                </span>
+                                <span class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="page-size-wrap">
+                                        <span>Show</span>
+                                        <select @bind="_pageSize">
+                                            <option value="10">10</option>
+                                            <option value="25">25</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                            <option value="200">200</option>
+                                        </select>
+                                        <span>per page</span>
+                                    </span>
+                                    <MudPagination SelectedChanged="TransferPageChanged"
+                                                   Count="@((_transfersTable.GetFilteredItemsCount() + _transfersTable.RowsPerPage - 1) / _transfersTable.RowsPerPage)" />
+                                    <button type="button" class="itx-btn itx-btn-sm" @onclick="ExportCurrentTabCsv">
+                                        <i class="bi bi-filetype-csv"></i> Export CSV
+                                    </button>
+                                </span>
                             </div>
                         </PagerContent>
                     </MudTable>
@@ -236,8 +279,8 @@
             {
                 <div class="itx-empty">
                     <i class="bi bi-inbox itx-empty-icon"></i>
-                    <h6>No Transfers Found</h6>
-                    <p>Nothing in <strong>@selectedWarehouse.WarehouseCode</strong> for this date range.</p>
+                    <h6>Nothing matches those filters</h6>
+                    <p>Nothing in <strong>@selectedWarehouse.WarehouseCode</strong> for this date range. Widen it, or clear the warehouse to search everywhere.</p>
                     <button type="button" class="itx-btn" @onclick="LoadTransfers">
                         <i class="bi bi-arrow-clockwise"></i> Retry
                     </button>
@@ -247,10 +290,11 @@
             {
                 <div class="itx-empty">
                     <i class="bi bi-search itx-empty-icon"></i>
-                    <h6>Search Transfers</h6>
+                    <h6>Search transfers</h6>
                     <p>Pick a warehouse, then hit Search.</p>
                 </div>
             }
+            </div>
         }
         else if (activeTabIndex == 1)
         {
@@ -282,17 +326,19 @@
                     </MudSelect>
                 </div>
 
-                <button type="button" class="itx-btn @(showRequestFilters || ExtraRequestFilterCount > 0 ? "is-on" : "")"
-                        @onclick="() => showRequestFilters = !showRequestFilters">
-                    <i class="bi bi-sliders"></i> Filters
-                    @if (ExtraRequestFilterCount > 0)
-                    {
-                        <span class="itx-btn-count">@ExtraRequestFilterCount</span>
-                    }
-                </button>
-                <button type="button" class="itx-btn" @onclick="RefreshTransferRequests" disabled="@isLoadingRequests">
-                    <i class="bi bi-arrow-clockwise"></i>
-                </button>
+                <div class="itx-toolbar-actions">
+                    <button type="button" class="itx-btn @(showRequestFilters || ExtraRequestFilterCount > 0 ? "is-on" : "")"
+                            @onclick="() => showRequestFilters = !showRequestFilters">
+                        <i class="bi bi-sliders"></i> Filters
+                        @if (ExtraRequestFilterCount > 0)
+                        {
+                            <span class="itx-btn-count">@ExtraRequestFilterCount</span>
+                        }
+                    </button>
+                    <button type="button" class="itx-btn" @onclick="RefreshTransferRequests" disabled="@isLoadingRequests">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
             </div>
 
             @if (showRequestFilters)
@@ -326,6 +372,7 @@
                 </div>
             }
 
+            <div class="itx-panel">
             @if (isLoadingRequests)
             {
                 <div class="itx-empty">
@@ -335,12 +382,34 @@
             }
             else if (transferRequests?.Any() == true)
             {
+                <div class="itx-summary">
+                    <div class="itx-summary-item">
+                        <div class="itx-summary-k">Requests</div>
+                        <div class="itx-summary-v">
+                            @FilteredRequestCount
+                            <span class="itx-summary-scope">on page @requestPage</span>
+                        </div>
+                    </div>
+                    <div class="itx-summary-item">
+                        <div class="itx-summary-k">Units requested</div>
+                        <div class="itx-summary-v">@QuantityDisplay.Format(FilteredRequests.Sum(RequestUnits))</div>
+                    </div>
+                    <div class="itx-summary-item accent">
+                        <div class="itx-summary-k">Awaiting you</div>
+                        <div class="itx-summary-v">@FilteredRequests.Count(CanCurrentUserDecide)</div>
+                    </div>
+                    <div class="itx-summary-range">
+                        @if (HasActiveRequestFilters)
+                        {
+                            <span>Filtered from @transferRequestCount on this page</span>
+                        }
+                        else
+                        {
+                            <span>Newest first</span>
+                        }
+                    </div>
+                </div>
                 <div class="itx-meta">
-                    @FilteredRequestCount request(s) — newest first, page @requestPage
-                    @if (HasActiveRequestFilters)
-                    {
-                        <span>— filtered from @transferRequestCount on this page</span>
-                    }
                     <span class="itx-spacer"></span>
                     <button type="button" class="itx-btn itx-btn-sm" @onclick="PreviousRequestPage"
                             disabled="@(requestPage <= 1 || isLoadingRequests)">
@@ -352,17 +421,32 @@
                     </button>
                 </div>
                 <div class="itx-body">
-                    <MudTable @ref="@_requestsTable" Items="@transferRequests" RowsPerPage="@_pageSize" Hover="true"
+                    <MudTable @ref="@_requestsTable" Items="@SortedRequests" RowsPerPage="@_pageSize" Hover="true"
                               Dense="true" Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Info" Elevation="0"
+                              T="InventoryTransferRequestDto" RowClassFunc="@RequestRowClass"
+                              OnRowClick="@OnRequestRowClicked"
                               Filter="new Func<InventoryTransferRequestDto, bool>(_requestQuickFilter)">
                         <HeaderContent>
-                            <MudTh>Doc #</MudTh>
+                            <MudTh>
+                                <button type="button" class="itx-th-sort" @onclick="@(() => SortRequests(SortKeyDoc))">
+                                    Doc #@RequestSortArrow(SortKeyDoc)
+                                </button>
+                            </MudTh>
                             <MudTh>Route</MudTh>
-                            <MudTh>Date</MudTh>
-                            <MudTh>Requester</MudTh>
-                            <MudTh>Status</MudTh>
-                            <MudTh>Items</MudTh>
-                            <MudTh Style="width:100px;text-align:center;">Actions</MudTh>
+                            <MudTh style="width:150px;">Status</MudTh>
+                            <MudTh style="width:130px;">
+                                <button type="button" class="itx-th-sort" @onclick="@(() => SortRequests(SortKeyDate))">
+                                    Raised@RequestSortArrow(SortKeyDate)
+                                </button>
+                            </MudTh>
+                            <MudTh style="width:130px;">Due</MudTh>
+                            <MudTh style="width:140px;">Requester</MudTh>
+                            <MudTh style="width:90px;text-align:right;">
+                                <button type="button" class="itx-th-sort" @onclick="@(() => SortRequests(SortKeyItems))">
+                                    Items@RequestSortArrow(SortKeyItems)
+                                </button>
+                            </MudTh>
+                            <MudTh style="width:150px;text-align:right;">&nbsp;</MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Doc #"><span class="itx-doc">#@context.DocNum</span></MudTd>
@@ -371,33 +455,44 @@
                                     <span class="itx-wh src">@context.FromWarehouse</span>
                                     <i class="bi bi-arrow-right itx-arrow"></i>
                                     <span class="itx-wh dst">@context.ToWarehouse</span>
+                                    <span class="itx-dest">@WarehouseName(context.ToWarehouse)</span>
                                 </span>
                             </MudTd>
-                            <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
-                            <MudTd DataLabel="Requester">@(context.RequesterName ?? "—")</MudTd>
                             <MudTd DataLabel="Status">
                                 <span class="itx-status @GetStatusCssClass(context.ApprovalStatus ?? context.DocumentStatus)">
                                     @GetApprovalDisplayStatus(context)
                                 </span>
                             </MudTd>
-                            <MudTd DataLabel="Items"><span class="itx-wh count">@(context.Lines?.Count ?? 0)</span></MudTd>
-                            <MudTd DataLabel="Actions" Style="text-align:center;">
-                                <div class="d-flex justify-content-center gap-1">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
-                                                   Color="Color.Primary" OnClick="() => ViewTransferRequest(context)" />
-                                    @if (CanCurrentUserDecide(context))
-                                    {
-                                        <MudIconButton Icon="@Icons.Material.Filled.FactCheck" Size="Size.Small"
-                                                       Color="Color.Success" OnClick="() => ViewTransferRequest(context)"
-                                                       Disabled="@(isConverting || isRejecting)" />
-                                    }
-                                </div>
+                            <MudTd DataLabel="Raised" Class="itx-num">@FormatDate(context.DocDate)</MudTd>
+                            <MudTd DataLabel="Due" Class="itx-num">
+                                @{
+                                    var requestLate = IsPastDue(context.DueDate, context.DocumentStatus);
+                                }
+                                <span class="@(requestLate ? "itx-due-late" : null)">@FormatDate(context.DueDate)</span>
+                                @if (requestLate)
+                                {
+                                    <span class="itx-due-note">past due</span>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Requester">@(context.RequesterName ?? "—")</MudTd>
+                            <MudTd DataLabel="Items" Style="text-align:right;">
+                                <span class="itx-wh count">@(context.Lines?.Count ?? 0)</span>
+                            </MudTd>
+                            <MudTd DataLabel="" Style="text-align:right;">
+                                @if (CanCurrentUserDecide(context))
+                                {
+                                    <span class="itx-open"><i class="bi bi-check2-square"></i> Decide</span>
+                                }
+                                else
+                                {
+                                    <span class="itx-open">Open <i class="bi bi-chevron-right"></i></span>
+                                }
                             </MudTd>
                         </RowTemplate>
                         <NoRecordsContent>
                             <div class="itx-empty">
                                 <i class="bi bi-funnel itx-empty-icon"></i>
-                                <h6>No Matching Requests</h6>
+                                <h6>Nothing matches those filters</h6>
                                 <p>No transfer requests match the current filters.</p>
                                 <button type="button" class="itx-btn" @onclick="ClearRequestFilters"
                                         disabled="@(!HasActiveRequestFilters)">
@@ -406,21 +501,29 @@
                             </div>
                         </NoRecordsContent>
                         <PagerContent>
-                            <div class="pager-row">
-                                <div class="page-size-wrap">
-                                    <span>Show</span>
-                                    <select @bind="_pageSize">
-                                        <option value="10">10</option>
-                                        <option value="25">25</option>
-                                        <option value="50">50</option>
-                                        <option value="100">100</option>
-                                        <option value="200">200</option>
-                                    </select>
-                                    <span>per page</span>
-                                </div>
-                                <MudPagination SelectedChanged="RequestPageChanged"
-                                               Count="@((_requestsTable.GetFilteredItemsCount() + _requestsTable.RowsPerPage - 1) / _requestsTable.RowsPerPage)"
-                                               Class="pa-4" />
+                            <div class="itx-foot">
+                                <span>
+                                    Showing @FilteredRequestCount of @transferRequestCount ·
+                                    sorted by @RequestSortLabel
+                                </span>
+                                <span class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="page-size-wrap">
+                                        <span>Show</span>
+                                        <select @bind="_pageSize">
+                                            <option value="10">10</option>
+                                            <option value="25">25</option>
+                                            <option value="50">50</option>
+                                            <option value="100">100</option>
+                                            <option value="200">200</option>
+                                        </select>
+                                        <span>per page</span>
+                                    </span>
+                                    <MudPagination SelectedChanged="RequestPageChanged"
+                                                   Count="@((_requestsTable.GetFilteredItemsCount() + _requestsTable.RowsPerPage - 1) / _requestsTable.RowsPerPage)" />
+                                    <button type="button" class="itx-btn itx-btn-sm" @onclick="ExportCurrentTabCsv">
+                                        <i class="bi bi-filetype-csv"></i> Export CSV
+                                    </button>
+                                </span>
                             </div>
                         </PagerContent>
                     </MudTable>
@@ -430,7 +533,7 @@
             {
                 <div class="itx-empty">
                     <i class="bi bi-exclamation-octagon itx-empty-icon"></i>
-                    <h6>Transfer Requests Could Not Be Loaded</h6>
+                    <h6>Transfer requests could not be loaded</h6>
                     <p>@requestLoadError</p>
                     <button type="button" class="itx-btn" @onclick="RefreshTransferRequests">
                         <i class="bi bi-arrow-clockwise"></i> Retry
@@ -441,7 +544,7 @@
             {
                 <div class="itx-empty">
                     <i class="bi bi-file-earmark-text itx-empty-icon"></i>
-                    <h6>No Transfer Requests</h6>
+                    <h6>No transfer requests</h6>
                     <p>
                         @(requestDocumentStatus switch
                         {
@@ -451,10 +554,11 @@
                         })
                     </p>
                     <a href="/transfer-request/create" class="itx-btn itx-btn-primary">
-                        <i class="bi bi-plus-lg"></i> Create First Request
+                        <i class="bi bi-plus-lg"></i> Create first request
                     </a>
                 </div>
             }
+            </div>
         }
         else if (activeTabIndex == 2)
         {
@@ -473,11 +577,14 @@
                         <MudSelectItem T="string" Value="@AllStatusFilter">All</MudSelectItem>
                     </MudSelect>
                 </div>
-                <button type="button" class="itx-btn itx-btn-sm" @onclick="LoadPendingTransfersAsync" disabled="@isLoadingPending">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
+                <div class="itx-toolbar-actions">
+                    <button type="button" class="itx-btn" @onclick="LoadPendingTransfersAsync" disabled="@isLoadingPending">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
             </div>
 
+            <div class="itx-panel">
             @if (isLoadingPending)
             {
                 <div class="itx-empty">
@@ -487,64 +594,103 @@
             }
             else if (pendingTransfers?.Any() == true)
             {
-                <div class="itx-meta">@pendingTransfers.Count transfer(s)</div>
+                <div class="itx-summary">
+                    <div class="itx-summary-item">
+                        <div class="itx-summary-k">Drafts</div>
+                        <div class="itx-summary-v">@pendingTransfers.Count</div>
+                    </div>
+                    <div class="itx-summary-item">
+                        <div class="itx-summary-k">Lines</div>
+                        <div class="itx-summary-v">@pendingTransfers.Sum(x => x.LineCount)</div>
+                    </div>
+                    <div class="itx-summary-item accent">
+                        <div class="itx-summary-k">Awaiting you</div>
+                        <div class="itx-summary-v">@pendingTransfers.Count(x => x.CanCurrentUserDecide)</div>
+                    </div>
+                    <div class="itx-summary-range">@FormatPendingScope(pendingStatusFilter)</div>
+                </div>
                 <div class="itx-body">
                     <MudTable Items="@pendingTransfers" RowsPerPage="@_pageSize" Hover="true" Dense="true"
-                              Breakpoint="Breakpoint.Sm" Elevation="0">
+                              Breakpoint="Breakpoint.Sm" Elevation="0"
+                              T="PendingInventoryTransferDto" RowClassFunc="@PendingRowClass"
+                              OnRowClick="@OnPendingRowClicked">
                         <HeaderContent>
-                            <MudTh>Draft #</MudTh>
-                            <MudTh>Submitted</MudTh>
+                            <MudTh style="width:120px;">Draft #</MudTh>
                             <MudTh>Route</MudTh>
-                            <MudTh>Requested by</MudTh>
-                            <MudTh>Status</MudTh>
-                            <MudTh>Awaiting</MudTh>
-                            <MudTh>Items</MudTh>
-                            <MudTh Style="width:150px;text-align:center;">Actions</MudTh>
+                            <MudTh style="width:150px;">Status</MudTh>
+                            <MudTh style="width:150px;">Submitted</MudTh>
+                            <MudTh style="width:150px;">Awaiting</MudTh>
+                            <MudTh style="width:140px;">Requested by</MudTh>
+                            <MudTh style="width:90px;text-align:right;">Items</MudTh>
+                            <MudTh style="width:190px;text-align:right;">&nbsp;</MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Draft #"><span class="itx-wh count">@DraftReference(context)</span></MudTd>
-                            <MudTd DataLabel="Submitted">@context.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</MudTd>
+                            <MudTd DataLabel="Draft #"><span class="itx-doc">@DraftReference(context)</span></MudTd>
                             <MudTd DataLabel="Route">
                                 <span class="itx-route">
                                     <span class="itx-wh src">@context.FromWarehouse</span>
                                     <i class="bi bi-arrow-right itx-arrow"></i>
                                     <span class="itx-wh dst">@context.ToWarehouse</span>
+                                    <span class="itx-dest">@WarehouseName(context.ToWarehouse)</span>
                                 </span>
                             </MudTd>
-                            <MudTd DataLabel="Requested by">@context.CreatedByName</MudTd>
                             <MudTd DataLabel="Status">
                                 <span class="itx-status @GetStatusCssClass(context.Status)">@FormatPendingStatus(context)</span>
                             </MudTd>
+                            <MudTd DataLabel="Submitted" Class="itx-num">
+                                @context.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                            </MudTd>
                             <MudTd DataLabel="Awaiting">@PendingStageNames(context)</MudTd>
-                            <MudTd DataLabel="Items"><span class="itx-wh count">@context.LineCount</span></MudTd>
-                            <MudTd DataLabel="Actions" Style="text-align:center;">
-                                <div class="d-flex justify-content-center gap-1">
-                                    <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small"
-                                                   Color="Color.Primary" OnClick="() => ViewPendingTransfer(context)" />
+                            <MudTd DataLabel="Requested by">@context.CreatedByName</MudTd>
+                            <MudTd DataLabel="Items" Style="text-align:right;">
+                                <span class="itx-wh count">@context.LineCount</span>
+                            </MudTd>
+                            @* Row actions stop the click bubbling: the row itself opens the drawer. *@
+                            <MudTd DataLabel="" Style="text-align:right;" @onclick:stopPropagation="true">
+                                <span class="d-inline-flex gap-1 justify-content-end flex-wrap">
                                     @if (context.CanCurrentUserDecide)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.Check" Size="Size.Small" Color="Color.Success"
-                                                       title="Approve" Disabled="@isDecidingPending"
-                                                       OnClick="@(() => DecidePendingTransferAsync(context, ApprovedDecision))" />
-                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Color="Color.Error"
-                                                       title="Reject" Disabled="@isDecidingPending"
-                                                       OnClick="@(() => DecidePendingTransferAsync(context, RejectedDecision))" />
+                                        <button type="button" class="itx-btn itx-btn-sm itx-btn-primary" disabled="@isDecidingPending"
+                                                @onclick="@(() => DecidePendingTransferAsync(context, ApprovedDecision))">
+                                            Approve
+                                        </button>
+                                        <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
+                                                @onclick="@(() => DecidePendingTransferAsync(context, RejectedDecision))">
+                                            Reject
+                                        </button>
                                     }
-                                    @if (context.Status == PendingTransferStatuses.PostFailed)
+                                    else if (context.Status == PendingTransferStatuses.PostFailed)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.Replay" Size="Size.Small" Color="Color.Warning"
-                                                       title="Retry posting to SAP" Disabled="@isDecidingPending"
-                                                       OnClick="() => RetryPendingTransferAsync(context)" />
+                                        <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
+                                                title="Retry posting to SAP"
+                                                @onclick="() => RetryPendingTransferAsync(context)">
+                                            <i class="bi bi-arrow-clockwise"></i> Retry post
+                                        </button>
                                     }
-                                    @if (context.Status == PendingTransferStatuses.AwaitingApproval && context.CreatedByUserId == currentUserId)
+                                    else if (context.Status == PendingTransferStatuses.AwaitingApproval && context.CreatedByUserId == currentUserId)
                                     {
-                                        <MudIconButton Icon="@Icons.Material.Filled.Undo" Size="Size.Small" Color="Color.Default"
-                                                       title="Withdraw" Disabled="@isDecidingPending"
-                                                       OnClick="() => CancelPendingTransferAsync(context)" />
+                                        <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
+                                                @onclick="() => CancelPendingTransferAsync(context)">
+                                            Withdraw
+                                        </button>
                                     }
-                                </div>
+                                    else
+                                    {
+                                        <span class="itx-open">Open <i class="bi bi-chevron-right"></i></span>
+                                    }
+                                </span>
                             </MudTd>
                         </RowTemplate>
+                        <PagerContent>
+                            <div class="itx-foot">
+                                <span>Showing @pendingTransfers.Count draft(s)</span>
+                                <span class="d-flex align-items-center gap-2 flex-wrap">
+                                    <button type="button" class="itx-btn itx-btn-sm" @onclick="ExportCurrentTabCsv">
+                                        <i class="bi bi-filetype-csv"></i> Export CSV
+                                    </button>
+                                </span>
+                            </div>
+                        </PagerContent>
                     </MudTable>
                 </div>
             }
@@ -552,12 +698,13 @@
             {
                 <div class="itx-empty">
                     <i class="bi bi-hourglass itx-empty-icon"></i>
-                    <h6>Nothing Awaiting Approval</h6>
+                    <h6>Nothing awaiting approval</h6>
                     <p>Inventory transfers appear here after they are submitted, until every approval stage signs off.</p>
                 </div>
             }
+            </div>
         }
-    </div>
+</div>
 </div>
 
 <!-- ── Pending transfer detail drawer ─────────────────────── -->
@@ -566,44 +713,58 @@
     <div class="itx-scrim" @onclick="ClosePendingTransfer"></div>
     <div class="itx-drawer">
         <div class="itx-drawer-head">
-            <h5><i class="bi bi-hourglass-split me-2"></i>Draft @DraftReference(selectedPendingTransfer)</h5>
+            <div class="flex-grow-1" style="min-width:0;">
+                <div class="itx-kicker">Draft transfer</div>
+                <h5>@DraftReference(selectedPendingTransfer)</h5>
+                <div class="itx-drawer-route">
+                    <span class="itx-wh src">@selectedPendingTransfer.FromWarehouse</span>
+                    <i class="bi bi-arrow-right itx-arrow"></i>
+                    <span class="itx-wh dst">@selectedPendingTransfer.ToWarehouse</span>
+                </div>
+            </div>
             <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="ClosePendingTransfer" />
         </div>
         <div class="itx-drawer-body">
-            <div class="itx-route-card">
-                <div class="leg src">
-                    <small>From</small>
-                    <strong>@selectedPendingTransfer.FromWarehouse</strong>
+            <div class="itx-grid">
+                <div>
+                    <div class="k">Status</div>
+                    <div class="v">
+                        <span class="itx-status @GetStatusCssClass(selectedPendingTransfer.Status)">
+                            @FormatPendingStatus(selectedPendingTransfer)
+                        </span>
+                    </div>
                 </div>
-                <i class="bi bi-arrow-right"></i>
-                <div class="leg dst">
-                    <small>To</small>
-                    <strong>@selectedPendingTransfer.ToWarehouse</strong>
+                <div>
+                    <div class="k">Destination</div>
+                    <div class="v">@WarehouseName(selectedPendingTransfer.ToWarehouse)</div>
                 </div>
-            </div>
-
-            <dl class="row small mt-3">
-                <dt class="col-5">Draft number</dt>
-                <dd class="col-7">@DraftReference(selectedPendingTransfer)</dd>
-                <dt class="col-5">Submitted by</dt>
-                <dd class="col-7">@selectedPendingTransfer.CreatedByName (@selectedPendingTransfer.CreatedByRole)</dd>
-                <dt class="col-5">Submitted</dt>
-                <dd class="col-7">@selectedPendingTransfer.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</dd>
-                <dt class="col-5">Status</dt>
-                <dd class="col-7">@FormatPendingStatus(selectedPendingTransfer)</dd>
-                <dt class="col-5">Approval process</dt>
-                <dd class="col-7">@(selectedPendingTransfer.ApprovalTemplateName ?? "—")</dd>
-                @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.Comments))
-                {
-                    <dt class="col-5">Comments</dt>
-                    <dd class="col-7">@selectedPendingTransfer.Comments</dd>
-                }
+                <div>
+                    <div class="k">Submitted</div>
+                    <div class="v">@selectedPendingTransfer.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                </div>
+                <div>
+                    <div class="k">Submitted by</div>
+                    <div class="v">@selectedPendingTransfer.CreatedByName (@selectedPendingTransfer.CreatedByRole)</div>
+                </div>
+                <div>
+                    <div class="k">Approval process</div>
+                    <div class="v">@(selectedPendingTransfer.ApprovalTemplateName ?? "—")</div>
+                </div>
                 @if (selectedPendingTransfer.SapDocNum.HasValue)
                 {
-                    <dt class="col-5">SAP document</dt>
-                    <dd class="col-7">#@selectedPendingTransfer.SapDocNum</dd>
+                    <div>
+                        <div class="k">SAP document</div>
+                        <div class="v">#@selectedPendingTransfer.SapDocNum</div>
+                    </div>
                 }
-            </dl>
+                @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.Comments))
+                {
+                    <div class="span-2">
+                        <div class="k">Comments</div>
+                        <div class="v plain">@selectedPendingTransfer.Comments</div>
+                    </div>
+                }
+            </div>
 
             @if (!string.IsNullOrWhiteSpace(selectedPendingTransfer.LastError))
             {
@@ -613,7 +774,7 @@
                 </div>
             }
 
-            <h6 class="mt-3">Approval stages</h6>
+            <div class="itx-section"><i class="bi bi-diagram-3"></i> Approval stages</div>
             <ul class="list-unstyled small">
                 @foreach (var stage in selectedPendingTransfer.ApprovalStages)
                 {
@@ -630,7 +791,7 @@
                 }
             </ul>
 
-            <h6 class="mt-3">Lines</h6>
+            <div class="itx-section mt-3"><i class="bi bi-list-check"></i> Lines · @selectedPendingTransfer.LineCount</div>
             @if (isLoadingPendingDetail)
             {
                 <div class="text-muted small py-2">
@@ -702,37 +863,33 @@
     <div class="itx-scrim" @onclick="CloseModal"></div>
     <div class="itx-drawer">
         <div class="itx-drawer-head">
-            <h5><i class="bi bi-arrow-left-right me-2"></i>Transfer #@selectedTransfer.DocNum</h5>
+            <div class="flex-grow-1" style="min-width:0;">
+                <div class="itx-kicker">Transfer</div>
+                <h5>#@selectedTransfer.DocNum</h5>
+                <div class="itx-drawer-route">
+                    <span class="itx-wh src">@selectedTransfer.FromWarehouse</span>
+                    <i class="bi bi-arrow-right itx-arrow"></i>
+                    <span class="itx-wh dst">@selectedTransfer.ToWarehouse</span>
+                </div>
+            </div>
             <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="CloseModal" />
         </div>
         <div class="itx-drawer-body">
-            <div class="itx-route-card">
-                <div class="leg src">
-                    <div class="leg-label">Source</div>
-                    <div class="leg-value">@selectedTransfer.FromWarehouse</div>
-                </div>
-                <i class="bi bi-arrow-right-circle-fill" style="font-size:1.35rem;color:var(--itx-accent);"></i>
-                <div class="leg dst">
-                    <div class="leg-label">Destination</div>
-                    <div class="leg-value">@selectedTransfer.ToWarehouse</div>
-                </div>
-            </div>
-
             <div class="itx-grid">
                 <div>
-                    <div class="k">Doc Entry</div>
+                    <div class="k">Doc entry</div>
                     <div class="v">@selectedTransfer.DocEntry</div>
                 </div>
                 <div>
-                    <div class="k">Doc Number</div>
-                    <div class="v">#@selectedTransfer.DocNum</div>
+                    <div class="k">Destination</div>
+                    <div class="v">@WarehouseName(selectedTransfer.ToWarehouse)</div>
                 </div>
                 <div>
-                    <div class="k">Document Date</div>
+                    <div class="k">Raised</div>
                     <div class="v">@FormatDate(selectedTransfer.DocDate)</div>
                 </div>
                 <div>
-                    <div class="k">Due Date</div>
+                    <div class="k">Due</div>
                     <div class="v">@FormatDate(selectedTransfer.DueDate)</div>
                 </div>
                 @if (!string.IsNullOrWhiteSpace(selectedTransfer.Comments))
@@ -804,27 +961,19 @@
     <div class="itx-scrim" @onclick="CloseRequestModal"></div>
     <div class="itx-drawer">
         <div class="itx-drawer-head">
-            <h5><i class="bi bi-file-earmark-text me-2"></i>Transfer Request #@selectedTransferRequest.DocNum</h5>
+            <div class="flex-grow-1" style="min-width:0;">
+                <div class="itx-kicker">Transfer request</div>
+                <h5>#@selectedTransferRequest.DocNum</h5>
+                <div class="itx-drawer-route">
+                    <span class="itx-wh src">@selectedTransferRequest.FromWarehouse</span>
+                    <i class="bi bi-arrow-right itx-arrow"></i>
+                    <span class="itx-wh dst">@selectedTransferRequest.ToWarehouse</span>
+                </div>
+            </div>
             <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="CloseRequestModal" />
         </div>
         <div class="itx-drawer-body">
-            <div class="itx-route-card">
-                <div class="leg src">
-                    <div class="leg-label">Source</div>
-                    <div class="leg-value">@selectedTransferRequest.FromWarehouse</div>
-                </div>
-                <i class="bi bi-arrow-right-circle-fill" style="font-size:1.35rem;color:var(--itx-accent);"></i>
-                <div class="leg dst">
-                    <div class="leg-label">Destination</div>
-                    <div class="leg-value">@selectedTransferRequest.ToWarehouse</div>
-                </div>
-            </div>
-
             <div class="itx-grid">
-                <div>
-                    <div class="k">Doc Number</div>
-                    <div class="v">#@selectedTransferRequest.DocNum</div>
-                </div>
                 <div>
                     <div class="k">Status</div>
                     <div class="v">
@@ -834,11 +983,15 @@
                     </div>
                 </div>
                 <div>
-                    <div class="k">Document Date</div>
+                    <div class="k">Destination</div>
+                    <div class="v">@WarehouseName(selectedTransferRequest.ToWarehouse)</div>
+                </div>
+                <div>
+                    <div class="k">Raised</div>
                     <div class="v">@FormatDate(selectedTransferRequest.DocDate)</div>
                 </div>
                 <div>
-                    <div class="k">Due Date</div>
+                    <div class="k">Due</div>
                     <div class="v">@FormatDate(selectedTransferRequest.DueDate)</div>
                 </div>
                 <div>
@@ -846,11 +999,11 @@
                     <div class="v">@(selectedTransferRequest.RequesterName ?? "—")</div>
                 </div>
                 <div>
-                    <div class="k">Requested By Role</div>
+                    <div class="k">Requested by role</div>
                     <div class="v">@GetFriendlyRoleName(selectedTransferRequest.RequestedByRole)</div>
                 </div>
                 <div>
-                    <div class="k">Approval Stage</div>
+                    <div class="k">Approval stage</div>
                     <div class="v">@GetApprovalStageLabel(selectedTransferRequest)</div>
                 </div>
                 <div>
@@ -1290,6 +1443,249 @@
     transferRequests?.Where(_requestQuickFilter) ?? Enumerable.Empty<InventoryTransferRequestDto>();
 
     private int FilteredRequestCount => FilteredRequests.Count();
+
+    private int FilteredTransferCount => FilteredTransfers.Count();
+
+    // ── Sorting ─────────────────────────────────────────
+    // The headings sort the list themselves rather than through MudTableSortLabel: the footer
+    // has to name the current sort in words, which needs the state somewhere we can read it.
+    private const string SortKeyDoc = "doc";
+    private const string SortKeyDate = "date";
+    private const string SortKeyItems = "items";
+
+    private string _transferSortKey = SortKeyDate;
+    private int _transferSortDir = -1;
+    private string _requestSortKey = SortKeyDate;
+    private int _requestSortDir = -1;
+
+    private IEnumerable<InventoryTransferDto> SortedTransfers =>
+        SortRows(transfers, _transferSortKey, _transferSortDir,
+                 x => x.DocNum, x => ParseDate(x.DocDate), x => x.Lines?.Count ?? 0);
+
+    private IEnumerable<InventoryTransferRequestDto> SortedRequests =>
+        SortRows(transferRequests, _requestSortKey, _requestSortDir,
+                 x => x.DocNum, x => ParseDate(x.DocDate), x => x.Lines?.Count ?? 0);
+
+    private static IEnumerable<T> SortRows<T>(List<T>? source, string key, int direction,
+        Func<T, int> byDoc, Func<T, DateTime> byDate, Func<T, int> byItems)
+    {
+        if (source == null) return Enumerable.Empty<T>();
+
+        return key switch
+        {
+            SortKeyDoc => direction == 1 ? source.OrderBy(byDoc) : source.OrderByDescending(byDoc),
+            SortKeyItems => direction == 1 ? source.OrderBy(byItems) : source.OrderByDescending(byItems),
+            _ => direction == 1 ? source.OrderBy(byDate) : source.OrderByDescending(byDate)
+        };
+    }
+
+    // Clicking the heading that is already sorting flips the direction; any other starts descending.
+    private void SortTransfers(string key)
+    {
+        _transferSortDir = _transferSortKey == key ? -_transferSortDir : -1;
+        _transferSortKey = key;
+    }
+
+    private void SortRequests(string key)
+    {
+        _requestSortDir = _requestSortKey == key ? -_requestSortDir : -1;
+        _requestSortKey = key;
+    }
+
+    private static string SortArrow(string activeKey, int direction, string key)
+        => activeKey == key ? (direction == 1 ? " ↑" : " ↓") : string.Empty;
+
+    private string TransferSortArrow(string key) => SortArrow(_transferSortKey, _transferSortDir, key);
+
+    private string RequestSortArrow(string key) => SortArrow(_requestSortKey, _requestSortDir, key);
+
+    private static string SortLabel(string key, int direction)
+        => (key switch { SortKeyDoc => "doc #", SortKeyItems => "items", _ => "date" }) +
+           (direction == 1 ? ", ascending" : ", descending");
+
+    private string TransferSortLabel => SortLabel(_transferSortKey, _transferSortDir);
+
+    private string RequestSortLabel => SortLabel(_requestSortKey, _requestSortDir);
+
+    private static DateTime ParseDate(string? value)
+        => DateTime.TryParse(value, out var parsed) ? parsed : DateTime.MinValue;
+
+    // ── Row presentation ────────────────────────────────
+    // The row whose drawer is open carries the accent edge, so the two read as one thing.
+    private string TransferRowClass(InventoryTransferDto item, int index)
+        => selectedTransfer?.DocEntry == item.DocEntry ? "itx-row-click itx-row-open" : "itx-row-click";
+
+    private string RequestRowClass(InventoryTransferRequestDto item, int index)
+        => selectedTransferRequest?.DocEntry == item.DocEntry ? "itx-row-click itx-row-open" : "itx-row-click";
+
+    private string PendingRowClass(PendingInventoryTransferDto item, int index)
+        => selectedPendingTransfer?.Id == item.Id ? "itx-row-click itx-row-open" : "itx-row-click";
+
+    private void OnTransferRowClicked(TableRowClickEventArgs<InventoryTransferDto> args)
+    {
+        if (args.Item is not null) ViewTransfer(args.Item);
+    }
+
+    private async Task OnRequestRowClicked(TableRowClickEventArgs<InventoryTransferRequestDto> args)
+    {
+        if (args.Item is not null) await ViewTransferRequest(args.Item);
+    }
+
+    private async Task OnPendingRowClicked(TableRowClickEventArgs<PendingInventoryTransferDto> args)
+    {
+        if (args.Item is not null) await ViewPendingTransfer(args.Item);
+    }
+
+    // ── Summary strip ───────────────────────────────────
+    private static decimal TransferUnits(InventoryTransferDto transfer)
+        => transfer.Lines?.Sum(line => line.Quantity) ?? 0m;
+
+    private static decimal RequestUnits(InventoryTransferRequestDto request)
+        => request.Lines?.Sum(line => line.Quantity) ?? 0m;
+
+    private string ScopeLabel => string.IsNullOrWhiteSpace(selectedWarehouse?.WarehouseCode)
+        ? "across all sites"
+        : $"in {selectedWarehouse!.WarehouseCode}";
+
+    private string RangeLabel => (fromDate, toDate) switch
+    {
+        ({ } from, { } to) => $"{from:dd MMM yyyy} – {to:dd MMM yyyy}",
+        ({ } from, null) => $"From {from:dd MMM yyyy}",
+        (null, { } to) => $"Up to {to:dd MMM yyyy}",
+        _ => "All dates"
+    };
+
+    private static string FormatPendingScope(string filter) => filter switch
+    {
+        PendingTransferStatuses.AwaitingApproval => "Awaiting approval",
+        PendingTransferStatuses.Approved => "Approved — posting",
+        PendingTransferStatuses.Posted => "Posted to SAP",
+        PendingTransferStatuses.PostFailed => "Failed to post",
+        PendingTransferStatuses.Rejected => "Rejected",
+        PendingTransferStatuses.Cancelled => "Withdrawn",
+        _ => "All statuses"
+    };
+
+    /// <summary>The destination's full name, so a bare warehouse code is not the only label on the route.</summary>
+    private string WarehouseName(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return string.Empty;
+        return cachedWarehouses?.FirstOrDefault(warehouse =>
+            string.Equals(warehouse.WarehouseCode, code, StringComparison.OrdinalIgnoreCase))?.WarehouseName
+            ?? string.Empty;
+    }
+
+    /// <summary>
+    /// A document the warehouse has run past: the due date is behind us and SAP still has it open.
+    /// A closed document is done with, however late it was, so it is never flagged.
+    /// </summary>
+    private static bool IsPastDue(string? dueDate, string? documentStatus)
+    {
+        if (!DateTime.TryParse(dueDate, out var due)) return false;
+
+        var isOpen = string.IsNullOrWhiteSpace(documentStatus) ||
+                     documentStatus.Equals("bost_Open", StringComparison.OrdinalIgnoreCase) ||
+                     documentStatus.Equals("open", StringComparison.OrdinalIgnoreCase);
+
+        return isOpen && due.Date < DateTime.Today;
+    }
+
+    // ── CSV export ──────────────────────────────────────
+    /// <summary>
+    /// Writes out what the open tab is showing — the current filters and sort, not the whole
+    /// SAP page behind them, so the file matches what the user is looking at.
+    /// </summary>
+    private async Task ExportCurrentTabCsv()
+    {
+        try
+        {
+            var stamp = DateTime.Now.ToString("yyyyMMdd_HHmm");
+            var (fileName, csv, rowCount) = activeTabIndex switch
+            {
+                1 => ($"Transfer_Requests_{stamp}.csv", BuildRequestsCsv(), FilteredRequestCount),
+                2 => ($"Draft_Transfers_{stamp}.csv", BuildPendingCsv(), pendingTransfers?.Count ?? 0),
+                _ => ($"Inventory_Transfers_{stamp}.csv", BuildTransfersCsv(), FilteredTransferCount)
+            };
+
+            // The preamble is what makes Excel read the file as UTF-8 rather than the local codepage.
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv)).ToArray();
+            await JS.InvokeVoidAsync("downloadFile", fileName, "text/csv;charset=utf-8",
+                Convert.ToBase64String(bytes));
+            await AuditService.LogAsync(AuditActions.ViewTransfers, "InventoryTransfer", null,
+                $"Exported {rowCount:N0} row(s) to {fileName}.", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export the transfers list to CSV");
+            errorMessage = "Failed to export the list to CSV.";
+        }
+    }
+
+    private string BuildTransfersCsv()
+    {
+        var csv = new StringBuilder("Doc #,Doc entry,From,To,Destination,Raised,Due,Lines,Units,Comments\n");
+        foreach (var row in SortedTransfers.Where(_transferQuickFilter))
+        {
+            csv.Append(Csv(row.DocNum.ToString())).Append(',')
+               .Append(Csv(row.DocEntry.ToString())).Append(',')
+               .Append(Csv(row.FromWarehouse)).Append(',')
+               .Append(Csv(row.ToWarehouse)).Append(',')
+               .Append(Csv(WarehouseName(row.ToWarehouse))).Append(',')
+               .Append(Csv(FormatDate(row.DocDate))).Append(',')
+               .Append(Csv(FormatDate(row.DueDate))).Append(',')
+               .Append(Csv((row.Lines?.Count ?? 0).ToString())).Append(',')
+               .Append(Csv(QuantityDisplay.Format(TransferUnits(row)))).Append(',')
+               .Append(Csv(row.Comments)).Append('\n');
+        }
+        return csv.ToString();
+    }
+
+    private string BuildRequestsCsv()
+    {
+        var csv = new StringBuilder("Doc #,Doc entry,From,To,Destination,Status,Raised,Due,Past due,Requester,Lines,Units\n");
+        foreach (var row in SortedRequests.Where(_requestQuickFilter))
+        {
+            csv.Append(Csv(row.DocNum.ToString())).Append(',')
+               .Append(Csv(row.DocEntry.ToString())).Append(',')
+               .Append(Csv(row.FromWarehouse)).Append(',')
+               .Append(Csv(row.ToWarehouse)).Append(',')
+               .Append(Csv(WarehouseName(row.ToWarehouse))).Append(',')
+               .Append(Csv(GetApprovalDisplayStatus(row))).Append(',')
+               .Append(Csv(FormatDate(row.DocDate))).Append(',')
+               .Append(Csv(FormatDate(row.DueDate))).Append(',')
+               .Append(Csv(IsPastDue(row.DueDate, row.DocumentStatus) ? "Yes" : "No")).Append(',')
+               .Append(Csv(row.RequesterName)).Append(',')
+               .Append(Csv((row.Lines?.Count ?? 0).ToString())).Append(',')
+               .Append(Csv(QuantityDisplay.Format(RequestUnits(row)))).Append('\n');
+        }
+        return csv.ToString();
+    }
+
+    private string BuildPendingCsv()
+    {
+        var csv = new StringBuilder("Draft #,From,To,Destination,Status,Submitted,Awaiting,Requested by,Lines\n");
+        foreach (var row in pendingTransfers ?? [])
+        {
+            csv.Append(Csv(DraftReference(row))).Append(',')
+               .Append(Csv(row.FromWarehouse)).Append(',')
+               .Append(Csv(row.ToWarehouse)).Append(',')
+               .Append(Csv(WarehouseName(row.ToWarehouse))).Append(',')
+               .Append(Csv(FormatPendingStatus(row))).Append(',')
+               .Append(Csv(row.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm"))).Append(',')
+               .Append(Csv(PendingStageNames(row))).Append(',')
+               .Append(Csv(row.CreatedByName)).Append(',')
+               .Append(Csv(row.LineCount.ToString())).Append('\n');
+        }
+        return csv.ToString();
+    }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
+    }
 
     private bool HasActiveRequestFilters =>
         !string.IsNullOrWhiteSpace(_requestSearchString) ||
