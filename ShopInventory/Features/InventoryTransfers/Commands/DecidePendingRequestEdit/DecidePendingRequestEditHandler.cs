@@ -38,7 +38,9 @@ public sealed class DecidePendingRequestEditHandler(
         if (!approving && !rejecting)
             return Errors.InventoryTransfer.ValidationFailed("Decision must be Approved or NotApproved.");
 
+        // Tracked: the decision and the applier both record their outcome on this record.
         var edit = await context.PendingTransferRequestEdits
+            .AsTracking()
             .FirstOrDefaultAsync(item => item.Id == command.PendingEditId, cancellationToken);
         if (edit is null)
             return Errors.InventoryTransfer.PendingEditNotFound(command.PendingEditId);
@@ -166,6 +168,7 @@ public sealed class CancelPendingRequestEditHandler(
         CancellationToken cancellationToken)
     {
         var edit = await context.PendingTransferRequestEdits
+            .AsTracking()
             .FirstOrDefaultAsync(item => item.Id == command.PendingEditId, cancellationToken);
         if (edit is null)
             return Errors.InventoryTransfer.PendingEditNotFound(command.PendingEditId);

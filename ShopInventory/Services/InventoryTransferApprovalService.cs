@@ -158,7 +158,11 @@ public sealed class InventoryTransferApprovalService(
         await EnsureDefaultsAsync(document.DocumentType, cancellationToken);
         var documentType = document.DocumentType;
         var documentKey = document.DocumentKey;
+        // Tracked: callers record decisions and move the request's status on the entity returned
+        // here. The context defaults to no-tracking, under which those writes are silently lost —
+        // an approval would complete and post to SAP while the database still showed it pending.
         var existing = await context.ApprovalRequests
+            .AsTracking()
             .Include(request => request.Decisions)
             .FirstOrDefaultAsync(request =>
                 request.DocumentType == documentType &&
@@ -214,6 +218,7 @@ public sealed class InventoryTransferApprovalService(
         {
             context.Entry(request).State = EntityState.Detached;
             return await context.ApprovalRequests
+                .AsTracking()
                 .Include(item => item.Decisions)
                 .SingleAsync(item =>
                     item.DocumentType == documentType &&
@@ -235,6 +240,7 @@ public sealed class InventoryTransferApprovalService(
         // in a single query keeps a page of documents off the per-document create path entirely.
         var documentKeys = listed.Select(dto => dto.DocEntry.ToString()).ToList();
         var known = (await context.ApprovalRequests
+                .AsTracking()
                 .Include(request => request.Decisions)
                 .Where(request =>
                     request.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest &&
@@ -395,7 +401,7 @@ public sealed class InventoryTransferApprovalService(
         bool byAuthorizer,
         CancellationToken cancellationToken)
     {
-        var request = await context.ApprovalRequests.FirstOrDefaultAsync(item =>
+        var request = await context.ApprovalRequests.AsTracking().FirstOrDefaultAsync(item =>
             item.DocumentType == documentType &&
             item.DocumentKey == documentKey, cancellationToken);
         if (request is null)
@@ -425,7 +431,7 @@ public sealed class InventoryTransferApprovalService(
 
         var entity = dto.Id == Guid.Empty
             ? new ApprovalStageDefinitionEntity()
-            : await context.ApprovalStageDefinitions.FirstOrDefaultAsync(stage => stage.Id == dto.Id, cancellationToken);
+            : await context.ApprovalStageDefinitions.AsTracking().FirstOrDefaultAsync(stage => stage.Id == dto.Id, cancellationToken);
         if (entity is null)
             return Error.NotFound("ApprovalProcess.StageNotFound", "Approval stage was not found.");
         entity.Name = dto.Name.Trim();
@@ -478,7 +484,7 @@ public sealed class InventoryTransferApprovalService(
 
         var entity = dto.Id == Guid.Empty
             ? new ApprovalTemplateDefinitionEntity()
-            : await context.ApprovalTemplateDefinitions.FirstOrDefaultAsync(template => template.Id == dto.Id, cancellationToken);
+            : await context.ApprovalTemplateDefinitions.AsTracking().FirstOrDefaultAsync(template => template.Id == dto.Id, cancellationToken);
         if (entity is null)
             return Error.NotFound("ApprovalProcess.TemplateNotFound", "Approval template was not found.");
         entity.Name = dto.Name.Trim();

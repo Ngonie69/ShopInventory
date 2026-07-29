@@ -24,7 +24,9 @@ public sealed class RetryPendingTransferPostHandler(
     {
         if (!settings.Value.Enabled) return Errors.InventoryTransfer.SapDisabled;
 
+        // Tracked: the poster records the outcome on this record.
         var pending = await context.PendingInventoryTransfers
+            .AsTracking()
             .FirstOrDefaultAsync(item => item.Id == command.PendingTransferId, cancellationToken);
         if (pending is null)
             return Errors.InventoryTransfer.PendingTransferNotFound(command.PendingTransferId);
