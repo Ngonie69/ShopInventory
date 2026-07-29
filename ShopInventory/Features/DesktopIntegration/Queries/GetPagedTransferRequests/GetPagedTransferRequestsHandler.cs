@@ -24,7 +24,9 @@ public sealed class GetPagedTransferRequestsHandler(
         var page = Math.Max(1, query.Page);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
 
-        var requests = await sapClient.GetPagedInventoryTransferRequestsAsync(page, pageSize, cancellationToken);
+        // Unfiltered, as this integration has always been: the desktop client picks its own statuses.
+        var requests = await sapClient.GetPagedInventoryTransferRequestsAsync(
+            page, pageSize, documentStatus: null, cancellationToken);
 
         return requests.Select(r => r.ToDto()).ToList();
     }

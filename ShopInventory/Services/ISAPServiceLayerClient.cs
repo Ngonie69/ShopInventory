@@ -45,9 +45,10 @@ public interface ISAPServiceLayerClient
     Task<List<InventoryTransferRequest>> GetInventoryTransferRequestsByWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets inventory transfer requests with pagination
+    /// Gets inventory transfer requests with pagination, newest first. <paramref name="documentStatus"/>
+    /// is a SAP status literal such as <c>bost_Open</c>; null returns every status.
     /// </summary>
-    Task<List<InventoryTransferRequest>> GetPagedInventoryTransferRequestsAsync(int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<List<InventoryTransferRequest>> GetPagedInventoryTransferRequestsAsync(int page, int pageSize, string? documentStatus = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Converts an inventory transfer request to an actual inventory transfer.

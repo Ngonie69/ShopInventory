@@ -304,6 +304,10 @@ public class TransferRequestListResponse
     [JsonPropertyName("warehouse")]
     public string? Warehouse { get; set; }
 
+    /// <summary>The SAP document status the list was filtered to, or null when unfiltered.</summary>
+    [JsonPropertyName("status")]
+    public string? Status { get; set; }
+
     [JsonPropertyName("page")]
     public int Page { get; set; }
 

@@ -9041,13 +9041,17 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     public async Task<List<InventoryTransferRequest>> GetPagedInventoryTransferRequestsAsync(
         int page,
         int pageSize,
+        string? documentStatus = null,
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
         var skip = (page - 1) * pageSize;
-        var url = $"InventoryTransferRequests?{InventoryTransferRequestSelect}&$orderby=DocEntry desc&$skip={skip}&$top={pageSize}";
+        var filter = string.IsNullOrWhiteSpace(documentStatus)
+            ? string.Empty
+            : $"$filter={Uri.EscapeDataString($"DocumentStatus eq '{SanitizeODataValue(documentStatus)}'")}&";
+        var url = $"InventoryTransferRequests?{filter}{InventoryTransferRequestSelect}&$orderby=DocEntry desc&$skip={skip}&$top={pageSize}";
 
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");

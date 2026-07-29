@@ -1027,6 +1027,13 @@ Change the current user's password.
 | POST | `/api/InventoryTransfer` | Submit an inventory transfer for approval (`stock.transfer` or `inventory.transfer`) |
 | GET | `/api/InventoryTransfer/{docEntry}` | Get transfer details |
 | GET | `/api/InventoryTransfer/status/{docEntry}` | Get posting status |
+| GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
+
+**Listing transfer requests:** `status` filters on the SAP document status — `open`, `closed`, or
+`all` (the default; the SAP literals `bost_Open` and `bost_Close` are accepted too). Any other value
+returns 400. SAP holds around eleven thousand requests, most of them closed, so pass `status=open`
+when listing requests to be actioned, and page rather than walking the whole set — a page of 100
+takes roughly 5–10 seconds because every row is enriched with its approval state.
 
 **Create Transfer Request:**
 

@@ -381,12 +381,21 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
+    /// <summary>
+    /// Lists transfer requests newest first. <paramref name="status"/> filters on the SAP document
+    /// status — "open", "closed", or "all" (the default). Most of the eleven thousand requests in
+    /// SAP are closed, so a screen that actions requests should ask for open ones.
+    /// </summary>
     [HttpGet("requests")]
     [ProducesResponseType(typeof(TransferRequestListResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetPagedTransferRequests(
-        [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? status = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetPagedTransferRequestsQuery(page, pageSize), cancellationToken);
+        var result = await mediator.Send(new GetPagedTransferRequestsQuery(page, pageSize, status), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

@@ -23,20 +23,27 @@ public sealed class GetPagedTransferRequestsHandler(
         if (!settings.Value.Enabled)
             return Errors.InventoryTransfer.SapDisabled;
 
+        if (!TryMapDocumentStatus(request.Status, out var documentStatus))
+            return Errors.InventoryTransfer.ValidationFailed(
+                $"Unknown status '{request.Status}'. Use open, closed or all.");
+
         try
         {
             var page = request.Page < 1 ? 1 : request.Page;
             var pageSize = request.PageSize < 1 ? 20 : request.PageSize > 100 ? 100 : request.PageSize;
 
-            var transferRequests = await sapClient.GetPagedInventoryTransferRequestsAsync(page, pageSize, cancellationToken);
+            var transferRequests = await sapClient.GetPagedInventoryTransferRequestsAsync(
+                page, pageSize, documentStatus, cancellationToken);
 
-            logger.LogInformation("Retrieved {Count} transfer requests (page {Page})", transferRequests.Count, page);
+            logger.LogInformation("Retrieved {Count} transfer requests (page {Page}, status {Status})",
+                transferRequests.Count, page, documentStatus ?? "all");
 
             var transferRequestDtos = transferRequests.ToDto();
             await approvalService.EnrichAsync(transferRequestDtos, cancellationToken);
 
             return new TransferRequestListResponseDto
             {
+                Status = documentStatus,
                 Page = page,
                 PageSize = pageSize,
                 Count = transferRequests.Count,
@@ -62,6 +69,35 @@ public sealed class GetPagedTransferRequestsHandler(
         {
             logger.LogError(ex, "Error retrieving transfer requests");
             return Errors.InventoryTransfer.CreationFailed(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Maps the caller's status to the SAP literal, or null for "every status". Only known values
+    /// reach the OData filter, so no caller-supplied text is ever interpolated into it.
+    /// </summary>
+    private static bool TryMapDocumentStatus(string? status, out string? documentStatus)
+    {
+        documentStatus = null;
+
+        if (string.IsNullOrWhiteSpace(status))
+            return true;
+
+        switch (status.Trim().ToLowerInvariant())
+        {
+            case "all":
+                return true;
+            case "open":
+            case "bost_open":
+                documentStatus = "bost_Open";
+                return true;
+            case "closed":
+            case "close":
+            case "bost_close":
+                documentStatus = "bost_Close";
+                return true;
+            default:
+                return false;
         }
     }
 }
