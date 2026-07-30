@@ -106,6 +106,18 @@ public static partial class Errors
                 "InventoryTransfer.TransferRequestNotEditable",
                 "This transfer request is closed and can no longer be changed.");
 
+        /// <summary>
+        /// SAP would not close the request. <paramref name="decisionRecorded"/> says whether the
+        /// local rejection was already written, because that is the difference between "nothing
+        /// happened" and "we turned it down but SAP still has it open".
+        /// </summary>
+        public static Error TransferRequestCloseFailed(int docEntry, string reason, bool decisionRecorded = false) =>
+            Error.Failure(
+                "InventoryTransfer.TransferRequestCloseFailed",
+                (decisionRecorded
+                    ? $"The rejection was recorded, but transfer request {docEntry} could not be closed in SAP and is still open. "
+                    : $"Transfer request {docEntry} could not be closed in SAP. ") + reason);
+
         public static Error TransferRequestEditInFlight(int docEntry) =>
             Error.Conflict(
                 "InventoryTransfer.TransferRequestEditInFlight",
