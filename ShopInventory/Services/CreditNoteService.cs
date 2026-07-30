@@ -103,6 +103,24 @@ public class CreditNoteService : ICreditNoteService
     public async Task<CreditNoteListResponseDto> GetAllAsync(int page, int pageSize, CreditNoteStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)
     {
+        // The local projection answers this list in one Postgres query. SAP is the fallback, for
+        // when the projection is switched off, still backfilling, or stale.
+        if (await IsProjectionReadableAsync(cancellationToken))
+        {
+            try
+            {
+                return await GetAllFromProjectionAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read the credit-note projection, falling back to SAP");
+            }
+        }
+
         try
         {
             // Fetch from SAP
@@ -151,6 +169,159 @@ public class CreditNoteService : ICreditNoteService
             return await GetAllFromLocalAsync(page, pageSize, status, cardCode, fromDate, toDate, cancellationToken);
         }
     }
+
+    private async Task<bool> IsProjectionReadableAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _projectionSyncService.IsReadyForReadsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check whether the credit-note projection is readable");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Serves the credit-note list from the local SAP projection.
+    /// </summary>
+    /// <remarks>
+    /// Headers only: the projection keeps no item description, quantity or unit price, so the lines
+    /// a detail view needs are read per document by <see cref="GetByIdAsync"/> rather than carried
+    /// on every row of a list that never shows them. That is also why this is fast — the SAP read it
+    /// replaces pulled every document's nested DocumentLines to render a table of headers.
+    /// </remarks>
+    private async Task<CreditNoteListResponseDto> GetAllFromProjectionAsync(int page, int pageSize, CreditNoteStatus? status,
+        string? cardCode, DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken)
+    {
+        var (rangeFrom, rangeTo) = ResolveProjectionDateRange(cardCode, fromDate, toDate);
+
+        var query = _context.SapCreditNoteSnapshots.AsNoTracking();
+
+        if (!string.IsNullOrEmpty(cardCode))
+            query = query.Where(snapshot => snapshot.CardCode == cardCode);
+
+        if (rangeFrom.HasValue)
+            query = query.Where(snapshot => snapshot.DocDate >= rangeFrom.Value);
+
+        if (rangeTo.HasValue)
+            query = query.Where(snapshot => snapshot.DocDate <= rangeTo.Value);
+
+        var snapshots = await query
+            .OrderByDescending(snapshot => snapshot.DocDate)
+            .ThenByDescending(snapshot => snapshot.SapDocEntry)
+            .Select(snapshot => new ProjectedCreditNote(
+                snapshot.SapDocEntry,
+                snapshot.SapDocNum,
+                snapshot.DocDate,
+                snapshot.CardCode,
+                snapshot.CardName,
+                snapshot.DocCurrency,
+                snapshot.Comments,
+                snapshot.DocTotal,
+                snapshot.VatSum,
+                snapshot.DocumentStatus,
+                snapshot.IsCancelled))
+            .ToListAsync(cancellationToken);
+
+        // Status is derived from DocumentStatus and IsCancelled rather than stored, so it is applied
+        // after mapping — before paging, so the count and the page agree.
+        var creditNotes = snapshots
+            .Select(MapFromProjection)
+            .Where(note => !status.HasValue || note.Status == status.Value)
+            .ToList();
+
+        var safePageSize = Math.Max(1, pageSize);
+        var totalCount = creditNotes.Count;
+
+        _logger.LogInformation(
+            "Served {Count} credit notes from the local projection between {From:yyyy-MM-dd} and {To:yyyy-MM-dd}",
+            totalCount,
+            rangeFrom,
+            rangeTo);
+
+        return new CreditNoteListResponseDto
+        {
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            TotalPages = (int)Math.Ceiling(totalCount / (double)safePageSize),
+            CreditNotes = creditNotes
+                .Skip(Math.Max(0, page - 1) * safePageSize)
+                .Take(safePageSize)
+                .ToList()
+        };
+    }
+
+    /// <summary>
+    /// Mirrors the SAP path's bounds: an unfiltered request defaults to the current month rather
+    /// than the whole history, and a customer lookup with no dates is left unbounded.
+    /// </summary>
+    private static (DateTime? From, DateTime? To) ResolveProjectionDateRange(
+        string? cardCode, DateTime? fromDate, DateTime? toDate)
+    {
+        // DocDate is a date column written as a UTC-kind midnight, so both bounds are inclusive.
+        if (fromDate.HasValue || toDate.HasValue)
+        {
+            return (ToProjectionDate(fromDate), ToProjectionDate(toDate));
+        }
+
+        if (!string.IsNullOrEmpty(cardCode))
+        {
+            return (null, null);
+        }
+
+        var todayUtc = DateTime.UtcNow.Date;
+        return (
+            ToProjectionDate(new DateTime(todayUtc.Year, todayUtc.Month, 1)),
+            ToProjectionDate(todayUtc));
+    }
+
+    private static DateTime? ToProjectionDate(DateTime? value) =>
+        value.HasValue ? DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Utc) : null;
+
+    private static CreditNoteDto MapFromProjection(ProjectedCreditNote snapshot) => new()
+    {
+        Id = snapshot.SapDocEntry,
+        SAPDocEntry = snapshot.SapDocEntry,
+        SAPDocNum = snapshot.SapDocNum,
+        CreditNoteNumber = $"SAP-CN-{snapshot.SapDocNum}",
+        CreditNoteDate = snapshot.DocDate,
+        CardCode = snapshot.CardCode ?? string.Empty,
+        CardName = snapshot.CardName,
+        Type = CreditNoteType.Return, // Default type for SAP credit notes
+        Status = MapSAPStatusToLocal(snapshot.DocumentStatus, snapshot.IsCancelled ? "tYES" : null),
+        Reason = snapshot.Comments,
+        Comments = snapshot.Comments,
+        Currency = snapshot.DocCurrency,
+        ExchangeRate = 1,
+        SubTotal = snapshot.DocTotal - snapshot.VatSum,
+        TaxAmount = snapshot.VatSum,
+        DocTotal = snapshot.DocTotal,
+        AppliedAmount = 0,
+        Balance = snapshot.DocTotal,
+        IsSynced = true,
+        Lines = new List<CreditNoteLineDto>()
+    };
+
+    /// <summary>The header columns the list needs, so EF reads no lines and no sync bookkeeping.</summary>
+    private sealed record ProjectedCreditNote(
+        int SapDocEntry,
+        int SapDocNum,
+        DateTime DocDate,
+        string? CardCode,
+        string? CardName,
+        string? DocCurrency,
+        string? Comments,
+        decimal DocTotal,
+        decimal VatSum,
+        string? DocumentStatus,
+        bool IsCancelled);
 
     private async Task<CreditNoteListResponseDto> GetAllFromLocalAsync(int page, int pageSize, CreditNoteStatus? status = null,
         string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, CancellationToken cancellationToken = default)

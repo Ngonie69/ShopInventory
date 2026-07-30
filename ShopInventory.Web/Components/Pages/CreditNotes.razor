@@ -3,16 +3,13 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Features.CreditNotes.Commands.ApproveCreditNote
 @using ShopInventory.Web.Features.CreditNotes.Commands.BulkCancelCreditNotes
-@using ShopInventory.Web.Features.CreditNotes.Commands.CreateCreditNote
 @using ShopInventory.Web.Features.CreditNotes.Commands.DeleteCreditNote
 @using ShopInventory.Web.Features.CreditNotes.Commands.DuplicateCancelledCreditNotes
 @using ShopInventory.Web.Features.CreditNotes.Queries.GetCreditNotes
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IMediator Mediator
+@inject ICreditNoteService CreditNoteService
 @inject IInvoiceService InvoiceService
-@inject IMasterDataCacheService CacheService
-@inject IBusinessPartnerPricingService BusinessPartnerPricingService
-@inject NavigationManager NavigationManager
 @inject ILogger<CreditNotes> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
@@ -22,2036 +19,592 @@
 
 <PageTitle>Credit Notes - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .cn-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .cn-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cn-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .cn-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .cn-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .cn-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .btn-cn-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        text-decoration: none;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-        cursor: pointer;
-    }
-
-    .btn-cn-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-        color: #fff;
-    }
-
-    .cn-header-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .5rem;
-        align-items: center;
-        justify-content: flex-end;
-    }
-
-    .cn-bulk-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .5rem;
-        align-items: center;
-        justify-content: flex-end;
-    }
-
-    .btn-cn-danger,
-    .btn-cn-outline {
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .82rem;
-        padding: .45rem .9rem;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-        transition: all .15s;
-    }
-
-    .btn-cn-danger {
-        background: #fee2e2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .btn-cn-danger:hover:not(:disabled) {
-        background: #dc2626;
-        border-color: #dc2626;
-        color: #fff;
-    }
-
-    .btn-cn-outline {
-        background: #fff;
-        border: 1px solid #d1d5db;
-        color: #374151;
-    }
-
-    .btn-cn-outline:hover:not(:disabled) {
-        background: #f3f4f6;
-        border-color: #9ca3af;
-        color: #111827;
-    }
-
-    .btn-cn-danger:disabled,
-    .btn-cn-outline:disabled {
-        opacity: .48;
-        cursor: not-allowed;
-    }
-
-    .cn-selected-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .55rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 700;
-        background: #ede9fe;
-        color: #5b21b6;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-bar .filter-field input,
-    .filter-bar .filter-field select {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .filter-bar .filter-field input:focus,
-    .filter-bar .filter-field select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .cn-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .cn-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .cn-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .cn-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    .cn-select-cell {
-        width: 42px;
-        text-align: center;
-    }
-
-    .cn-select-check {
-        width: 18px;
-        height: 18px;
-        margin: 0;
-        accent-color: #667eea;
-        cursor: pointer;
-    }
-
-    .cn-select-check:disabled {
-        cursor: not-allowed;
-        opacity: .35;
-    }
-
-    /* ── Status & Type Badges ────────────────────────── */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-badge.draft {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .status-badge.pending {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .status-badge.approved {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.applied {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .status-badge.partial {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-
-    .status-badge.cancelled {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .status-badge.voided {
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    .status-badge.fiscalised {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .status-badge.not-fiscalised {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .status-badge.unknown {
-        background: #e5e7eb;
-        color: #475569;
-    }
-
-    .type-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: .15rem .55rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-    }
-
-    .type-badge.return {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-
-    .type-badge.refund {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .type-badge.adjustment {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .type-badge.cancellation {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    /* ── Cell Styles ─────────────────────────────────── */
-    .cn-number {
-        font-weight: 700;
-        color: #667eea;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    .customer-info .name {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-    }
-
-    .customer-info .code {
-        font-size: .75rem;
-        color: #9ca3af;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .amount-cell {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    .balance-cell {
-        font-weight: 700;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    .balance-cell.has-balance {
-        color: #d97706;
-    }
-
-    .balance-cell.zero {
-        color: #059669;
-    }
-
-    /* ── Action Buttons ──────────────────────────────── */
-    .action-btn {
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        color: #6b7280;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .85rem;
-    }
-
-    .action-btn:hover {
-        background: #f3f4f6;
-        color: #374151;
-        border-color: #d1d5db;
-    }
-
-    .action-btn.view:hover {
-        background: #ede9fe;
-        color: #667eea;
-        border-color: #c4b5fd;
-    }
-
-    .action-btn.approve:hover {
-        background: #d1fae5;
-        color: #059669;
-        border-color: #6ee7b7;
-    }
-
-    .action-btn.delete:hover {
-        background: #fee2e2;
-        color: #dc2626;
-        border-color: #fca5a5;
-    }
-
-    /* ── Drawer ──────────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .15rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .detail-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    /* ── Lines Table ─────────────────────────────────── */
-    .lines-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-    }
-
-    .lines-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .lines-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    /* Total Banner */
-    .total-banner {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 1.25rem;
-    }
-
-    .total-banner .total-label {
-        font-size: .9rem;
-        font-weight: 500;
-    }
-
-    .total-banner .total-value {
-        font-size: 1.4rem;
-        font-weight: 700;
-    }
-
-    /* ── Create Modal ────────────────────────────────── */
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .create-modal-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .5);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        animation: fadeIn .2s ease;
-        padding: 1rem;
-    }
-
-    .create-modal {
-        background: #fff;
-        border-radius: 14px;
-        width: min(900px, 95vw);
-        max-height: calc(90vh - var(--kf-topbar-h, 74px));
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
-        animation: scaleIn .25s ease;
-    }
-
-    .create-modal-header {
-        padding: 1.15rem 1.5rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .create-modal-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1rem;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .create-modal-header .btn-close-modal {
-        background: #f3f4f6;
-        border: none;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        color: #6b7280;
-        transition: all .15s;
-        font-size: .9rem;
-    }
-
-    .create-modal-header .btn-close-modal:hover {
-        background: #e5e7eb;
-        color: #374151;
-    }
-
-    .create-modal-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .create-modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-    }
-
-    .cn-modal-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .5);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        animation: fadeIn .2s ease;
-        padding: 1rem;
-    }
-
-    .cn-modal {
-        background: #fff;
-        border-radius: 14px;
-        width: min(620px, 95vw);
-        max-height: calc(90vh - var(--kf-topbar-h, 74px));
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
-        animation: scaleIn .25s ease;
-    }
-
-    .cn-modal-header {
-        padding: 1.15rem 1.5rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .cn-modal-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1rem;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .cn-modal-header .btn-close-modal {
-        background: #f3f4f6;
-        border: none;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        color: #6b7280;
-        transition: all .15s;
-        font-size: .9rem;
-    }
-
-    .cn-modal-header .btn-close-modal:hover {
-        background: #e5e7eb;
-        color: #374151;
-    }
-
-    .cn-modal-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .cn-modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-    }
-
-    .cn-confirm-summary {
-        display: flex;
-        align-items: center;
-        gap: .75rem;
-        padding: .85rem 1rem;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        background: #f8fafc;
-        margin-bottom: 1rem;
-    }
-
-    .cn-confirm-count {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: #ede9fe;
-        color: #5b21b6;
-        font-weight: 800;
-        font-size: 1.05rem;
-    }
-
-    .cn-confirm-copy {
-        color: #374151;
-        font-size: .9rem;
-        font-weight: 600;
-    }
-
-    .cn-confirm-subcopy {
-        color: #6b7280;
-        font-size: .82rem;
-        margin-top: .15rem;
-    }
-
-    .cn-confirm-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 700;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .45px;
-        margin-bottom: .35rem;
-    }
-
-    .cn-confirm-textarea {
-        width: 100%;
-        min-height: 92px;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        padding: .65rem .8rem;
-        color: #374151;
-        background: #fff;
-        resize: vertical;
-        font-size: .88rem;
-    }
-
-    .cn-confirm-textarea:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .form-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-    }
-
-    .form-field {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .form-field.full {
-        grid-column: span 2;
-    }
-
-    .form-field label {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-        margin-bottom: .25rem;
-    }
-
-    .form-field input,
-    .form-field select,
-    .form-field textarea {
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        transition: all .15s;
-    }
-
-    .form-field input:focus,
-    .form-field select:focus,
-    .form-field textarea:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .form-field .checkbox-row {
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-        padding: .5rem 0;
-    }
-
-    .btn-create {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-create:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-    }
-
-    .btn-create:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f9fafb;
-    }
-
-    /* ── Line Items Section ───────────────────────── */
-    .line-items-section {
-        margin-top: 1rem;
-    }
-
-    .line-items-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: .5rem;
-    }
-
-    .line-items-header label {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-    }
-
-    .btn-add-line {
-        background: #f0f4ff;
-        border: 1px dashed #667eea;
-        color: #667eea;
-        padding: .3rem .75rem;
-        border-radius: 6px;
-        font-size: .78rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-    }
-
-    .btn-add-line:hover {
-        background: #e0e7ff;
-    }
-
-    .line-items-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: .82rem;
-    }
-
-    .line-items-table thead th {
-        background: #f9fafb;
-        padding: .45rem .5rem;
-        text-align: left;
-        font-weight: 600;
-        color: #6b7280;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .3px;
-        border-bottom: 1px solid #e5e7eb;
-    }
-
-    .line-items-table tbody td {
-        padding: .35rem .35rem;
-        border-bottom: 1px solid #f3f4f6;
-        vertical-align: middle;
-    }
-
-    .line-items-table input {
-        width: 100%;
-        padding: .35rem .5rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: .82rem;
-        color: #374151;
-        transition: border-color .15s;
-    }
-
-    .line-items-table input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, .12);
-    }
-
-    .line-items-table input[type="number"] {
-        text-align: right;
-    }
-
-    .btn-remove-line {
-        background: none;
-        border: none;
-        color: #ef4444;
-        cursor: pointer;
-        padding: .2rem;
-        border-radius: 4px;
-        font-size: .9rem;
-        transition: background .15s;
-    }
-
-    .btn-remove-line:hover {
-        background: #fef2f2;
-    }
-
-    .line-total-cell {
-        font-weight: 600;
-        color: #374151;
-        text-align: right;
-        padding-right: .5rem;
-        white-space: nowrap;
-    }
-
-    .line-items-empty {
-        text-align: center;
-        padding: 1rem;
-        color: #9ca3af;
-        font-size: .85rem;
-    }
-
-    .line-items-summary {
-        display: flex;
-        justify-content: flex-end;
-        margin-top: .5rem;
-        padding-top: .5rem;
-        border-top: 2px solid #e5e7eb;
-    }
-
-    .line-items-summary .summary-label {
-        font-weight: 600;
-        color: #374151;
-        font-size: .88rem;
-        margin-right: .75rem;
-    }
-
-    .line-items-summary .summary-value {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-size: .92rem;
-    }
-
-    .validation-hint {
-        color: #ef4444;
-        font-size: .75rem;
-        margin-top: .25rem;
-    }
-
-    /* ── Customer badge & Dropdowns ──────────────────── */
-    .cn-selected-customer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 8px;
-        padding: .5rem .75rem;
-    }
-
-    .cn-bp-clear {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #dc2626;
-        width: 26px;
-        height: 26px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .8rem;
-    }
-
-    .cn-bp-clear:hover {
-        background: #dc2626;
-        color: #fff;
-        border-color: #dc2626;
-    }
-
-    .cn-dropdown {
-        position: absolute;
-        z-index: 10001;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        max-height: 250px;
-        overflow-y: auto;
-        width: 100%;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
-        margin-top: 2px;
-    }
-
-    .cn-dropdown-item {
-        padding: .45rem .75rem;
-        cursor: pointer;
-        transition: background .12s;
-        font-size: .85rem;
-        border-bottom: 1px solid #f9fafb;
-    }
-
-    .cn-dropdown-item:hover {
-        background: #f0fdf4;
-    }
-
-    .line-items-table select {
-        width: 100%;
-        padding: .35rem .4rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: .82rem;
-        color: #374151;
-        background: #fff;
-    }
-
-    .line-items-table select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, .12);
-    }
-
-    /* Reason highlight */
-    .reason-box {
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: .75rem 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .reason-box strong {
-        color: #374151;
-        font-size: .82rem;
-    }
-
-    .reason-box p {
-        margin: 0;
-        color: #1a1a2e;
-        font-size: .88rem;
-    }
-
-    /* ── Empty / Loading ─────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@keyframes scaleIn {
-        from {
-            opacity: 0;
-            transform: scale(.95);
-        }
-
-        to {
-            opacity: 1;
-            transform: scale(1);
-        }
-    }
-
-    @@media (max-width:768px) {
-        .cn-header {
-            flex-direction: column;
-        }
-
-        .filter-bar {
-            flex-direction: column;
-        }
-
-        .detail-grid,
-        .form-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .form-field.full {
-            grid-column: span 1;
-        }
-    }
-</style>
-
-<div class="cn-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="cn-header">
-            <div class="cn-header-left">
-                <div class="cn-header-icon"><i class="bi bi-file-earmark-minus"></i></div>
-                <div>
-                    <h2>Credit Notes</h2>
-                    <p>Manage customer credits and adjustments</p>
+@* The imported Nocturne design is dark; wwwroot/css/credit-notes.css (linked
+   from App.razor) carries it and its light counterpart, and follows the app's
+   theme toggle like every other page. Icon-only buttons draw their glyph
+   inline rather than from the Phosphor font: the glyph is their whole label,
+   so a font that fails to load would leave them reading as dead controls. *@
+
+<div class="cnx">
+
+    <header class="cnx-head">
+        <div class="cnx-shell">
+            <div class="cnx-titles">
+                <div class="cnx-titles-row">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>
+                    <h1 class="cnx-title">Credit Notes</h1>
                 </div>
+                <p class="cnx-sub">Customer credits and adjustments</p>
             </div>
-            <div class="cn-header-actions">
-                <MudButton Class="btn-cn-danger" OnClick="OpenBulkCancelModal" Disabled="@(!CanOpenBulkCancel)">
-                    <i class="bi bi-x-octagon"></i> Cancel Selected
-                </MudButton>
-                <MudButton Class="btn-cn-outline" OnClick="OpenDuplicateCancelledModal"
-                           Disabled="@(!CanOpenDuplicateCancelled)">
-                    <i class="bi bi-copy"></i> Duplicate Cancelled
-                </MudButton>
-                <MudButton Class="btn-cn-gradient" Href="/credit-notes/create">
-                    <i class="bi bi-plus-lg"></i> New Credit Note
-                </MudButton>
+            <div class="cnx-head-actions">
+                <span class="cnx-count">@totalCount.ToString("N0") notes</span>
+                <a class="cnx-btn cnx-btn-primary" href="/credit-notes/create">
+                    <i class="ph ph-plus" aria-hidden="true"></i>New credit note
+                </a>
             </div>
         </div>
+        <div class="cnx-rule"></div>
+    </header>
 
-        <!-- ━━━ Alerts ━━━ -->
+    <div class="cnx-body">
+
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small"
-                               Style="color:inherit;opacity:.45;" />
+            <div class="cnx-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="cnx-alert-body">@errorMessage</div>
+                <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
             </div>
         }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Credit Note #</label>
-                <input type="text" @bind="creditNoteNumberFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown"
-                       placeholder="e.g., CN-001" />
+        <section class="cnx-filters">
+            <div class="cnx-field" style="width:132px">
+                <label for="cnx-f-number">Credit note #</label>
+                <input id="cnx-f-number" class="cnx-input cnx-input-num" type="text" placeholder="CN-001"
+                       @bind="creditNoteNumberFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown" />
             </div>
-            <div class="filter-field">
-                <label>Customer</label>
-                <input type="text" @bind="customerFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown"
-                       placeholder="Customer code or name" />
+            <div class="cnx-field" style="width:196px">
+                <label for="cnx-f-customer">Customer</label>
+                <input id="cnx-f-customer" class="cnx-input" type="text" placeholder="Code or name"
+                       @bind="customerFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown" />
             </div>
-            <div class="filter-field">
-                <label>Status</label>
-                <select @bind="statusFilter">
-                    <option value="">All Statuses</option>
-                    @foreach (CreditNoteStatus status in Enum.GetValues(typeof(CreditNoteStatus)))
-                    {
-                        <option value="@(((int)status).ToString())">@status</option>
-                    }
-                </select>
-            </div>
-            <div class="filter-field">
-                <label>Fiscal Status</label>
-                <select @bind="fiscalStatusFilter">
-                    <option value="">All Fiscal States</option>
-                    <option value="Fiscalised">Fiscalised</option>
-                    <option value="Not Fiscalised">Not Fiscalised</option>
-                    <option value="Unknown">Unknown</option>
-                </select>
-            </div>
-            <div class="filter-field">
-                <label>From Date</label>
-                <MudDatePicker @bind-Date="fromDate"
-                               Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat"
-                               Editable="true" />
-            </div>
-            <div class="filter-field">
-                <label>To Date</label>
-                <MudDatePicker @bind-Date="toDate"
-                               Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat"
-                               Editable="true" />
-            </div>
-            <div class="filter-actions-row">
-                <MudButton Class="btn-search" OnClick="ApplyFilters">
-                    <i class="bi bi-search"></i> Apply
-                </MudButton>
-                <MudButton Class="btn-clear" OnClick="ClearFilter">
-                    <i class="bi bi-x-circle"></i> Clear
-                </MudButton>
-            </div>
-        </div>
-
-        <!-- ━━━ Content ━━━ -->
-        @if (isLoading)
-        {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading credit notes...</p>
-            </div>
-        }
-        else if (creditNotes?.Any() == true)
-        {
-            <div class="cn-table-wrap">
-                <div class="cn-table-header">
-                    <h6>
-                        <i class="bi bi-table"></i> Credit Notes
-                        @if (SelectedCreditNoteCount > 0)
+            <div class="cnx-field" style="width:150px">
+                <label for="cnx-f-status">Status</label>
+                <div class="cnx-select">
+                    <select id="cnx-f-status" class="cnx-input" @bind="statusFilter" @bind:after="ApplyFilters">
+                        <option value="">All statuses</option>
+                        @foreach (CreditNoteStatus status in Enum.GetValues<CreditNoteStatus>())
                         {
-                            <span class="cn-selected-pill">@SelectedCreditNoteCount selected</span>
+                            <option value="@(((int)status).ToString())">@status</option>
                         }
-                    </h6>
-                    <div class="cn-bulk-actions">
-                        <MudButton Class="btn-cn-danger" OnClick="OpenBulkCancelModal" Disabled="@(!CanOpenBulkCancel)">
-                            <i class="bi bi-x-octagon"></i> Cancel
-                        </MudButton>
-                        <MudButton Class="btn-cn-outline" OnClick="OpenDuplicateCancelledModal"
-                                   Disabled="@(!CanOpenDuplicateCancelled)">
-                            <i class="bi bi-copy"></i> Duplicate
-                        </MudButton>
-                        <span class="cn-count-badge">@totalCount total</span>
-                    </div>
+                    </select>
+                    <span class="cnx-caret" aria-hidden="true"></span>
                 </div>
-                <MudTable @ref="@_table" Items="@creditNotes" RowsPerPage="@_pageSize" Hover="true" Striped="true"
-                          Dense="true" Breakpoint="Breakpoint.Sm"
-                          Loading="@isLoading" LoadingProgressColor="Color.Primary" T="CreditNoteDto" Elevation="0"
-                          Style="background:transparent;">
-                    <HeaderContent>
-                        <MudTh Class="cn-select-cell">
-                            <input class="cn-select-check" type="checkbox" checked="@AreAllDisplayedCreditNotesSelected()"
-                                   @onchange="ToggleAllDisplayedCreditNotes" title="Select visible credit notes" />
-                        </MudTh>
-                        <MudTh>Credit Note #</MudTh>
-                        <MudTh>Customer</MudTh>
-                        <MudTh>Date</MudTh>
-                        <MudTh>Type</MudTh>
-                        <MudTh>Status</MudTh>
-                        <MudTh>Fiscal</MudTh>
-                        <MudTh>Reason</MudTh>
-                        <MudTh Style="text-align:right">Total</MudTh>
-                        <MudTh Style="text-align:right">Balance</MudTh>
-                        <MudTh Style="width:100px">Actions</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Select" Class="cn-select-cell">
-                            <input class="cn-select-check" type="checkbox" checked="@IsCreditNoteSelected(context)"
-                                   disabled="@(!CanSelectCreditNote(context))"
-                                   @onchange="args => ToggleCreditNoteSelection(context, args)" title="Select credit note" />
-                        </MudTd>
-                        <MudTd DataLabel="Credit Note #"><span
-                            class="cn-number">@FormatCreditNoteNumber(context.CreditNoteNumber)</span></MudTd>
-                            <MudTd DataLabel="Customer">
-                                <div class="customer-info">
-                                    <span class="name">@context.CardName</span>
-                                    <span class="code">@context.CardCode</span>
-                                </div>
-                            </MudTd>
-                            <MudTd DataLabel="Date"><span
-                                style="font-size:.85rem;color:#374151;">@context.CreditNoteDate.ToString("dd MMM yyyy")</span></MudTd>
-                                <MudTd DataLabel="Type">
-                                    <span class="type-badge @GetTypeCssClass(context.Type)">@context.TypeName</span>
-                                </MudTd>
-                                <MudTd DataLabel="Status">
-                                    <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
-                                </MudTd>
-                                <MudTd DataLabel="Fiscal">
-                                    <span
-                                    class="status-badge @GetFiscalStatusCssClass(context.FiscalizationStatus)">@context.FiscalizationStatus</span>
-                                </MudTd>
-                                <MudTd DataLabel="Reason">
-                                    <span title="@context.Reason"
-                                          style="font-size:.85rem;color:#6b7280;">@TruncateText(context.Reason, 30)</span>
-                                </MudTd>
-                                <MudTd DataLabel="Total" Style="text-align:right">
-                                    <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
-                                </MudTd>
-                                <MudTd DataLabel="Balance" Style="text-align:right">
-                                    <span
-                                    class="balance-cell @(context.Balance > 0 ? "has-balance" : "zero")">@context.Balance.ToString("N2")</span>
-                                </MudTd>
-                                <MudTd DataLabel="Actions">
-                                    <div style="display:flex;gap:.3rem;">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility"
-                                                       OnClick="() => ViewCreditNote(context)" title="View Details" Class="action-btn view"
-                                                       Size="Size.Small" />
-                                        @if (context.Status == CreditNoteStatus.Pending)
-                                        {
-                                            <MudIconButton Icon="@Icons.Material.Filled.Check"
-                                                           OnClick="() => ApproveCreditNote(context.Id)" title="Approve" Class="action-btn approve"
-                                                           Size="Size.Small" />
-                                        }
-                                        @if (context.Status == CreditNoteStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                            CreditNoteStatus.Cancelled)
-                                        {
-                                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                           OnClick="() => DeleteCreditNote(context.Id)" title="Delete" Class="action-btn delete"
-                                                           Size="Size.Small" />
-                                        }
-                                    </div>
-                                </MudTd>
-                            </RowTemplate>
-                            <PagerContent>
-                                <div class="pager-row">
-                                    <div class="page-size-wrap">
-                                        <span>Show</span>
-                                        <select @bind="_pageSize">
-                                            <option value="10">10</option>
-                                            <option value="25">25</option>
-                                            <option value="50">50</option>
-                                            <option value="100">100</option>
-                                            <option value="200">200</option>
-                                        </select>
-                                        <span>per page</span>
-                                    </div>
-                                    <MudPagination SelectedChanged="PageChanged"
-                                                   Count="@Math.Max(1, (int)Math.Ceiling((double)(creditNotes?.Count ?? 0) / _table.RowsPerPage))"
-                                                   Class="pa-4" />
-                                </div>
-                            </PagerContent>
-                        </MudTable>
-                    </div>
-                }
-        else
+            </div>
+            <div class="cnx-field" style="width:150px">
+                <label for="cnx-f-fiscal">Fiscal state</label>
+                <div class="cnx-select">
+                    <select id="cnx-f-fiscal" class="cnx-input" @bind="fiscalStatusFilter" @bind:after="ApplyFilters">
+                        <option value="">All fiscal states</option>
+                        <option value="Fiscalised">Fiscalised</option>
+                        <option value="Not Fiscalised">Not Fiscalised</option>
+                        <option value="Unknown">Unknown</option>
+                    </select>
+                    <span class="cnx-caret" aria-hidden="true"></span>
+                </div>
+            </div>
+            <div class="cnx-field" style="width:134px">
+                <label for="cnx-f-from">From date</label>
+                <input id="cnx-f-from" class="cnx-input cnx-input-num" type="date" @bind="fromDate" />
+            </div>
+            <div class="cnx-field" style="width:134px">
+                <label for="cnx-f-to">To date</label>
+                <input id="cnx-f-to" class="cnx-input cnx-input-num" type="date" @bind="toDate" />
+            </div>
+            <div class="cnx-filter-actions">
+                @if (FiltersActive)
                 {
-                    <div class="empty-state">
-                        <div class="empty-icon"><i class="bi bi-file-earmark-minus"></i></div>
-                        <h6>No credit notes found</h6>
-                        <p>Create a new credit note or adjust your filters.</p>
+                    <button type="button" class="cnx-btn cnx-btn-ghost" @onclick="ClearFilter">Clear</button>
+                }
+                <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="ApplyFilters">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>Apply
+                </button>
+            </div>
+        </section>
+
+        <section class="cnx-card">
+
+            <div class="cnx-toolbar">
+                @if (SelectedCreditNoteCount > 0)
+                {
+                    <span class="cnx-selected">
+                        <span class="cnx-pip" aria-hidden="true"></span>@SelectedCreditNoteCount selected
+                    </span>
+                    <div class="cnx-toolbar-actions">
+                        <button type="button" class="cnx-btn cnx-btn-secondary cnx-btn-sm"
+                                title="Cancel the selected SAP credit notes" @onclick="OpenBulkCancelModal"
+                                disabled="@(!CanOpenBulkCancel)">
+                            <i class="ph ph-prohibit" aria-hidden="true"></i>Cancel selected
+                        </button>
+                        <button type="button" class="cnx-btn cnx-btn-secondary cnx-btn-sm"
+                                title="Create replacements for the selected cancelled credit notes"
+                                @onclick="OpenDuplicateCancelledModal" disabled="@(!CanOpenDuplicateCancelled)">
+                            <i class="ph ph-copy" aria-hidden="true"></i>Duplicate
+                        </button>
+                        <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-sm" @onclick="ClearSelection">
+                            Deselect
+                        </button>
                     </div>
                 }
+                else
+                {
+                    <span class="cnx-range">@RangeLabel</span>
+                    <span class="cnx-hint">
+                        <i class="ph ph-cursor-click" aria-hidden="true"></i>Select rows to cancel or duplicate
+                    </span>
+                }
             </div>
-        </div>
 
-        <!-- ━━━ View Credit Note Drawer ━━━ -->
-        @if (selectedCreditNote != null)
-        {
-            <div class="modal-backdrop-custom" @onclick="CloseCreditNoteDetails"></div>
-            <div class="detail-drawer">
-                <div class="drawer-header">
-                    <h5><i class="bi bi-file-earmark-minus me-2"></i>Credit Note: @selectedCreditNote.CreditNoteNumber</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseCreditNoteDetails" Class="btn-close-drawer"
-                                   Size="Size.Small" />
-                </div>
-                <div class="drawer-body">
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <div class="detail-label">Customer</div>
-                            <div class="detail-value">@selectedCreditNote.CardCode — @selectedCreditNote.CardName</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Date</div>
-                            <div class="detail-value">@selectedCreditNote.CreditNoteDate.ToString("dd MMM yyyy")</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Type</div>
-                            <div class="detail-value"><span
-                                class="type-badge @GetTypeCssClass(selectedCreditNote.Type)">@selectedCreditNote.TypeName</span>
-                            </div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Status</div>
-                            <div class="detail-value"><span
-                                class="status-badge @GetStatusCssClass(selectedCreditNote.Status)">@selectedCreditNote.StatusName</span>
-                            </div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Fiscal Status</div>
-                            <div class="detail-value"><span
-                                class="status-badge @GetFiscalStatusCssClass(selectedCreditNote.FiscalizationStatus)">@selectedCreditNote.FiscalizationStatus</span>
-                            </div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Currency</div>
-                            <div class="detail-value">@selectedCreditNote.Currency</div>
-                        </div>
-                        @if (selectedCreditNote.FiscalReceiptGlobalNo.HasValue)
+            <div class="cnx-tablewrap">
+                <table class="cnx-table">
+                    <thead>
+                        <tr>
+                            <th>
+                                <input class="cnx-check" type="checkbox" title="Select visible credit notes"
+                                       aria-label="Select visible credit notes"
+                                       checked="@AreAllDisplayedCreditNotesSelected()"
+                                       @onchange="ToggleAllDisplayedCreditNotes" />
+                            </th>
+                            <th class="cnx-th-sort" @onclick="() => SortBy(SortKey.Number)">
+                                Note #<span class="cnx-sort-mark">@SortMark(SortKey.Number)</span>
+                            </th>
+                            <th>Customer</th>
+                            <th class="cnx-th-sort" @onclick="() => SortBy(SortKey.Date)">
+                                Date<span class="cnx-sort-mark">@SortMark(SortKey.Date)</span>
+                            </th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Fiscal</th>
+                            <th>Reason</th>
+                            <th class="cnx-th-sort cnx-num" @onclick="() => SortBy(SortKey.Total)">
+                                Total<span class="cnx-sort-mark">@SortMark(SortKey.Total)</span>
+                            </th>
+                            <th class="cnx-num">Balance</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
                         {
-                            <div class="detail-item">
-                                <div class="detail-label">Fiscal Receipt #</div>
-                                <div class="detail-value">@selectedCreditNote.FiscalReceiptGlobalNo</div>
-                            </div>
+                            @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 11; skeletonCell++)
+                                    {
+                                        <td><div class="cnx-skel"></div></td>
+                                    }
+                                </tr>
+                            }
                         }
-                        <div class="detail-item">
-                            <div class="detail-label">Restock Items</div>
-                            <div class="detail-value">@(selectedCreditNote.RestockItems ? "Yes" : "No")</div>
+                        else
+                        {
+                            @foreach (var note in pageRows)
+                            {
+                                <tr @key="GetCreditNoteSelectionKey(note)" class="@GetRowClass(note)">
+                                    <td>
+                                        <input class="cnx-check" type="checkbox" title="Select credit note"
+                                               aria-label="Select credit note @FormatCreditNoteNumber(note.CreditNoteNumber)"
+                                               checked="@IsCreditNoteSelected(note)"
+                                               disabled="@(!CanSelectCreditNote(note))"
+                                               @onchange="args => ToggleCreditNoteSelection(note, args)" />
+                                    </td>
+                                    <td>
+                                        <button type="button" class="cnx-link" @onclick="() => ViewCreditNote(note)">
+                                            @FormatCreditNoteNumber(note.CreditNoteNumber)
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <span class="cnx-cust">
+                                            <span class="cnx-cust-name">@note.CardName</span>
+                                            <span class="cnx-cust-code">@note.CardCode</span>
+                                        </span>
+                                    </td>
+                                    <td class="cnx-date">@note.CreditNoteDate.ToString("dd MMM yyyy")</td>
+                                    <td><span class="cnx-tag">@note.TypeName</span></td>
+                                    <td>
+                                        <span class="cnx-status">
+                                            <span class="cnx-dot @GetStatusDotClass(note.Status)" aria-hidden="true"></span>
+                                            <span class="cnx-status-text @(note.Status == CreditNoteStatus.Applied ? "is-applied" : "")">@note.StatusName</span>
+                                        </span>
+                                    </td>
+                                    <td class="cnx-fiscal">@note.FiscalizationStatus</td>
+                                    <td>
+                                        <span class="cnx-reason" title="@note.Reason">@(string.IsNullOrWhiteSpace(note.Reason) ? "—" : note.Reason)</span>
+                                    </td>
+                                    <td class="cnx-num">@note.DocTotal.ToString("N2")</td>
+                                    <td class="cnx-num">
+                                        <span class="cnx-bal @(HasOpenBalance(note) ? "is-open" : "")">
+                                            @(HasOpenBalance(note) ? note.Balance.ToString("N2") : "—")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="cnx-rowactions">
+                                            <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
+                                                    title="View credit note" aria-label="View credit note"
+                                                    @onclick="() => ViewCreditNote(note)">
+                                                <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                    <path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,94,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48,48,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z" />
+                                                </svg>
+                                            </button>
+                                            @if (note.Status == CreditNoteStatus.Pending)
+                                            {
+                                                <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
+                                                        title="Approve" aria-label="Approve credit note"
+                                                        @onclick="() => ApproveCreditNote(note.Id)">
+                                                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                        <path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z" />
+                                                    </svg>
+                                                </button>
+                                            }
+                                            @if (note.Status == CreditNoteStatus.Draft || note.Status == CreditNoteStatus.Cancelled)
+                                            {
+                                                <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon-sm"
+                                                        title="Delete" aria-label="Delete credit note"
+                                                        @onclick="() => DeleteCreditNote(note.Id)">
+                                                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                        <path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z" />
+                                                    </svg>
+                                                </button>
+                                            }
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!isLoading && totalCount == 0)
+            {
+                <div class="cnx-empty">
+                    <i class="ph ph-funnel-simple" aria-hidden="true"></i>
+                    <span>No credit notes match these filters</span>
+                    @if (FiltersActive)
+                    {
+                        <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-sm" @onclick="ClearFilter">
+                            Clear filters
+                        </button>
+                    }
+                </div>
+            }
+
+            <div class="cnx-foot">
+                <span class="cnx-foot-range">@RangeLabel</span>
+                <div class="cnx-pager">
+                    <button type="button" class="cnx-btn cnx-btn-secondary cnx-btn-icon" title="Previous page"
+                            aria-label="Previous page" disabled="@(currentPage <= 1)" @onclick="PreviousPage">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M165.66,202.34a8,8,0,0,1-11.32,11.32l-80-80a8,8,0,0,1,0-11.32l80-80a8,8,0,0,1,11.32,11.32L91.31,128Z" />
+                        </svg>
+                    </button>
+                    <span class="cnx-page-label">Page @currentPage / @totalPages</span>
+                    <button type="button" class="cnx-btn cnx-btn-secondary cnx-btn-icon" title="Next page"
+                            aria-label="Next page" disabled="@(currentPage >= totalPages)" @onclick="NextPage">
+                        <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                            <path d="M181.66,133.66l-80,80a8,8,0,0,1-11.32-11.32L164.69,128,90.34,53.66a8,8,0,0,1,11.32-11.32l80,80A8,8,0,0,1,181.66,133.66Z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+@if (selectedCreditNote != null)
+{
+    <div class="cnx-overlay">
+        <div class="cnx-scrim" @onclick="CloseCreditNoteDetails"></div>
+        <aside class="cnx-drawer" aria-label="Credit note details">
+            <div class="cnx-drawer-head">
+                <h2 class="cnx-drawer-title">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>
+                    @FormatCreditNoteNumber(selectedCreditNote.CreditNoteNumber)
+                </h2>
+                <button type="button" class="cnx-btn cnx-btn-ghost cnx-btn-icon" title="Close"
+                        aria-label="Close details" @onclick="CloseCreditNoteDetails">
+                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                    </svg>
+                </button>
+            </div>
+            <div class="cnx-drawer-body">
+                <div class="cnx-grid">
+                    <div>
+                        <div class="cnx-dt">Customer</div>
+                        <div class="cnx-dd">@selectedCreditNote.CardCode — @selectedCreditNote.CardName</div>
+                    </div>
+                    <div>
+                        <div class="cnx-dt">Date</div>
+                        <div class="cnx-dd">@selectedCreditNote.CreditNoteDate.ToString("dd MMM yyyy")</div>
+                    </div>
+                    <div>
+                        <div class="cnx-dt">Type</div>
+                        <div class="cnx-dd"><span class="cnx-tag">@selectedCreditNote.TypeName</span></div>
+                    </div>
+                    <div>
+                        <div class="cnx-dt">Status</div>
+                        <div class="cnx-dd">
+                            <span class="cnx-status">
+                                <span class="cnx-dot @GetStatusDotClass(selectedCreditNote.Status)" aria-hidden="true"></span>
+                                <span class="cnx-status-text @(selectedCreditNote.Status == CreditNoteStatus.Applied ? "is-applied" : "")">@selectedCreditNote.StatusName</span>
+                            </span>
                         </div>
                     </div>
-
-                    @if (!string.IsNullOrEmpty(selectedCreditNote.Reason))
+                    <div>
+                        <div class="cnx-dt">Fiscal status</div>
+                        <div class="cnx-dd">@selectedCreditNote.FiscalizationStatus</div>
+                    </div>
+                    <div>
+                        <div class="cnx-dt">Currency</div>
+                        <div class="cnx-dd">@selectedCreditNote.Currency</div>
+                    </div>
+                    @if (selectedCreditNote.FiscalReceiptGlobalNo.HasValue)
                     {
-                        <div class="reason-box">
-                            <strong>Reason</strong>
-                            <p>@selectedCreditNote.Reason</p>
+                        <div>
+                            <div class="cnx-dt">Fiscal receipt #</div>
+                            <div class="cnx-dd">@selectedCreditNote.FiscalReceiptGlobalNo</div>
                         </div>
                     }
+                    <div>
+                        <div class="cnx-dt">Restock items</div>
+                        <div class="cnx-dd">@(selectedCreditNote.RestockItems ? "Yes" : "No")</div>
+                    </div>
+                </div>
 
-                    @if (selectedCreditNote.OriginalInvoiceDocEntry.HasValue)
-                    {
-                        <div class="detail-section-title"><i class="bi bi-link-45deg"></i> Source Invoice</div>
+                @if (!string.IsNullOrEmpty(selectedCreditNote.Reason))
+                {
+                    <div class="cnx-note">
+                        <div class="cnx-dt">Reason</div>
+                        @selectedCreditNote.Reason
+                    </div>
+                }
 
+                @if (selectedCreditNote.OriginalInvoiceDocEntry.HasValue)
+                {
+                    <div>
+                        <div class="cnx-sect"><i class="ph ph-link" aria-hidden="true"></i>Source invoice</div>
                         @if (isLoadingSourceInvoice)
                         {
-                            <div class="reason-box">
-                                <strong>Loading source invoice</strong>
-                                <p>Fetching the linked invoice details...</p>
-                            </div>
+                            <div class="cnx-note">Fetching the linked invoice details…</div>
                         }
                         else if (selectedSourceInvoice != null)
                         {
-                            <div class="detail-grid">
-                                <div class="detail-item">
-                                    <div class="detail-label">Invoice #</div>
-                                    <div class="detail-value">@selectedSourceInvoice.DocNum</div>
+                            <div class="cnx-grid">
+                                <div>
+                                    <div class="cnx-dt">Invoice #</div>
+                                    <div class="cnx-dd">@selectedSourceInvoice.DocNum</div>
                                 </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Doc Entry</div>
-                                    <div class="detail-value">@selectedSourceInvoice.DocEntry</div>
+                                <div>
+                                    <div class="cnx-dt">Doc entry</div>
+                                    <div class="cnx-dd">@selectedSourceInvoice.DocEntry</div>
                                 </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Customer</div>
-                                    <div class="detail-value">@selectedSourceInvoice.CardCode — @selectedSourceInvoice.CardName</div>
+                                <div>
+                                    <div class="cnx-dt">Customer</div>
+                                    <div class="cnx-dd">@selectedSourceInvoice.CardCode — @selectedSourceInvoice.CardName</div>
                                 </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Invoice Date</div>
-                                    <div class="detail-value">@FormatDate(selectedSourceInvoice.DocDate)</div>
+                                <div>
+                                    <div class="cnx-dt">Invoice date</div>
+                                    <div class="cnx-dd">@FormatDate(selectedSourceInvoice.DocDate)</div>
                                 </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Currency</div>
-                                    <div class="detail-value">@selectedSourceInvoice.DocCurrency</div>
+                                <div>
+                                    <div class="cnx-dt">Currency</div>
+                                    <div class="cnx-dd">@selectedSourceInvoice.DocCurrency</div>
                                 </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Invoice Total</div>
-                                    <div class="detail-value">@selectedSourceInvoice.DocTotal.ToString("N2")</div>
+                                <div>
+                                    <div class="cnx-dt">Invoice total</div>
+                                    <div class="cnx-dd">@selectedSourceInvoice.DocTotal.ToString("N2")</div>
                                 </div>
                                 @if (!string.IsNullOrWhiteSpace(selectedSourceInvoice.NumAtCard))
                                 {
-                                    <div class="detail-item">
-                                        <div class="detail-label">Reference</div>
-                                        <div class="detail-value">@selectedSourceInvoice.NumAtCard</div>
+                                    <div>
+                                        <div class="cnx-dt">Reference</div>
+                                        <div class="cnx-dd">@selectedSourceInvoice.NumAtCard</div>
                                     </div>
                                 }
                             </div>
                         }
                         else
                         {
-                            <div class="reason-box">
-                                <strong>Source invoice</strong>
-                                <p>Linked invoice DocEntry: @selectedCreditNote.OriginalInvoiceDocEntry</p>
-                            </div>
+                            <div class="cnx-note">Linked invoice DocEntry: @selectedCreditNote.OriginalInvoiceDocEntry</div>
                         }
-                    }
+                    </div>
+                }
 
-                    @if (selectedCreditNote.Lines?.Any() == true)
-                    {
-                        <div class="detail-section-title"><i class="bi bi-list-ul"></i> Credit Note Lines</div>
-                        <table class="lines-table">
+                @if (isLoadingDetail)
+                {
+                    <div>
+                        <div class="cnx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Credit note lines</div>
+                        <div class="cnx-note">Fetching the document from SAP…</div>
+                    </div>
+                }
+                else if (detailUnavailable)
+                {
+                    <div>
+                        <div class="cnx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Credit note lines</div>
+                        <div class="cnx-note">
+                            The lines could not be read from SAP. The totals above come from the local
+                            projection and are current as of the last synchronisation.
+                        </div>
+                    </div>
+                }
+                else if (selectedCreditNote.Lines?.Any() == true)
+                {
+                    <div>
+                        <div class="cnx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Credit note lines</div>
+                        <table class="cnx-lines">
                             <thead>
                                 <tr>
                                     <th>Item</th>
                                     <th>Description</th>
-                                    <th style="text-align:right">Qty</th>
-                                    <th style="text-align:right">Unit Price</th>
-                                    <th style="text-align:right">Total</th>
-                                    <th style="text-align:center">Restocked</th>
+                                    <th class="cnx-num">Qty</th>
+                                    <th class="cnx-num">Unit price</th>
+                                    <th class="cnx-num">Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @foreach (var line in selectedCreditNote.Lines)
                                 {
                                     <tr>
-                                        <td><span style="font-weight:600;color:#667eea;">@line.ItemCode</span></td>
+                                        <td><span class="cnx-cust-name">@line.ItemCode</span></td>
                                         <td>@line.ItemDescription</td>
-                                        <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity)</td>
-                                        <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                        <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
-                                        <td style="text-align:center;">
-                                            @if (line.IsRestocked)
-                                            {
-                                                <i class="bi bi-check-circle-fill" style="color:#059669;"></i>
-                                            }
-                                            else
-                                            {
-                                                <i class="bi bi-dash-circle" style="color:#d1d5db;"></i>
-                                            }
-                                        </td>
+                                        <td class="cnx-num">@QuantityDisplay.Format(line.Quantity)</td>
+                                        <td class="cnx-num">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="cnx-num">@line.LineTotal.ToString("N2")</td>
                                     </tr>
                                 }
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
-                                    <td style="text-align:right;font-weight:600;">@selectedCreditNote.SubTotal.ToString("N2")</td>
-                                    <td></td>
+                                    <td colspan="4" class="cnx-num">Subtotal</td>
+                                    <td class="cnx-num">@selectedCreditNote.SubTotal.ToString("N2")</td>
                                 </tr>
                                 <tr>
-                                    <td colspan="4" style="text-align:right;font-weight:600;">Tax:</td>
-                                    <td style="text-align:right;">@selectedCreditNote.TaxAmount.ToString("N2")</td>
-                                    <td></td>
+                                    <td colspan="4" class="cnx-num">Tax</td>
+                                    <td class="cnx-num">@selectedCreditNote.TaxAmount.ToString("N2")</td>
                                 </tr>
                             </tfoot>
                         </table>
 
-                        <div class="total-banner">
-                            <span class="total-label">Total</span>
-                            <span class="total-value">@selectedCreditNote.DocTotal.ToString("N2")</span>
+                        <div class="cnx-total" style="margin-top:var(--cnx-s4)">
+                            <span class="cnx-total-label">Total</span>
+                            <span class="cnx-total-value">@selectedCreditNote.DocTotal.ToString("N2")</span>
                         </div>
-                    }
+                    </div>
+                }
+            </div>
+            <div class="cnx-drawer-foot">
+                <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseCreditNoteDetails">Close</button>
+            </div>
+        </aside>
+    </div>
+}
+
+@if (showBulkCancelModal)
+{
+    <div class="cnx-overlay">
+        <div class="cnx-dialog-wrap" @onclick="CloseBulkCancelModal">
+            <div class="cnx-dialog" role="dialog" aria-modal="true" aria-label="Cancel credit notes"
+                 @onclick:stopPropagation="true">
+                <h2 class="cnx-dialog-title"><i class="ph ph-prohibit" aria-hidden="true"></i>Cancel credit notes</h2>
+                <div class="cnx-dialog-body">
+                    <div class="cnx-confirm">
+                        <span class="cnx-confirm-count">@SelectedCancelableCreditNoteCount</span>
+                        <div>
+                            <div class="cnx-confirm-copy">Cancel selected SAP credit notes</div>
+                            <div class="cnx-confirm-sub">Already cancelled and unsynced rows are excluded.</div>
+                        </div>
+                    </div>
+                    <div class="cnx-field">
+                        <label for="cnx-cancel-reason">Reason</label>
+                        <textarea id="cnx-cancel-reason" class="cnx-input cnx-textarea" @bind="bulkCancelReason"
+                                  placeholder="Optional cancellation note"></textarea>
+                    </div>
                 </div>
-                <div class="drawer-footer">
-                    <MudButton Class="btn-secondary-action" OnClick="CloseCreditNoteDetails">Close</MudButton>
+                <div class="cnx-dialog-actions">
+                    <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseBulkCancelModal"
+                            disabled="@isBulkCancelling">Close</button>
+                    <button type="button" class="cnx-btn cnx-btn-bad" @onclick="BulkCancelSelectedAsync"
+                            disabled="@(isBulkCancelling || SelectedCancelableCreditNoteCount == 0)">
+                        @if (isBulkCancelling)
+                        {
+                            <span class="cnx-spin" aria-hidden="true"></span>
+                        }
+                        <span>Cancel @SelectedCancelableCreditNoteCount</span>
+                    </button>
                 </div>
             </div>
-        }
+        </div>
+    </div>
+}
 
-        <!-- ━━━ Create Credit Note Modal ━━━ -->
-        @if (showCreateModal)
-        {
-            <div class="create-modal-overlay" @onclick="() => showCreateModal = false">
-                <div class="create-modal" @onclick:stopPropagation="true">
-                    <div class="create-modal-header">
-                        <h5><i class="bi bi-plus-circle"></i> New Credit Note</h5>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => showCreateModal = false"
-                                       Class="btn-close-modal" Size="Size.Small" />
+@if (showDuplicateCancelledModal)
+{
+    <div class="cnx-overlay">
+        <div class="cnx-dialog-wrap" @onclick="CloseDuplicateCancelledModal">
+            <div class="cnx-dialog" role="dialog" aria-modal="true" aria-label="Duplicate cancelled credit notes"
+                 @onclick:stopPropagation="true">
+                <h2 class="cnx-dialog-title"><i class="ph ph-copy" aria-hidden="true"></i>Duplicate cancelled</h2>
+                <div class="cnx-dialog-body">
+                    <div class="cnx-confirm">
+                        <span class="cnx-confirm-count">@SelectedCancelledCreditNoteCount</span>
+                        <div>
+                            <div class="cnx-confirm-copy">Create replacement credit notes</div>
+                            <div class="cnx-confirm-sub">An Excel file downloads after SAP returns the new numbers.</div>
+                        </div>
                     </div>
-                    <div class="create-modal-body">
-                        <div class="form-grid">
-                            <div class="form-field full">
-                                <label>Customer *</label>
-                                @if (selectedBusinessPartner != null)
-                                {
-                                    <div class="cn-selected-customer">
-                                        <div>
-                                            <span style="font-weight:700;color:#065f46;"><i class="bi bi-check-circle-fill"
-                                                                                                style="color:#059669;margin-right:.3rem;"></i>@selectedBusinessPartner.CardCode</span>
-                                                <span style="color:#6b7280;margin-left:.5rem;">@selectedBusinessPartner.CardName</span>
-                                            </div>
-                                            <button type="button" class="cn-bp-clear" @onclick="ClearSelectedBP"><i
-                                                class="bi bi-x"></i></button>
-                                            </div>
-                                        }
-                                else
-                                        {
-                                            <div style="position:relative;">
-                                                <input type="text" value="@bpSearchTerm" @oninput="OnBPSearchInput"
-                                                       @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
-                                                       placeholder="Search by code or name…" autocomplete="off" />
-                                                @if (showBPDropdown && filteredBusinessPartners.Any())
-                                                {
-                                                    <div class="cn-dropdown" @onmousedown:preventDefault>
-                                                        @foreach (var bp in filteredBusinessPartners.Take(15))
-                                                        {
-                                                            <div class="cn-dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
-                                                                <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
-                                                            </div>
-                                                        }
-                                                        @if (filteredBusinessPartners.Count() > 15)
-                                                        {
-                                                            <div class="cn-dropdown-item" style="color:#9ca3af;text-align:center;font-size:.82rem;">
-                                                                @filteredBusinessPartners.Count() total — type more to filter
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
-                                    <div class="form-field">
-                                        <label>Type</label>
-                                        <select @bind="newCreditNote.Type">
-                                            @foreach (CreditNoteType type in Enum.GetValues(typeof(CreditNoteType)))
-                                            {
-                                                <option value="@type">@type</option>
-                                            }
-                                        </select>
-                                    </div>
-                                    <div class="form-field">
-                                        <label>Currency</label>
-                                        <select @bind="newCreditNote.Currency">
-                                            <option value="USD">USD</option>
-                                            <option value="ZIG">ZIG</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-field full">
-                                        <label>Reason *</label>
-                                        <textarea @bind="newCreditNote.Reason" rows="2" placeholder="Reason for credit note"></textarea>
-                                    </div>
-                                    <div class="form-field">
-                                        <label>Options</label>
-                                        <div class="checkbox-row">
-                                            <input type="checkbox" @bind="newCreditNote.RestockItems" id="restockCheck" />
-                                            <label for="restockCheck" style="text-transform:none;font-size:.88rem;color:#374151;">Restock
-                                                Items</label>
-                                            </div>
-                                        </div>
-                                        <div class="form-field">
-                                            <label>Restock Warehouse</label>
-                                            <select @bind="newCreditNote.RestockWarehouseCode">
-                                                <option value="">— Select —</option>
-                                                @foreach (var wh in cachedWarehouses)
-                                                {
-                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                }
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <!-- Line Items Section -->
-                                    <div class="line-items-section">
-                                        <div class="line-items-header">
-                                            <label>Line Items *</label>
-                                            <button type="button" class="btn-add-line" @onclick="AddLine">
-                                                <i class="bi bi-plus-lg"></i> Add Item
-                                            </button>
-                                        </div>
-                                        @if (newCreditNote.Lines.Count > 0)
-                                        {
-                                            <div style="overflow-x:auto;">
-                                                <table class="line-items-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th style="min-width:120px;">Item Code</th>
-                                                            <th style="min-width:150px;">Description</th>
-                                                            <th style="min-width:75px;">Qty</th>
-                                                            <th style="min-width:90px;">Unit Price</th>
-                                                            <th style="min-width:70px;">Disc %</th>
-                                                            <th style="min-width:70px;">Tax %</th>
-                                                            <th style="min-width:100px;">Warehouse</th>
-                                                            <th style="min-width:80px; text-align:right;">Line Total</th>
-                                                            <th style="width:36px;"></th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        @for (int i = 0; i < newCreditNote.Lines.Count; i++)
-                                                        {
-                                                            var idx = i;
-                                                            var line = newCreditNote.Lines[idx];
-                                                            var lineState = GetCnLineState(idx);
-                                                            <tr>
-                                                                <td style="position:relative;">
-                                                                    <input type="text" value="@line.ItemCode"
-                                                                           @oninput="(e) => OnCnItemCodeInput(idx, e.Value?.ToString())"
-                                                                           @onfocus="() => OnCnItemCodeFocus(idx)" @onblur="() => OnCnItemCodeBlur(idx)"
-                                                                           placeholder="Search item…" autocomplete="off" />
-                                                                    @if (lineState.ShowDropdown && lineState.FilteredProducts.Any())
-                                                                    {
-                                                                        <div class="cn-dropdown" style="top:100%;left:0;min-width:260px;"
-                                                                             @onmousedown:preventDefault>
-                                                                            @foreach (var product in lineState.FilteredProducts.Take(10))
-                                                                            {
-                                                                                <div class="cn-dropdown-item"
-                                                                                     @onmousedown="() => SelectCnProduct(idx, product)">
-                                                                                    <div style="font-weight:600;font-size:.82rem;">@product.ItemCode</div>
-                                                                                    <small style="color:#6b7280;">@TruncateText(product.ItemName, 30)</small>
-                                                                                    <span
-                                                                                    style="float:right;font-size:.75rem;font-weight:600;color:#2563eb;">@product.Price.ToString("N2")</span>
-                                                                                </div>
-                                                                            }
-                                                                            @if (lineState.FilteredProducts.Count > 10)
-                                                                            {
-                                                                                <div class="cn-dropdown-item"
-                                                                                     style="color:#9ca3af;text-align:center;font-size:.8rem;">
-                                                                                    +@(lineState.FilteredProducts.Count - 10) more…
-                                                                                </div>
-                                                                            }
-                                                                        </div>
-                                                                    }
-                                                                </td>
-                                                                <td>
-                                                                    @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                                                    {
-                                                                        <span style="font-size:.82rem;color:#374151;">@TruncateText(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                25)</span>
-                                                                        }
-                                                            else
-                                                                        {
-                                                                            <span style="font-size:.8rem;color:#9ca3af;">—</span>
-                                                                        }
-                                                                    </td>
-                                                                    <td><input type="number" @bind="line.Quantity" min="0.0001" step="1" /></td>
-                                                                    <td><input type="number" @bind="line.UnitPrice" min="0" step="0.01" /></td>
-                                                                    @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
-                                                                    <td><input type="number" @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
-                                                                    </td>
-                                                                    <td><input type="number" @bind="line.TaxPercent" min="0" max="100" step="0.01" /></td>
-                                                                    <td>
-                                                                        <select @bind="line.WarehouseCode">
-                                                                            <option value="">—</option>
-                                                                            @foreach (var wh in cachedWarehouses)
-                                                                            {
-                                                                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                                            }
-                                                                        </select>
-                                                                    </td>
-                                                                    <td class="line-total-cell">@CalculateLineTotal(line).ToString("N2")</td>
-                                                                    <td>
-                                                                        <button type="button" class="btn-remove-line" @onclick="() => RemoveLine(idx)">
-                                                                            <i class="bi bi-trash"></i>
-                                                                        </button>
-                                                                    </td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                                <div class="line-items-summary">
-                                                    <span class="summary-label">Grand Total:</span>
-                                                    <span class="summary-value">@CalculateGrandTotal().ToString("N2")</span>
-                                                </div>
-                                            }
-                                else
-                                            {
-                                                <div class="line-items-empty">
-                                                    <i class="bi bi-box"></i> No items added yet. Click <strong>Add Item</strong> to begin.
-                                                </div>
-                                            }
-                                            @if (showLineItemsError)
-                                            {
-                                                <div class="validation-hint">At least one line item with a valid item code and quantity is required.
-                                                </div>
-                                            }
-                                        </div>
-                                    </div>
-                                    <div class="create-modal-footer">
-                                        <MudButton Class="btn-secondary-action" OnClick="() => showCreateModal = false">Cancel</MudButton>
-                                        <MudButton Class="btn-create" OnClick="CreateCreditNote" Disabled="@isCreating">
-                                            @if (isCreating)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                            }
-                                            <span>Create Credit Note</span>
-                                        </MudButton>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-
-                        @if (showBulkCancelModal)
+                    <div class="cnx-field">
+                        <label for="cnx-dup-reason">Reason</label>
+                        <textarea id="cnx-dup-reason" class="cnx-input cnx-textarea" @bind="duplicateCancelledReason"
+                                  placeholder="Optional reason for the replacement credit notes"></textarea>
+                    </div>
+                </div>
+                <div class="cnx-dialog-actions">
+                    <button type="button" class="cnx-btn cnx-btn-secondary" @onclick="CloseDuplicateCancelledModal"
+                            disabled="@isDuplicatingCancelled">Close</button>
+                    <button type="button" class="cnx-btn cnx-btn-primary" @onclick="DuplicateCancelledSelectedAsync"
+                            disabled="@(isDuplicatingCancelled || SelectedCancelledCreditNoteCount == 0)">
+                        @if (isDuplicatingCancelled)
                         {
-                            <div class="cn-modal-overlay" @onclick="CloseBulkCancelModal">
-                                <div class="cn-modal" @onclick:stopPropagation="true">
-                                    <div class="cn-modal-header">
-                                        <h5><i class="bi bi-x-octagon"></i> Cancel Credit Notes</h5>
-                                        <button type="button" class="btn-close-modal" @onclick="CloseBulkCancelModal" disabled="@isBulkCancelling">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
-                                    </div>
-                                    <div class="cn-modal-body">
-                                        <div class="cn-confirm-summary">
-                                            <span class="cn-confirm-count">@SelectedCancelableCreditNoteCount</span>
-                                            <div>
-                                                <div class="cn-confirm-copy">Cancel selected SAP credit notes</div>
-                                                <div class="cn-confirm-subcopy">Already cancelled and unsynced rows are excluded.</div>
-                                            </div>
-                                        </div>
-                                        <div class="cn-confirm-field">
-                                            <label>Reason</label>
-                                            <textarea class="cn-confirm-textarea" @bind="bulkCancelReason"
-                                                      placeholder="Optional cancellation note"></textarea>
-                                        </div>
-                                    </div>
-                                    <div class="cn-modal-footer">
-                                        <MudButton Class="btn-secondary-action" OnClick="CloseBulkCancelModal" Disabled="@isBulkCancelling">Close
-                                        </MudButton>
-                                        <MudButton Class="btn-cn-danger" OnClick="BulkCancelSelectedAsync"
-                                                   Disabled="@(isBulkCancelling || SelectedCancelableCreditNoteCount == 0)">
-                                            @if (isBulkCancelling)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                            }
-                                            <span>Cancel @SelectedCancelableCreditNoteCount</span>
-                                        </MudButton>
-                                    </div>
-                                </div>
-                            </div>
+                            <span class="cnx-spin" aria-hidden="true"></span>
                         }
-
-                        @if (showDuplicateCancelledModal)
-                        {
-                            <div class="cn-modal-overlay" @onclick="CloseDuplicateCancelledModal">
-                                <div class="cn-modal" @onclick:stopPropagation="true">
-                                    <div class="cn-modal-header">
-                                        <h5><i class="bi bi-copy"></i> Duplicate Cancelled</h5>
-                                        <button type="button" class="btn-close-modal" @onclick="CloseDuplicateCancelledModal"
-                                                disabled="@isDuplicatingCancelled">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
-                                    </div>
-                                    <div class="cn-modal-body">
-                                        <div class="cn-confirm-summary">
-                                            <span class="cn-confirm-count">@SelectedCancelledCreditNoteCount</span>
-                                            <div>
-                                                <div class="cn-confirm-copy">Create replacement credit notes</div>
-                                                <div class="cn-confirm-subcopy">An Excel file downloads after SAP returns the new numbers.</div>
-                                            </div>
-                                        </div>
-                                        <div class="cn-confirm-field">
-                                            <label>Reason</label>
-                                            <textarea class="cn-confirm-textarea" @bind="duplicateCancelledReason"
-                                                      placeholder="Optional reason for the replacement credit notes"></textarea>
-                                        </div>
-                                    </div>
-                                    <div class="cn-modal-footer">
-                                        <MudButton Class="btn-secondary-action" OnClick="CloseDuplicateCancelledModal"
-                                                   Disabled="@isDuplicatingCancelled">Close</MudButton>
-                                        <MudButton Class="btn-cn-outline" OnClick="DuplicateCancelledSelectedAsync"
-                                                   Disabled="@(isDuplicatingCancelled || SelectedCancelledCreditNoteCount == 0)">
-                                            @if (isDuplicatingCancelled)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                            }
-                                            <span>Duplicate @SelectedCancelledCreditNoteCount</span>
-                                        </MudButton>
-                                    </div>
-                                </div>
-                            </div>
-                        }
+                        <span>Duplicate @SelectedCancelledCreditNoteCount</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
-    private MudTable<CreditNoteDto> _table = null!;
-    private int _pageSize = 10;
-    private List<CreditNoteDto>? creditNotes;
+    private enum SortKey { Number, Date, Total }
+
+    /// <summary>
+    /// The date range is the server-side filter; everything else is applied here, so the fetch asks
+    /// for the whole range in one go rather than paging the API.
+    /// </summary>
+    private const int FetchPageSize = 10000;
+
+    /// <summary>
+    /// The whole filtered result set, kept sorted; <see cref="pageRows"/> is the slice on screen.
+    /// </summary>
+    private List<CreditNoteDto> creditNotes = new();
+    private List<CreditNoteDto> pageRows = new();
+
     private CreditNoteDto? selectedCreditNote;
     private InvoiceDto? selectedSourceInvoice;
     private bool isLoading = true;
-    private bool isLoadingSourceInvoice = false;
-    private bool isCreating = false;
-    private bool showCreateModal = false;
+    private bool isLoadingSourceInvoice;
+    private bool isLoadingDetail;
+    private bool detailUnavailable;
+
+    /// <summary>Which row the drawer was opened on, so a slow fetch cannot land in a later one.</summary>
+    private int? openDetailKey;
     private string? errorMessage;
     private readonly HashSet<int> selectedCreditNoteDocEntries = new();
-    private bool showBulkCancelModal = false;
-    private bool showDuplicateCancelledModal = false;
-    private bool isBulkCancelling = false;
-    private bool isDuplicatingCancelled = false;
+    private bool showBulkCancelModal;
+    private bool showDuplicateCancelledModal;
+    private bool isBulkCancelling;
+    private bool isDuplicatingCancelled;
     private string? bulkCancelReason;
     private string? duplicateCancelledReason;
 
-    // Filters
+    // Filters — the pending values the fields bind to, and the applied values the list reflects.
     private string? creditNoteNumberFilter;
     private string? customerFilter;
     private string? statusFilter;
@@ -2065,61 +618,48 @@
     private DateTime? appliedFromDate;
     private DateTime? appliedToDate;
 
-    // Pagination
+    // Paging and sorting are done here rather than in a table component: the design's
+    // pager is prev/next over a fixed page size, and the sort is on three columns.
     private int currentPage = 1;
-    private int pageSize = 10000;
+    private int pageSize = 25;
     private int totalPages = 1;
-    private int totalCount = 0;
+    private int totalCount;
+    private SortKey sortKey = SortKey.Number;
+    private bool sortAscending;
 
-    // New credit note
-    private CreateCreditNoteRequest newCreditNote = new();
-    private bool showLineItemsError = false;
+    private DateTime DefaultFromDate => new(DateTime.Today.Year, DateTime.Today.Month, 1);
 
-    // Master data caches
-    private List<ProductDto> cachedProducts = new();
-    private List<WarehouseDto> cachedWarehouses = new();
-    private List<BusinessPartnerDto> allBusinessPartners = new();
-#pragma warning disable CS0414
-    private bool isMasterDataLoaded = false;
-#pragma warning restore CS0414
-
-    // Business partner autocomplete
-    private BusinessPartnerDto? selectedBusinessPartner;
-    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
-    private int? customerPriceListNum;
-    private string? bpSearchTerm;
-    private bool showBPDropdown = false;
-
-    // Line item product autocomplete state
-    private Dictionary<int, CnLineState> cnLineStates = new();
-
-    private class CnLineState
-    {
-        public string SearchTerm { get; set; } = string.Empty;
-        public bool ShowDropdown { get; set; } = false;
-        public List<ProductDto> FilteredProducts { get; set; } = new();
-    }
-
-    private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
+    private string RangeLabel
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(bpSearchTerm)) return allBusinessPartners.Take(20);
-            var s = bpSearchTerm.ToLowerInvariant();
-            return allBusinessPartners.Where(bp =>
-                (bp.CardCode?.ToLowerInvariant().Contains(s) ?? false) ||
-                (bp.CardName?.ToLowerInvariant().Contains(s) ?? false)).Take(50);
+            if (isLoading)
+            {
+                return "Loading…";
+            }
+
+            if (totalCount == 0)
+            {
+                return "No results";
+            }
+
+            var first = ((currentPage - 1) * pageSize) + 1;
+            var last = Math.Min(currentPage * pageSize, totalCount);
+            return $"{first}–{last} of {totalCount:N0}";
         }
     }
 
-    private void PageChanged(int i)
-    {
-        _table.NavigateTo(i - 1);
-    }
+    private bool FiltersActive =>
+        !string.IsNullOrWhiteSpace(creditNoteNumberFilter)
+        || !string.IsNullOrWhiteSpace(customerFilter)
+        || !string.IsNullOrWhiteSpace(statusFilter)
+        || !string.IsNullOrWhiteSpace(fiscalStatusFilter)
+        || fromDate?.Date != DefaultFromDate
+        || toDate?.Date != DateTime.Today;
 
-    private IReadOnlyList<CreditNoteDto> SelectedCreditNotes => creditNotes?
+    private IReadOnlyList<CreditNoteDto> SelectedCreditNotes => creditNotes
         .Where(note => selectedCreditNoteDocEntries.Contains(GetCreditNoteSelectionKey(note)))
-        .ToList() ?? new List<CreditNoteDto>();
+        .ToList();
 
     private int SelectedCreditNoteCount => SelectedCreditNotes.Count;
 
@@ -2146,29 +686,27 @@
     private bool IsCreditNoteSelected(CreditNoteDto note) =>
         selectedCreditNoteDocEntries.Contains(GetCreditNoteSelectionKey(note));
 
-    private List<CreditNoteDto> GetDisplayedCreditNotes() => creditNotes?
-        .Where(CanSelectCreditNote)
-        .ToList() ?? new List<CreditNoteDto>();
-
+    /// <summary>
+    /// The header checkbox covers the rows on screen, not the whole result set — the design's
+    /// bulk actions read as acting on what the user can see.
+    /// </summary>
     private bool AreAllDisplayedCreditNotesSelected()
     {
-        var displayed = GetDisplayedCreditNotes();
-        return displayed.Count > 0 && displayed.All(IsCreditNoteSelected);
+        var selectable = pageRows.Where(CanSelectCreditNote).ToList();
+        return selectable.Count > 0 && selectable.All(IsCreditNoteSelected);
     }
 
     private void ToggleAllDisplayedCreditNotes(ChangeEventArgs args)
     {
         var isSelected = IsChecked(args);
-        foreach (var note in GetDisplayedCreditNotes())
+        foreach (var note in pageRows.Where(CanSelectCreditNote))
         {
             SetCreditNoteSelection(note, isSelected);
         }
     }
 
-    private void ToggleCreditNoteSelection(CreditNoteDto note, ChangeEventArgs args)
-    {
+    private void ToggleCreditNoteSelection(CreditNoteDto note, ChangeEventArgs args) =>
         SetCreditNoteSelection(note, IsChecked(args));
-    }
 
     private void SetCreditNoteSelection(CreditNoteDto note, bool isSelected)
     {
@@ -2187,6 +725,8 @@
             selectedCreditNoteDocEntries.Remove(key);
         }
     }
+
+    private void ClearSelection() => selectedCreditNoteDocEntries.Clear();
 
     private static bool IsChecked(ChangeEventArgs args) =>
         args.Value is bool value
@@ -2216,12 +756,6 @@
 
     private void PruneSelectedCreditNotes()
     {
-        if (creditNotes is null)
-        {
-            selectedCreditNoteDocEntries.Clear();
-            return;
-        }
-
         var currentKeys = creditNotes
             .Where(CanSelectCreditNote)
             .Select(GetCreditNoteSelectionKey)
@@ -2230,57 +764,68 @@
         selectedCreditNoteDocEntries.RemoveWhere(key => !currentKeys.Contains(key));
     }
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        _pageSize = AppSettings.PageSize;
-        // Default date range to current month so SAP queries are always date-filtered
-        fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        pageSize = Math.Max(1, AppSettings.PageSize);
+        // Default the range to the current month so the SAP query is always date-filtered.
+        fromDate = DefaultFromDate;
         toDate = DateTime.Today;
         SyncAppliedFilters();
-        await LoadCreditNotes();
-        _ = LoadMasterDataAsync();
-        await AuditService.LogAsync(AuditActions.ViewCreditNotes, "CreditNote", null);
     }
 
-    private async Task LoadMasterDataAsync()
+    /// <summary>
+    /// The list is fetched after the first render, not in OnInitializedAsync: the SAP read is the
+    /// slow part of this page, and awaiting it before the first render left the whole page blank
+    /// for its duration. The shell and the skeleton rows paint immediately instead.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        await LoadCreditNotes();
+
+        // The audit write is not on the path to showing the list, so it does not hold it up.
+        _ = LogViewAsync();
+    }
+
+    private async Task LogViewAsync()
     {
         try
         {
-            var productsTask = CacheService.GetProductsAsync();
-            var warehousesTask = CacheService.GetWarehousesAsync();
-            var bpTask = CacheService.GetBusinessPartnersAsync();
-            await Task.WhenAll(productsTask, warehousesTask, bpTask);
-            cachedProducts = await productsTask ?? new();
-            cachedWarehouses = await warehousesTask ?? new();
-            allBusinessPartners = await bpTask ?? new();
-            isMasterDataLoaded = true;
-            await InvokeAsync(StateHasChanged);
+            await AuditService.LogAsync(AuditActions.ViewCreditNotes, "CreditNote", null);
         }
-        catch { /* master data load failure is non-fatal */ }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to record the credit-notes view in the audit trail");
+        }
     }
 
     private async Task LoadCreditNotes()
     {
         isLoading = true;
         errorMessage = null;
+        StateHasChanged();
 
         try
         {
             var result = await Mediator.Send(new GetCreditNotesQuery(
-                currentPage,
-                pageSize,
+                1,
+                FetchPageSize,
                 null,
                 null,
                 appliedFromDate,
                 appliedToDate));
+
             if (!result.IsError)
             {
-                var response = result.Value;
-                var loadedCreditNotes = response.CreditNotes ?? new List<CreditNoteDto>();
-                creditNotes = ApplyVisibleCreditNoteFilters(loadedCreditNotes);
-                totalCount = creditNotes.Count;
-                totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
+                creditNotes = ApplyVisibleCreditNoteFilters(result.Value.CreditNotes ?? new List<CreditNoteDto>());
                 PruneSelectedCreditNotes();
+                SortCreditNotes();
+                currentPage = 1;
+                RecomputePage();
             }
             else
             {
@@ -2295,7 +840,54 @@
         finally
         {
             isLoading = false;
+            StateHasChanged();
         }
+    }
+
+    private void SortCreditNotes()
+    {
+        var direction = sortAscending ? 1 : -1;
+        creditNotes.Sort((left, right) => direction * (sortKey switch
+        {
+            SortKey.Date => left.CreditNoteDate.CompareTo(right.CreditNoteDate),
+            SortKey.Total => left.DocTotal.CompareTo(right.DocTotal),
+            _ => (left.SAPDocNum ?? left.Id).CompareTo(right.SAPDocNum ?? right.Id)
+        }));
+    }
+
+    private void RecomputePage()
+    {
+        totalCount = creditNotes.Count;
+        totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)pageSize));
+        currentPage = Math.Clamp(currentPage, 1, totalPages);
+        pageRows = creditNotes
+            .Skip((currentPage - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+    }
+
+    private void SortBy(SortKey key)
+    {
+        // A fresh column starts descending — newest note, latest date, largest total first.
+        sortAscending = sortKey == key && !sortAscending;
+        sortKey = key;
+        SortCreditNotes();
+        currentPage = 1;
+        RecomputePage();
+    }
+
+    private string SortMark(SortKey key) => sortKey != key ? string.Empty : sortAscending ? "▲" : "▼";
+
+    private void PreviousPage()
+    {
+        currentPage = Math.Max(1, currentPage - 1);
+        RecomputePage();
+    }
+
+    private void NextPage()
+    {
+        currentPage = Math.Min(totalPages, currentPage + 1);
+        RecomputePage();
     }
 
     private static string? NormalizeFilterValue(string? value) =>
@@ -2313,7 +905,6 @@
 
     private async Task ApplyFilters()
     {
-        currentPage = 1;
         SyncAppliedFilters();
         await LoadCreditNotes();
     }
@@ -2334,11 +925,9 @@
         customerFilter = null;
         statusFilter = null;
         fiscalStatusFilter = null;
-        fromDate = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        fromDate = DefaultFromDate;
         toDate = DateTime.Today;
-        SyncAppliedFilters();
-        currentPage = 1;
-        await LoadCreditNotes();
+        await ApplyFilters();
     }
 
     private List<CreditNoteDto> ApplyVisibleCreditNoteFilters(IEnumerable<CreditNoteDto> source)
@@ -2376,26 +965,71 @@
             _ => "unknown"
         };
 
+    /// <summary>
+    /// Opens the drawer on the row's own header, then fetches the document. The list is served from
+    /// the local SAP projection, which keeps headers only — the lines and the link to the original
+    /// invoice come from this per-document read, the same way the quotations list works.
+    /// </summary>
     private async Task ViewCreditNote(CreditNoteDto note)
     {
+        var requestKey = GetCreditNoteSelectionKey(note);
+
         selectedCreditNote = note;
         selectedSourceInvoice = null;
-
-        if (!note.OriginalInvoiceDocEntry.HasValue)
-        {
-            isLoadingSourceInvoice = false;
-            return;
-        }
-
-        isLoadingSourceInvoice = true;
+        isLoadingSourceInvoice = false;
+        isLoadingDetail = true;
+        detailUnavailable = false;
+        openDetailKey = requestKey;
 
         try
         {
-            selectedSourceInvoice = await InvoiceService.GetInvoiceByDocEntryAsync(note.OriginalInvoiceDocEntry.Value);
+            var detail = await CreditNoteService.GetCreditNoteByIdAsync(requestKey);
+
+            // The drawer may have been closed, or reopened on another row, while this was in flight.
+            if (openDetailKey != requestKey)
+            {
+                return;
+            }
+
+            if (detail is null)
+            {
+                detailUnavailable = true;
+                return;
+            }
+
+            selectedCreditNote = detail;
+            isLoadingDetail = false;
+
+            if (!detail.OriginalInvoiceDocEntry.HasValue)
+            {
+                return;
+            }
+
+            isLoadingSourceInvoice = true;
+            StateHasChanged();
+
+            var invoice = await InvoiceService.GetInvoiceByDocEntryAsync(detail.OriginalInvoiceDocEntry.Value);
+            if (openDetailKey == requestKey)
+            {
+                selectedSourceInvoice = invoice;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to load detail for credit note {DocEntry}", requestKey);
+
+            if (openDetailKey == requestKey)
+            {
+                detailUnavailable = true;
+            }
         }
         finally
         {
-            isLoadingSourceInvoice = false;
+            if (openDetailKey == requestKey)
+            {
+                isLoadingDetail = false;
+                isLoadingSourceInvoice = false;
+            }
         }
     }
 
@@ -2404,9 +1038,12 @@
         selectedCreditNote = null;
         selectedSourceInvoice = null;
         isLoadingSourceInvoice = false;
+        isLoadingDetail = false;
+        detailUnavailable = false;
+        openDetailKey = null;
     }
 
-    private string FormatDate(string? dateStr)
+    private static string FormatDate(string? dateStr)
     {
         if (string.IsNullOrWhiteSpace(dateStr))
         {
@@ -2588,313 +1225,50 @@ Severity.Warning);
         }
     }
 
-    // ── Business Partner Selection ──
-    private void OnBPSearchInput(ChangeEventArgs e)
-    {
-        bpSearchTerm = e.Value?.ToString();
-        showBPDropdown = true;
-    }
+    private static bool IsVoid(CreditNoteStatus status) =>
+        status is CreditNoteStatus.Cancelled or CreditNoteStatus.Voided;
 
-    private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
+    /// <summary>
+    /// The design tints a selected row with the accent, drops drafts and voided rows to 66% so the
+    /// live notes carry the eye, and strikes voided ones through.
+    /// </summary>
+    private string GetRowClass(CreditNoteDto note)
     {
-        selectedBusinessPartner = bp;
-        newCreditNote.CardCode = bp.CardCode ?? string.Empty;
-        newCreditNote.CardName = bp.CardName;
-        bpSearchTerm = null;
-        showBPDropdown = false;
+        var classes = new List<string>(3);
 
-        await LoadBusinessPartnerPricesAsync(bp);
-        UpdateExistingLinePrices();
-    }
-
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
-    {
-        _ = SelectBusinessPartnerAsync(bp);
-    }
-
-    private void ClearSelectedBP()
-    {
-        selectedBusinessPartner = null;
-        newCreditNote.CardCode = string.Empty;
-        newCreditNote.CardName = null;
-        bpSearchTerm = null;
-        customerPricing.Clear();
-        customerPriceListNum = null;
-        UpdateExistingLinePrices();
-    }
-
-    private async Task OnBPSearchBlur()
-    {
-        await Task.Delay(150);
-        showBPDropdown = false;
-    }
-
-    // ── Line Item Product Autocomplete ──
-    private CnLineState GetCnLineState(int index)
-    {
-        if (!cnLineStates.ContainsKey(index))
-            cnLineStates[index] = new CnLineState();
-        return cnLineStates[index];
-    }
-
-    private void UpdateExistingLinePrices()
-    {
-        foreach (var line in newCreditNote.Lines)
+        if (IsCreditNoteSelected(note))
         {
-            if (!string.IsNullOrWhiteSpace(line.ItemCode))
-            {
-                var product = cachedProducts.FirstOrDefault(p =>
-                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
-                var defaultPrice = product?.Price ?? line.UnitPrice;
-                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
-            }
-        }
-    }
-
-    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
-    {
-        try
-        {
-            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
-            customerPricing = lookup.Pricing;
-            customerPriceListNum = lookup.PriceListNum;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading credit note prices for {CardCode}", bp.CardCode);
-            customerPricing.Clear();
-            customerPriceListNum = null;
-        }
-    }
-
-    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
-    {
-        if (string.IsNullOrEmpty(itemCode))
-        {
-            return ResolvedItemPrice.Flat(defaultPrice);
+            classes.Add("is-selected");
         }
 
-        return customerPricing.TryGetValue(itemCode, out var customerPrice)
-            ? customerPrice
-            : ResolvedItemPrice.Flat(defaultPrice);
+        if (IsVoid(note.Status) || note.Status == CreditNoteStatus.Draft)
+        {
+            classes.Add("is-dim");
+        }
+
+        if (IsVoid(note.Status))
+        {
+            classes.Add("is-void");
+        }
+
+        return string.Join(' ', classes);
     }
 
     /// <summary>
-    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
-    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// The design paints the accent dot on applied notes, a mid neutral on the ones still open,
+    /// and progressively fainter neutrals on drafts and voided rows.
     /// </summary>
-    private static void ApplyPricing(CreateCreditNoteLineRequest line, ResolvedItemPrice pricing)
+    private static string GetStatusDotClass(CreditNoteStatus status) => status switch
     {
-        line.UnitPrice = pricing.UnitPrice;
-        line.DiscountPercent = pricing.DiscountPercent;
-    }
-
-    private bool HasSpecialPrice(string? itemCode)
-        => !string.IsNullOrEmpty(itemCode)
-            && customerPricing.TryGetValue(itemCode, out var pricing)
-            && pricing.DiscountPercent > 0;
-
-    private void OnCnItemCodeInput(int index, string? value)
-    {
-        var line = newCreditNote.Lines[index];
-        line.ItemCode = value ?? string.Empty;
-
-        var state = GetCnLineState(index);
-        state.SearchTerm = value ?? string.Empty;
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            state.FilteredProducts.Clear();
-            state.ShowDropdown = false;
-            line.ItemDescription = null;
-            return;
-        }
-
-        var searchLower = value.ToLowerInvariant();
-        var searchUpper = value.ToUpperInvariant();
-        state.FilteredProducts = cachedProducts.Where(p =>
-            (p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false) ||
-            (p.ItemCode?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-            (p.ItemName?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-            (p.BarCode?.ToLowerInvariant().Contains(searchLower) ?? false))
-            .OrderByDescending(p => p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false)
-            .ThenBy(p => p.ItemCode)
-            .ToList();
-
-        state.ShowDropdown = state.FilteredProducts.Any();
-    }
-
-    private void OnCnItemCodeFocus(int index)
-    {
-        var state = GetCnLineState(index);
-        if (!string.IsNullOrWhiteSpace(state.SearchTerm) && state.FilteredProducts.Any())
-            state.ShowDropdown = true;
-    }
-
-    private async Task OnCnItemCodeBlur(int index)
-    {
-        await Task.Delay(150);
-        var state = GetCnLineState(index);
-        state.ShowDropdown = false;
-    }
-
-    private async Task SelectCnProduct(int index, ProductDto product)
-    {
-        var line = newCreditNote.Lines[index];
-        line.ItemCode = product.ItemCode ?? string.Empty;
-        line.ItemDescription = product.ItemName;
-        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
-
-        if (!string.IsNullOrEmpty(product.ItemCode))
-        {
-            try
-            {
-                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
-                    product.ItemCode,
-                    selectedBusinessPartner?.Currency ?? AppSettings.DefaultCurrency,
-                    product.Price,
-                    newCreditNote.CardCode,
-                    customerPriceListNum,
-                    customerPricing));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Failed to resolve BP-aware credit note price for item {ItemCode}", product.ItemCode);
-            }
-        }
-
-        if (string.IsNullOrEmpty(line.WarehouseCode))
-            line.WarehouseCode = product.DefaultWarehouse;
-
-        var state = GetCnLineState(index);
-        state.SearchTerm = line.ItemCode;
-        state.ShowDropdown = false;
-    }
-
-    // ── Line Management ──
-    private void AddLine()
-    {
-        newCreditNote.Lines.Add(new CreateCreditNoteLineRequest());
-        showLineItemsError = false;
-    }
-
-    private void RemoveLine(int index)
-    {
-        if (index >= 0 && index < newCreditNote.Lines.Count)
-        {
-            newCreditNote.Lines.RemoveAt(index);
-            cnLineStates.Remove(index);
-            // Re-key remaining states
-            var newStates = new Dictionary<int, CnLineState>();
-            foreach (var kvp in cnLineStates)
-            {
-                var newKey = kvp.Key > index ? kvp.Key - 1 : kvp.Key;
-                newStates[newKey] = kvp.Value;
-            }
-            cnLineStates = newStates;
-        }
-    }
-
-    private decimal CalculateLineTotal(CreateCreditNoteLineRequest line)
-    {
-        var subtotal = line.Quantity * line.UnitPrice;
-        var afterDiscount = subtotal * (1m - line.DiscountPercent / 100m);
-        var tax = afterDiscount * (line.TaxPercent / 100m);
-        return afterDiscount + tax;
-    }
-
-    private decimal CalculateGrandTotal()
-    {
-        return newCreditNote.Lines.Sum(l => CalculateLineTotal(l));
-    }
-
-    private async Task CreateCreditNote()
-    {
-        if (string.IsNullOrEmpty(newCreditNote.CardCode) || string.IsNullOrEmpty(newCreditNote.Reason))
-        {
-            return;
-        }
-
-        if (newCreditNote.Lines.Count == 0 || !newCreditNote.Lines.Any(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity
-> 0))
-        {
-            showLineItemsError = true;
-            return;
-        }
-
-        showLineItemsError = false;
-        isCreating = true;
-        try
-        {
-            var result = await Mediator.Send(new CreateCreditNoteCommand(newCreditNote));
-            if (result.IsError)
-            {
-                Snackbar.Add(result.FirstError.Description, Severity.Error);
-                return;
-            }
-
-            if (result.Value != null)
-            {
-                showCreateModal = false;
-                newCreditNote = new();
-                selectedBusinessPartner = null;
-                bpSearchTerm = null;
-                cnLineStates.Clear();
-                Snackbar.Add("Credit note created.", Severity.Success);
-                await LoadCreditNotes();
-            }
-        }
-        catch (FluentValidation.ValidationException ex)
-        {
-            Snackbar.Add(ex.Errors.FirstOrDefault()?.ErrorMessage ?? "Check the credit note details.", Severity.Warning);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to create credit note");
-            Snackbar.Add("Failed to create credit note.", Severity.Error);
-        }
-        finally
-        {
-            isCreating = false;
-        }
-    }
-
-    private string GetStatusCssClass(CreditNoteStatus status) => status switch
-    {
-        CreditNoteStatus.Draft => "draft",
-        CreditNoteStatus.Pending => "pending",
-        CreditNoteStatus.Approved => "approved",
-        CreditNoteStatus.Applied => "applied",
-        CreditNoteStatus.PartiallyApplied => "partial",
-        CreditNoteStatus.Cancelled => "cancelled",
-        CreditNoteStatus.Voided => "voided",
-        _ => "draft"
+        CreditNoteStatus.Applied => "is-applied",
+        CreditNoteStatus.Draft => "is-draft",
+        CreditNoteStatus.Cancelled or CreditNoteStatus.Voided => "is-void",
+        _ => string.Empty
     };
 
-    private static string GetFiscalStatusCssClass(string? status)
-        => status?.Trim().ToLowerInvariant() switch
-        {
-            "fiscalised" => "fiscalised",
-            "not fiscalised" => "not-fiscalised",
-            _ => "unknown"
-        };
+    private static bool HasOpenBalance(CreditNoteDto note) => note.Balance > 0 && !IsVoid(note.Status);
 
-    private string GetTypeCssClass(CreditNoteType type) => type switch
-    {
-        CreditNoteType.Return => "return",
-        CreditNoteType.Refund => "refund",
-        CreditNoteType.Adjustment => "adjustment",
-        CreditNoteType.Cancellation => "cancellation",
-        _ => ""
-    };
-
-    private string TruncateText(string? text, int maxLength)
-    {
-        if (string.IsNullOrEmpty(text)) return "—";
-        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
-    }
-
-    private string FormatCreditNoteNumber(string? creditNoteNumber)
+    private static string FormatCreditNoteNumber(string? creditNoteNumber)
     {
         if (string.IsNullOrEmpty(creditNoteNumber)) return "—";
         if (creditNoteNumber.StartsWith("SAP-CN", StringComparison.OrdinalIgnoreCase))

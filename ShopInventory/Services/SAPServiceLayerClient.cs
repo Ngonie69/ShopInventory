@@ -256,7 +256,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const int DocumentListMaxResults = 2000;
 
     /// <summary>
-    /// Reads every page of a document list, newest first, up to <see cref="DocumentListMaxResults"/>.
+    /// Passed as <c>maxResults</c> for a list whose filter already bounds it — a date range, say —
+    /// where the ceiling would truncate a legitimate answer instead of catching an unbounded one.
+    /// </summary>
+    private const int NoDocumentListCeiling = int.MaxValue;
+
+    /// <summary>
+    /// Reads every page of a document list, newest first, up to <paramref name="maxResults"/>.
     /// </summary>
     /// <remarks>
     /// The methods that use this used to issue a single request with no <c>$top</c>, no
@@ -270,14 +276,15 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         string? filterExpression,
         string selectClause,
         string operationDescription,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int maxResults = DocumentListMaxResults)
     {
         var all = new List<T>();
         var skip = 0;
 
-        while (all.Count < DocumentListMaxResults)
+        while (all.Count < maxResults)
         {
-            var pageSize = Math.Min(DocumentListPageSize, DocumentListMaxResults - all.Count);
+            var pageSize = Math.Min(DocumentListPageSize, maxResults - all.Count);
             var filterClause = string.IsNullOrWhiteSpace(filterExpression)
                 ? string.Empty
                 : $"$filter={Uri.EscapeDataString(filterExpression)}&";
@@ -341,7 +348,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         _logger.LogWarning(
             "Reached the {MaxResults}-row ceiling while reading {Operation}; the result is truncated and the caller should narrow it by date",
-            DocumentListMaxResults,
+            maxResults,
             operationDescription);
 
         return all;
@@ -13035,73 +13042,25 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
-        await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-
         var safeCardCode = SanitizeODataValue(cardCode);
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        var allCreditNotes = new List<SAPCreditNote>();
-        int skip = 0;
-        const int pageSize = 500;
-        bool hasMore = true;
 
-        while (hasMore)
-        {
-            var url = $"CreditNotes?$filter=CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'&{CreditNoteSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Failed to get credit notes for customer {CardCode} in date range: {StatusCode} - {Error}", cardCode, response.StatusCode, errorContent);
-                throw new Exception($"Failed to get credit notes for customer in date range: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(content);
-            var valueArray = doc.RootElement.GetProperty("value");
-            var pageItems = JsonSerializer.Deserialize<List<SAPCreditNote>>(valueArray.GetRawText()) ?? new List<SAPCreditNote>();
-
-            if (pageItems.Count == 0)
-            {
-                hasMore = false;
-            }
-            else
-            {
-                allCreditNotes.AddRange(pageItems);
-                skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
-            }
-        }
+        var creditNotes = await ReadCreditNotePagesAsync(
+            $"CardCode eq '{safeCardCode}' and DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'",
+            $"customer {cardCode} between {fromDateStr} and {toDateStr}",
+            cancellationToken);
 
         _logger.LogInformation("Retrieved {Count} credit notes for customer {CardCode} between {From} and {To}",
-            allCreditNotes.Count, cardCode, fromDateStr, toDateStr);
-        return allCreditNotes;
+            creditNotes.Count, cardCode, fromDateStr, toDateStr);
+        return creditNotes;
     }
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
     {
         var fromDateStr = fromDate.ToString("yyyy-MM-dd");
         var toDateStr = toDate.ToString("yyyy-MM-dd");
-        return await GetCreditNotesByFilterAsync(
+        return await ReadCreditNotePagesAsync(
             $"DocDate ge '{fromDateStr}' and DocDate le '{toDateStr}'",
             $"document date {fromDateStr} to {toDateStr}",
             cancellationToken);
@@ -13114,7 +13073,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
     {
         var fromDateStr = fromUpdateDate.ToString("yyyy-MM-dd");
         var toDateStr = toUpdateDate.ToString("yyyy-MM-dd");
-        return await GetCreditNotesByFilterAsync(
+        return await ReadCreditNotePagesAsync(
             $"UpdateDate ge '{fromDateStr}' and UpdateDate le '{toDateStr}'",
             $"update date {fromDateStr} to {toDateStr}",
             cancellationToken);
@@ -13174,73 +13133,38 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
         return DateTime.SpecifyKind(docDate.Date, DateTimeKind.Utc);
     }
 
-    private async Task<List<SAPCreditNote>> GetCreditNotesByFilterAsync(
+    /// <summary>
+    /// Walks a filtered credit-note list in 500-row pages.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a hand-rolled loop that asked for <c>$top=500</c> but sent no
+    /// <c>Prefer: odata.maxpagesize</c>, so the Service Layer answered with its default page of
+    /// about 20 rows and the loop needed a round trip — full nested DocumentLines and all — for
+    /// every twenty credit notes. Sharing the document pager fixes the page size and picks up its
+    /// transient retry. The row ceiling is lifted here because every caller's filter is already
+    /// bounded by a date range, and the projection backfill reads a month at a time: truncating at
+    /// 2,000 would silently drop the tail of a busy month rather than catch a runaway query.
+    /// </remarks>
+    private async Task<List<SAPCreditNote>> ReadCreditNotePagesAsync(
         string filter,
         string description,
         CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
-        var allCreditNotes = new List<SAPCreditNote>();
-        int skip = 0;
-        const int pageSize = 500;
-        bool hasMore = true;
 
-        while (hasMore)
-        {
-            var url = $"CreditNotes?$filter={filter}&{CreditNoteSelect}&$orderby=DocEntry desc&$top={pageSize}&$skip={skip}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                await HandleAuthFailureAsync(currentSession, cancellationToken);
-
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                response = await _httpClient.SendAsync(request, cancellationToken);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError(
-                    "Failed to get credit notes by {Description}: {StatusCode} - {Error}",
-                    description,
-                    response.StatusCode,
-                    errorContent);
-                throw new Exception($"Failed to get credit notes by {description}: {response.StatusCode} - {errorContent}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            using var doc = JsonDocument.Parse(content);
-            var valueArray = doc.RootElement.GetProperty("value");
-            var pageItems = JsonSerializer.Deserialize<List<SAPCreditNote>>(valueArray.GetRawText()) ?? new List<SAPCreditNote>();
-
-            if (pageItems.Count == 0)
-            {
-                hasMore = false;
-            }
-            else
-            {
-                allCreditNotes.AddRange(pageItems);
-                skip += pageItems.Count;
-                hasMore = doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
-                          doc.RootElement.TryGetProperty("@odata.nextLink", out _) ||
-                          pageItems.Count == pageSize;
-            }
-        }
+        var creditNotes = await ReadDocumentPagesAsync<SAPCreditNote>(
+            "CreditNotes",
+            filter,
+            CreditNoteSelect,
+            $"get credit notes by {description}",
+            cancellationToken,
+            NoDocumentListCeiling);
 
         _logger.LogInformation(
             "Retrieved {Count} credit notes by {Description}",
-            allCreditNotes.Count,
+            creditNotes.Count,
             description);
-        return allCreditNotes;
+        return creditNotes;
     }
 
     public async Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default)
