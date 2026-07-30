@@ -9806,20 +9806,22 @@ html.dark-theme {
     background: #1e293b;
     border-color: #334155;
 }
-.dark-theme .pod-mode-btn {
-    background: #1e293b;
-    border-color: #334155;
-    color: #cbd5e1;
+.dark-theme .pod-hero {
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.3);
 }
-.dark-theme .pod-mode-btn:hover {
+.dark-theme .pod-segment {
     background: #0f172a;
-    border-color: #2dd4bf;
-    color: #f8fafc;
+    border-color: #334155;
 }
-.dark-theme .pod-mode-active {
-    background: linear-gradient(135deg, #0f766e, #14b8a6) !important;
-    color: #f8fafc !important;
-    border-color: transparent !important;
+.dark-theme .pod-segment-btn {
+    color: #94a3b8;
+}
+.dark-theme .pod-segment-btn:hover:not(.pod-segment-active) {
+    color: #2dd4bf;
+}
+.dark-theme .pod-segment-active {
+    background: #1e293b;
+    color: #2dd4bf;
 }
 .dark-theme .pod-upload-header,
 .dark-theme .pod-invoice-header {
@@ -9830,6 +9832,10 @@ html.dark-theme {
 .dark-theme .pod-upload-header i,
 .dark-theme .pod-invoice-header i {
     color: #2dd4bf;
+}
+/* Segment buttons carry their own active/inactive colour - don't tint their icons. */
+.dark-theme .pod-upload-header .pod-segment-btn i {
+    color: inherit;
 }
 .dark-theme .pod-upload-body,
 .dark-theme .pod-invoice-body {
