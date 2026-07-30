@@ -12,6 +12,9 @@ public static partial class Errors
         public static readonly Error DuplicateUsername =
             Error.Conflict("User.DuplicateUsername", "Username already exists");
 
+        public static readonly Error DuplicateEmail =
+            Error.Conflict("User.DuplicateEmail", "Email already exists");
+
         public static Error CreationFailed(string message) =>
             Error.Failure("User.CreationFailed", message);
 

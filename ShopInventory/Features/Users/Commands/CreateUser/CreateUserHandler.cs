@@ -35,7 +35,7 @@ public sealed class CreateUserHandler(
 
         if (!string.IsNullOrEmpty(request.Email) && await context.Users.WhereUsernameOrEmailMatches(request.Email).AnyAsync(cancellationToken))
         {
-            return Errors.User.CreationFailed("Email already exists");
+            return Errors.User.DuplicateEmail;
         }
 
         if (!ApplicationRoles.IsAssignableRole(request.Role))

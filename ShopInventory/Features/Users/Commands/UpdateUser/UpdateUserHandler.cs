@@ -36,7 +36,7 @@ public sealed class UpdateUserHandler(
                 .WhereUsernameOrEmailMatches(request.Email)
                 .AnyAsync(cancellationToken))
             {
-                return Errors.User.UpdateFailed("Email already exists");
+                return Errors.User.DuplicateEmail;
             }
             user.Email = request.Email;
         }

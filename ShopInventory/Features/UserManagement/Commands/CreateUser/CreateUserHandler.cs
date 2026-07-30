@@ -72,12 +72,12 @@ public sealed class CreateUserHandler(
 
         if (await context.Users.WhereUsernameOrEmailMatches(request.Username).AnyAsync(cancellationToken))
         {
-            return Errors.UserManagement.CreationFailed("Username already exists");
+            return Errors.UserManagement.DuplicateUsername;
         }
 
         if (!string.IsNullOrWhiteSpace(request.Email) && await context.Users.WhereUsernameOrEmailMatches(request.Email).AnyAsync(cancellationToken))
         {
-            return Errors.UserManagement.CreationFailed("Email already exists");
+            return Errors.UserManagement.DuplicateEmail;
         }
 
         if (!ApplicationRoles.IsAssignableRole(request.Role))

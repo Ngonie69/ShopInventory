@@ -12,6 +12,12 @@ public static partial class Errors
         public static Error CreationFailed(string message) =>
             Error.Failure("UserManagement.CreationFailed", message);
 
+        public static readonly Error DuplicateUsername =
+            Error.Conflict("UserManagement.DuplicateUsername", "Username already exists");
+
+        public static readonly Error DuplicateEmail =
+            Error.Conflict("UserManagement.DuplicateEmail", "Email already exists");
+
         public static readonly Error SalesRepCanOnlyCreateMerchandisers =
             Error.Unauthorized(
                 "UserManagement.SalesRepCanOnlyCreateMerchandisers",
