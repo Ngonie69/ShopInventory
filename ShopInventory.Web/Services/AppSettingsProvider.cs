@@ -15,8 +15,6 @@ public interface IAppSettingsProvider
     string DateFormat { get; }
     int PageSize { get; }
     int CacheDurationMinutes { get; }
-    bool AutoSyncEnabled { get; }
-    int SyncIntervalMinutes { get; }
     bool ShowPricesWithTax { get; }
     Task ReloadAsync();
 }
@@ -36,8 +34,6 @@ public class AppSettingsProvider : IAppSettingsProvider
     public string DateFormat { get; private set; } = "dd MMM yyyy";
     public int PageSize { get; private set; } = 20;
     public int CacheDurationMinutes { get; private set; } = 30;
-    public bool AutoSyncEnabled { get; private set; } = true;
-    public int SyncIntervalMinutes { get; private set; } = 60;
     public bool ShowPricesWithTax { get; private set; }
 
     public AppSettingsProvider(IDbContextFactory<WebAppDbContext> dbContextFactory, ILogger<AppSettingsProvider> logger)
@@ -60,8 +56,6 @@ public class AppSettingsProvider : IAppSettingsProvider
             DateFormat = GetString(settings, SettingKeys.DateFormat, "dd MMM yyyy");
             PageSize = GetInt(settings, SettingKeys.PageSize, 20);
             CacheDurationMinutes = GetInt(settings, SettingKeys.CacheDurationMinutes, 30);
-            AutoSyncEnabled = GetBool(settings, SettingKeys.AutoSyncEnabled, true);
-            SyncIntervalMinutes = GetInt(settings, SettingKeys.SyncIntervalMinutes, 60);
             ShowPricesWithTax = GetBool(settings, SettingKeys.ShowPricesWithTax, false);
 
             _loaded = true;

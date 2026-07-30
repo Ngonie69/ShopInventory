@@ -161,38 +161,11 @@ public class AppSettingsService : IAppSettingsService
             new()
             {
                 Category = SettingCategories.API,
-                Key = SettingKeys.ApiBaseUrl,
-                Value = "http://localhost:5106",
-                DataType = "string",
-                Description = "Base URL of the backend API",
-                DisplayOrder = 1
-            },
-            new()
-            {
-                Category = SettingCategories.API,
                 Key = SettingKeys.CacheDurationMinutes,
                 Value = "30",
                 DataType = "int",
-                Description = "How long to cache data before refreshing (in minutes)",
-                DisplayOrder = 2
-            },
-            new()
-            {
-                Category = SettingCategories.API,
-                Key = SettingKeys.AutoSyncEnabled,
-                Value = "true",
-                DataType = "bool",
-                Description = "Automatically sync data with the API",
-                DisplayOrder = 3
-            },
-            new()
-            {
-                Category = SettingCategories.API,
-                Key = SettingKeys.SyncIntervalMinutes,
-                Value = "60",
-                DataType = "int",
-                Description = "Interval between automatic syncs (in minutes)",
-                DisplayOrder = 4
+                Description = "How long cached SAP master data stays fresh before it is re-read (in minutes)",
+                DisplayOrder = 1
             },
 
             // Display settings
@@ -208,39 +181,10 @@ public class AppSettingsService : IAppSettingsService
             new()
             {
                 Category = SettingCategories.Display,
-                Key = SettingKeys.Theme,
-                Value = "light",
-                DataType = "string",
-                Description = "UI theme (light or dark)",
-                DisplayOrder = 2
-            },
-            new()
-            {
-                Category = SettingCategories.Display,
                 Key = SettingKeys.ShowPricesWithTax,
                 Value = "false",
                 DataType = "bool",
                 Description = "Show prices with tax included",
-                DisplayOrder = 3
-            },
-
-            // Audit settings
-            new()
-            {
-                Category = SettingCategories.Audit,
-                Key = SettingKeys.AuditEnabled,
-                Value = "true",
-                DataType = "bool",
-                Description = "Enable audit logging",
-                DisplayOrder = 1
-            },
-            new()
-            {
-                Category = SettingCategories.Audit,
-                Key = SettingKeys.AuditRetentionDays,
-                Value = "90",
-                DataType = "int",
-                Description = "Number of days to retain audit logs",
                 DisplayOrder = 2
             },
 
@@ -268,7 +212,8 @@ public class AppSettingsService : IAppSettingsService
                 IsEditable = false
             },
 
-            // POD report email settings
+            // POD report email settings — recipients and cadence live on each row of
+            // PodReportEmailSchedules; this is only the master on/off switch.
             new()
             {
                 Category = SettingCategories.EmailReports,
@@ -277,82 +222,6 @@ public class AppSettingsService : IAppSettingsService
                 DataType = "bool",
                 Description = "Send scheduled POD report emails",
                 DisplayOrder = 1
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsTo,
-                Value = "",
-                DataType = "string",
-                Description = "Primary recipients for POD report emails. Separate multiple emails with commas, semicolons, or new lines.",
-                DisplayOrder = 2
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsCc,
-                Value = "",
-                DataType = "string",
-                Description = "Cc recipients for POD report emails. Separate multiple emails with commas, semicolons, or new lines.",
-                DisplayOrder = 3
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsWeeklyDayOfWeek,
-                Value = "Monday",
-                DataType = "string",
-                Description = "Day of week when the weekly POD report is sent",
-                DisplayOrder = 4
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsWeeklySendHourUtc,
-                Value = "6",
-                DataType = "int",
-                Description = "UTC hour when the weekly POD report is sent",
-                DisplayOrder = 5
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsMonthlyDayOfMonth,
-                Value = "1",
-                DataType = "int",
-                Description = "Day of month when the previous full month POD report is sent",
-                DisplayOrder = 6
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsMonthlySendHourUtc,
-                Value = "6",
-                DataType = "int",
-                Description = "UTC hour when the previous full month POD report is sent",
-                DisplayOrder = 7
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsLastWeeklySentUtc,
-                Value = "",
-                DataType = "string",
-                Description = "Last scheduled weekly POD report sent timestamp (UTC)",
-                DisplayOrder = 8,
-                IsVisible = false,
-                IsEditable = false
-            },
-            new()
-            {
-                Category = SettingCategories.EmailReports,
-                Key = SettingKeys.PodReportEmailsLastMonthlySentUtc,
-                Value = "",
-                DataType = "string",
-                Description = "Last scheduled monthly POD report sent timestamp (UTC)",
-                DisplayOrder = 9,
-                IsVisible = false,
-                IsEditable = false
             },
 
             // Printing settings
@@ -368,29 +237,11 @@ public class AppSettingsService : IAppSettingsService
             new()
             {
                 Category = SettingCategories.Printing,
-                Key = SettingKeys.PrinterName,
-                Value = "",
-                DataType = "string",
-                Description = "Preferred printer name (shown in print dialog, leave empty for default)",
-                DisplayOrder = 2
-            },
-            new()
-            {
-                Category = SettingCategories.Printing,
                 Key = SettingKeys.PrintCopies,
                 Value = "1",
                 DataType = "int",
-                Description = "Number of copies to print",
-                DisplayOrder = 3
-            },
-            new()
-            {
-                Category = SettingCategories.Printing,
-                Key = SettingKeys.SavedPrinters,
-                Value = "[]",
-                DataType = "string",
-                Description = "JSON array of saved printer names for quick selection",
-                DisplayOrder = 4
+                Description = "Intended number of copies, shown to the operator in the print dialog",
+                DisplayOrder = 2
             },
 
             // Payment settings
@@ -449,7 +300,27 @@ public class AppSettingsService : IAppSettingsService
         await db.SaveChangesAsync();
         _logger.LogInformation("Initialized default application settings");
 
+        // Order matters: the backfill is the last reader of the legacy POD keys, so it has to run
+        // before they are pruned.
         await BackfillPodReportEmailSchedulesAsync(db);
+        await PruneRetiredSettingsAsync(db);
+    }
+
+    /// <summary>
+    /// Deletes rows for keys nothing reads any more (see <see cref="RetiredSettingKeys"/>). Without
+    /// this, an installation seeded by an earlier version would keep offering controls on the
+    /// Settings page that change nothing, because the page renders whatever rows the table holds.
+    /// </summary>
+    private async Task PruneRetiredSettingsAsync(WebAppDbContext db)
+    {
+        var removed = await db.AppSettings
+            .Where(s => RetiredSettingKeys.All.Contains(s.Key))
+            .ExecuteDeleteAsync();
+
+        if (removed > 0)
+        {
+            _logger.LogInformation("Pruned {Count} retired application setting(s)", removed);
+        }
     }
 
     /// <summary>
@@ -466,28 +337,28 @@ public class AppSettingsService : IAppSettingsService
 
         var podKeys = new[]
         {
-            SettingKeys.PodReportEmailsTo,
-            SettingKeys.PodReportEmailsCc,
-            SettingKeys.PodReportEmailsWeeklyDayOfWeek,
-            SettingKeys.PodReportEmailsWeeklySendHourUtc,
-            SettingKeys.PodReportEmailsMonthlyDayOfMonth,
-            SettingKeys.PodReportEmailsMonthlySendHourUtc,
-            SettingKeys.PodReportEmailsLastWeeklySentUtc,
-            SettingKeys.PodReportEmailsLastMonthlySentUtc
+            RetiredSettingKeys.PodReportEmailsTo,
+            RetiredSettingKeys.PodReportEmailsCc,
+            RetiredSettingKeys.PodReportEmailsWeeklyDayOfWeek,
+            RetiredSettingKeys.PodReportEmailsWeeklySendHourUtc,
+            RetiredSettingKeys.PodReportEmailsMonthlyDayOfMonth,
+            RetiredSettingKeys.PodReportEmailsMonthlySendHourUtc,
+            RetiredSettingKeys.PodReportEmailsLastWeeklySentUtc,
+            RetiredSettingKeys.PodReportEmailsLastMonthlySentUtc
         };
 
         var values = await db.AppSettings
             .Where(s => podKeys.Contains(s.Key))
             .ToDictionaryAsync(s => s.Key, s => s.Value);
 
-        var to = GetValueOrEmpty(values, SettingKeys.PodReportEmailsTo);
+        var to = GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsTo);
         if (string.IsNullOrWhiteSpace(to))
         {
             // Nothing was configured previously; leave the table empty and let the user add schedules.
             return;
         }
 
-        var cc = GetValueOrEmpty(values, SettingKeys.PodReportEmailsCc);
+        var cc = GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsCc);
         var nowUtc = DateTime.UtcNow;
 
         var weekly = new PodReportEmailSchedule
@@ -495,12 +366,12 @@ public class AppSettingsService : IAppSettingsService
             Name = "Weekly POD report",
             Enabled = true,
             Frequency = nameof(PodReportEmailFrequency.Weekly),
-            DayOfWeek = ParseDayOfWeek(GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklyDayOfWeek)),
+            DayOfWeek = ParseDayOfWeek(GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsWeeklyDayOfWeek)),
             SendMinuteOfDay = LegacyUtcHourToLocalMinuteOfDay(
-                GetValueOrEmpty(values, SettingKeys.PodReportEmailsWeeklySendHourUtc)),
+                GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsWeeklySendHourUtc)),
             ToRecipients = to,
             CcRecipients = cc,
-            LastSentUtc = ParseUtc(GetValueOrEmpty(values, SettingKeys.PodReportEmailsLastWeeklySentUtc)),
+            LastSentUtc = ParseUtc(GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsLastWeeklySentUtc)),
             AnchorDateUtc = nowUtc,
             CreatedAtUtc = nowUtc,
             CreatedBy = "System (migrated)",
@@ -513,12 +384,12 @@ public class AppSettingsService : IAppSettingsService
             Name = "Monthly POD report",
             Enabled = true,
             Frequency = nameof(PodReportEmailFrequency.Monthly),
-            DayOfMonth = ParseInt(GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlyDayOfMonth), 1),
+            DayOfMonth = ParseInt(GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsMonthlyDayOfMonth), 1),
             SendMinuteOfDay = LegacyUtcHourToLocalMinuteOfDay(
-                GetValueOrEmpty(values, SettingKeys.PodReportEmailsMonthlySendHourUtc)),
+                GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsMonthlySendHourUtc)),
             ToRecipients = to,
             CcRecipients = cc,
-            LastSentUtc = ParseUtc(GetValueOrEmpty(values, SettingKeys.PodReportEmailsLastMonthlySentUtc)),
+            LastSentUtc = ParseUtc(GetValueOrEmpty(values, RetiredSettingKeys.PodReportEmailsLastMonthlySentUtc)),
             AnchorDateUtc = nowUtc,
             CreatedAtUtc = nowUtc,
             CreatedBy = "System (migrated)",

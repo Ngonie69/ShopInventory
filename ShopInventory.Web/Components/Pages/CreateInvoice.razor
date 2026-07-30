@@ -12,7 +12,6 @@
 @inject IMasterDataCacheService CacheService
 @inject IAppSettingsService AppSettingsService
 @inject IAppSettingsProvider AppSettings
-@inject IPrinterService PrinterService
 @inject IJSRuntime JS
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInvoice> Logger
@@ -512,68 +511,21 @@
                 </button>
             </div>
             <div class="civ-dialog-bd">
-                <label class="civ-lab">
-                    <span class="civ-lab-t">Printer</span>
-                    @if (savedPrinters.Any())
-                    {
-                        <select class="civ-select" @bind="selectedPrinterName">
-                            <option value="">System default</option>
-                            @foreach (var printer in savedPrinters)
-                            {
-                                <option value="@printer">@printer</option>
-                            }
-                        </select>
-                        <div class="civ-field-meta" style="margin-top:6px;">
-                            Select your printer, then confirm in the browser print dialog.
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="civ-field-meta">
-                            No saved printers. Add one below, or use the browser print dialog to choose.
-                        </div>
-                    }
-                </label>
-
-                <div class="civ-lab">
-                    <span class="civ-lab-t">Add printer</span>
-                    <div class="civ-row-inline">
-                        <select class="civ-select" @bind="newPrinterName">
-                            <option value="">Select a printer to add&hellip;</option>
-                            @foreach (var printer in installedPrinters.Where(p => !savedPrinters.Contains(p)))
-                            {
-                                <option value="@printer">@printer</option>
-                            }
-                        </select>
-                        <button type="button" class="civ-btn" @onclick="AddPrinter"
-                                disabled="@string.IsNullOrWhiteSpace(newPrinterName)">
-                            <i class="ph ph-plus"></i>Add
-                        </button>
-                    </div>
-                </div>
-
-                @if (savedPrinters.Any())
-                {
-                    <div class="civ-lab">
-                        <span class="civ-lab-t">Saved printers</span>
-                        <div class="civ-chips">
-                            @foreach (var printer in savedPrinters)
-                            {
-                                <span class="civ-chip">
-                                    @printer
-                                    <button type="button" @onclick="() => RemovePrinter(printer)" title="Remove">
-                                        <i class="ph ph-x"></i>
-                                    </button>
-                                </span>
-                            }
-                        </div>
-                    </div>
-                }
-
                 <label class="civ-lab civ-w-narrow">
                     <span class="civ-lab-t">Copies</span>
                     <input type="number" min="1" max="10" class="civ-input" @bind="printCopies" />
                 </label>
+
+                @* A web page cannot name a printer or set a copy count on a job — the browser's own
+                   dialog owns both. So this is guidance for the operator, not a device setting. *@
+                <div class="civ-field-meta">
+                    Your browser's print dialog opens next — choose the printer
+                    @if (printCopies > 1)
+                    {
+                        <text>and set <strong>@printCopies copies</strong></text>
+                    }
+                    there.
+                </div>
             </div>
             <div class="civ-dialog-ft">
                 <button type="button" class="civ-btn" @onclick="DownloadInvoicePdf" disabled="@isPrinting">
@@ -611,12 +563,8 @@
     private InvoiceDto? lastCreatedInvoice;
     private FiscalizationResult? lastFiscalizationResult;
 
-    // Print dialog state
+    // Print dialog state. There is no printer to track: the browser's print dialog owns that choice.
     private bool showPrintDialog = false;
-    private List<string> savedPrinters = new();
-    private List<string> installedPrinters = new();
-    private string selectedPrinterName = "";
-    private string newPrinterName = "";
     private int printCopies = 1;
     private string? warehouseCode = "01";
     private string? defaultCostCentre;
@@ -1949,9 +1897,10 @@ customerPricing.Count, priceListNum);
             copies = Math.Clamp(copies, 1, 10);
 
             var base64 = Convert.ToBase64String(pdfBytes);
-            await JS.InvokeVoidAsync("printPdfFromBase64", base64, copies);
+            await JS.InvokeVoidAsync("printPdfFromBase64", base64);
 
-            Logger.LogInformation("Auto-print triggered for invoice #{DocNum} ({Copies} copies)",
+            // The browser's dialog is what the cashier sets copies in; we can only open it once.
+            Logger.LogInformation("Auto-print dialog opened for invoice #{DocNum} ({Copies} copies intended)",
             createdInvoice.DocNum, copies);
         }
         catch (Exception ex)
@@ -1973,96 +1922,18 @@ customerPricing.Count, priceListNum);
         if (lastCreatedInvoice == null)
             return;
 
-        // Load saved printers and default copies from settings
         try
         {
-            installedPrinters = PrinterService.GetInstalledPrinters();
-
-            var savedPrintersJson = await AppSettingsService.GetValueAsync<string>(SettingKeys.SavedPrinters);
-            if (!string.IsNullOrWhiteSpace(savedPrintersJson))
-            {
-                savedPrinters = (System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedPrintersJson) ?? new())
-                    .Where(printer => !string.IsNullOrWhiteSpace(printer))
-                    .Select(printer => printer.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(printer => printer, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-            }
-
-            var defaultPrinter = await AppSettingsService.GetValueAsync<string>(SettingKeys.PrinterName);
-            var knownPrinters = savedPrinters.Concat(installedPrinters);
-            selectedPrinterName = !string.IsNullOrWhiteSpace(defaultPrinter) && knownPrinters.Contains(defaultPrinter,
-StringComparer.OrdinalIgnoreCase)
-            ? defaultPrinter
-            : "";
-
-            if (!string.IsNullOrWhiteSpace(selectedPrinterName) && !savedPrinters.Contains(selectedPrinterName,
-StringComparer.OrdinalIgnoreCase))
-            {
-                savedPrinters.Add(selectedPrinterName);
-                savedPrinters = savedPrinters.OrderBy(printer => printer, StringComparer.OrdinalIgnoreCase).ToList();
-                await SavePrinterList();
-            }
-
             printCopies = await AppSettingsService.GetValueAsync<int>(SettingKeys.PrintCopies);
             printCopies = Math.Clamp(printCopies, 1, 10);
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Error loading printer settings");
-            savedPrinters = new();
+            Logger.LogWarning(ex, "Error loading print settings");
             printCopies = 1;
         }
 
-        newPrinterName = "";
         showPrintDialog = true;
-    }
-
-    private async Task AddPrinter()
-    {
-        var name = newPrinterName?.Trim();
-        if (string.IsNullOrWhiteSpace(name) || savedPrinters.Contains(name, StringComparer.OrdinalIgnoreCase))
-            return;
-
-        savedPrinters.Add(name);
-        selectedPrinterName = name;
-        newPrinterName = "";
-        await SavePrinterList();
-    }
-
-    private void OnNewPrinterKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            _ = AddPrinter();
-        }
-    }
-
-    private async Task RemovePrinter(string name)
-    {
-        savedPrinters.RemoveAll(printer => string.Equals(printer, name, StringComparison.OrdinalIgnoreCase));
-        if (string.Equals(selectedPrinterName, name, StringComparison.OrdinalIgnoreCase))
-            selectedPrinterName = "";
-        await SavePrinterList();
-    }
-
-    private async Task SavePrinterList()
-    {
-        try
-        {
-            savedPrinters = savedPrinters
-                .Where(printer => !string.IsNullOrWhiteSpace(printer))
-                .Select(printer => printer.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(printer => printer, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var json = System.Text.Json.JsonSerializer.Serialize(savedPrinters);
-            await AppSettingsService.SaveSettingAsync(SettingKeys.SavedPrinters, json);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Error saving printer list");
-        }
     }
 
     private async Task ExecutePrint()
@@ -2075,8 +1946,7 @@ StringComparer.OrdinalIgnoreCase))
         {
             printCopies = Math.Clamp(printCopies, 1, 10);
 
-            // Save selected printer as default
-            await AppSettingsService.SaveSettingAsync(SettingKeys.PrinterName, selectedPrinterName ?? string.Empty);
+            // Remember the copy count as the new default for the next invoice.
             await AppSettingsService.SaveSettingAsync(SettingKeys.PrintCopies, printCopies.ToString());
 
             var pdfBytes = await InvoiceService.GetInvoicePdfAsync(lastCreatedInvoice.DocEntry, lastFiscalizationResult?.QRCode);
@@ -2087,10 +1957,10 @@ StringComparer.OrdinalIgnoreCase))
             }
 
             var base64 = Convert.ToBase64String(pdfBytes);
-            await JS.InvokeVoidAsync("printPdfFromBase64", base64, printCopies);
+            await JS.InvokeVoidAsync("printPdfFromBase64", base64);
 
-            Logger.LogInformation("Print triggered for invoice #{DocNum} ({Copies} copies, Printer: {Printer})",
-            lastCreatedInvoice.DocNum, printCopies, selectedPrinterName ?? "System Default");
+            Logger.LogInformation("Print dialog opened for invoice #{DocNum} ({Copies} copies intended)",
+            lastCreatedInvoice.DocNum, printCopies);
 
             showPrintDialog = false;
         }

@@ -9,12 +9,6 @@ using ShopInventory.Web.Models;
 
 namespace ShopInventory.Web.Services;
 
-public enum PodReportEmailPeriodKind
-{
-    Weekly,
-    Monthly
-}
-
 public sealed record PodReportEmailSendResult(
     bool Success,
     string Message,
@@ -24,11 +18,6 @@ public sealed record PodReportEmailSendResult(
 
 public interface IPodReportEmailService
 {
-    Task<PodReportEmailSendResult> SendLatestAsync(
-        PodReportEmailPeriodKind periodKind,
-        string triggeredBy,
-        CancellationToken cancellationToken = default);
-
     /// <summary>
     /// Sends the POD report for the period implied by the schedule's frequency to the schedule's
     /// own recipient list. Used by both the manual "Send now" action and the background scheduler.
@@ -43,7 +32,6 @@ public sealed class PodReportEmailService(
     IHttpClientFactory httpClientFactory,
     IReportExportService reportExportService,
     IEmailService emailService,
-    IAppSettingsService settingsService,
     IAuditService auditService,
     ILogger<PodReportEmailService> logger) : IPodReportEmailService
 {
@@ -56,45 +44,6 @@ public sealed class PodReportEmailService(
     private static readonly EventId DeliveryStartedEvent = new(7204, "PodReportEmailDeliveryStarted");
     private static readonly EventId SendCompletedEvent = new(7205, "PodReportEmailSendCompleted");
     private static readonly EventId SendFailedEvent = new(7206, "PodReportEmailSendFailed");
-
-    public async Task<PodReportEmailSendResult> SendLatestAsync(
-        PodReportEmailPeriodKind periodKind,
-        string triggeredBy,
-        CancellationToken cancellationToken = default)
-    {
-        var frequency = periodKind == PodReportEmailPeriodKind.Monthly
-            ? PodReportEmailFrequency.Monthly
-            : PodReportEmailFrequency.Weekly;
-        var (fromDate, toDate) = GetPeriod(frequency, null, PodScheduleTime.NowLocal());
-        var frequencyLabel = GetFrequencyLabel(frequency, null);
-        var fileSlug = GetFrequencySlug(frequency, null);
-        var nowUtc = DateTime.UtcNow;
-        var schedule = new PodReportEmailSchedule
-        {
-            Name = periodKind == PodReportEmailPeriodKind.Monthly
-                ? "Manual full-month POD report"
-                : "Manual weekly POD report",
-            Enabled = true,
-            Frequency = frequency.ToString(),
-            ToRecipients = await settingsService.GetValueAsync(SettingKeys.PodReportEmailsTo) ?? string.Empty,
-            CcRecipients = await settingsService.GetValueAsync(SettingKeys.PodReportEmailsCc) ?? string.Empty,
-            AnchorDateUtc = nowUtc,
-            CreatedAtUtc = nowUtc,
-            LastModifiedAtUtc = nowUtc,
-            LastModifiedBy = triggeredBy
-        };
-
-        return await SendCoreAsync(
-            schedule,
-            frequencyLabel,
-            fileSlug,
-            fromDate,
-            toDate,
-            ParseRecipients(schedule.ToRecipients),
-            ParseRecipients(schedule.CcRecipients),
-            triggeredBy,
-            cancellationToken);
-    }
 
     public async Task<PodReportEmailSendResult> SendForScheduleAsync(
         PodReportEmailSchedule schedule,
