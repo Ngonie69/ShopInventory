@@ -1058,6 +1058,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
                   .IsRequired()
                   .HasMaxLength(100);
 
+      entity.Property(e => e.ItemKey)
+                  .HasMaxLength(100);
+
       entity.Property(e => e.AcknowledgedByUsername)
                   .HasMaxLength(50);
 

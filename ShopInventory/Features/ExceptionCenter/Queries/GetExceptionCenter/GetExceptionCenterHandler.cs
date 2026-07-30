@@ -15,12 +15,12 @@ public sealed class GetExceptionCenterHandler(
 ) : IRequestHandler<GetExceptionCenterQuery, ErrorOr<ExceptionCenterDashboardDto>>
 {
     private const int DefaultPerSourceLimit = 40;
-    private const string InvoiceQueueSource = "invoice-queue";
-    private const string TransferQueueSource = "inventory-transfer-queue";
-    private const string MobileQueueSource = "mobile-order-post-processing";
-    private const string PaymentSource = "payment-callback";
-    private const string PaymentRejectedSource = "payment-callback-rejection";
-    private const string CreditNoteFiscalizationSource = "credit-note-fiscalization";
+    private const string InvoiceQueueSource = ExceptionCenterSources.InvoiceQueue;
+    private const string TransferQueueSource = ExceptionCenterSources.InventoryTransferQueue;
+    private const string MobileQueueSource = ExceptionCenterSources.MobileOrderPostProcessing;
+    private const string PaymentSource = ExceptionCenterSources.PaymentCallback;
+    private const string PaymentRejectedSource = ExceptionCenterSources.PaymentCallbackRejection;
+    private const string CreditNoteFiscalizationSource = ExceptionCenterSources.CreditNoteFiscalization;
 
     public async Task<ErrorOr<ExceptionCenterDashboardDto>> Handle(
         GetExceptionCenterQuery request,
@@ -159,38 +159,31 @@ public sealed class GetExceptionCenterHandler(
                 })
                 .ToListAsync(cancellationToken);
 
+            var pendingTransferItems = await LoadPendingTransferPostFailuresAsync(context, perSourceLimit, cancellationToken);
+            var pendingEditItems = await LoadPendingRequestEditApplyFailuresAsync(context, perSourceLimit, cancellationToken);
+
             var items = invoiceItems
                 .Concat(transferItems)
                 .Concat(mobileItems)
                 .Concat(paymentItems)
                 .Concat(incidentItems)
+                .Concat(pendingTransferItems)
+                .Concat(pendingEditItems)
                 .ToList();
 
+            EnsureItemKeys(items);
+
             var stateSources = items.Select(item => item.Source).Distinct().ToList();
-            var stateItemIds = items.Select(item => item.ItemId).Distinct().ToList();
+            var stateItemKeys = items.Select(item => item.ItemKey).Distinct().ToList();
 
             var states = await context.ExceptionCenterItemStates
                 .AsNoTracking()
-                .Where(state => stateSources.Contains(state.Source) && stateItemIds.Contains(state.ItemId))
+                .Where(state => stateSources.Contains(state.Source)
+                                && state.ItemKey != null
+                                && stateItemKeys.Contains(state.ItemKey))
                 .ToListAsync(cancellationToken);
 
-            var stateMap = states.ToDictionary(
-                state => BuildStateKey(state.Source, state.ItemId),
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var item in items)
-            {
-                if (!stateMap.TryGetValue(BuildStateKey(item.Source, item.ItemId), out var state))
-                {
-                    continue;
-                }
-
-                item.IsAcknowledged = state.IsAcknowledged;
-                item.AcknowledgedAtUtc = state.AcknowledgedAtUtc;
-                item.AcknowledgedByUsername = state.AcknowledgedByUsername;
-                item.AssignedToUsername = state.AssignedToUsername;
-                item.AssignedAtUtc = state.AssignedAtUtc;
-            }
+            ApplyStates(items, states);
 
             items = items
                 .OrderBy(item => item.IsAcknowledged)
@@ -219,6 +212,154 @@ public sealed class GetExceptionCenterHandler(
         }
     }
 
+    /// <summary>
+    /// Fills in the routing key for the int-keyed sources, which project their id straight from
+    /// the database. That key is the id in decimal — exactly what those items were addressed by
+    /// before Guid-keyed sources arrived. The Guid-keyed loaders set their own.
+    /// </summary>
+    internal static void EnsureItemKeys(List<ExceptionCenterItemDto> items)
+    {
+        foreach (var item in items.Where(item => string.IsNullOrEmpty(item.ItemKey)))
+        {
+            item.ItemKey = ExceptionCenterSources.Key(item.ItemId);
+        }
+    }
+
+    /// <summary>
+    /// Lays each item's stored acknowledgement and assignment over it, matched on source and
+    /// routing key. Requires <see cref="EnsureItemKeys"/> to have run.
+    /// </summary>
+    internal static void ApplyStates(
+        List<ExceptionCenterItemDto> items,
+        IReadOnlyCollection<ExceptionCenterItemStateEntity> states)
+    {
+        var stateMap = states
+            .Where(state => state.ItemKey != null)
+            .ToDictionary(
+                state => BuildStateKey(state.Source, state.ItemKey!),
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in items)
+        {
+            if (!stateMap.TryGetValue(BuildStateKey(item.Source, item.ItemKey), out var state))
+            {
+                continue;
+            }
+
+            item.IsAcknowledged = state.IsAcknowledged;
+            item.AcknowledgedAtUtc = state.AcknowledgedAtUtc;
+            item.AcknowledgedByUsername = state.AcknowledgedByUsername;
+            item.AssignedToUsername = state.AssignedToUsername;
+            item.AssignedAtUtc = state.AssignedAtUtc;
+        }
+    }
+
+    /// <summary>
+    /// Direct transfers that cleared every approval stage and then failed to post to SAP. They
+    /// are Guid keyed, and nothing retries them on a timer, so until someone presses retry the
+    /// stock never moves and no queue row exists to say so.
+    /// </summary>
+    internal static async Task<List<ExceptionCenterItemDto>> LoadPendingTransferPostFailuresAsync(
+        ApplicationDbContext context,
+        int perSourceLimit,
+        CancellationToken cancellationToken)
+    {
+        // Projected to an anonymous shape first: the routing key is a formatted Guid, which is
+        // built here rather than asked of the database.
+        var rows = await context.PendingInventoryTransfers
+            .AsNoTracking()
+            .Where(p => p.Status == PendingInventoryTransferStatuses.PostFailed)
+            .OrderByDescending(p => p.DecidedAtUtc ?? p.CreatedAtUtc)
+            .Take(perSourceLimit)
+            .Select(p => new
+            {
+                p.Id,
+                p.DraftNumber,
+                p.FromWarehouse,
+                p.ToWarehouse,
+                p.LineCount,
+                p.TotalQuantity,
+                p.CreatedByName,
+                p.LastError,
+                p.CreatedAtUtc,
+                p.DecidedAtUtc
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(p => new ExceptionCenterItemDto
+            {
+                Source = ExceptionCenterSources.PendingInventoryTransferPost,
+                ItemId = 0,
+                ItemKey = ExceptionCenterSources.Key(p.Id),
+                Category = "SAP Posting",
+                Title = $"Approved transfer {p.FromWarehouse} to {p.ToWarehouse} failed to post",
+                Reference = string.IsNullOrWhiteSpace(p.DraftNumber)
+                    ? $"Held transfer {p.Id:D}"
+                    : p.DraftNumber,
+                Status = "Failed",
+                SourceSystem = $"{p.LineCount} line(s), {p.TotalQuantity:0.####} qty - raised by {p.CreatedByName}",
+                LastError = p.LastError,
+                RetryCount = 0,
+                MaxRetries = 0,
+                CreatedAtUtc = p.CreatedAtUtc,
+                OccurredAtUtc = p.DecidedAtUtc ?? p.CreatedAtUtc,
+                NextRetryAtUtc = null,
+                CanRetry = true
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Approved changes to SAP transfer requests that failed to reach SAP. Guid keyed, and like
+    /// the held transfers nothing reattempts them on its own.
+    /// </summary>
+    internal static async Task<List<ExceptionCenterItemDto>> LoadPendingRequestEditApplyFailuresAsync(
+        ApplicationDbContext context,
+        int perSourceLimit,
+        CancellationToken cancellationToken)
+    {
+        var rows = await context.PendingTransferRequestEdits
+            .AsNoTracking()
+            .Where(e => e.Status == PendingTransferRequestEditStatuses.ApplyFailed)
+            .OrderByDescending(e => e.DecidedAtUtc ?? e.CreatedAtUtc)
+            .Take(perSourceLimit)
+            .Select(e => new
+            {
+                e.Id,
+                e.RequestDocEntry,
+                e.RequestDocNum,
+                e.FromWarehouse,
+                e.ToWarehouse,
+                e.CreatedByName,
+                e.LastError,
+                e.CreatedAtUtc,
+                e.DecidedAtUtc
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(e => new ExceptionCenterItemDto
+            {
+                Source = ExceptionCenterSources.PendingTransferRequestEditApply,
+                ItemId = 0,
+                ItemKey = ExceptionCenterSources.Key(e.Id),
+                Category = "SAP Posting",
+                Title = $"Approved change to transfer request #{e.RequestDocNum} failed to apply",
+                Reference = $"Transfer request #{e.RequestDocNum}",
+                Status = "Failed",
+                SourceSystem = $"DocEntry {e.RequestDocEntry}, {e.FromWarehouse} to {e.ToWarehouse} - proposed by {e.CreatedByName}",
+                LastError = e.LastError,
+                RetryCount = 0,
+                MaxRetries = 0,
+                CreatedAtUtc = e.CreatedAtUtc,
+                OccurredAtUtc = e.DecidedAtUtc ?? e.CreatedAtUtc,
+                NextRetryAtUtc = null,
+                CanRetry = true
+            })
+            .ToList();
+    }
+
     private static int GetStatusRank(string status)
         => status switch
         {
@@ -227,5 +368,5 @@ public sealed class GetExceptionCenterHandler(
             _ => 1
         };
 
-    private static string BuildStateKey(string source, int itemId) => $"{source}:{itemId}";
+    private static string BuildStateKey(string source, string itemKey) => $"{source}:{itemKey}";
 }

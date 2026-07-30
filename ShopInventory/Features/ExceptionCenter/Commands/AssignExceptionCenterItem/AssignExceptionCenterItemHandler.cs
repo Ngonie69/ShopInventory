@@ -2,10 +2,8 @@ using System.Security.Claims;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
-using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.ExceptionCenter.Commands.AssignExceptionCenterItem;
 
@@ -19,10 +17,10 @@ public sealed class AssignExceptionCenterItemHandler(
         AssignExceptionCenterItemCommand command,
         CancellationToken cancellationToken)
     {
-        var source = NormalizeSource(command.Source);
-        if (!await ItemExistsAsync(source, command.ItemId, cancellationToken))
+        var source = ExceptionCenterSources.Normalize(command.Source);
+        if (!await ExceptionCenterItemLookup.ExistsAsync(context, source, command.ItemKey, cancellationToken))
         {
-            return Errors.ExceptionCenter.ItemNotFound(command.Source, command.ItemId);
+            return Errors.ExceptionCenter.ItemNotFound(command.Source, command.ItemKey);
         }
 
         var (userId, username) = ResolveCurrentUser();
@@ -31,20 +29,8 @@ public sealed class AssignExceptionCenterItemHandler(
             return Errors.ExceptionCenter.UpdateFailed("Assign", "Could not resolve the current user for assignment.");
         }
 
-        var state = await context.ExceptionCenterItemStates
-            .AsTracking()
-            .FirstOrDefaultAsync(s => s.Source == source && s.ItemId == command.ItemId, cancellationToken);
-
-        if (state == null)
-        {
-            state = new ExceptionCenterItemStateEntity
-            {
-                Source = source,
-                ItemId = command.ItemId
-            };
-
-            context.ExceptionCenterItemStates.Add(state);
-        }
+        var state = await ExceptionCenterItemLookup.GetOrCreateStateAsync(
+            context, source, command.ItemKey, cancellationToken);
 
         state.AssignedToUserId = userId;
         state.AssignedToUsername = username;
@@ -53,20 +39,9 @@ public sealed class AssignExceptionCenterItemHandler(
 
         await context.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("Assigned exception center item {Source}:{ItemId} to {Username}", source, command.ItemId, username);
+        logger.LogInformation("Assigned exception center item {Source}:{ItemKey} to {Username}", source, command.ItemKey, username);
         return Result.Success;
     }
-
-    private async Task<bool> ItemExistsAsync(string source, int itemId, CancellationToken cancellationToken)
-        => source switch
-        {
-            "invoice-queue" => await context.InvoiceQueue.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "inventory-transfer-queue" => await context.InventoryTransferQueue.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "mobile-order-post-processing" => await context.MobileOrderPostProcessingQueue.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "payment-callback" => await context.PaymentTransactions.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "payment-callback-rejection" or "credit-note-fiscalization" => await context.ExceptionCenterIncidents.AsNoTracking().AnyAsync(q => q.Id == itemId && q.Source == source, cancellationToken),
-            _ => false
-        };
 
     private (Guid? userId, string username) ResolveCurrentUser()
     {
@@ -80,6 +55,4 @@ public sealed class AssignExceptionCenterItemHandler(
             ? (userId, username)
             : (null, username);
     }
-
-    private static string NormalizeSource(string source) => source.Trim().ToLowerInvariant();
 }
