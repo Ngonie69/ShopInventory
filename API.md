@@ -192,6 +192,43 @@ Idempotency-Key: <unique-uuid>
 
 Idempotency keys expire after **60 minutes**.
 
+### Recovering an order from its key
+
+A replayed key does **not** return the original document. Within the 60 minute window the
+middleware answers a repeat of the same `Idempotency-Key` with the first request's status code and a
+bare `{ "message": ... }` body, and after the window expires the request reaches the handler, where
+sales orders are deduplicated again on the persisted `clientRequestId`. Either way a client that
+lost the original response — a timeout, a dropped connection, a process kill — cannot learn the
+order number from a retry.
+
+For mobile sales orders, ask instead:
+
+```
+GET /api/Merchandiser/mobile/orders/by-client-request/{clientRequestId}
+```
+
+Returns the caller's own mobile order created under that key, or **404** when no order exists yet —
+which is the server confirming the request is still safe to send. A client must not read a transport
+failure on this call as a 404.
+
+### Endpoints that replay the real document
+
+Crate POD upload and crate GRV creation do their own durable idempotency in the handler, which
+persists the response and replays the actual document on a repeated key:
+
+| Endpoint | Key carrier |
+| --- | --- |
+| `POST /api/crates/transactions/{id}/pods` | `clientRequestId` form field (or `Idempotency-Key` header) |
+| `POST /api/crates/transactions/{id}/grvs` | `clientRequestId` form field (or `Idempotency-Key` header) |
+
+`IdempotencyMiddleware` deliberately stands aside for these two routes, because its own in-memory
+replay would short-circuit the request and answer with a bare message instead of the document.
+
+The key must stay stable across retries of one submission and be retired once it succeeds or once
+the submission's content changes — reusing a key with a different payload returns **409
+`Idempotency.RequestMismatch`**. Only successful submissions are recorded, so a refusal (negative
+quantity, no variance, missing merchandiser POD) stays retryable once the cause is fixed.
+
 ---
 
 ## Common Response Patterns

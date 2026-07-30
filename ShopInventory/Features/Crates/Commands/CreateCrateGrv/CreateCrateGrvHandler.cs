@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -15,10 +16,101 @@ public sealed class CreateCrateGrvHandler(
     ApplicationDbContext context,
     IDocumentService documentService,
     IAuditService auditService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     ILogger<CreateCrateGrvHandler> logger
 ) : IRequestHandler<CreateCrateGrvCommand, ErrorOr<CrateGrvDto>>
 {
+    private const string IdempotencyScope = "crates.grvs.create";
+
+    /// <summary>
+    /// The one-to-one FK on CrateTransactionId already stops a retry creating a second GRV, but it
+    /// turns the retry into a "GRV already exists" refusal — so a merchandiser whose first attempt
+    /// timed out is told it failed and has no way to reach the GRV that was raised. A durable
+    /// idempotency key replays the original GRV instead of refusing.
+    /// </summary>
     public async Task<ErrorOr<CrateGrvDto>> Handle(
+        CreateCrateGrvCommand command,
+        CancellationToken cancellationToken)
+    {
+        var clientRequestId = string.IsNullOrWhiteSpace(command.ClientRequestId)
+            ? null
+            : command.ClientRequestId.Trim();
+
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+
+        try
+        {
+            if (clientRequestId is not null)
+            {
+                var acquireResult = await idempotencyRequestStore.TryAcquireAsync<CrateGrvDto>(
+                    IdempotencyScope,
+                    clientRequestId,
+                    // Hashed instead of the command itself: the command holds the upload Stream,
+                    // which cannot be serialized and would differ on every attempt anyway.
+                    BuildIdempotencyFingerprint(command),
+                    cancellationToken);
+
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        logger.LogWarning("Replaying crate GRV creation for idempotency key {Key}", clientRequestId);
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("crate GRV creation");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("crate GRV creation");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+            }
+
+            var result = await HandleCoreAsync(command, cancellationToken);
+
+            // Only a GRV that actually exists may be replayed. A refusal — no variance, missing
+            // merchandiser POD — has to stay retryable once the underlying state is fixed.
+            if (!result.IsError && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist crate GRV idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release crate GRV idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+        }
+    }
+
+    private static object BuildIdempotencyFingerprint(CreateCrateGrvCommand command) => new
+    {
+        command.CrateTransactionId,
+        command.Reason,
+        command.FileName,
+        command.UserId
+    };
+
+    private async Task<ErrorOr<CrateGrvDto>> HandleCoreAsync(
         CreateCrateGrvCommand command,
         CancellationToken cancellationToken)
     {

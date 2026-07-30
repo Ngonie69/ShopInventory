@@ -86,6 +86,9 @@ public sealed class GetMobileOrdersHandler(
                 UpdatedAt = o.UpdatedAt,
                 IsSynced = o.IsSynced && o.SAPDocNum.HasValue && o.SAPDocNum > 0,
                 Source = o.Source,
+                // Carried so the app can match a local draft to the order it produced without a
+                // per-draft round trip.
+                ClientRequestId = o.ClientRequestId,
                 MerchandiserNotes = o.MerchandiserNotes,
                 Latitude = o.Latitude,
                 Longitude = o.Longitude

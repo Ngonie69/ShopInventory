@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Crates;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -15,10 +16,103 @@ public sealed class UploadCratePodHandler(
     ApplicationDbContext context,
     IDocumentService documentService,
     IAuditService auditService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     ILogger<UploadCratePodHandler> logger
 ) : IRequestHandler<UploadCratePodCommand, ErrorOr<CratePodSubmissionDto>>
 {
+    private const string IdempotencyScope = "crates.pods.upload";
+
+    /// <summary>
+    /// The unique index on (CrateTransactionId, SubmissionRole) already stops a retry creating a
+    /// second submission — the row is reused. What it does not stop is the attachment upload below
+    /// running again, which files the same photo against the POD once per retry and inflates the
+    /// evidence trail. A durable idempotency key replays the original result instead.
+    /// </summary>
     public async Task<ErrorOr<CratePodSubmissionDto>> Handle(
+        UploadCratePodCommand command,
+        CancellationToken cancellationToken)
+    {
+        var clientRequestId = string.IsNullOrWhiteSpace(command.ClientRequestId)
+            ? null
+            : command.ClientRequestId.Trim();
+
+        long? idempotencyRequestId = null;
+        var releaseIdempotencyRequest = false;
+
+        try
+        {
+            if (clientRequestId is not null)
+            {
+                var acquireResult = await idempotencyRequestStore.TryAcquireAsync<CratePodSubmissionDto>(
+                    IdempotencyScope,
+                    clientRequestId,
+                    // Hashed instead of the command itself: the command holds the upload Stream,
+                    // which cannot be serialized and would differ on every attempt anyway.
+                    BuildIdempotencyFingerprint(command),
+                    cancellationToken);
+
+                switch (acquireResult.Outcome)
+                {
+                    case IdempotencyAcquireOutcome.ReplayAvailable when acquireResult.Response is not null:
+                        logger.LogWarning("Replaying crate POD upload for idempotency key {Key}", clientRequestId);
+                        return acquireResult.Response;
+                    case IdempotencyAcquireOutcome.InProgress:
+                        return Errors.Idempotency.RequestInProgress("crate POD upload");
+                    case IdempotencyAcquireOutcome.RequestMismatch:
+                        return Errors.Idempotency.RequestMismatch("crate POD upload");
+                    case IdempotencyAcquireOutcome.Acquired:
+                        idempotencyRequestId = acquireResult.RequestId;
+                        releaseIdempotencyRequest = true;
+                        break;
+                }
+            }
+
+            var result = await HandleCoreAsync(command, cancellationToken);
+
+            // Only a POD that actually exists may be replayed. A validation refusal has to stay
+            // retryable, or correcting the quantity and resubmitting would return the refusal.
+            if (!result.IsError && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                    releaseIdempotencyRequest = false;
+                }
+                catch (Exception completeException)
+                {
+                    logger.LogWarning(completeException, "Failed to persist crate POD idempotency completion for request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (releaseIdempotencyRequest && idempotencyRequestId.HasValue)
+            {
+                try
+                {
+                    await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, cancellationToken);
+                }
+                catch (Exception releaseException)
+                {
+                    logger.LogWarning(releaseException, "Failed to release crate POD idempotency request {RequestId}", idempotencyRequestId.Value);
+                }
+            }
+        }
+    }
+
+    private static object BuildIdempotencyFingerprint(UploadCratePodCommand command) => new
+    {
+        command.CrateTransactionId,
+        command.SubmissionRole,
+        command.Quantity,
+        command.Notes,
+        command.FileName,
+        command.UserId
+    };
+
+    private async Task<ErrorOr<CratePodSubmissionDto>> HandleCoreAsync(
         UploadCratePodCommand command,
         CancellationToken cancellationToken)
     {

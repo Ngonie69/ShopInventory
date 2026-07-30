@@ -19,6 +19,7 @@ using ShopInventory.Features.Merchandiser.Queries.GetCustomerProducts;
 using ShopInventory.Features.Merchandiser.Queries.GetGlobalProducts;
 using ShopInventory.Features.Merchandiser.Queries.GetMerchandiserProducts;
 using ShopInventory.Features.Merchandiser.Queries.GetMerchandisers;
+using ShopInventory.Features.Merchandiser.Queries.GetMobileOrderByClientRequestId;
 using ShopInventory.Features.Merchandiser.Queries.GetMobileOrderById;
 using ShopInventory.Features.Merchandiser.Queries.GetMobileOrders;
 using ShopInventory.Features.Merchandiser.Queries.GetProductCategories;
@@ -196,6 +197,22 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         var result = await mediator.Send(
             new GetMobileOrdersQuery(userId, page, pageSize, status, fromDate, toDate, search),
             cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Resolves the order a device's idempotency key already produced, so a draft whose submit
+    /// timed out or was replayed by the idempotency middleware can be reconciled instead of keyed
+    /// again. A 404 means no order exists for that key and the draft is still safe to send.
+    /// </summary>
+    [HttpGet("mobile/orders/by-client-request/{clientRequestId}")]
+    public async Task<IActionResult> GetMobileOrderByClientRequestId(string clientRequestId, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!Guid.TryParse(userIdClaim, out var userId))
+            return Forbid();
+
+        var result = await mediator.Send(new GetMobileOrderByClientRequestIdQuery(userId, clientRequestId), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
