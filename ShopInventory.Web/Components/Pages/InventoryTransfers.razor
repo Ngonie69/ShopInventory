@@ -200,19 +200,19 @@
                         <HeaderContent>
                             <MudTh>
                                 <button type="button" class="itx-th-sort" @onclick="@(() => SortTransfers(SortKeyDoc))">
-                                    Doc #@TransferSortArrow(SortKeyDoc)
+                                    Doc #<span class="itx-sort-arrow">@TransferSortArrow(SortKeyDoc)</span>
                                 </button>
                             </MudTh>
                             <MudTh>Route</MudTh>
                             <MudTh style="width:130px;">
                                 <button type="button" class="itx-th-sort" @onclick="@(() => SortTransfers(SortKeyDate))">
-                                    Raised@TransferSortArrow(SortKeyDate)
+                                    Raised<span class="itx-sort-arrow">@TransferSortArrow(SortKeyDate)</span>
                                 </button>
                             </MudTh>
                             <MudTh style="width:130px;">Due</MudTh>
                             <MudTh style="width:90px;text-align:right;">
                                 <button type="button" class="itx-th-sort" @onclick="@(() => SortTransfers(SortKeyItems))">
-                                    Items@TransferSortArrow(SortKeyItems)
+                                    Items<span class="itx-sort-arrow">@TransferSortArrow(SortKeyItems)</span>
                                 </button>
                             </MudTh>
                             <MudTh style="width:110px;text-align:right;">&nbsp;</MudTh>
@@ -429,21 +429,21 @@
                         <HeaderContent>
                             <MudTh>
                                 <button type="button" class="itx-th-sort" @onclick="@(() => SortRequests(SortKeyDoc))">
-                                    Doc #@RequestSortArrow(SortKeyDoc)
+                                    Doc #<span class="itx-sort-arrow">@RequestSortArrow(SortKeyDoc)</span>
                                 </button>
                             </MudTh>
                             <MudTh>Route</MudTh>
                             <MudTh style="width:150px;">Status</MudTh>
                             <MudTh style="width:130px;">
                                 <button type="button" class="itx-th-sort" @onclick="@(() => SortRequests(SortKeyDate))">
-                                    Raised@RequestSortArrow(SortKeyDate)
+                                    Raised<span class="itx-sort-arrow">@RequestSortArrow(SortKeyDate)</span>
                                 </button>
                             </MudTh>
                             <MudTh style="width:130px;">Due</MudTh>
                             <MudTh style="width:140px;">Requester</MudTh>
                             <MudTh style="width:90px;text-align:right;">
                                 <button type="button" class="itx-th-sort" @onclick="@(() => SortRequests(SortKeyItems))">
-                                    Items@RequestSortArrow(SortKeyItems)
+                                    Items<span class="itx-sort-arrow">@RequestSortArrow(SortKeyItems)</span>
                                 </button>
                             </MudTh>
                             <MudTh style="width:150px;text-align:right;">&nbsp;</MudTh>
@@ -1493,7 +1493,7 @@
     }
 
     private static string SortArrow(string activeKey, int direction, string key)
-        => activeKey == key ? (direction == 1 ? " ↑" : " ↓") : string.Empty;
+        => activeKey == key ? (direction == 1 ? "↑" : "↓") : string.Empty;
 
     private string TransferSortArrow(string key) => SortArrow(_transferSortKey, _transferSortDir, key);
 

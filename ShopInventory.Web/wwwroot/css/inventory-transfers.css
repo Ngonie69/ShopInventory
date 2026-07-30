@@ -441,20 +441,29 @@
     color: var(--itx-ink);
 }
 
-.itx-body .mud-table-head .mud-table-cell {
-    background: transparent;
-    border: 0;
+/* The heading band takes the sidebar's colour so the list reads as part of the
+   same chrome. Both selectors are written to outrank — and match the weight of —
+   app.css's `.dark-theme .mud-table .mud-table-head .mud-table-cell`, which
+   paints every MudTable head slate-blue with `!important`; a plain
+   `.itx-body …` rule loses to it and the header comes back wrong. */
+.itx-body .mud-table .mud-table-head .mud-table-cell,
+.itx-body .mud-table-container .mud-table-head .mud-table-cell {
+    background: var(--kf-sidebar-bg) !important;
+    color: var(--itx-ink-2) !important;
+    border: 0 !important;
     padding: .7rem .75rem;
-    font-size: .69rem;
-    font-weight: 500;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--itx-ink-2);
-    white-space: nowrap;
+    font-size: .69rem !important;
+    font-weight: 500 !important;
+    letter-spacing: .08em !important;
+    text-transform: uppercase !important;
+    white-space: nowrap !important;
+    /* The band is opaque, so the row's own rule can no longer show through:
+       the separating hairline is painted on the cells instead. */
+    box-shadow: inset 0 -1px 0 var(--itx-border);
 }
 
 .itx-body .mud-table-head .mud-table-row {
-    background: var(--itx-rule) no-repeat bottom / 100% 1px;
+    background: var(--kf-sidebar-bg);
 }
 
 .itx-body .mud-table-body .mud-table-cell {
@@ -512,6 +521,18 @@
 .itx-th-sort:focus-visible {
     outline: 2px solid var(--itx-accent);
     outline-offset: 2px;
+}
+
+/* The arrow only exists on the sorted column; when empty it takes no space.
+   It lives in its own element because `Raised@TransferSortArrow(…)` reads as
+   literal text to the Razor parser — the `@` has to start the expression. */
+.itx-sort-arrow {
+    margin-left: .35rem;
+    color: var(--itx-accent-strong);
+}
+
+.itx-sort-arrow:empty {
+    margin-left: 0;
 }
 
 .itx-body .mud-table-pagination,
@@ -629,6 +650,8 @@
 
 .itx-num {
     font-variant-numeric: tabular-nums;
+    /* A date is one token: "29 Jul 2026" must never break across three lines. */
+    white-space: nowrap;
 }
 
 /* The row's own affordance, in place of an icon button. */
