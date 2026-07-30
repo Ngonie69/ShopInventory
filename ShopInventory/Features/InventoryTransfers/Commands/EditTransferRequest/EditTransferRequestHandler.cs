@@ -14,13 +14,21 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.InventoryTransfers.Commands.EditTransferRequest;
 
 /// <summary>
-/// Changes the lines of an SAP transfer request: quantities may be adjusted and lines dropped.
+/// Changes an SAP transfer request: quantities may be adjusted, lines dropped, and either
+/// warehouse reassigned.
 /// </summary>
 /// <remarks>
 /// Where the change lands depends on the editor's warehouse scope. Someone who runs the source
 /// warehouse is changing their own stock and writes to SAP directly. Anyone scoped to other
 /// warehouses is not — their change is held here and only reaches SAP once approved, which is
 /// the difference between adjusting your own depot's paperwork and adjusting someone else's.
+/// <para>
+/// A warehouse the edit <em>names</em> is a separate rule, and a stricter one: a warehouse-scoped
+/// editor may only move a request onto warehouses assigned to them, and that is refused outright
+/// rather than sent for approval. Approval exists for changes someone else should agree to;
+/// putting a warehouse you do not run on a document is not such a change, so there is nothing to
+/// review — hence the check runs before the hold-or-apply decision.
+/// </para>
 /// </remarks>
 public sealed class EditTransferRequestHandler(
     ApplicationDbContext context,
@@ -72,34 +80,51 @@ public sealed class EditTransferRequestHandler(
         if (validationError is not null)
             return Errors.InventoryTransfer.ValidationFailed(validationError);
 
+        var (warehouseChange, warehouseError) = TransferRequestEditMapper.BuildWarehouseChange(
+            document, command.Request.FromWarehouse, command.Request.ToWarehouse);
+        if (warehouseError is not null)
+            return Errors.InventoryTransfer.ValidationFailed(warehouseError);
+
+        // Refused outright, before hold-or-apply: an editor may only name their own warehouses.
+        foreach (var warehouse in warehouseChange.NamedWarehouses)
+        {
+            var assignmentCheck = await warehouseAuthorizer.EnsureCanAssignWarehouseAsync(
+                command.UserId, warehouse, cancellationToken);
+            if (assignmentCheck.IsError)
+                return assignmentCheck.Errors;
+        }
+
         var originalLines = TransferRequestEditMapper.FromDocument(document);
-        if (TransferRequestEditMapper.IsNoOp(originalLines, proposedLines!))
+        if (!warehouseChange.ChangesAnything && TransferRequestEditMapper.IsNoOp(originalLines, proposedLines!))
             return Errors.InventoryTransfer.ValidationFailed("The request already reads exactly as submitted.");
 
         var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
             command.UserId, document.FromWarehouse, cancellationToken);
 
         return scopeCheck.IsError
-            ? await HoldForApprovalAsync(command, document, editor, originalLines, proposedLines!, cancellationToken)
-            : await ApplyDirectlyAsync(command, document, proposedLines!, cancellationToken);
+            ? await HoldForApprovalAsync(command, document, editor, originalLines, proposedLines!, warehouseChange, cancellationToken)
+            : await ApplyDirectlyAsync(command, document, proposedLines!, warehouseChange, cancellationToken);
     }
 
     private async Task<ErrorOr<TransferRequestEditResponseDto>> ApplyDirectlyAsync(
         EditTransferRequestCommand command,
         InventoryTransferRequest document,
         List<TransferRequestEditLineDto> proposedLines,
+        TransferRequestEditMapper.WarehouseChange warehouseChange,
         CancellationToken cancellationToken)
     {
         try
         {
-            var updated = await sapClient.UpdateInventoryTransferRequestLinesAsync(
-                command.DocEntry, TransferRequestEditMapper.ToSapLines(proposedLines), cancellationToken);
+            var updated = await sapClient.UpdateInventoryTransferRequestAsync(
+                command.DocEntry, TransferRequestEditMapper.ToSapLines(proposedLines),
+                warehouseChange.FromWarehouse, warehouseChange.ToWarehouse, cancellationToken);
 
             try
             {
                 await auditService.LogAsync(
                     AuditActions.EditTransferRequest, "TransferRequest", command.DocEntry.ToString(),
-                    $"Transfer request #{document.DocNum} changed to {proposedLines.Count} line(s)", true);
+                    $"Transfer request #{document.DocNum} changed to {proposedLines.Count} line(s)" +
+                    DescribeWarehouseChange(document, warehouseChange), true);
             }
             catch { }
 
@@ -128,6 +153,7 @@ public sealed class EditTransferRequestHandler(
         User editor,
         List<TransferRequestEditLineDto> originalLines,
         List<TransferRequestEditLineDto> proposedLines,
+        TransferRequestEditMapper.WarehouseChange warehouseChange,
         CancellationToken cancellationToken)
     {
         // One held change at a time per request: a second proposal would be reviewed against
@@ -145,6 +171,8 @@ public sealed class EditTransferRequestHandler(
             RequestDocNum = document.DocNum,
             FromWarehouse = document.FromWarehouse?.Trim() ?? string.Empty,
             ToWarehouse = document.ToWarehouse?.Trim() ?? string.Empty,
+            ProposedFromWarehouse = warehouseChange.FromWarehouse,
+            ProposedToWarehouse = warehouseChange.ToWarehouse,
             OriginalLinesJson = TransferRequestEditMapper.Serialize(originalLines),
             ProposedLinesJson = TransferRequestEditMapper.Serialize(proposedLines),
             Status = PendingTransferRequestEditStatuses.AwaitingApproval,
@@ -177,7 +205,8 @@ public sealed class EditTransferRequestHandler(
         {
             await auditService.LogAsync(
                 AuditActions.SubmitTransferRequestEditForApproval, "TransferRequestEdit", edit.Id.ToString(),
-                $"Change to transfer request #{document.DocNum} ({document.FromWarehouse} → {document.ToWarehouse}) submitted for approval", true);
+                $"Change to transfer request #{document.DocNum} ({document.FromWarehouse} → {document.ToWarehouse}) " +
+                $"submitted for approval{DescribeWarehouseChange(document, warehouseChange)}", true);
         }
         catch { }
 
@@ -189,6 +218,18 @@ public sealed class EditTransferRequestHandler(
             RequiresApproval = true,
             PendingEdit = TransferRequestEditMapper.ToDto(edit)
         };
+    }
+
+    /// <summary>Audit trail suffix naming the move, or nothing when no warehouse changed.</summary>
+    private static string DescribeWarehouseChange(
+        InventoryTransferRequest document,
+        TransferRequestEditMapper.WarehouseChange change)
+    {
+        if (!change.ChangesAnything) return string.Empty;
+
+        var from = change.FromWarehouse ?? document.FromWarehouse;
+        var to = change.ToWarehouse ?? document.ToWarehouse;
+        return $", reassigned from {document.FromWarehouse} → {document.ToWarehouse} to {from} → {to}";
     }
 
     private static bool IsClosed(string? documentStatus) =>

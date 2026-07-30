@@ -1,9 +1,13 @@
+using ErrorOr;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers;
+using ShopInventory.Features.InventoryTransfers.Commands.EditTransferRequest;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -189,6 +193,207 @@ public sealed class TransferRequestEditTests : IDisposable
         Assert.True(result.IsError);
     }
 
+    // ── Reassigning a warehouse ─────────────────────────
+
+    [Fact]
+    public void A_warehouse_the_request_already_has_is_not_a_change()
+    {
+        var document = Document(("ITEM-1", 10m));
+
+        var (change, error) = TransferRequestEditMapper.BuildWarehouseChange(document, "cormach", "KEFBYC");
+
+        Assert.Null(error);
+        Assert.False(change.ChangesAnything);
+    }
+
+    [Fact]
+    public void An_omitted_warehouse_leaves_the_requests_own()
+    {
+        var document = Document(("ITEM-1", 10m));
+
+        var (change, error) = TransferRequestEditMapper.BuildWarehouseChange(document, null, "   ");
+
+        Assert.Null(error);
+        Assert.False(change.ChangesAnything);
+    }
+
+    [Fact]
+    public void Either_end_of_the_transfer_may_be_moved()
+    {
+        var document = Document(("ITEM-1", 10m));
+
+        var (change, error) = TransferRequestEditMapper.BuildWarehouseChange(document, " VAN010 ", "KEFBYD");
+
+        Assert.Null(error);
+        Assert.Equal("VAN010", change.FromWarehouse);
+        Assert.Equal("KEFBYD", change.ToWarehouse);
+        Assert.Equal(["VAN010", "KEFBYD"], change.NamedWarehouses);
+    }
+
+    [Fact]
+    public void A_request_cannot_be_moved_onto_its_own_other_end()
+    {
+        // Only the source is sent, but it lands on the destination the document already has —
+        // which SAP would take as a transfer from a warehouse to itself.
+        var document = Document(("ITEM-1", 10m));
+
+        var (_, error) = TransferRequestEditMapper.BuildWarehouseChange(document, "KEFBYC", null);
+
+        Assert.Contains("to itself", error);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_may_assign_a_warehouse_they_run()
+    {
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC", "VAN010");
+
+        var result = await Authorizer().EnsureCanAssignWarehouseAsync(user.Id, " van010 ", default);
+
+        Assert.False(result.IsError);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_may_not_assign_a_warehouse_they_do_not_run()
+    {
+        // The rule this whole feature turns on: the codes he may choose from are his own.
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC", "VAN010");
+
+        var result = await Authorizer().EnsureCanAssignWarehouseAsync(user.Id, "CORMACH", default);
+
+        Assert.True(result.IsError);
+        Assert.Equal(ErrorType.Forbidden, result.FirstError.Type);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_with_no_warehouses_may_assign_none()
+    {
+        var user = await AddUserAsync(ApplicationRoles.DepotController);
+
+        var result = await Authorizer().EnsureCanAssignWarehouseAsync(user.Id, "KEFBYC", default);
+
+        Assert.True(result.IsError);
+    }
+
+    [Fact]
+    public async Task An_administrator_may_assign_any_warehouse()
+    {
+        var user = await AddUserAsync(ApplicationRoles.Admin);
+
+        var result = await Authorizer().EnsureCanAssignWarehouseAsync(user.Id, "CORMACH", default);
+
+        Assert.False(result.IsError);
+    }
+
+    // ── Reassigning through the edit endpoint ───────────
+
+    [Fact]
+    public async Task A_depot_controller_moves_a_request_onto_another_warehouse_they_run()
+    {
+        // He runs the source the request draws on, so this is his own paperwork: it goes straight
+        // to SAP, moved onto the other warehouse he runs.
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "CORMACH", "VAN010");
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m), ("ITEM-2", 4m)));
+
+        var result = await Handler(sap).Handle(
+            Edit(user.Id, fromWarehouse: "VAN010"), default);
+
+        Assert.False(result.IsError);
+        Assert.False(result.Value.RequiresApproval);
+        Assert.Equal("VAN010", sap.LastFromWarehouse);
+        Assert.Null(sap.LastToWarehouse);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_cannot_move_a_request_onto_a_warehouse_they_do_not_run()
+    {
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC", "VAN010");
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+
+        var result = await Handler(sap).Handle(
+            Edit(user.Id, toWarehouse: "CORMACH2"), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal(ErrorType.Forbidden, result.FirstError.Type);
+        // Refused outright: neither written to SAP, nor held for someone to approve.
+        Assert.Equal(0, sap.Updates);
+        Assert.Empty(_context.PendingTransferRequestEdits);
+    }
+
+    [Fact]
+    public async Task A_reassignment_the_editor_cannot_apply_alone_is_held_with_both_ends_recorded()
+    {
+        // He runs VAN010 but not the source, so the change waits for approval — and what it would
+        // do to the warehouses has to survive the wait, or the approver reviews only the lines.
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "VAN010");
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+
+        var result = await Handler(sap).Handle(
+            Edit(user.Id, toWarehouse: "VAN010", lines: [Keep(0, 8m)]), default);
+
+        Assert.False(result.IsError);
+        Assert.True(result.Value.RequiresApproval);
+        Assert.Equal(0, sap.Updates);
+
+        var held = Assert.Single(_context.PendingTransferRequestEdits);
+        Assert.Null(held.ProposedFromWarehouse);
+        Assert.Equal("VAN010", held.ProposedToWarehouse);
+        Assert.Equal("CORMACH", held.FromWarehouse);
+    }
+
+    [Fact]
+    public async Task Moving_only_the_warehouse_is_a_change_worth_making()
+    {
+        // The lines are sent back exactly as they stand. Without the warehouse this would be
+        // rejected as a no-op, and the reassignment would be lost with it.
+        var user = await AddUserAsync(ApplicationRoles.DepotController, "CORMACH", "VAN010");
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+
+        var result = await Handler(sap).Handle(
+            Edit(user.Id, fromWarehouse: "VAN010", lines: [Keep(0, 10m)]), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal("VAN010", sap.LastFromWarehouse);
+    }
+
+    [Fact]
+    public async Task An_approved_reassignment_reaches_sap_with_its_warehouses()
+    {
+        var proposer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
+        var edit = await AddHeldEditAsync(proposer);
+        edit.ProposedToWarehouse = "KEFBYC";
+        edit.ProposedLinesJson = TransferRequestEditMapper.Serialize(
+            TransferRequestEditMapper.FromDocument(Document(("ITEM-1", 8m))));
+        await _context.SaveChangesAsync();
+
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+        var applied = await Applier(sap).ApplyAsync(edit, proposer.Id, default);
+
+        Assert.False(applied.IsError);
+        Assert.Equal("KEFBYC", sap.LastToWarehouse);
+        Assert.Equal(PendingTransferRequestEditStatuses.Applied, edit.Status);
+    }
+
+    [Fact]
+    public async Task An_approved_reassignment_is_not_applied_once_the_proposer_loses_the_warehouse()
+    {
+        // Assignments move while a change waits. Approval says the change is wanted; it does not
+        // say the proposer may still name that warehouse.
+        var proposer = await AddUserAsync(ApplicationRoles.DepotController, "KEFBYC");
+        var edit = await AddHeldEditAsync(proposer);
+        edit.ProposedToWarehouse = "VAN010";
+        edit.ProposedLinesJson = TransferRequestEditMapper.Serialize(
+            TransferRequestEditMapper.FromDocument(Document(("ITEM-1", 8m))));
+        await _context.SaveChangesAsync();
+
+        var sap = new RecordingSapClient(Document(("ITEM-1", 10m)));
+        var applied = await Applier(sap).ApplyAsync(edit, proposer.Id, default);
+
+        Assert.True(applied.IsError);
+        Assert.Equal(0, sap.Updates);
+        Assert.Equal(PendingTransferRequestEditStatuses.ApplyFailed, edit.Status);
+        Assert.Contains("VAN010", edit.LastError);
+    }
+
     // ── Approval routing for held changes ───────────────
 
     [Fact]
@@ -320,8 +525,73 @@ public sealed class TransferRequestEditTests : IDisposable
         return user;
     }
 
+    private static EditTransferRequestCommand Edit(
+        Guid userId,
+        string? fromWarehouse = null,
+        string? toWarehouse = null,
+        List<EditTransferRequestLineDto>? lines = null) =>
+        new(501,
+            new EditTransferRequestDto
+            {
+                Lines = lines ?? [Keep(0, 6m)],
+                FromWarehouse = fromWarehouse,
+                ToWarehouse = toWarehouse,
+                Reason = "Depot out of stock"
+            },
+            userId);
+
     private TransferWarehouseAuthorizer Authorizer() => new(_context);
 
     private InventoryTransferApprovalService ApprovalService() =>
         new(_context, new NoOpNotificationService(), NullLogger<InventoryTransferApprovalService>.Instance);
+
+    private EditTransferRequestHandler Handler(RecordingSapClient sap) =>
+        new(_context, sap.AsClient(), ApprovalService(), Authorizer(), new NoOpAuditService(),
+            Options.Create(new SAPSettings { Enabled = true }),
+            NullLogger<EditTransferRequestHandler>.Instance);
+
+    private PendingTransferRequestEditApplier Applier(RecordingSapClient sap) =>
+        new(_context, sap.AsClient(), Authorizer(), new NoOpNotificationService(), new NoOpAuditService(),
+            NullLogger<PendingTransferRequestEditApplier>.Instance);
+
+    /// <summary>
+    /// Answers the two transfer-request calls an edit makes and records what was written, so a
+    /// test can assert on the warehouses that reached SAP — or that nothing did.
+    /// </summary>
+    private sealed class RecordingSapClient(InventoryTransferRequest document)
+    {
+        public int Updates { get; private set; }
+        public string? LastFromWarehouse { get; private set; }
+        public string? LastToWarehouse { get; private set; }
+
+        public ISAPServiceLayerClient AsClient() =>
+            StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
+            {
+                nameof(ISAPServiceLayerClient.GetInventoryTransferRequestByDocEntryAsync) =>
+                    (object)Task.FromResult<InventoryTransferRequest?>(document),
+                nameof(ISAPServiceLayerClient.UpdateInventoryTransferRequestAsync) =>
+                    Update((string?)args![2], (string?)args[3]),
+                _ => throw new InvalidOperationException($"Unexpected SAP call: {method.Name}")
+            });
+
+        private Task<InventoryTransferRequest> Update(string? fromWarehouse, string? toWarehouse)
+        {
+            Updates++;
+            LastFromWarehouse = fromWarehouse;
+            LastToWarehouse = toWarehouse;
+            return Task.FromResult(document);
+        }
+    }
+
+    private sealed class NoOpAuditService : IAuditService
+    {
+        public Task LogAsync(string action, string username, string userRole, string? entityType = null,
+            string? entityId = null, string? details = null, string? endpoint = null,
+            bool isSuccess = true, string? errorMessage = null) => Task.CompletedTask;
+
+        public Task LogAsync(string action, string? entityType = null, string? entityId = null) => Task.CompletedTask;
+
+        public Task LogAsync(string action, string? entityType, string? entityId, string? details,
+            bool isSuccess, string? errorMessage = null) => Task.CompletedTask;
+    }
 }

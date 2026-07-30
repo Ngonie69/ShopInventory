@@ -80,6 +80,16 @@ public static partial class Errors
                 "InventoryTransfer.WarehouseNotAssigned",
                 $"You are not assigned to source warehouse {warehouseCode}, so you cannot action this transfer.");
 
+        /// <summary>
+        /// Refuses a warehouse the caller picked for a document rather than one they were asked to
+        /// action. Shares <c>WarehouseNotAssigned</c> so clients keep one code for both refusals.
+        /// </summary>
+        public static Error WarehouseNotAssignable(string warehouseCode) =>
+            Error.Forbidden(
+                "InventoryTransfer.WarehouseNotAssigned",
+                $"You are not assigned to warehouse {warehouseCode}, so you cannot put it on this transfer request. " +
+                "Choose one of your assigned warehouses.");
+
         public static readonly Error NoAssignedWarehouses =
             Error.Forbidden(
                 "InventoryTransfer.NoAssignedWarehouses",

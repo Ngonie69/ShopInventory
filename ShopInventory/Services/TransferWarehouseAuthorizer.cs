@@ -19,6 +19,16 @@ public interface ITransferWarehouseAuthorizer
     Task<ErrorOr<Success>> EnsureCanActOnSourceAsync(Guid userId, string? fromWarehouse, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Confirms the user may put <paramref name="warehouseCode"/> onto a document. A warehouse-scoped
+    /// user may only name warehouses assigned to them, whichever end of the transfer it sits on.
+    /// </summary>
+    /// <remarks>
+    /// This is a hard refusal, not a route to approval: naming someone else's warehouse is the one
+    /// thing a depot controller must never be able to do, so there is nothing to hold and review.
+    /// </remarks>
+    Task<ErrorOr<Success>> EnsureCanAssignWarehouseAsync(Guid userId, string? warehouseCode, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The source warehouses a user may action, or <c>null</c> when they are not warehouse-scoped.
     /// </summary>
     Task<IReadOnlyList<string>?> GetSourceScopeAsync(Guid userId, CancellationToken cancellationToken);
@@ -29,9 +39,22 @@ public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : 
     /// <summary>Roles whose transfer actions are limited to their assigned warehouses.</summary>
     private static readonly string[] ScopedRoles = [ApplicationRoles.DepotController];
 
-    public async Task<ErrorOr<Success>> EnsureCanActOnSourceAsync(
+    public Task<ErrorOr<Success>> EnsureCanActOnSourceAsync(
         Guid userId,
         string? fromWarehouse,
+        CancellationToken cancellationToken)
+        => EnsureInScopeAsync(userId, fromWarehouse, Errors.InventoryTransfer.WarehouseNotAssigned, cancellationToken);
+
+    public Task<ErrorOr<Success>> EnsureCanAssignWarehouseAsync(
+        Guid userId,
+        string? warehouseCode,
+        CancellationToken cancellationToken)
+        => EnsureInScopeAsync(userId, warehouseCode, Errors.InventoryTransfer.WarehouseNotAssignable, cancellationToken);
+
+    private async Task<ErrorOr<Success>> EnsureInScopeAsync(
+        Guid userId,
+        string? warehouseCode,
+        Func<string, Error> outOfScope,
         CancellationToken cancellationToken)
     {
         var scope = await GetSourceScopeAsync(userId, cancellationToken);
@@ -41,12 +64,12 @@ public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : 
         if (scope.Count == 0)
             return Errors.InventoryTransfer.NoAssignedWarehouses;
 
-        if (string.IsNullOrWhiteSpace(fromWarehouse))
+        if (string.IsNullOrWhiteSpace(warehouseCode))
             return Errors.InventoryTransfer.WarehouseCodeRequired;
 
-        return scope.Contains(fromWarehouse.Trim(), StringComparer.OrdinalIgnoreCase)
+        return scope.Contains(warehouseCode.Trim(), StringComparer.OrdinalIgnoreCase)
             ? Result.Success
-            : Errors.InventoryTransfer.WarehouseNotAssigned(fromWarehouse);
+            : outOfScope(warehouseCode);
     }
 
     public async Task<IReadOnlyList<string>?> GetSourceScopeAsync(Guid userId, CancellationToken cancellationToken)

@@ -1233,6 +1233,14 @@
                         <strong>@heldEditForSelectedRequest.CreatedByName</strong> proposed a change on
                         @heldEditForSelectedRequest.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy HH:mm").
                         It is not in SAP yet.
+                        @if (ReassignsWarehouse(heldEditForSelectedRequest))
+                        {
+                            <div style="margin-top:.25rem;">
+                                Warehouses: <strong>@heldEditForSelectedRequest.FromWarehouse → @heldEditForSelectedRequest.ToWarehouse</strong>
+                                would become
+                                <strong>@HeldEditEffectiveFrom(heldEditForSelectedRequest) → @HeldEditEffectiveTo(heldEditForSelectedRequest)</strong>.
+                            </div>
+                        }
                         @if (!string.IsNullOrWhiteSpace(heldEditForSelectedRequest.Reason))
                         {
                             <div style="font-style:italic;margin-top:.25rem;">@heldEditForSelectedRequest.Reason</div>
@@ -1310,13 +1318,51 @@
                     @if (!isEditingRequestLines && CanEditRequestLines(selectedTransferRequest))
                     {
                         <button type="button" class="itx-btn itx-btn-sm" @onclick="BeginEditRequestLines">
-                            <i class="bi bi-pencil"></i> Edit lines
+                            <i class="bi bi-pencil"></i> Edit request
                         </button>
                     }
                 </div>
 
                 @if (isEditingRequestLines)
                 {
+                    <div class="itx-toolbar" style="margin-bottom:.6rem;">
+                        <div class="itx-grow itx-field">
+                            <label for="itx-edit-from-warehouse">From warehouse</label>
+                            <div class="itx-select">
+                                <select id="itx-edit-from-warehouse" class="itx-input"
+                                        @bind="requestEditFromWarehouse">
+                                    @foreach (var warehouseCode in SelectableWarehouseCodes(requestEditOriginalFromWarehouse))
+                                    {
+                                        <option value="@warehouseCode">@WarehouseLabel(warehouseCode)</option>
+                                    }
+                                </select>
+                                <span class="itx-caret" aria-hidden="true"></span>
+                            </div>
+                        </div>
+                        <div class="itx-grow itx-field">
+                            <label for="itx-edit-to-warehouse">To warehouse</label>
+                            <div class="itx-select">
+                                <select id="itx-edit-to-warehouse" class="itx-input"
+                                        @bind="requestEditToWarehouse">
+                                    @foreach (var warehouseCode in SelectableWarehouseCodes(requestEditOriginalToWarehouse))
+                                    {
+                                        <option value="@warehouseCode">@WarehouseLabel(warehouseCode)</option>
+                                    }
+                                </select>
+                                <span class="itx-caret" aria-hidden="true"></span>
+                            </div>
+                        </div>
+                    </div>
+                    @if (IsWarehouseScopedRole(currentUserRole))
+                    {
+                        <div class="itx-note" style="margin:0 0 .6rem;">
+                            <i class="bi bi-info-circle"></i>
+                            You can only move this request onto your own warehouses
+                            (@string.Join(", ", assignedWarehouseCodes.OrderBy(code => code)));
+                            its current warehouses are listed so you can leave them as they are.
+                        </div>
+                    }
+
                     <div class="itx-lines-wrap">
                         <table class="itx-lines">
                             <thead>
@@ -1534,6 +1580,10 @@
     private bool isSavingRequestEdit = false;
     private bool isDecidingRequestEdit = false;
     private List<RequestEditLineModel> requestEditLines = [];
+    private string requestEditFromWarehouse = string.Empty;
+    private string requestEditToWarehouse = string.Empty;
+    private string requestEditOriginalFromWarehouse = string.Empty;
+    private string requestEditOriginalToWarehouse = string.Empty;
     private string? requestEditReason;
     private string? requestEditDecisionRemarks;
     private PendingTransferRequestEditDto? heldEditForSelectedRequest;
@@ -2793,6 +2843,10 @@
                 Quantity = line.Quantity
             })
             .ToList();
+        requestEditOriginalFromWarehouse = selectedTransferRequest?.FromWarehouse?.Trim() ?? string.Empty;
+        requestEditOriginalToWarehouse = selectedTransferRequest?.ToWarehouse?.Trim() ?? string.Empty;
+        requestEditFromWarehouse = requestEditOriginalFromWarehouse;
+        requestEditToWarehouse = requestEditOriginalToWarehouse;
         requestEditReason = null;
         isEditingRequestLines = true;
     }
@@ -2801,8 +2855,59 @@
     {
         isEditingRequestLines = false;
         requestEditLines = [];
+        requestEditFromWarehouse = string.Empty;
+        requestEditToWarehouse = string.Empty;
+        requestEditOriginalFromWarehouse = string.Empty;
+        requestEditOriginalToWarehouse = string.Empty;
         requestEditReason = null;
     }
+
+    /// <summary>
+    /// The warehouses the caller may put on the request. A warehouse-scoped caller gets their own
+    /// assignments only; the request's current code is listed as well so leaving it alone stays an
+    /// option, and so the select never silently shows a value it cannot represent. The server
+    /// enforces the same rule — this list only keeps the UI from offering what it would refuse.
+    /// </summary>
+    private IEnumerable<string> SelectableWarehouseCodes(string? currentValue)
+    {
+        var allCodes = (cachedWarehouses ?? [])
+            .Select(warehouse => warehouse.WarehouseCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!.Trim());
+
+        var selectable = IsWarehouseScopedRole(currentUserRole)
+            ? allCodes.Where(assignedWarehouseCodes.Contains)
+            : allCodes;
+
+        if (!string.IsNullOrWhiteSpace(currentValue))
+            selectable = selectable.Prepend(currentValue.Trim());
+
+        return selectable.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(code => code);
+    }
+
+    private string WarehouseLabel(string code)
+    {
+        var name = cachedWarehouses?
+            .FirstOrDefault(warehouse => string.Equals(warehouse.WarehouseCode?.Trim(), code, StringComparison.OrdinalIgnoreCase))?
+            .WarehouseName;
+        return string.IsNullOrWhiteSpace(name) ? code : $"{code} — {name}";
+    }
+
+    /// <summary>The picked code when it differs from the request's, otherwise nothing to send.</summary>
+    private static string? WarehouseChangeOrNull(string picked, string original) =>
+        string.IsNullOrWhiteSpace(picked) || string.Equals(picked.Trim(), original, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : picked.Trim();
+
+    private static bool ReassignsWarehouse(PendingTransferRequestEditDto edit) =>
+        !string.IsNullOrWhiteSpace(edit.ProposedFromWarehouse) ||
+        !string.IsNullOrWhiteSpace(edit.ProposedToWarehouse);
+
+    private static string? HeldEditEffectiveFrom(PendingTransferRequestEditDto edit) =>
+        string.IsNullOrWhiteSpace(edit.ProposedFromWarehouse) ? edit.FromWarehouse : edit.ProposedFromWarehouse;
+
+    private static string? HeldEditEffectiveTo(PendingTransferRequestEditDto edit) =>
+        string.IsNullOrWhiteSpace(edit.ProposedToWarehouse) ? edit.ToWarehouse : edit.ProposedToWarehouse;
 
     private void SetRequestEditQuantity(RequestEditLineModel line, string? value)
     {
@@ -2834,7 +2939,31 @@
             return;
         }
 
-        if (kept.Count == requestEditLines.Count && kept.All(line => line.Quantity == line.OriginalQuantity))
+        var newFromWarehouse = WarehouseChangeOrNull(requestEditFromWarehouse, requestEditOriginalFromWarehouse);
+        var newToWarehouse = WarehouseChangeOrNull(requestEditToWarehouse, requestEditOriginalToWarehouse);
+
+        var effectiveFrom = newFromWarehouse ?? requestEditOriginalFromWarehouse;
+        var effectiveTo = newToWarehouse ?? requestEditOriginalToWarehouse;
+        if (!string.IsNullOrWhiteSpace(effectiveFrom) &&
+            string.Equals(effectiveFrom, effectiveTo, StringComparison.OrdinalIgnoreCase))
+        {
+            errorMessage = $"A transfer request cannot move stock from {effectiveFrom} to itself.";
+            return;
+        }
+
+        var unassigned = new[] { newFromWarehouse, newToWarehouse }
+            .FirstOrDefault(code => code is not null &&
+                                    IsWarehouseScopedRole(currentUserRole) &&
+                                    !assignedWarehouseCodes.Contains(code));
+        if (unassigned is not null)
+        {
+            errorMessage = $"You are not assigned to warehouse {unassigned}, so you cannot put it on this request.";
+            return;
+        }
+
+        var linesUnchanged = kept.Count == requestEditLines.Count &&
+                             kept.All(line => line.Quantity == line.OriginalQuantity);
+        if (linesUnchanged && newFromWarehouse is null && newToWarehouse is null)
         {
             errorMessage = "Nothing has changed on this request.";
             return;
@@ -2853,6 +2982,8 @@
                     Lines = kept
                         .Select(line => new EditTransferRequestLineRequest { LineNum = line.LineNum, Quantity = line.Quantity })
                         .ToList(),
+                    FromWarehouse = newFromWarehouse,
+                    ToWarehouse = newToWarehouse,
                     Reason = requestEditReason
                 });
 
