@@ -3,397 +3,224 @@
 @attribute [Authorize(Roles = "Admin,Lab")]
 @rendermode InteractiveServer
 
-<PageTitle>Lab Batch Status - Shop Inventory</PageTitle>
+<PageTitle>Batch Status Control - Shop Inventory</PageTitle>
 
-<div class="lbs-page">
-    <div class="lbs-shell">
-        <section class="lbs-hero">
-            <div>
-                <span class="lbs-kicker">Lab Operations</span>
+@* Styles live in wwwroot/css/batch-status.css (linked from App.razor) and are shared with
+   /lab/batch-status/history — the two pages are one design. The import (Batch Status
+   Control.dc.html) is drawn as a dark scheme; the stylesheet carries a daylight palette
+   alongside it, so this page follows the app's light/dark toggle. *@
+
+<div class="bsc">
+
+    <!-- ── Header ─────────────────────────────────────────────────────── -->
+    <header class="bsc-header">
+        <div class="bsc-header-inner">
+            <div class="bsc-header-title">
+                <div class="bsc-kicker"><i class="ph ph-flask"></i><span>Lab operations</span></div>
                 <h1>Batch Status Control</h1>
-                <p>Search by batch number, review the live stock rows that still have quantity on hand, and change the
-                    SAP batch status from one dedicated page.</p>
-                <div class="lbs-utility-links">
-                    <a class="lbs-history-link" href="/lab/batch-status/history">View status history</a>
-                </div>
-                </div>
-
-                <div class="lbs-search-card">
-                    <label for="lab-batch-search">Batch Number</label>
-                    <div class="lbs-search-row">
-                        <input id="lab-batch-search" class="lbs-input" @bind="searchTerm" @bind:event="oninput"
-                               @onkeydown="HandleSearchKeyDown" placeholder="Type a batch number" />
-                        <button type="button" class="lbs-search-btn" disabled="@isSearching" @onclick="SearchAsync">
-                            @(isSearching ? "Searching..." : "Search")
-                        </button>
-                    </div>
-                    <p class="lbs-helper">Results are limited to the first 100 in-stock matches.</p>
-                </div>
-            </section>
-
-            @if (isSearching)
-            {
-                <div class="lbs-state-card">
-                    <div class="lbs-spinner"></div>
-                    <span>Searching batches...</span>
-                </div>
-            }
-            else if (hasSearched && results.Count == 0)
-            {
-                <section class="lbs-state-card lbs-empty-card">
-                    <h2>No Matching Batches</h2>
-                    <p>No in-stock batches matched <strong>@lastSearchTerm</strong>.</p>
-                </section>
-            }
-            else if (results.Count > 0)
-            {
-                <section class="lbs-results-card">
-                    <div class="lbs-results-header">
-                        <div>
-                            <h2>Results</h2>
-                            <p>@results.Count row(s) for <strong>@lastSearchTerm</strong></p>
-                            <p class="lbs-helper">Rows are returned per SAP stock record, so the same visible batch can appear
-                                more than once when it exists in multiple warehouses or internal entries.</p>
-                            </div>
-                        </div>
-
-                        <div class="lbs-table-wrap">
-                            <table class="lbs-table">
-                                <thead>
-                                    <tr>
-                                        <th>Batch</th>
-                                        <th>Item</th>
-                                        <th>Warehouse</th>
-                                        <th>Qty</th>
-                                        <th>Status</th>
-                                        <th>Change To</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var item in results)
-                                    {
-                                        <tr>
-                                            <td>
-                                                <div class="lbs-primary">@item.BatchNumber</div>
-                                                @if (!string.IsNullOrWhiteSpace(item.ExpiryDate))
-                                                {
-                                                    <div class="lbs-secondary">Expiry @FormatDate(item.ExpiryDate)</div>
-                                                }
-                                            </td>
-                                            <td>
-                                                <div class="lbs-primary">@item.ItemCode</div>
-                                                @if (!string.IsNullOrWhiteSpace(item.ItemName))
-                                                {
-                                                    <div class="lbs-secondary">@item.ItemName</div>
-                                                }
-                                            </td>
-                                            <td>@item.WarehouseCode</td>
-                                            <td>@item.Quantity</td>
-                                            <td>
-                                                <span class="@GetStatusChipClass(item.Status)">@GetStatusLabel(item.Status)</span>
-                                            </td>
-                                            <td>
-                                                <select class="lbs-select" @bind="item.PendingStatus">
-                                                    @foreach (var status in StatusOptions)
-                                                    {
-                                                        <option value="@status">@status</option>
-                                                    }
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <button type="button" class="lbs-update-btn"
-                                                        disabled="@(IsUpdating(item.BatchEntryId) || string.Equals(item.PendingStatus, item.Status, StringComparison.Ordinal))"
-                                                        @onclick="() => UpdateStatusAsync(item)">
-                                                    @(IsUpdating(item.BatchEntryId) ? "Updating..." : "Update")
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                }
+            </div>
+            <div class="bsc-header-actions">
+                <a class="bsc-btn bsc-btn-ghost" href="/lab/batch-status/history">
+                    <i class="ph ph-clock-counter-clockwise"></i>Status history
+                </a>
             </div>
         </div>
+        <div class="bsc-rule"></div>
+    </header>
 
-        <style>
-            .lbs-page {
-                min-height: 100vh;
-                padding: 1.5rem;
-                background:
-                    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 28%),
-                    linear-gradient(180deg, #f8fafc 0%, #ecfdf5 100%);
+    <div class="bsc-body">
+
+        <!-- ── What the page does, and the query it runs on ───────────── -->
+        <section class="bsc-intro">
+            <p>
+                Search a batch number to review the stock rows that still carry quantity on hand, then move the
+                SAP batch status from this page. Results are limited to the first @ResultLimit in-stock matches.
+            </p>
+            <div class="bsc-search">
+                <div class="bsc-field">
+                    <label for="bsc-batch-search">Batch number</label>
+                    <div class="bsc-field-control">
+                        <i class="ph ph-magnifying-glass"></i>
+                        <input id="bsc-batch-search" class="bsc-input has-icon" @bind="searchTerm"
+                               @bind:event="oninput" @onkeydown="HandleSearchKeyDown"
+                               placeholder="e.g. ICC001" />
+                    </div>
+                </div>
+                <button type="button" class="bsc-btn bsc-btn-primary" disabled="@isSearching"
+                        @onclick="SearchAsync">
+                    @if (isSearching)
+                    {
+                        <span class="bsc-spin"></span>
+                    }
+                    @(isSearching ? "Searching" : "Search")
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Results ────────────────────────────────────────────────── -->
+        <section class="bsc-card">
+
+            <div class="bsc-card-head">
+                <div class="bsc-card-head-text">
+                    <h2>Results</h2>
+                    <p>One row per SAP stock record — a batch repeats when it sits in several warehouses.</p>
+                </div>
+                @if (results.Count > 0)
+                {
+                    <div class="bsc-card-head-meta">
+                        <span class="bsc-count">@CountLabel</span>
+                        @if (PendingCount > 0)
+                        {
+                            <button type="button" class="bsc-btn bsc-btn-primary bsc-btn-sm"
+                                    disabled="@isApplyingAll" @onclick="ApplyAllAsync">
+                                @if (isApplyingAll)
+                                {
+                                    <span class="bsc-spin"></span>
+                                }
+                                else
+                                {
+                                    <i class="ph ph-check"></i>
+                                }
+                                Apply @PendingCount change@(PendingCount == 1 ? "" : "s")
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (isSearching && results.Count == 0)
+            {
+                <div class="bsc-loading">
+                    <span class="bsc-spin bsc-spin-lg"></span>
+                    <span>Searching batches…</span>
+                </div>
             }
-
-            .lbs-shell {
-                max-width: 1280px;
-                margin: 0 auto;
-                display: flex;
-                flex-direction: column;
-                gap: 1.25rem;
+            else if (results.Count == 0)
+            {
+                <div class="bsc-empty">
+                    <i class="ph ph-package"></i>
+                    @if (!hasSearched)
+                    {
+                        <span class="bsc-empty-title">Search a batch number to begin</span>
+                        <span class="bsc-empty-hint">Any part of the batch number works — a prefix is enough.</span>
+                    }
+                    else
+                    {
+                        <span class="bsc-empty-title">No in-stock rows for that batch number</span>
+                        <span class="bsc-empty-hint">Nothing with quantity on hand matched <strong>@lastSearchTerm</strong> — try a shorter prefix.</span>
+                    }
+                </div>
             }
+            else
+            {
+                <div class="bsc-table-wrap">
+                    <table class="bsc-table">
+                        <thead>
+                            <tr>
+                                <th class="bsc-col-first">Batch</th>
+                                <th>Item</th>
+                                <th>Warehouse</th>
+                                <th class="bsc-col-num">Qty on hand</th>
+                                <th>Status</th>
+                                <th class="bsc-col-nowrap">Change to</th>
+                                <th class="bsc-col-action bsc-col-last"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in PageItems)
+                            {
+                                var isDirty = IsDirty(item);
+                                <tr class="@(isDirty ? "is-dirty" : null)">
+                                    <td class="bsc-col-first">
+                                        <div class="bsc-stack bsc-stack-batch">
+                                            <span class="bsc-strong-mono">@item.BatchNumber</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.ExpiryDate))
+                                            {
+                                                <span class="bsc-sub">Expires @FormatDate(item.ExpiryDate)</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="bsc-stack">
+                                            <span class="bsc-strong">@item.ItemCode</span>
+                                            @if (!string.IsNullOrWhiteSpace(item.ItemName))
+                                            {
+                                                <span class="bsc-sub">@item.ItemName</span>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td class="bsc-warehouse">@item.WarehouseCode</td>
+                                    <td class="bsc-col-num">@FormatQuantity(item.Quantity)</td>
+                                    <td>
+                                        <span class="bsc-status @GetStatusToneClass(item.Status)">@GetStatusLabel(item.Status)</span>
+                                    </td>
+                                    <td>
+                                        <div class="bsc-select-wrap">
+                                            <select class="bsc-input bsc-select" @bind="item.PendingStatus"
+                                                    aria-label="@($"New status for batch {item.BatchNumber} in {item.WarehouseCode}")">
+                                                @if (!IsSelectableStatus(item.Status))
+                                                {
+                                                    @* The batch carries a status SAP does not let us set back
+                                                       (typically Unknown), so it is shown but not offered. *@
+                                                    <option value="@item.Status" disabled>@GetStatusLabel(item.Status)</option>
+                                                }
+                                                @foreach (var option in StatusOptions)
+                                                {
+                                                    <option value="@option.Value">@option.Label</option>
+                                                }
+                                            </select>
+                                            <i class="ph ph-caret-down"></i>
+                                        </div>
+                                    </td>
+                                    <td class="bsc-col-action bsc-col-last">
+                                        @if (IsUpdating(item.BatchEntryId))
+                                        {
+                                            <span class="bsc-updated"><span class="bsc-spin"></span>Updating</span>
+                                        }
+                                        else if (isDirty)
+                                        {
+                                            <button type="button" class="bsc-btn bsc-btn-primary bsc-btn-xs"
+                                                    disabled="@isApplyingAll" @onclick="() => UpdateStatusAsync(item)">
+                                                Update
+                                            </button>
+                                        }
+                                        else if (recentlyUpdated.Contains(item.BatchEntryId))
+                                        {
+                                            <span class="bsc-updated"><i class="ph ph-check-circle"></i>Updated</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
 
-            .lbs-hero,
-            .lbs-state-card,
-            .lbs-results-card {
-                background: rgba(255, 255, 255, 0.94);
-                border: 1px solid rgba(148, 163, 184, 0.2);
-                border-radius: 24px;
-                box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
-            }
+                <div class="bsc-foot">
+                    <span class="bsc-range">@RangeLabel</span>
+                    <div class="bsc-pager">
+                        <button type="button" class="bsc-btn bsc-btn-secondary bsc-btn-icon" title="Previous page"
+                                disabled="@(pageNumber <= 1)" @onclick="PreviousPage">
+                            <i class="ph ph-caret-left"></i>
+                        </button>
+                        <span class="bsc-page-label">@PageLabel</span>
+                        <button type="button" class="bsc-btn bsc-btn-secondary bsc-btn-icon" title="Next page"
+                                disabled="@(pageNumber >= PageCount)" @onclick="NextPage">
+                            <i class="ph ph-caret-right"></i>
+                        </button>
+                    </div>
+                </div>
 
-            .lbs-hero {
-                padding: 1.6rem 1.75rem;
-                display: grid;
-                grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
-                gap: 1.25rem;
-                align-items: start;
-            }
-
-            .lbs-kicker {
-                display: inline-flex;
-                align-items: center;
-                gap: .35rem;
-                padding: .38rem .72rem;
-                border-radius: 999px;
-                background: rgba(8, 145, 178, 0.12);
-                color: #0f766e;
-                font-size: .82rem;
-                font-weight: 700;
-                letter-spacing: .04em;
-                text-transform: uppercase;
-            }
-
-            .lbs-hero h1,
-            .lbs-results-header h2,
-            .lbs-empty-card h2 {
-                margin: .8rem 0 .4rem;
-                color: #0f172a;
-            }
-
-            .lbs-hero p,
-            .lbs-results-header p,
-            .lbs-helper,
-            .lbs-secondary,
-            .lbs-empty-card p {
-                color: #475569;
-            }
-
-            .lbs-utility-links {
-                margin-top: 1rem;
-            }
-
-            .lbs-history-link {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-height: 44px;
-                padding: 0 .95rem;
-                border-radius: 14px;
-                background: rgba(15, 23, 42, 0.06);
-                color: #0f172a;
-                font-weight: 700;
-                text-decoration: none;
-                transition: background .16s ease, transform .16s ease;
-            }
-
-            .lbs-history-link:hover {
-                background: rgba(15, 23, 42, 0.1);
-                transform: translateY(-1px);
-            }
-
-            .lbs-search-card {
-                padding: 1rem;
-                border-radius: 20px;
-                background: linear-gradient(180deg, rgba(241, 245, 249, 0.85) 0%, rgba(255, 255, 255, 0.98) 100%);
-                border: 1px solid rgba(148, 163, 184, 0.18);
-            }
-
-            .lbs-search-card label {
-                display: block;
-                margin-bottom: .45rem;
-                font-weight: 600;
-                color: #1e293b;
-            }
-
-            .lbs-search-row {
-                display: flex;
-                gap: .75rem;
-            }
-
-            .lbs-input,
-            .lbs-select {
-                width: 100%;
-                border-radius: 14px;
-                border: 1px solid rgba(148, 163, 184, 0.35);
-                background: #fff;
-                color: #0f172a;
-                padding: .78rem .95rem;
-            }
-
-            .lbs-input:focus,
-            .lbs-select:focus {
-                outline: none;
-                border-color: rgba(8, 145, 178, 0.55);
-                box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.12);
-            }
-
-            .lbs-search-btn,
-            .lbs-update-btn {
-                border: none;
-                border-radius: 14px;
-                font-weight: 700;
-                transition: transform .16s ease, opacity .16s ease;
-            }
-
-            .lbs-search-btn {
-                min-width: 118px;
-                background: linear-gradient(135deg, #0891b2 0%, #0f766e 100%);
-                color: #fff;
-                padding: 0 1rem;
-            }
-
-            .lbs-update-btn {
-                width: 100%;
-                background: #0f172a;
-                color: #fff;
-                padding: .72rem .95rem;
-            }
-
-            .lbs-search-btn:disabled,
-            .lbs-update-btn:disabled {
-                opacity: .6;
-                cursor: not-allowed;
-                transform: none;
-            }
-
-            .lbs-search-btn:not(:disabled):hover,
-            .lbs-update-btn:not(:disabled):hover {
-                transform: translateY(-1px);
-            }
-
-            .lbs-state-card,
-            .lbs-empty-card {
-                padding: 1.5rem 1.75rem;
-                display: flex;
-                align-items: center;
-                gap: .85rem;
-            }
-
-            .lbs-empty-card {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .lbs-spinner {
-                width: 1.2rem;
-                height: 1.2rem;
-                border-radius: 50%;
-                border: 3px solid rgba(15, 23, 42, 0.12);
-                border-top-color: #0f766e;
-                animation: lbs-spin .8s linear infinite;
-            }
-
-            .lbs-results-card {
-                padding: 1.4rem 1.5rem;
-            }
-
-            .lbs-results-header {
-                margin-bottom: 1rem;
-            }
-
-            .lbs-table-wrap {
-                overflow-x: auto;
-            }
-
-            .lbs-table {
-                width: 100%;
-                border-collapse: separate;
-                border-spacing: 0;
-                min-width: 920px;
-            }
-
-            .lbs-table th,
-            .lbs-table td {
-                padding: 1rem;
-                border-bottom: 1px solid rgba(226, 232, 240, 0.9);
-                text-align: left;
-                vertical-align: top;
-            }
-
-            .lbs-table th {
-                font-size: .8rem;
-                font-weight: 800;
-                letter-spacing: .04em;
-                text-transform: uppercase;
-                color: #64748b;
-            }
-
-            .lbs-primary {
-                font-weight: 700;
-                color: #0f172a;
-            }
-
-            .lbs-secondary {
-                margin-top: .18rem;
-                font-size: .9rem;
-            }
-
-            .lbs-chip {
-                display: inline-flex;
-                align-items: center;
-                padding: .42rem .7rem;
-                border-radius: 999px;
-                font-size: .82rem;
-                font-weight: 700;
-            }
-
-            .lbs-chip-released {
-                background: rgba(34, 197, 94, 0.14);
-                color: #166534;
-            }
-
-            .lbs-chip-locked {
-                background: rgba(249, 115, 22, 0.14);
-                color: #9a3412;
-            }
-
-            .lbs-chip-notaccessible {
-                background: rgba(220, 38, 38, 0.14);
-                color: #991b1b;
-            }
-
-            .lbs-chip-unknown {
-                background: rgba(100, 116, 139, 0.14);
-                color: #475569;
-            }
-
-            @@keyframes lbs-spin {
-                to {
-                    transform: rotate(360deg);
+                @if (results.Count >= ResultLimit)
+                {
+                    <div class="bsc-note">
+                        <i class="ph ph-info"></i>
+                        <span>
+                            Only the first @ResultLimit in-stock matches are returned — narrow the batch number
+                            to see the rest.
+                        </span>
+                    </div>
                 }
             }
-
-            @@media (max-width: 980px) {
-                .lbs-hero {
-                    grid-template-columns: 1fr;
-                }
-            }
-
-            @@media (max-width: 640px) {
-                .lbs-page {
-                    padding: 1rem;
-                }
-
-                .lbs-search-row {
-                    flex-direction: column;
-                }
-
-                .lbs-search-btn {
-                    width: 100%;
-                    min-height: 48px;
-                }
-            }
-        </style>
+        </section>
+    </div>
+</div>
