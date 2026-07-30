@@ -52,6 +52,13 @@ public class PendingInventoryTransferLineDto
 {
     public int LineNum { get; set; }
     public string? ItemCode { get; set; }
+
+    /// <summary>
+    /// Item name resolved from the local item cache when the draft is read; the stored payload
+    /// only carries item codes, so this is blank for items the cache has not seen.
+    /// </summary>
+    public string? ItemDescription { get; set; }
+
     public decimal Quantity { get; set; }
     public string? UoMCode { get; set; }
     public string? FromWarehouseCode { get; set; }

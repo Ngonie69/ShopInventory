@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Data;
+using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -156,7 +157,62 @@ public sealed class PendingTransferDraftTests : IDisposable
         Assert.Empty(dto.Lines);
     }
 
+    // ── Line descriptions ───────────────────────────────
+
+    [Fact]
+    public async Task Line_items_carry_the_item_name_from_the_item_cache()
+    {
+        // The payload stores item codes only. Without the name, an approver signing off a draft
+        // has nothing to check the code against.
+        await AddProductAsync("ITEM-1", "Yoghurt 500ml");
+        var transfers = new[] { DtoWithLines("ITEM-1") };
+
+        await PendingTransferItemDescriptions.AttachAsync(_context, transfers, default);
+
+        Assert.Equal("Yoghurt 500ml", transfers[0].Lines[0].ItemDescription);
+    }
+
+    [Fact]
+    public async Task An_item_the_cache_has_not_seen_keeps_a_blank_description()
+    {
+        var transfers = new[] { DtoWithLines("ITEM-MISSING") };
+
+        await PendingTransferItemDescriptions.AttachAsync(_context, transfers, default);
+
+        Assert.Null(transfers[0].Lines[0].ItemDescription);
+    }
+
+    [Fact]
+    public async Task Descriptions_are_resolved_across_every_draft_in_one_pass()
+    {
+        await AddProductAsync("ITEM-1", "Yoghurt 500ml");
+        await AddProductAsync("ITEM-2", "Milk 1L");
+        var transfers = new[] { DtoWithLines("ITEM-1", "ITEM-2"), DtoWithLines("ITEM-2") };
+
+        await PendingTransferItemDescriptions.AttachAsync(_context, transfers, default);
+
+        Assert.Equal("Yoghurt 500ml", transfers[0].Lines[0].ItemDescription);
+        Assert.Equal("Milk 1L", transfers[0].Lines[1].ItemDescription);
+        Assert.Equal("Milk 1L", transfers[1].Lines[0].ItemDescription);
+    }
+
     // ── Helpers ─────────────────────────────────────────
+
+    private static PendingInventoryTransferDto DtoWithLines(params string[] itemCodes) => new()
+    {
+        Lines = [.. itemCodes.Select((code, index) => new PendingInventoryTransferLineDto
+        {
+            LineNum = index,
+            ItemCode = code,
+            Quantity = 1m
+        })]
+    };
+
+    private async Task AddProductAsync(string itemCode, string itemName)
+    {
+        _context.Products.Add(new ProductEntity { ItemCode = itemCode, ItemName = itemName });
+        await _context.SaveChangesAsync();
+    }
 
     private static PendingInventoryTransferEntity Pending(string? draftNumber, DateTime createdAtUtc) => new()
     {

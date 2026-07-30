@@ -922,7 +922,13 @@
                             @foreach (var line in selectedPendingTransfer.Lines)
                             {
                                 <tr>
-                                    <td class="strong">@line.ItemCode</td>
+                                    <td>
+                                        <div class="strong">@line.ItemCode</div>
+                                        @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                        {
+                                            <div class="muted">@line.ItemDescription</div>
+                                        }
+                                    </td>
                                     <td><span class="itx-wh src">@(line.FromWarehouseCode ?? selectedPendingTransfer.FromWarehouse)</span></td>
                                     <td><span class="itx-wh dst">@(line.ToWarehouseCode ?? selectedPendingTransfer.ToWarehouse)</span></td>
                                     <td class="num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
@@ -2544,7 +2550,7 @@
         foreach (var line in lines)
         {
             rows.Append($"<tr><td>{lineNumber++}</td>")
-                .Append($"<td><strong>{Html(line.ItemCode)}</strong></td>")
+                .Append($"<td><strong>{Html(line.ItemCode)}</strong>{ItemDescriptionCell(line.ItemDescription)}</td>")
                 .Append($"<td>{Html(line.FromWarehouseCode ?? pending.FromWarehouse)}</td>")
                 .Append($"<td>{Html(line.ToWarehouseCode ?? pending.ToWarehouse)}</td>")
                 .Append($"<td class='num'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td>")
@@ -2703,6 +2709,12 @@
     }
 
     private static string Html(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
+
+    /// <summary>Second line under an item code on a print sheet, omitted when there is no description.</summary>
+    private static string ItemDescriptionCell(string? description) =>
+        string.IsNullOrWhiteSpace(description)
+            ? string.Empty
+            : $"<br/><span class='muted'>{Html(description)}</span>";
 
     // The print sheet is written into a blank iframe and printed ~300ms later, so a
     // relative <img src> can race the print call and produce a blank logo. Inlining the
