@@ -15,7 +15,13 @@ public sealed class ExceptionCenterDashboardModel
 public sealed class ExceptionCenterItemModel
 {
     public string Source { get; set; } = string.Empty;
+
+    /// <summary>The item's int primary key where it has one; zero for Guid-keyed sources.</summary>
     public int ItemId { get; set; }
+
+    /// <summary>Identifies the item within its source, whatever the shape of its primary key.</summary>
+    public string ItemKey { get; set; } = string.Empty;
+
     public string Category { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Reference { get; set; } = string.Empty;

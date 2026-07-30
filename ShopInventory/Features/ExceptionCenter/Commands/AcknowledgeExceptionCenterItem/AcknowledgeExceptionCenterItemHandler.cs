@@ -2,10 +2,8 @@ using System.Security.Claims;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.Http;
-using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
-using ShopInventory.Models.Entities;
 
 namespace ShopInventory.Features.ExceptionCenter.Commands.AcknowledgeExceptionCenterItem;
 
@@ -19,26 +17,14 @@ public sealed class AcknowledgeExceptionCenterItemHandler(
         AcknowledgeExceptionCenterItemCommand command,
         CancellationToken cancellationToken)
     {
-        var source = NormalizeSource(command.Source);
-        if (!await ItemExistsAsync(source, command.ItemId, cancellationToken))
+        var source = ExceptionCenterSources.Normalize(command.Source);
+        if (!await ExceptionCenterItemLookup.ExistsAsync(context, source, command.ItemKey, cancellationToken))
         {
-            return Errors.ExceptionCenter.ItemNotFound(command.Source, command.ItemId);
+            return Errors.ExceptionCenter.ItemNotFound(command.Source, command.ItemKey);
         }
 
-        var state = await context.ExceptionCenterItemStates
-            .AsTracking()
-            .FirstOrDefaultAsync(s => s.Source == source && s.ItemId == command.ItemId, cancellationToken);
-
-        if (state == null)
-        {
-            state = new ExceptionCenterItemStateEntity
-            {
-                Source = source,
-                ItemId = command.ItemId
-            };
-
-            context.ExceptionCenterItemStates.Add(state);
-        }
+        var state = await ExceptionCenterItemLookup.GetOrCreateStateAsync(
+            context, source, command.ItemKey, cancellationToken);
 
         var (userId, username) = ResolveCurrentUser();
         state.IsAcknowledged = true;
@@ -49,20 +35,9 @@ public sealed class AcknowledgeExceptionCenterItemHandler(
 
         await context.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("Acknowledged exception center item {Source}:{ItemId} by {Username}", source, command.ItemId, username);
+        logger.LogInformation("Acknowledged exception center item {Source}:{ItemKey} by {Username}", source, command.ItemKey, username);
         return Result.Success;
     }
-
-    private async Task<bool> ItemExistsAsync(string source, int itemId, CancellationToken cancellationToken)
-        => source switch
-        {
-            "invoice-queue" => await context.InvoiceQueue.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "inventory-transfer-queue" => await context.InventoryTransferQueue.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "mobile-order-post-processing" => await context.MobileOrderPostProcessingQueue.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "payment-callback" => await context.PaymentTransactions.AsNoTracking().AnyAsync(q => q.Id == itemId, cancellationToken),
-            "payment-callback-rejection" or "credit-note-fiscalization" => await context.ExceptionCenterIncidents.AsNoTracking().AnyAsync(q => q.Id == itemId && q.Source == source, cancellationToken),
-            _ => false
-        };
 
     private (Guid? userId, string username) ResolveCurrentUser()
     {
@@ -76,6 +51,4 @@ public sealed class AcknowledgeExceptionCenterItemHandler(
             ? (userId, username)
             : (null, username);
     }
-
-    private static string NormalizeSource(string source) => source.Trim().ToLowerInvariant();
 }

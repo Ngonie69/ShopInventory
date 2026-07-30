@@ -16,12 +16,12 @@ public sealed class AssignExceptionCenterItemHandler(
     {
         try
         {
-            var success = await exceptionCenterService.AssignItemAsync(request.Source, request.ItemId, cancellationToken);
+            var success = await exceptionCenterService.AssignItemAsync(request.Source, request.ItemKey, cancellationToken);
             return success ? Result.Success : Errors.ExceptionCenter.AssignFailed("Assign request was rejected.");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error assigning exception center item {Source}:{ItemId}", request.Source, request.ItemId);
+            logger.LogError(ex, "Error assigning exception center item {Source}:{ItemKey}", request.Source, request.ItemKey);
             return Errors.ExceptionCenter.AssignFailed("Assign request was rejected.");
         }
     }

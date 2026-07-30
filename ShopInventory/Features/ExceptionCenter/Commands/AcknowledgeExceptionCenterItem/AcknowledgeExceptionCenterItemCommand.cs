@@ -3,4 +3,4 @@ using MediatR;
 
 namespace ShopInventory.Features.ExceptionCenter.Commands.AcknowledgeExceptionCenterItem;
 
-public sealed record AcknowledgeExceptionCenterItemCommand(string Source, int ItemId) : IRequest<ErrorOr<Success>>;
+public sealed record AcknowledgeExceptionCenterItemCommand(string Source, string ItemKey) : IRequest<ErrorOr<Success>>;
