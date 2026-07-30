@@ -414,6 +414,9 @@
         font-family: "Space Grotesk", "Segoe UI", sans-serif;
         font-size: 2.2rem;
         margin: 0.5rem 0 0.4rem;
+        /* Stated rather than inherited: app.css colours every h1 from the app
+           theme, and this card sets its own background, so the two disagree. */
+        color: #111111;
     }
 
     .eyebrow {
@@ -563,6 +566,9 @@
     .submit-btn:disabled {
         opacity: 0.7;
         cursor: not-allowed;
+        /* MudBlazor puts `color: var(--mud-palette-action-disabled) !important`
+           on every disabled button — near-black, and this button is near-black. */
+        color: #ffffff !important;
     }
 
     .spinner {
@@ -699,28 +705,31 @@
         color: #111;
     }
 
-    :global(.dark-theme) .twofactor-icon {
-        background: #1e293b;
+    .dark-theme .twofactor-icon {
+        /* A shade below the card, matching the inputs — #1e293b would be the
+           card's own colour and the tile would vanish. */
+        background: #0f172a;
         color: #94a3b8;
     }
 
-    :global(.dark-theme) .twofactor-title {
+    .dark-theme .twofactor-title {
         color: #f1f5f9;
     }
 
-    :global(.dark-theme) .twofactor-hint {
+    .dark-theme .twofactor-hint {
         color: #94a3b8;
     }
 
-    :global(.dark-theme) .twofactor-backup-toggle {
+    .dark-theme .twofactor-backup-toggle {
         color: #94a3b8;
     }
 
-    :global(.dark-theme) .twofactor-cancel {
-        color: #64748b;
+    .dark-theme .twofactor-cancel {
+        /* #64748b only reaches 3.6:1 on this card, and this is a link, not chrome. */
+        color: #94a3b8;
     }
 
-    :global(.dark-theme) .twofactor-cancel:hover {
+    .dark-theme .twofactor-cancel:hover {
         color: #e2e8f0;
     }
 
@@ -782,96 +791,96 @@
         }
     }
 
-    :global(.dark-theme) .auth-shell {
+    .dark-theme .auth-shell {
         background: #1e293b;
     }
 
-    :global(.dark-theme) .login-header h1 {
+    .dark-theme .login-header h1 {
         color: #f1f5f9;
     }
 
-    :global(.dark-theme) .subtitle {
+    .dark-theme .subtitle {
         color: #94a3b8;
     }
 
-    :global(.dark-theme) .form-group label {
+    .dark-theme .form-group label {
         color: #e2e8f0;
     }
 
-    :global(.dark-theme) .form-input {
+    .dark-theme .form-input {
         background: #0f172a;
         border-color: #334155;
         color: #f1f5f9;
     }
 
-    :global(.dark-theme) .form-input:focus {
+    .dark-theme .form-input:focus {
         background: #1e293b;
         border-color: #818cf8;
         color: #f1f5f9;
         box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2);
     }
 
-    :global(.dark-theme) .form-input::placeholder {
+    .dark-theme .form-input::placeholder {
         color: #64748b;
     }
 
-    :global(.dark-theme) .input-wrapper svg {
+    .dark-theme .input-wrapper svg {
         color: #64748b;
     }
 
-    :global(.dark-theme) .input-wrapper:focus-within svg {
+    .dark-theme .input-wrapper:focus-within svg {
         color: #e2e8f0;
     }
 
-    :global(.dark-theme) .password-toggle {
+    .dark-theme .password-toggle {
         color: #64748b;
     }
 
-    :global(.dark-theme) .password-toggle:hover {
+    .dark-theme .password-toggle:hover {
         color: #e2e8f0;
     }
 
-    :global(.dark-theme) .error-message {
+    .dark-theme .error-message {
         background: #0f172a;
         border-color: #334155;
         color: #f1f5f9;
     }
 
-    :global(.dark-theme) .passkey-divider {
+    .dark-theme .passkey-divider {
         color: #64748b;
     }
 
-    :global(.dark-theme) .passkey-divider::before,
-    :global(.dark-theme) .passkey-divider::after {
+    .dark-theme .passkey-divider::before,
+    .dark-theme .passkey-divider::after {
         background: rgba(148, 163, 184, 0.15);
     }
 
-    :global(.dark-theme) .passkey-btn {
+    .dark-theme .passkey-btn {
         background: #0f172a;
         color: #f1f5f9;
         border-color: #334155;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
     }
 
-    :global(.dark-theme) .passkey-btn:hover:not(:disabled) {
+    .dark-theme .passkey-btn:hover:not(:disabled) {
         background: #132033;
         box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22);
     }
 
-    :global(.dark-theme) .spinner-dark {
+    .dark-theme .spinner-dark {
         border-color: rgba(226, 232, 240, 0.18);
         border-top-color: #e2e8f0;
     }
 
-    :global(.dark-theme) .passkey-note {
+    .dark-theme .passkey-note {
         color: #94a3b8;
     }
 
-    :global(.dark-theme) .footer-text {
+    .dark-theme .footer-text {
         color: #64748b;
     }
 
-    :global(.dark-theme) .eyebrow {
+    .dark-theme .eyebrow {
         background: #f1f5f9;
         color: #0f172a;
     }
