@@ -3,14 +3,28 @@ using System.ComponentModel.DataAnnotations;
 namespace ShopInventory.DTOs;
 
 /// <summary>
-/// A proposed change to an SAP transfer request. Only quantities may be adjusted and lines
-/// dropped; the lines listed are what the request should be left with.
+/// A proposed change to an SAP transfer request: quantities may be adjusted, lines dropped and
+/// either warehouse reassigned. The lines listed are what the request should be left with.
 /// </summary>
 public class EditTransferRequestDto
 {
     [Required(ErrorMessage = "At least one line is required")]
     [MinLength(1, ErrorMessage = "At least one line is required")]
     public List<EditTransferRequestLineDto>? Lines { get; set; }
+
+    /// <summary>
+    /// The warehouse the stock should leave. Omit or leave blank to keep the request's own.
+    /// A warehouse-scoped caller may only name a warehouse assigned to them.
+    /// </summary>
+    [MaxLength(50)]
+    public string? FromWarehouse { get; set; }
+
+    /// <summary>
+    /// The warehouse the stock should arrive at. Omit or leave blank to keep the request's own.
+    /// A warehouse-scoped caller may only name a warehouse assigned to them.
+    /// </summary>
+    [MaxLength(50)]
+    public string? ToWarehouse { get; set; }
 
     /// <summary>Why the change is being made. Shown to the approver when the edit is held.</summary>
     public string? Reason { get; set; }
@@ -63,8 +77,18 @@ public class PendingTransferRequestEditDto
     public Guid Id { get; set; }
     public int RequestDocEntry { get; set; }
     public int RequestDocNum { get; set; }
+
+    /// <summary>The request's source warehouse as it stood when the change was proposed.</summary>
     public string? FromWarehouse { get; set; }
+
+    /// <summary>The request's destination warehouse as it stood when the change was proposed.</summary>
     public string? ToWarehouse { get; set; }
+
+    /// <summary>The source warehouse the change would move the request to, when it reassigns one.</summary>
+    public string? ProposedFromWarehouse { get; set; }
+
+    /// <summary>The destination warehouse the change would move the request to, when it reassigns one.</summary>
+    public string? ProposedToWarehouse { get; set; }
 
     /// <summary>AwaitingApproval, Rejected, Applied, ApplyFailed or Cancelled.</summary>
     public string Status { get; set; } = string.Empty;

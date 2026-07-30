@@ -10,6 +10,14 @@ public class EditTransferRequestRequest
     [JsonPropertyName("lines")]
     public List<EditTransferRequestLineRequest> Lines { get; set; } = [];
 
+    /// <summary>The source warehouse to move the request onto. Null leaves the request's own.</summary>
+    [JsonPropertyName("fromWarehouse")]
+    public string? FromWarehouse { get; set; }
+
+    /// <summary>The destination warehouse to move the request onto. Null leaves the request's own.</summary>
+    [JsonPropertyName("toWarehouse")]
+    public string? ToWarehouse { get; set; }
+
     [JsonPropertyName("reason")]
     public string? Reason { get; set; }
 }
@@ -78,6 +86,14 @@ public class PendingTransferRequestEditDto
 
     [JsonPropertyName("toWarehouse")]
     public string? ToWarehouse { get; set; }
+
+    /// <summary>Set when the change reassigns the source warehouse.</summary>
+    [JsonPropertyName("proposedFromWarehouse")]
+    public string? ProposedFromWarehouse { get; set; }
+
+    /// <summary>Set when the change reassigns the destination warehouse.</summary>
+    [JsonPropertyName("proposedToWarehouse")]
+    public string? ProposedToWarehouse { get; set; }
 
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;

@@ -30,6 +30,20 @@ public sealed class PendingTransferRequestEditEntity
     public string ToWarehouse { get; set; } = string.Empty;
 
     /// <summary>
+    /// The source warehouse the change reassigns the request to, or <c>null</c> when it leaves
+    /// <see cref="FromWarehouse"/> alone. Held separately so a reviewer sees both ends of the move.
+    /// </summary>
+    [MaxLength(50)]
+    public string? ProposedFromWarehouse { get; set; }
+
+    /// <summary>
+    /// The destination warehouse the change reassigns the request to, or <c>null</c> when it leaves
+    /// <see cref="ToWarehouse"/> alone.
+    /// </summary>
+    [MaxLength(50)]
+    public string? ProposedToWarehouse { get; set; }
+
+    /// <summary>
     /// JSON serialised <c>TransferRequestEditLine</c> list: the lines the request should be left
     /// with. Lines absent from it are the ones being removed.
     /// </summary>

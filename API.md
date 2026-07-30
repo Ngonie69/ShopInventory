@@ -1146,6 +1146,10 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 | GET | `/api/InventoryTransfer/{docEntry}` | Get transfer details |
 | GET | `/api/InventoryTransfer/status/{docEntry}` | Get posting status |
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
+| PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, DepotController, Manager |
+| GET | `/api/InventoryTransfer/request-edits` | List changes held for approval (`status`, `requestDocEntry`, `page`, `pageSize`) |
+| POST | `/api/InventoryTransfer/request-edits/{id}/decision` | Approve or reject a held change |
+| POST | `/api/InventoryTransfer/request-edits/{id}/cancel` | Withdraw a change the caller proposed |
 
 **Listing transfer requests:** `status` filters on the SAP document status — `open`, `closed`, or
 `all` (the default; the SAP literals `bost_Open` and `bost_Close` are accepted too). Any other value
@@ -1222,6 +1226,32 @@ stage. `POST /api/approval-process/transfers/{id}/decision` is an equivalent rou
 `PostFailed` means the approval stands but SAP rejected the post; `lastError` explains why and the
 `/post` endpoint retries.
 
+#### Changing a transfer request
+
+`PATCH /api/InventoryTransfer/request/{docEntry}` rewrites an open request. `lines` is the complete
+set of lines the request should be left with — anything omitted is removed — and either warehouse
+may be reassigned by naming it. Omit a warehouse, or send it blank, to leave the request's own:
+
+```json
+{
+  "lines": [{ "lineNum": 0, "quantity": 6 }],
+  "fromWarehouse": "WH02",
+  "toWarehouse": null,
+  "reason": "WH01 cannot cover this"
+}
+```
+
+A warehouse change is written to the header and to every kept line, since it is the line's own
+warehouse that moves the stock. A closed request returns `409`
+`InventoryTransfer.TransferRequestNotEditable`; a change that would leave the request moving stock
+from a warehouse to itself returns `400`.
+
+Callers assigned the request's source warehouse write straight to SAP (`200`). Anyone else has the
+change held for approval (`202`, `requiresApproval: true`) and it reaches SAP only on the final
+approval — the held record carries `proposedFromWarehouse` / `proposedToWarehouse` so the approver
+sees the move. One held change per request; a second returns `409`
+`InventoryTransfer.TransferRequestEditInFlight`.
+
 #### Warehouse scoping
 
 **Depot controllers** may only action transfers whose **source** warehouse is one of their
@@ -1230,6 +1260,13 @@ held direct transfer. Violations return `403` with
 `InventoryTransfer.WarehouseNotAssigned`, or `InventoryTransfer.NoAssignedWarehouses` when the
 account has no warehouses at all. Administrators are unrestricted, and other roles are not
 warehouse-scoped.
+
+A depot controller may also only **name** their own warehouses: `fromWarehouse` and `toWarehouse` on
+a request change must each be one of their `assignedWarehouseCodes`, or the call is refused with
+`403` `InventoryTransfer.WarehouseNotAssigned`. Unlike the rules above this is never routed to
+approval — a warehouse they do not run is not something an approver can bless. The proposer's scope
+is re-checked when an approved change is applied, so a reassignment stops working the moment the
+warehouse leaves their account (the held change goes to `ApplyFailed` with `lastError` explaining).
 
 ---
 

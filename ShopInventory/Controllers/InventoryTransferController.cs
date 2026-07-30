@@ -264,15 +264,18 @@ public class InventoryTransferController(IMediator mediator) : ApiControllerBase
     }
 
     /// <summary>
-    /// Changes the lines of an open transfer request: quantities may be adjusted and lines
-    /// dropped. Callers assigned the source warehouse write straight to SAP; anyone else has
-    /// the change held for approval, so this can answer 202 Accepted.
+    /// Changes an open transfer request: quantities may be adjusted, lines dropped, and either
+    /// warehouse reassigned. Callers assigned the source warehouse write straight to SAP; anyone
+    /// else has the change held for approval, so this can answer 202 Accepted. A warehouse-scoped
+    /// caller may only name warehouses assigned to them, which is refused with 403 rather than
+    /// held.
     /// </summary>
     [HttpPatch("request/{docEntry:int}")]
     [Authorize(Roles = "Admin,StockController,DepotController,Manager")]
     [ProducesResponseType(typeof(TransferRequestEditResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(TransferRequestEditResponseDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> EditTransferRequest(
         int docEntry,
         [FromBody] EditTransferRequestDto request,

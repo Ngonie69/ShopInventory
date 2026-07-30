@@ -9864,17 +9864,25 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
     }
 
     /// <summary>
-    /// Rewrites the lines of an open inventory transfer request via
-    /// PATCH InventoryTransferRequests({docEntry}).
+    /// Rewrites the lines of an open inventory transfer request, and optionally its warehouses,
+    /// via PATCH InventoryTransferRequests({docEntry}).
     /// </summary>
     /// <remarks>
     /// The Service Layer treats a document's line collection as a whole on PATCH: lines are
     /// matched by LineNum and any existing line not present in the payload is deleted. That is
     /// how a line is removed, and it is also why the caller has to send every line it keeps.
+    /// <para>
+    /// A warehouse change is written to the header <em>and</em> to every kept line, because the
+    /// Service Layer does not push a header warehouse down to the lines — and it is the line's
+    /// own FromWarehouseCode/WarehouseCode that decides where the stock actually moves. Leaving
+    /// the lines behind would produce a document whose header disagrees with its own rows.
+    /// </para>
     /// </remarks>
-    public async Task<InventoryTransferRequest> UpdateInventoryTransferRequestLinesAsync(
+    public async Task<InventoryTransferRequest> UpdateInventoryTransferRequestAsync(
         int docEntry,
         IReadOnlyList<(int LineNum, decimal Quantity)> lines,
+        string? fromWarehouse = null,
+        string? toWarehouse = null,
         CancellationToken cancellationToken = default)
     {
         if (lines.Count == 0)
@@ -9883,20 +9891,36 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         await EnsureAuthenticatedAsync(cancellationToken);
         var currentSession = _sessionId;
 
+        var newFromWarehouse = string.IsNullOrWhiteSpace(fromWarehouse) ? null : fromWarehouse.Trim();
+        var newToWarehouse = string.IsNullOrWhiteSpace(toWarehouse) ? null : toWarehouse.Trim();
+
         var payload = new Dictionary<string, object>
         {
             ["StockTransferLines"] = lines
-                .Select(line => new Dictionary<string, object>
+                .Select(line =>
                 {
-                    ["LineNum"] = line.LineNum,
-                    ["Quantity"] = line.Quantity
+                    var linePayload = new Dictionary<string, object>
+                    {
+                        ["LineNum"] = line.LineNum,
+                        ["Quantity"] = line.Quantity
+                    };
+                    if (newFromWarehouse is not null) linePayload["FromWarehouseCode"] = newFromWarehouse;
+                    if (newToWarehouse is not null) linePayload["WarehouseCode"] = newToWarehouse;
+                    return linePayload;
                 })
                 .ToList()
         };
 
+        if (newFromWarehouse is not null) payload["FromWarehouse"] = newFromWarehouse;
+        if (newToWarehouse is not null) payload["ToWarehouse"] = newToWarehouse;
+
         var jsonPayload = JsonSerializer.Serialize(payload);
         _logger.LogInformation(
-            "Updating inventory transfer request {DocEntry} to {LineCount} line(s)", docEntry, lines.Count);
+            "Updating inventory transfer request {DocEntry} to {LineCount} line(s){WarehouseChange}",
+            docEntry, lines.Count,
+            newFromWarehouse is null && newToWarehouse is null
+                ? string.Empty
+                : $", reassigning to {newFromWarehouse ?? "(unchanged)"} → {newToWarehouse ?? "(unchanged)"}");
 
         var url = $"InventoryTransferRequests({docEntry})";
 

@@ -29,6 +29,7 @@ public interface IPendingTransferRequestEditApplier
 public sealed class PendingTransferRequestEditApplier(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
+    ITransferWarehouseAuthorizer warehouseAuthorizer,
     INotificationService notificationService,
     IAuditService auditService,
     ILogger<PendingTransferRequestEditApplier> logger) : IPendingTransferRequestEditApplier
@@ -43,6 +44,25 @@ public sealed class PendingTransferRequestEditApplier(
         {
             return await FailAsync(
                 edit, "The stored change could not be read, so nothing was written to SAP.", cancellationToken);
+        }
+
+        // A change can sit here for days, and warehouse assignments move in the meantime. The
+        // proposer's scope is re-checked against what it is now, so an approval cannot write a
+        // warehouse they are no longer entitled to name.
+        foreach (var warehouse in new[] { edit.ProposedFromWarehouse, edit.ProposedToWarehouse })
+        {
+            if (string.IsNullOrWhiteSpace(warehouse)) continue;
+
+            var assignmentCheck = await warehouseAuthorizer.EnsureCanAssignWarehouseAsync(
+                edit.CreatedByUserId, warehouse, cancellationToken);
+            if (assignmentCheck.IsError)
+            {
+                return await FailAsync(
+                    edit,
+                    $"{edit.CreatedByName} is no longer assigned to warehouse {warehouse}, so the change " +
+                    "was not written to SAP. Propose it again from an account that runs that warehouse.",
+                    cancellationToken);
+            }
         }
 
         try
@@ -69,8 +89,9 @@ public sealed class PendingTransferRequestEditApplier(
                 return Errors.InventoryTransfer.InvalidOperation(message);
             }
 
-            var updated = await sapClient.UpdateInventoryTransferRequestLinesAsync(
-                edit.RequestDocEntry, TransferRequestEditMapper.ToSapLines(proposedLines), cancellationToken);
+            var updated = await sapClient.UpdateInventoryTransferRequestAsync(
+                edit.RequestDocEntry, TransferRequestEditMapper.ToSapLines(proposedLines),
+                edit.ProposedFromWarehouse, edit.ProposedToWarehouse, cancellationToken);
 
             edit.Status = PendingTransferRequestEditStatuses.Applied;
             edit.AppliedAtUtc = DateTime.UtcNow;
@@ -84,7 +105,8 @@ public sealed class PendingTransferRequestEditApplier(
             {
                 await auditService.LogAsync(
                     AuditActions.EditTransferRequest, "TransferRequest", edit.RequestDocEntry.ToString(),
-                    $"Transfer request #{edit.RequestDocNum} changed to {proposedLines.Count} line(s) after approval", true);
+                    $"Transfer request #{edit.RequestDocNum} changed to {proposedLines.Count} line(s) after approval" +
+                    (Reassigns(edit) ? $", reassigned to {EffectiveFrom(edit)} → {EffectiveTo(edit)}" : string.Empty), true);
             }
             catch { }
 
@@ -103,6 +125,16 @@ public sealed class PendingTransferRequestEditApplier(
                 $"The change was approved but could not be written to SAP: {exception.Message}");
         }
     }
+
+    private static bool Reassigns(PendingTransferRequestEditEntity edit) =>
+        !string.IsNullOrWhiteSpace(edit.ProposedFromWarehouse) ||
+        !string.IsNullOrWhiteSpace(edit.ProposedToWarehouse);
+
+    private static string EffectiveFrom(PendingTransferRequestEditEntity edit) =>
+        string.IsNullOrWhiteSpace(edit.ProposedFromWarehouse) ? edit.FromWarehouse : edit.ProposedFromWarehouse;
+
+    private static string EffectiveTo(PendingTransferRequestEditEntity edit) =>
+        string.IsNullOrWhiteSpace(edit.ProposedToWarehouse) ? edit.ToWarehouse : edit.ProposedToWarehouse;
 
     private async Task<Error> FailAsync(
         PendingTransferRequestEditEntity edit,
@@ -124,7 +156,8 @@ public sealed class PendingTransferRequestEditApplier(
                 ModuleNotificationFactory.CreateBroadcastNotification(
                     $"Transfer Request Updated: #{edit.RequestDocNum}",
                     $"An approved change to transfer request #{edit.RequestDocNum} " +
-                    $"({edit.FromWarehouse} → {edit.ToWarehouse}), proposed by {edit.CreatedByName}, was applied in SAP.",
+                    $"({EffectiveFrom(edit)} → {EffectiveTo(edit)}), proposed by {edit.CreatedByName}, was applied in SAP." +
+                    (Reassigns(edit) ? $" It was reassigned from {edit.FromWarehouse} → {edit.ToWarehouse}." : string.Empty),
                     "Success",
                     "TransferRequest",
                     "TransferRequest",
@@ -134,8 +167,8 @@ public sealed class PendingTransferRequestEditApplier(
                     {
                         ["docEntry"] = edit.RequestDocEntry.ToString(),
                         ["docNum"] = edit.RequestDocNum.ToString(),
-                        ["fromWarehouse"] = edit.FromWarehouse,
-                        ["toWarehouse"] = edit.ToWarehouse,
+                        ["fromWarehouse"] = EffectiveFrom(edit),
+                        ["toWarehouse"] = EffectiveTo(edit),
                         ["pendingEditId"] = edit.Id.ToString()
                     }),
                 cancellationToken);

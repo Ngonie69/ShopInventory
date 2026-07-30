@@ -90,6 +90,59 @@ public static class TransferRequestEditMapper
         return (proposed.OrderBy(line => line.LineNum).ToList(), null);
     }
 
+    /// <summary>
+    /// A warehouse reassignment on a transfer request. Each side is <c>null</c> when the edit
+    /// leaves that end of the transfer as the document already has it.
+    /// </summary>
+    public readonly record struct WarehouseChange(string? FromWarehouse, string? ToWarehouse)
+    {
+        public bool ChangesAnything => FromWarehouse is not null || ToWarehouse is not null;
+
+        /// <summary>Every warehouse the edit names, for scope checking.</summary>
+        public IEnumerable<string> NamedWarehouses
+        {
+            get
+            {
+                if (FromWarehouse is not null) yield return FromWarehouse;
+                if (ToWarehouse is not null) yield return ToWarehouse;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Works out which warehouses the edit actually moves. A blank value, or one the request
+    /// already carries, is not a change — only a different code is.
+    /// </summary>
+    public static (WarehouseChange Change, string? Error) BuildWarehouseChange(
+        InventoryTransferRequest document,
+        string? requestedFromWarehouse,
+        string? requestedToWarehouse)
+    {
+        var from = ResolveChange(document.FromWarehouse, requestedFromWarehouse);
+        var to = ResolveChange(document.ToWarehouse, requestedToWarehouse);
+
+        // Compare what the request would end up with, not just what was sent: moving the source
+        // onto the existing destination is as invalid as sending the same code for both.
+        var effectiveFrom = from ?? document.FromWarehouse?.Trim();
+        var effectiveTo = to ?? document.ToWarehouse?.Trim();
+        if (!string.IsNullOrWhiteSpace(effectiveFrom) &&
+            string.Equals(effectiveFrom, effectiveTo, StringComparison.OrdinalIgnoreCase))
+        {
+            return (default, $"A transfer request cannot move stock from {effectiveFrom} to itself.");
+        }
+
+        return (new WarehouseChange(from, to), null);
+    }
+
+    private static string? ResolveChange(string? current, string? requested)
+    {
+        if (string.IsNullOrWhiteSpace(requested))
+            return null;
+
+        var trimmed = requested.Trim();
+        return string.Equals(trimmed, current?.Trim(), StringComparison.OrdinalIgnoreCase) ? null : trimmed;
+    }
+
     /// <summary>True when the proposal leaves every line exactly as it already is.</summary>
     public static bool IsNoOp(
         IReadOnlyList<TransferRequestEditLineDto> original,
@@ -108,6 +161,8 @@ public static class TransferRequestEditMapper
         RequestDocNum = edit.RequestDocNum,
         FromWarehouse = edit.FromWarehouse,
         ToWarehouse = edit.ToWarehouse,
+        ProposedFromWarehouse = edit.ProposedFromWarehouse,
+        ProposedToWarehouse = edit.ProposedToWarehouse,
         Status = edit.Status,
         CreatedByName = edit.CreatedByName,
         CreatedByRole = edit.CreatedByRole,
