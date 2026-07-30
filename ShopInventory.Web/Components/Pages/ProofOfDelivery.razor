@@ -19,59 +19,53 @@
 <div class="container-fluid fade-in staff-dashboard staff-shell">
     @* Hero Header *@
     <div class="pod-hero">
-        <div class="pod-hero-content">
-            <div>
-                <h2 class="pod-hero-title">
-                    <span class="pod-hero-icon">
-                        <i class="bi bi-clipboard-check"></i>
-                    </span>
-                    Product PODs
-                </h2>
-                <p class="pod-hero-subtitle">Review and manage product delivery POD attachments for invoices</p>
-            </div>
-            <div class="pod-hero-actions d-flex gap-2 align-items-center">
-                <span class="pod-stat-pill">
-                    <i class="bi bi-file-earmark-check me-1"></i>
-                    @(podResponse?.TotalCount ?? 0) records
+        <div class="pod-hero-top">
+            <div class="pod-hero-heading">
+                <span class="pod-hero-icon">
+                    <i class="bi bi-clipboard-check"></i>
                 </span>
-                <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshData"
-                           StartIcon="@Icons.Material.Filled.Refresh" Disabled="@isLoading" Class="pod-refresh-btn">
-                    Refresh
-                </MudButton>
+                <div>
+                    <h2 class="pod-hero-title">Product PODs</h2>
+                    <p class="pod-hero-subtitle">Review and manage product delivery POD attachments for invoices.</p>
+                </div>
+            </div>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="RefreshData"
+                       StartIcon="@Icons.Material.Filled.Refresh" Disabled="@isLoading" Class="pod-refresh-btn">
+                Refresh
+            </MudButton>
+        </div>
+
+        <div class="pod-hero-stats">
+            <div class="pod-stat">
+                <span class="pod-stat-value">@(podResponse?.TotalCount ?? 0)</span>
+                <span class="pod-stat-label">POD records</span>
             </div>
         </div>
     </div>
 
-    <div class="pod-mode-toggle mb-3">
-        <button type="button" class="pod-mode-btn pod-mode-active">
-            <i class="bi bi-box-seam me-1"></i> Product PODs
-        </button>
-        <a class="pod-mode-btn" href="/crates/pods">
-            <i class="bi bi-boxes me-1"></i> Crate PODs
-        </a>
-    </div>
+    <PodNavTabs Active="PodNavTabs.PodNavTab.Product" />
 
     @if (canUploadPods)
     {
-    @* Upload Mode Toggle *@
-    <div class="pod-mode-toggle mb-3">
-        <button class="pod-mode-btn @(uploadMode == UploadMode.Single ? "pod-mode-active" : "")"
-                @onclick='() => SwitchUploadMode(UploadMode.Single)'>
-            <i class="bi bi-file-earmark-arrow-up me-1"></i> Single Upload
-        </button>
-        <button class="pod-mode-btn @(uploadMode == UploadMode.Bulk ? "pod-mode-active" : "")"
-                @onclick='() => SwitchUploadMode(UploadMode.Bulk)'>
-            <i class="bi bi-files me-1"></i> Bulk Upload
-        </button>
-    </div>
-
     @if (uploadMode == UploadMode.Single)
     {
         @* Single Upload Section *@
         <div class="pod-upload-card">
             <div class="pod-upload-header">
-                <i class="bi bi-cloud-arrow-up"></i>
-                <span>Upload Product POD</span>
+                <span class="pod-upload-heading">
+                    <i class="bi bi-cloud-arrow-up"></i>
+                    <span>Upload Product POD</span>
+                </span>
+                <div class="pod-segment">
+                    <button type="button" class="pod-segment-btn pod-segment-active"
+                            @onclick='() => SwitchUploadMode(UploadMode.Single)'>
+                        <i class="bi bi-file-earmark-arrow-up"></i><span>Single</span>
+                    </button>
+                    <button type="button" class="pod-segment-btn"
+                            @onclick='() => SwitchUploadMode(UploadMode.Bulk)'>
+                        <i class="bi bi-files"></i><span>Bulk</span>
+                    </button>
+                </div>
             </div>
             <div class="pod-upload-body">
                 <div class="row g-3 align-items-end mb-3">
@@ -173,8 +167,20 @@
         @* Bulk Upload Section *@
         <div class="pod-upload-card">
             <div class="pod-upload-header">
-                <i class="bi bi-files"></i>
-                <span>Bulk Upload Product PODs</span>
+                <span class="pod-upload-heading">
+                    <i class="bi bi-files"></i>
+                    <span>Bulk Upload Product PODs</span>
+                </span>
+                <div class="pod-segment">
+                    <button type="button" class="pod-segment-btn"
+                            @onclick='() => SwitchUploadMode(UploadMode.Single)'>
+                        <i class="bi bi-file-earmark-arrow-up"></i><span>Single</span>
+                    </button>
+                    <button type="button" class="pod-segment-btn pod-segment-active"
+                            @onclick='() => SwitchUploadMode(UploadMode.Bulk)'>
+                        <i class="bi bi-files"></i><span>Bulk</span>
+                    </button>
+                </div>
             </div>
             <div class="pod-upload-body">
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
@@ -723,117 +729,136 @@
 
                                                         <style>
                                                             /* ── Hero ─────────────────────────────────────── */
+                                                            /* Kept in step with .crpod-hero in CratePodStyles.razor so the
+                                                               product and crate POD pages read as one area. */
                                                             .pod-hero {
-                                                                background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
-                                                                border-radius: 16px;
-                                                                padding: 2rem 2.5rem;
-                                                                margin-bottom: 1.5rem;
+                                                                background: linear-gradient(135deg, #0f766e 0%, #0f766e 35%, #155e75 100%);
+                                                                border-radius: 18px;
+                                                                padding: 1.25rem 1.5rem;
+                                                                margin-bottom: 1rem;
                                                                 color: #fff;
-                                                                position: relative;
-                                                                overflow: hidden;
+                                                                box-shadow: 0 18px 40px rgba(15, 118, 110, 0.16);
                                                             }
 
-                                                            .pod-hero::before {
-                                                                content: '';
-                                                                position: absolute;
-                                                                top: -50%;
-                                                                right: -20%;
-                                                                width: 300px;
-                                                                height: 300px;
-                                                                background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
-                                                                border-radius: 50%;
-                                                            }
-
-                                                            .pod-hero-content {
+                                                            .pod-hero-top {
                                                                 display: flex;
                                                                 justify-content: space-between;
-                                                                align-items: center;
-                                                                flex-wrap: wrap;
+                                                                align-items: flex-start;
                                                                 gap: 1rem;
-                                                                position: relative;
-                                                                z-index: 1;
+                                                                flex-wrap: wrap;
+                                                            }
+
+                                                            .pod-hero-heading {
+                                                                display: flex;
+                                                                align-items: center;
+                                                                gap: 0.85rem;
+                                                                min-width: 0;
                                                             }
 
                                                             .pod-hero-title {
-                                                                font-size: 1.5rem;
+                                                                font-size: 1.45rem;
                                                                 font-weight: 700;
                                                                 margin: 0;
-                                                                display: flex;
-                                                                align-items: center;
-                                                                gap: 0.75rem;
+                                                                line-height: 1.2;
                                                             }
 
                                                             .pod-hero-icon {
                                                                 display: inline-flex;
                                                                 align-items: center;
                                                                 justify-content: center;
-                                                                width: 42px;
-                                                                height: 42px;
-                                                                background: rgba(255, 255, 255, 0.2);
-                                                                border-radius: 12px;
-                                                                font-size: 1.25rem;
-                                                                backdrop-filter: blur(4px);
+                                                                width: 44px;
+                                                                height: 44px;
+                                                                background: rgba(255, 255, 255, 0.16);
+                                                                border-radius: 13px;
+                                                                font-size: 1.2rem;
+                                                                flex-shrink: 0;
                                                             }
 
                                                             .pod-hero-subtitle {
-                                                                margin: 0.25rem 0 0;
-                                                                font-size: 0.9rem;
+                                                                margin: 0.2rem 0 0;
+                                                                font-size: 0.88rem;
                                                                 opacity: 0.85;
+                                                                max-width: 620px;
                                                             }
 
-                                                            .pod-stat-pill {
-                                                                display: inline-flex;
-                                                                align-items: center;
-                                                                gap: 0.25rem;
-                                                                background: rgba(255, 255, 255, 0.2);
-                                                                backdrop-filter: blur(4px);
-                                                                border-radius: 20px;
-                                                                padding: 0.4rem 1rem;
-                                                                font-size: 0.85rem;
+                                                            .pod-hero-stats {
+                                                                display: flex;
+                                                                flex-wrap: wrap;
+                                                                gap: 0.6rem;
+                                                                margin-top: 1.15rem;
+                                                            }
+
+                                                            .pod-stat {
+                                                                display: flex;
+                                                                flex-direction: column;
+                                                                gap: 0.1rem;
+                                                                flex: 1 1 150px;
+                                                                max-width: 260px;
+                                                                border-radius: 12px;
+                                                                background: rgba(255, 255, 255, 0.12);
+                                                                padding: 0.6rem 0.85rem;
+                                                            }
+
+                                                            .pod-stat-value {
+                                                                font-size: 1.35rem;
+                                                                font-weight: 700;
+                                                                line-height: 1.1;
+                                                            }
+
+                                                            .pod-stat-label {
+                                                                font-size: 0.72rem;
                                                                 font-weight: 600;
-                                                                color: #fff;
+                                                                letter-spacing: 0.05em;
+                                                                text-transform: uppercase;
+                                                                opacity: 0.8;
                                                             }
 
                                                             .pod-refresh-btn {
-                                                                border-color: rgba(255, 255, 255, 0.4) !important;
+                                                                border-color: rgba(255, 255, 255, 0.28) !important;
                                                                 color: #fff !important;
+                                                                border-radius: 10px !important;
                                                             }
 
                                                             .pod-refresh-btn:hover {
-                                                                background: rgba(255, 255, 255, 0.15) !important;
+                                                                background: rgba(255, 255, 255, 0.12) !important;
                                                             }
 
-                                                            /* ── Upload Mode Toggle ─────────────────────── */
-                                                            .pod-mode-toggle {
-                                                                display: flex;
-                                                                gap: 0.5rem;
+                                                            /* ── Upload Mode Segmented Control ──────────── */
+                                                            /* Mirrors .crpod-segment in CratePodStyles.razor. */
+                                                            .pod-segment {
+                                                                display: inline-flex;
+                                                                gap: 0.2rem;
+                                                                padding: 0.25rem;
+                                                                border-radius: 12px;
+                                                                background: #f1f5f9;
+                                                                border: 1px solid #e2e8f0;
+                                                                flex-shrink: 0;
                                                             }
 
-                                                            .pod-mode-btn {
+                                                            .pod-segment-btn {
                                                                 display: inline-flex;
                                                                 align-items: center;
-                                                                gap: 0.25rem;
-                                                                padding: 0.5rem 1.25rem;
-                                                                border-radius: 10px;
-                                                                border: 1px solid #e2e8f0;
-                                                                background: #fff;
-                                                                font-weight: 600;
-                                                                font-size: 0.875rem;
+                                                                justify-content: center;
+                                                                gap: 0.4rem;
+                                                                border: none;
+                                                                border-radius: 9px;
+                                                                background: transparent;
                                                                 color: #64748b;
+                                                                font-size: 0.84rem;
+                                                                font-weight: 600;
+                                                                padding: 0.5rem 0.9rem;
                                                                 cursor: pointer;
-                                                                transition: all 0.2s;
+                                                                transition: background 0.15s ease, color 0.15s ease;
                                                             }
 
-                                                            .pod-mode-btn:hover {
-                                                                border-color: #0f766e;
+                                                            .pod-segment-btn:hover:not(.pod-segment-active) {
                                                                 color: #0f766e;
-                                                                background: #f0fdfa;
                                                             }
 
-                                                            .pod-mode-active {
-                                                                background: linear-gradient(135deg, #0f766e, #14b8a6) !important;
-                                                                color: #fff !important;
-                                                                border-color: transparent !important;
+                                                            .pod-segment-active {
+                                                                background: #fff;
+                                                                color: #0f766e;
+                                                                box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
                                                             }
 
                                                             /* ── Upload Card ──────────────────────────────── */
@@ -849,13 +874,22 @@
                                                             .pod-upload-header {
                                                                 display: flex;
                                                                 align-items: center;
-                                                                gap: 0.5rem;
+                                                                justify-content: space-between;
+                                                                gap: 1rem;
+                                                                flex-wrap: wrap;
                                                                 padding: 1rem 1.5rem;
                                                                 background: linear-gradient(135deg, #f0fdfa 0%, #f0f9ff 100%);
                                                                 border-bottom: 1px solid rgba(15, 23, 42, 0.06);
                                                                 font-weight: 600;
                                                                 font-size: 1rem;
                                                                 color: #0f766e;
+                                                            }
+
+                                                            .pod-upload-heading {
+                                                                display: inline-flex;
+                                                                align-items: center;
+                                                                gap: 0.5rem;
+                                                                min-width: 0;
                                                             }
 
                                                             .pod-upload-body {
@@ -1395,36 +1429,49 @@
                                                             @@media (max-width: 767.98px) {
                                                                 .pod-hero {
                                                                     padding: 1rem;
+                                                                    border-radius: 16px;
                                                                 }
 
                                                                 .pod-hero-title {
-                                                                    font-size: 1.15rem;
-                                                                    align-items: flex-start;
+                                                                    font-size: 1.2rem;
                                                                 }
 
                                                                 .pod-hero-icon {
-                                                                    width: 40px;
-                                                                    height: 40px;
+                                                                    width: 38px;
+                                                                    height: 38px;
+                                                                    border-radius: 11px;
                                                                     font-size: 1rem;
-                                                                    flex-shrink: 0;
                                                                 }
 
-                                                                .pod-hero-actions {
+                                                                .pod-stat {
+                                                                    max-width: none;
+                                                                    padding: 0.5rem 0.6rem;
+                                                                }
+
+                                                                .pod-stat-value {
+                                                                    font-size: 1.15rem;
+                                                                }
+
+                                                                .pod-stat-label {
+                                                                    font-size: 0.66rem;
+                                                                    letter-spacing: 0.03em;
+                                                                }
+
+                                                                .pod-refresh-btn {
                                                                     width: 100%;
-                                                                    flex-wrap: wrap;
-                                                                    justify-content: flex-start;
                                                                 }
 
-                                                                .pod-mode-toggle {
-                                                                    overflow-x: auto;
-                                                                    flex-wrap: nowrap;
-                                                                    padding-bottom: 0.25rem;
-                                                                    scrollbar-width: thin;
+                                                                .pod-upload-header {
+                                                                    align-items: stretch;
+                                                                    flex-direction: column;
                                                                 }
 
-                                                                .pod-mode-btn {
-                                                                    flex: 0 0 auto;
-                                                                    white-space: nowrap;
+                                                                .pod-segment {
+                                                                    width: 100%;
+                                                                }
+
+                                                                .pod-segment-btn {
+                                                                    flex: 1 1 0;
                                                                 }
 
                                                                 .pod-upload-body,
@@ -1489,11 +1536,6 @@
 
                                                                 .pod-hero-subtitle {
                                                                     font-size: 0.8rem;
-                                                                }
-
-                                                                .pod-stat-pill {
-                                                                    width: 100%;
-                                                                    justify-content: center;
                                                                 }
 
                                                                 .pod-upload-header,

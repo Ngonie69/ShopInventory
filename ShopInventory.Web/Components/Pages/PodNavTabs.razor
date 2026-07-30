@@ -1,0 +1,153 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+
+@* Shared tab bar across the POD record surfaces. Each tab is gated on the same roles
+   as the page it points at, so a tab never leads somewhere the user cannot open. *@
+<nav class="podnav">
+    <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver,SalesRep" Context="productCtx">
+        <Authorized>
+            @if (Current == PodNavTab.Product)
+            {
+                <span class="podnav-link podnav-active">
+                    <i class="bi bi-box-seam"></i>
+                    <span>Product PODs</span>
+                </span>
+            }
+            else
+            {
+                <a class="podnav-link" href="/pods">
+                    <i class="bi bi-box-seam"></i>
+                    <span>Product PODs</span>
+                </a>
+            }
+        </Authorized>
+    </AuthorizeView>
+
+    <AuthorizeView Roles="Admin,Manager,Merchandiser,PodOperator,Operator,Driver,SalesRep" Context="crateCtx">
+        <Authorized>
+            @if (Current == PodNavTab.Crate)
+            {
+                <span class="podnav-link podnav-active">
+                    <i class="bi bi-boxes"></i>
+                    <span>Crate PODs</span>
+                </span>
+            }
+            else
+            {
+                <a class="podnav-link" href="/crates/pods">
+                    <i class="bi bi-boxes"></i>
+                    <span>Crate PODs</span>
+                </a>
+            }
+
+            @if (Current == PodNavTab.CrateHistory)
+            {
+                <span class="podnav-link podnav-active">
+                    <i class="bi bi-clock-history"></i>
+                    <span>Crate POD History</span>
+                </span>
+            }
+            else
+            {
+                <a class="podnav-link" href="/crates/pods/history">
+                    <i class="bi bi-clock-history"></i>
+                    <span>Crate POD History</span>
+                </a>
+            }
+        </Authorized>
+    </AuthorizeView>
+</nav>
+
+@code {
+    public enum PodNavTab
+    {
+        None,
+        Product,
+        Crate,
+        CrateHistory
+    }
+
+    /// <summary>Which tab to mark active. Defaults to whatever the current URL matches.</summary>
+    [Parameter] public PodNavTab? Active { get; set; }
+
+    private PodNavTab Current => Active ?? FromCurrentUrl();
+
+    private PodNavTab FromCurrentUrl()
+    {
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri)
+            .Split('?', '#')[0]
+            .Trim('/');
+
+        return path switch
+        {
+            "pods" => PodNavTab.Product,
+            "crates/pods" => PodNavTab.Crate,
+            "crates/pods/history" => PodNavTab.CrateHistory,
+            _ => PodNavTab.None
+        };
+    }
+}
+
+<style>
+    .podnav {
+        display: flex;
+        gap: .25rem;
+        align-items: stretch;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 1.25rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .podnav::-webkit-scrollbar {
+        display: none;
+    }
+
+    .podnav-link {
+        display: inline-flex;
+        align-items: center;
+        gap: .45rem;
+        padding: .7rem .9rem;
+        margin-bottom: -1px;
+        border-bottom: 2px solid transparent;
+        color: #64748b;
+        font-size: .88rem;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+        transition: color .15s ease, border-color .15s ease;
+    }
+
+    .podnav-link:hover {
+        color: #0f766e;
+    }
+
+    .podnav-active {
+        color: #0f766e;
+        border-bottom-color: #0f766e;
+    }
+
+    .dark-theme .podnav {
+        border-bottom-color: #334155;
+    }
+
+    .dark-theme .podnav-link {
+        color: #94a3b8;
+    }
+
+    .dark-theme .podnav-link:hover,
+    .dark-theme .podnav-active {
+        color: #2dd4bf;
+    }
+
+    .dark-theme .podnav-active {
+        border-bottom-color: #2dd4bf;
+    }
+
+    @@media (max-width: 575.98px) {
+        .podnav-link {
+            padding: .7rem .6rem;
+            font-size: .82rem;
+        }
+    }
+</style>
