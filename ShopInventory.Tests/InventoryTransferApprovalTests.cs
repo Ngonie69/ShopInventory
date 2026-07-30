@@ -375,7 +375,8 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         // Reported from the field: the Transfer Requests tab showed nothing but "No active approval
         // template is available for InventoryTransferRequest". Listing is a read — a request the
         // configuration cannot route belongs on screen without its approval progress, not in place
-        // of every other request on the page.
+        // of every other request on the page. Listing no longer routes anything, so this pins that
+        // an unusable approval configuration cannot reach the page at all.
         var service = ApprovalService();
         await service.GetTemplatesAsync(default);
         foreach (var template in await _context.ApprovalTemplateDefinitions
@@ -403,7 +404,12 @@ public sealed class InventoryTransferApprovalTests : IDisposable
     [Fact]
     public async Task Listing_reports_approval_progress_for_requests_that_already_have_it()
     {
+        var submitter = await AddUserAsync(ApplicationRoles.DepotController, "WH01");
         var service = ApprovalService();
+        var opened = await service.EnsureRequestAsync(
+            new ApprovalDocumentContext(
+                ApprovalDocumentTypes.InventoryTransferRequest, "4022", "4022", "WH01", "WH02"),
+            submitter.Id, default);
         var dto = new InventoryTransferRequestDto
         {
             DocEntry = 4022,
@@ -413,15 +419,65 @@ public sealed class InventoryTransferApprovalTests : IDisposable
         };
 
         await service.EnrichAsync([dto], default);
-        var first = dto.ApprovalRequestId;
-        await service.EnrichAsync([dto], default);
 
-        Assert.NotNull(first);
-        Assert.Equal(first, dto.ApprovalRequestId);
+        Assert.Equal(opened.Id, dto.ApprovalRequestId);
         Assert.Equal(ApprovalRequestStatuses.Pending, dto.ApprovalStatus);
         Assert.NotEmpty(dto.ApprovalStages);
         Assert.Equal(1, await _context.ApprovalRequests
             .CountAsync(item => item.DocumentType == ApprovalDocumentTypes.InventoryTransferRequest));
+    }
+
+    [Fact]
+    public async Task Listing_a_request_raised_in_SAP_does_not_open_an_approval_against_it()
+    {
+        // Reported from the field: requests raised in SAP listed as "Awaiting Administrator Review".
+        // Listing them opened an approval request each, and with no originator to route on they all
+        // landed on the catch-all administrator stage — a review nobody had asked for, on documents
+        // this app is not the gate for. Listing must stay a read.
+        var service = ApprovalService();
+        var dto = new InventoryTransferRequestDto
+        {
+            DocEntry = 4023,
+            DocNum = 4023,
+            FromWarehouse = "WH01",
+            ToWarehouse = "WH02",
+            DocumentStatus = "bost_Open"
+        };
+
+        await service.EnrichAsync([dto], default);
+
+        Assert.Null(dto.ApprovalRequestId);
+        Assert.Null(dto.ApprovalStatus);
+        Assert.Empty(dto.ApprovalStages);
+        Assert.Empty(await _context.ApprovalRequests.ToListAsync());
+        Assert.Empty(await _context.Notifications.ToListAsync());
+    }
+
+    [Fact]
+    public async Task An_administrator_can_still_authorize_a_request_raised_in_SAP()
+    {
+        // Listing no longer opens an approval for a SAP-raised request, so its drawer offers
+        // "Convert to Transfer" rather than per-stage actions. That names no stage: the approval is
+        // opened here, the authorisation recorded against the administrator stage, and the process
+        // reported complete so the caller generates the SAP transfer. Losing this would leave a
+        // SAP-raised request with no way through the app at all.
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var document = new InventoryTransferRequest
+        {
+            DocEntry = 4024,
+            DocNum = 4024,
+            DocumentStatus = "bost_Open",
+            FromWarehouse = "WH01",
+            ToWarehouse = "WH02"
+        };
+
+        var outcome = await ApprovalService().SubmitDecisionAsync(
+            document, admin.Id, ApprovalDecisionValues.Approved, null, null, default);
+
+        Assert.False(outcome.IsError);
+        Assert.Equal("Administrator Review", outcome.Value.StageName);
+        Assert.Equal(ApprovalRequestStatuses.Approved, outcome.Value.RequestStatus);
+        Assert.True(outcome.Value.ApprovalProcessComplete);
     }
 
     // ── Remarks carried into SAP ────────────────────────

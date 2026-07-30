@@ -1147,6 +1147,8 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 | GET | `/api/InventoryTransfer/status/{docEntry}` | Get posting status |
 | GET | `/api/InventoryTransfer/requests` | List transfer requests, newest first (`page`, `pageSize`, `status`) |
 | PATCH | `/api/InventoryTransfer/request/{docEntry}` | Change an open request's lines and warehouses. Admin, StockController, DepotController, Manager |
+| POST | `/api/InventoryTransfer/request/{docEntry}/convert` | Authorize a request and generate the SAP transfer. Admin, StockController, DepotController |
+| POST | `/api/InventoryTransfer/request/{docEntry}/close` | Close a request in SAP without converting it. Admin, StockController, DepotController |
 | GET | `/api/InventoryTransfer/request-edits` | List changes held for approval (`status`, `requestDocEntry`, `page`, `pageSize`) |
 | POST | `/api/InventoryTransfer/request-edits/{id}/decision` | Approve or reject a held change |
 | POST | `/api/InventoryTransfer/request-edits/{id}/cancel` | Withdraw a change the caller proposed |
@@ -1156,6 +1158,16 @@ Configurable under `CreditLimit` in `appsettings.json`: `Enabled`, `IncludeOpenO
 returns 400. SAP holds around eleven thousand requests, most of them closed, so pass `status=open`
 when listing requests to be actioned, and page rather than walking the whole set — a page of 100
 takes roughly 5–10 seconds because every row is enriched with its approval state.
+
+Enrichment reports approval state; it never opens it. `approvalStatus` and `approvalStages` are
+populated only for requests raised through this API, which open an approval request as they are
+created. A request raised directly in SAP has none, so it comes back with `approvalStatus: null` and
+an empty `approvalStages`, and `documentStatus` is the only status it carries.
+
+Such a request is still actionable: `POST /api/InventoryTransfer/request/{docEntry}/convert` (Admin,
+StockController, DepotController) opens the approval on the spot, records the caller's authorisation
+and generates the SAP transfer in one call. A caller assigned the source warehouse converts outright
+without an approval; a warehouse-scoped caller who is not gets 403.
 
 **Create Transfer Request:**
 

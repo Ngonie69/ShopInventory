@@ -235,8 +235,12 @@ public sealed class InventoryTransferApprovalService(
             dto.RequesterEmail ??= ExtractCommentValue(dto.Comments, "Email");
         }
 
-        // Approval requests are opened lazily, so most of a listed page already has one. Reading them
-        // in a single query keeps a page of documents off the per-document create path entirely.
+        // Listing reports approval progress; it never starts it. This app is the approval gate only
+        // for requests it raised itself, and those open an approval request as they are created. A
+        // request raised directly in SAP has none, and opening one on its behalf here labelled it
+        // "Awaiting Administrator Review" — the catch-all stage, since a SAP-raised document has no
+        // originator to route on — and notified the administrators about a document nobody had asked
+        // them to review. Requests the app did not raise are left showing the status SAP reports.
         var documentKeys = listed.Select(dto => dto.DocEntry.ToString()).ToList();
         var known = (await context.ApprovalRequests
                 .AsTracking()
@@ -249,24 +253,24 @@ public sealed class InventoryTransferApprovalService(
 
         foreach (var dto in listed)
         {
+            if (!known.TryGetValue(dto.DocEntry.ToString(), out var request))
+                continue;
+
             try
             {
-                if (known.TryGetValue(dto.DocEntry.ToString(), out var request))
-                    await BackfillOriginatorNameAsync(request, dto.Comments, cancellationToken);
-                else
-                    request = await EnsureRequestAsync(ToModel(dto), null, cancellationToken);
-
-                ApplyProgress(dto, request);
+                await BackfillOriginatorNameAsync(request, dto.Comments, cancellationToken);
             }
-            catch (Exception ex) when (ex is InvalidOperationException or DbUpdateException)
+            catch (DbUpdateException ex)
             {
-                // Listing is a read: a document the approval configuration cannot route — no matching
-                // template, or a template whose stages have all been deactivated — is shown without
-                // approval progress rather than failing the page it happens to appear on.
+                // Listing is a read: a requester name that will not save is not worth failing the
+                // page over, and the progress below still is worth showing.
                 logger.LogWarning(ex,
-                    "Transfer request {DocEntry} has no approval progress; check the approval templates for {DocumentType}",
-                    dto.DocEntry, ApprovalDocumentTypes.InventoryTransferRequest);
+                    "Could not record the requester for transfer request {DocEntry} from its comments",
+                    dto.DocEntry);
+                context.ChangeTracker.Clear();
             }
+
+            ApplyProgress(dto, request);
         }
     }
 
@@ -674,18 +678,6 @@ public sealed class InventoryTransferApprovalService(
         var normalized = email.Trim().ToLowerInvariant();
         return await context.Users.AsNoTracking().FirstOrDefaultAsync(user => user.Email != null && user.Email.ToLower() == normalized, cancellationToken);
     }
-
-    private static InventoryTransferRequest ToModel(InventoryTransferRequestDto dto) => new()
-    {
-        DocEntry = dto.DocEntry,
-        DocNum = dto.DocNum,
-        DocumentStatus = dto.DocumentStatus,
-        FromWarehouse = dto.FromWarehouse,
-        ToWarehouse = dto.ToWarehouse,
-        Comments = dto.Comments,
-        RequesterEmail = dto.RequesterEmail,
-        RequesterName = dto.RequesterName
-    };
 
     private void ApplyProgress(InventoryTransferRequestDto dto, ApprovalRequestEntity request)
     {
