@@ -1165,9 +1165,16 @@ created. A request raised directly in SAP has none, so it comes back with `appro
 an empty `approvalStages`, and `documentStatus` is the only status it carries.
 
 Such a request is still actionable: `POST /api/InventoryTransfer/request/{docEntry}/convert` (Admin,
-StockController, DepotController) opens the approval on the spot, records the caller's authorisation
-and generates the SAP transfer in one call. A caller assigned the source warehouse converts outright
-without an approval; a warehouse-scoped caller who is not gets 403.
+StockController, DepotController) converts it outright and generates the SAP transfer in one call,
+recording the conversion in the audit log. No approval is opened — this API is the approval gate
+only for requests it raised itself, and routing a SAP-raised one through the engine put it on the
+catch-all administrator stage, which refused every caller but an administrator. A warehouse-scoped
+caller who is not assigned the source warehouse still gets 403.
+
+For a request this API *did* raise, `/convert` goes through the approval process as before: the
+caller's decision is recorded against a stage they authorize, and the SAP transfer is generated only
+once every stage is approved. The one exception is a caller assigned the source warehouse, who is
+issuing their own stock and converts outright.
 
 **Create Transfer Request:**
 
