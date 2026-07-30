@@ -25,11 +25,21 @@ public sealed class GetMobileOrdersHandler(
         var fromDate = NormalizeUtcDate(request.FromDate);
         var toExclusive = NormalizeUtcDate(request.ToDate)?.AddDays(1);
         var search = NormalizeSearchValue(request.Search);
+        var cardCode = NormalizeSearchValue(request.CardCode);
         var useLegacyDraftStatus = statusCompatibilityService.ShouldUseLegacyDraftStatus();
 
         var query = context.SalesOrders
             .AsNoTracking()
             .Where(o => o.Source == SalesOrderSource.Mobile && o.CreatedByUserId == request.UserId);
+
+        // Case-insensitive equality rather than ILike: the code arrives from a device that may have
+        // cached it in a different case than SAP stores it, but it is an exact identifier, so a '%'
+        // in it must not turn this into a wildcard that matches every customer.
+        if (!string.IsNullOrWhiteSpace(cardCode))
+        {
+            var normalizedCardCode = cardCode.ToLower();
+            query = query.Where(o => o.CardCode.ToLower() == normalizedCardCode);
+        }
 
         if (request.Status.HasValue)
             query = ApplyVisibleStatusFilter(query, request.Status.Value, useLegacyDraftStatus);

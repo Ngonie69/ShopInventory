@@ -7794,6 +7794,140 @@ ORDER BY T0.""ItemCode""";
         return ParseSingleBusinessPartnerFromResponse(content);
     }
 
+    /// <summary>
+    /// How many card codes go into a single OData filter. Each adds roughly 25 characters to the
+    /// query string, so this keeps the URL well inside what the Service Layer accepts while still
+    /// turning a rep's whole assigned list into a handful of requests.
+    /// </summary>
+    private const int BusinessPartnerCodeBatchSize = 20;
+
+    public async Task<List<BusinessPartnerDto>> GetBusinessPartnersByCodesAsync(
+        IReadOnlyCollection<string> cardCodes,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(cardCodes);
+
+        var distinctCodes = cardCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (distinctCodes.Count == 0)
+            return new List<BusinessPartnerDto>();
+
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var results = new List<BusinessPartnerDto>(distinctCodes.Count);
+
+        // Chunks run one after another on purpose. The point of this method is to stop hammering
+        // the shared SAP concurrency gate, so fanning the chunks out in parallel would undo it.
+        foreach (var chunk in distinctCodes.Chunk(BusinessPartnerCodeBatchSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            results.AddRange(await GetBusinessPartnerChunkAsync(chunk, cancellationToken));
+        }
+
+        return results;
+    }
+
+    private async Task<List<BusinessPartnerDto>> GetBusinessPartnerChunkAsync(
+        IReadOnlyList<string> cardCodes,
+        CancellationToken cancellationToken)
+    {
+        var currentSession = _sessionId;
+
+        var codeFilter = string.Join(
+            " or ",
+            cardCodes.Select(code => $"CardCode eq '{EscapeODataStringLiteral(code)}'"));
+
+        // Encoded whole, so a card code carrying an '&' cannot close the filter and append
+        // parameters of its own.
+        var filter = $"$filter={Uri.EscapeDataString($"({codeFilter})")}&$orderby=CardCode&$top={cardCodes.Count}";
+        var url = $"BusinessPartners?{BusinessPartnerSelectFields}&{filter}";
+
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            return request;
+        }
+
+        var response = await SendSapRequestWithTransientRetryAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            $"read {cardCodes.Count} business partner(s) by code",
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await HandleAuthFailureAsync(currentSession, cancellationToken);
+            response = await SendSapRequestWithTransientRetryAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                $"read {cardCodes.Count} business partner(s) by code",
+                cancellationToken);
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            // One customer with broken master data must not blank out the rep's whole list, so the
+            // chunk degrades to per-code reads and drops only the partner SAP cannot serve.
+            if (IsBusinessPartnerDataError(errorContent))
+            {
+                _logger.LogWarning(
+                    "SAP returned a BP data error for a batch of {Count} card code(s); falling back to individual reads. SAP error: {Error}",
+                    cardCodes.Count,
+                    ExtractSAPErrorMessage(errorContent) ?? errorContent);
+
+                return await GetBusinessPartnersIndividuallyAsync(cardCodes, cancellationToken);
+            }
+
+            _logger.LogError(
+                "Failed to get business partners by code: {StatusCode} - {Error}",
+                response.StatusCode,
+                errorContent);
+            throw new Exception($"Failed to get business partners by code: {response.StatusCode} - {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        return ParseBusinessPartnersFromResponse(content);
+    }
+
+    /// <summary>
+    /// Last resort for a chunk SAP refused as a whole: read the codes one at a time and keep the
+    /// ones that come back. Only reached when a batch hits corrupted master data.
+    /// </summary>
+    private async Task<List<BusinessPartnerDto>> GetBusinessPartnersIndividuallyAsync(
+        IReadOnlyList<string> cardCodes,
+        CancellationToken cancellationToken)
+    {
+        var partners = new List<BusinessPartnerDto>(cardCodes.Count);
+
+        foreach (var cardCode in cardCodes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                var partner = await GetBusinessPartnerByCodeAsync(cardCode, cancellationToken);
+                if (partner is not null)
+                    partners.Add(partner);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Skipping business partner {CardCode}: SAP could not serve it.", cardCode);
+            }
+        }
+
+        return partners;
+    }
+
     public async Task<BusinessPartnerCreditProfileDto?> GetBusinessPartnerCreditProfileAsync(
         string cardCode,
         CancellationToken cancellationToken = default)

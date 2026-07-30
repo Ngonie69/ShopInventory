@@ -188,6 +188,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
         [FromQuery] DateTime? fromDate = null,
         [FromQuery] DateTime? toDate = null,
         [FromQuery] string? search = null,
+        [FromQuery] string? cardCode = null,
         CancellationToken cancellationToken = default)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -195,7 +196,7 @@ public class MerchandiserController(IMediator mediator) : ApiControllerBase
             return Forbid();
 
         var result = await mediator.Send(
-            new GetMobileOrdersQuery(userId, page, pageSize, status, fromDate, toDate, search),
+            new GetMobileOrdersQuery(userId, page, pageSize, status, fromDate, toDate, search, cardCode),
             cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
