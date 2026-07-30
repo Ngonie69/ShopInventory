@@ -21,10 +21,18 @@ public partial class LabBatchStatusHistory : ComponentBase
     private readonly List<BatchStatusHistoryItem> historyItems = new();
     private string searchTerm = string.Empty;
     private string lastSearchTerm = string.Empty;
-    private bool hasLoaded;
     private bool hasMore;
     private bool isLoading;
     private int currentPage;
+
+    private string CountLabel
+        => $"{historyItems.Count} change{(historyItems.Count == 1 ? "" : "s")} loaded"
+           + (string.IsNullOrWhiteSpace(lastSearchTerm) ? "" : $" for {lastSearchTerm}");
+
+    private string RangeLabel
+        => hasMore
+            ? $"Showing the {historyItems.Count} most recent changes"
+            : $"All {historyItems.Count} recorded change{(historyItems.Count == 1 ? "" : "s")}";
 
     protected override async Task OnInitializedAsync()
     {
@@ -82,7 +90,6 @@ public partial class LabBatchStatusHistory : ComponentBase
             currentPage = result.Value.Page;
             hasMore = result.Value.HasMore;
             lastSearchTerm = result.Value.SearchTerm;
-            hasLoaded = true;
         }
         finally
         {
@@ -98,20 +105,19 @@ public partial class LabBatchStatusHistory : ComponentBase
             _ => status
         };
 
-    private static string GetStatusChipClass(string? status)
+    /// <summary>
+    /// Status is drawn as a coloured dot plus the word, the same way batch control
+    /// draws it — Released wears the accent, the rest step down the neutral ramp.
+    /// </summary>
+    private static string GetStatusToneClass(string? status)
         => status switch
         {
-            "Released" => "lbh-chip lbh-chip-released",
-            "Locked" => "lbh-chip lbh-chip-locked",
-            "NotAccessible" or "Not Accessible" => "lbh-chip lbh-chip-notaccessible",
-            _ => "lbh-chip lbh-chip-unknown"
+            "Released" => "is-released",
+            "Locked" => "is-locked",
+            "NotAccessible" or "Not Accessible" => "is-blocked",
+            _ => "is-unknown"
         };
 
-    private static string GetOutcomeClass(bool isSuccess)
-        => isSuccess
-            ? "lbh-outcome lbh-outcome-success"
-            : "lbh-outcome lbh-outcome-failed";
-
     private static string FormatTimestamp(DateTime timestamp)
-        => $"{IAuditService.ToCAT(DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)):dd MMM yyyy HH:mm:ss} CAT";
+        => $"{IAuditService.ToCAT(DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)):dd MMM yyyy HH:mm} CAT";
 }
