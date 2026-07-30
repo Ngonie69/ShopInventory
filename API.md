@@ -1176,6 +1176,16 @@ caller's decision is recorded against a stage they authorize, and the SAP transf
 once every stage is approved. The one exception is a caller assigned the source warehouse, who is
 issuing their own stock and converts outright.
 
+`POST /api/InventoryTransfer/request/{docEntry}/close` turns a request down, and closes the SAP
+document either way. For a request raised directly in SAP that is the whole of it — there is no
+approval to decide, so nothing is routed and no stage can refuse the caller. For a request raised
+through this API the rejection is recorded against its approval process first, and the document is
+closed once that rejection is final; a stage still waiting on further refusals leaves it open. Both
+paths enforce the same source-warehouse scope as `convert`. If SAP will not close the document the
+call answers 400 `InventoryTransfer.TransferRequestCloseFailed` rather than reporting a request
+closed that is still open — repeating the call records the same decision again and retries the
+close.
+
 **Create Transfer Request:**
 
 ```json

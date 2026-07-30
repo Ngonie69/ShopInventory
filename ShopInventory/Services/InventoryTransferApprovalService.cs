@@ -65,6 +65,18 @@ public interface IInventoryTransferApprovalService
 {
     Task<ApprovalRequestEntity> EnsureRequestAsync(InventoryTransferRequest document, Guid? originatorUserId, CancellationToken cancellationToken);
     Task<ApprovalRequestEntity> EnsureRequestAsync(ApprovalDocumentContext document, Guid? originatorUserId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Whether an approval has ever been opened against a document — which is what tells a request
+    /// this app raised from one raised directly in SAP, since both create paths open an approval as
+    /// the document is created.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="GetProgressAsync"/> this only reads. Asking whether this app is the gate
+    /// for a document must never be the thing that makes it one.
+    /// </remarks>
+    Task<bool> HasApprovalAsync(ApprovalDocumentContext document, CancellationToken cancellationToken);
+
     Task EnrichAsync(IEnumerable<InventoryTransferRequestDto> documents, CancellationToken cancellationToken);
     Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
         InventoryTransferRequest document,
@@ -231,6 +243,18 @@ public sealed class InventoryTransferApprovalService(
                     item.DocumentKey == documentKey,
                     cancellationToken);
         }
+    }
+
+    public Task<bool> HasApprovalAsync(ApprovalDocumentContext document, CancellationToken cancellationToken)
+    {
+        var documentType = document.DocumentType;
+        var documentKey = document.DocumentKey;
+        return context.ApprovalRequests
+            .AsNoTracking()
+            .AnyAsync(request =>
+                request.DocumentType == documentType &&
+                request.DocumentKey == documentKey,
+                cancellationToken);
     }
 
     public async Task EnrichAsync(IEnumerable<InventoryTransferRequestDto> documents, CancellationToken cancellationToken)
