@@ -202,6 +202,7 @@ public static class AuditActions
     public const string ViewReports = "ViewReports";
     public const string ViewExceptionCenter = "ViewExceptionCenter";
     public const string RetryExceptionCenterItem = "RetryExceptionCenterItem";
+    public const string RetryExceptionCenterBatch = "RetryExceptionCenterBatch";
     public const string AcknowledgeExceptionCenterItem = "AcknowledgeExceptionCenterItem";
     public const string AssignExceptionCenterItem = "AssignExceptionCenterItem";
 

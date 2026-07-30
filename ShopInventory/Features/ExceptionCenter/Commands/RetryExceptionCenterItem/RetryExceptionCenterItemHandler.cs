@@ -62,6 +62,7 @@ public sealed class RetryExceptionCenterItemHandler(
             ExceptionCenterSources.InvoiceQueue => await RetryInvoiceAsync(itemId, cancellationToken),
             ExceptionCenterSources.InventoryTransferQueue => await RetryTransferAsync(itemId, cancellationToken),
             ExceptionCenterSources.MobileOrderPostProcessing => await RetryMobileAsync(itemId, cancellationToken),
+            ExceptionCenterSources.IncomingPaymentQueue => await RetryIncomingPaymentAsync(itemId, cancellationToken),
             _ => Errors.ExceptionCenter.RetryNotSupported(command.Source)
         };
 
@@ -176,6 +177,37 @@ public sealed class RetryExceptionCenterItemHandler(
             }
 
             logger.LogInformation("Exception center reapplied held transfer request change {PendingEditId}", id);
+            return Result.Success;
+        }
+
+        // The incoming payment worker picks up anything Pending, so resetting the entry
+        // is enough to requeue it — the same shape as the mobile queue above.
+        async Task<ErrorOr<Success>> RetryIncomingPaymentAsync(int id, CancellationToken token)
+        {
+            var entry = await context.IncomingPaymentQueue
+                .AsTracking()
+                .FirstOrDefaultAsync(q => q.Id == id, token);
+
+            if (entry == null)
+            {
+                return Errors.ExceptionCenter.ItemNotFound(command.Source, command.ItemKey);
+            }
+
+            if (entry.Status is not IncomingPaymentQueueStatus.Failed and not IncomingPaymentQueueStatus.RequiresReview)
+            {
+                return Errors.ExceptionCenter.RetryNotSupported(command.Source);
+            }
+
+            entry.Status = IncomingPaymentQueueStatus.Pending;
+            entry.RetryCount = 0;
+            entry.LastError = null;
+            entry.NextRetryAt = null;
+            entry.ProcessingStartedAt = null;
+            entry.ProcessedAt = null;
+
+            await context.SaveChangesAsync(token);
+
+            logger.LogInformation("Exception center retried incoming payment queue item {ItemId} ({ExternalReference})", id, entry.ExternalReference);
             return Result.Success;
         }
     }

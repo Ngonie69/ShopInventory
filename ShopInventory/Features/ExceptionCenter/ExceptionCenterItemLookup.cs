@@ -54,6 +54,9 @@ public static class ExceptionCenterItemLookup
             ExceptionCenterSources.MobileOrderPostProcessing => await context.MobileOrderPostProcessingQueue
                 .AsNoTracking()
                 .AnyAsync(q => q.Id == itemId, cancellationToken),
+            ExceptionCenterSources.IncomingPaymentQueue => await context.IncomingPaymentQueue
+                .AsNoTracking()
+                .AnyAsync(q => q.Id == itemId, cancellationToken),
             ExceptionCenterSources.PaymentCallback => await context.PaymentTransactions
                 .AsNoTracking()
                 .AnyAsync(q => q.Id == itemId, cancellationToken),

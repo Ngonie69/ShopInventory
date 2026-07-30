@@ -17,7 +17,7 @@ public sealed class GetExceptionCenterHandler(
     {
         try
         {
-            var dashboard = await exceptionCenterService.GetDashboardAsync(request.Limit, cancellationToken);
+            var dashboard = await exceptionCenterService.GetDashboardAsync(request.Limit, request.Assignee, cancellationToken);
             if (dashboard is null)
             {
                 return Errors.ExceptionCenter.LoadFailed("Failed to load exception center dashboard.");

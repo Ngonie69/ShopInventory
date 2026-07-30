@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ShopInventory.DTOs;
 using ShopInventory.Features.ExceptionCenter.Commands.AcknowledgeExceptionCenterItem;
 using ShopInventory.Features.ExceptionCenter.Commands.AssignExceptionCenterItem;
+using ShopInventory.Features.ExceptionCenter.Commands.RetryExceptionCenterBatch;
 using ShopInventory.Features.ExceptionCenter.Commands.RetryExceptionCenterItem;
 using ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 
@@ -15,9 +16,26 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(ExceptionCenterDashboardDto), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetDashboard([FromQuery] int limit = 100, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> GetDashboard(
+        [FromQuery] int limit = 100,
+        [FromQuery] string? assignee = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await mediator.Send(new GetExceptionCenterQuery(limit), cancellationToken);
+        var result = await mediator.Send(new GetExceptionCenterQuery(limit, assignee), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    [HttpPost("items/retry-batch")]
+    [ProducesResponseType(typeof(ExceptionCenterBatchRetryResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RetryBatch(
+        [FromBody] ExceptionCenterBatchRetryRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new RetryExceptionCenterBatchCommand(request?.Items ?? []),
+            cancellationToken);
+
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 

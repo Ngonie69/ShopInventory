@@ -16,6 +16,10 @@ public static class ExceptionCenterSources
     public const string InvoiceQueue = "invoice-queue";
     public const string InventoryTransferQueue = "inventory-transfer-queue";
     public const string MobileOrderPostProcessing = "mobile-order-post-processing";
+
+    /// <summary>Customer receipts failing to post to SAP. Int keyed.</summary>
+    public const string IncomingPaymentQueue = "incoming-payment-queue";
+
     public const string PaymentCallback = "payment-callback";
     public const string PaymentCallbackRejection = "payment-callback-rejection";
     public const string CreditNoteFiscalization = "credit-note-fiscalization";
@@ -42,6 +46,7 @@ public static class ExceptionCenterSources
             InvoiceQueue => "invoice posting queue",
             InventoryTransferQueue => "inventory transfer posting queue",
             MobileOrderPostProcessing => "mobile order post-processing queue",
+            IncomingPaymentQueue => "customer receipt posting queue",
             PaymentCallback => "payment callback",
             PaymentCallbackRejection => "rejected payment callback",
             CreditNoteFiscalization => "credit note fiscalization",
@@ -56,6 +61,7 @@ public static class ExceptionCenterSources
             InvoiceQueue
                 or InventoryTransferQueue
                 or MobileOrderPostProcessing
+                or IncomingPaymentQueue
                 or PaymentCallback
                 or PaymentCallbackRejection
                 or CreditNoteFiscalization
@@ -74,6 +80,7 @@ public static class ExceptionCenterSources
             InvoiceQueue
                 or InventoryTransferQueue
                 or MobileOrderPostProcessing
+                or IncomingPaymentQueue
                 or PendingInventoryTransferPost
                 or PendingTransferRequestEditApply => true,
             _ => false
