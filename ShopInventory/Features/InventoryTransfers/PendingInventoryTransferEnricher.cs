@@ -57,6 +57,9 @@ public sealed class PendingInventoryTransferEnricher(
             results.Add(dto);
         }
 
+        if (includeLines)
+            await PendingTransferItemDescriptions.AttachAsync(context, results, cancellationToken);
+
         return results;
     }
 

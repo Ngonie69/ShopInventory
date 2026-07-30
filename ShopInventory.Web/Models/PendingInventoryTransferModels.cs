@@ -92,6 +92,10 @@ public class PendingInventoryTransferLineDto
     [JsonPropertyName("itemCode")]
     public string? ItemCode { get; set; }
 
+    /// <summary>Blank for items the API's item cache has not seen; show the code on its own then.</summary>
+    [JsonPropertyName("itemDescription")]
+    public string? ItemDescription { get; set; }
+
     [JsonPropertyName("quantity")]
     public decimal Quantity { get; set; }
 
