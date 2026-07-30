@@ -234,6 +234,21 @@ public interface ISAPServiceLayerClient
     Task<BusinessPartnerDto?> GetBusinessPartnerByCodeAsync(string cardCode, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reads several business partners in as few requests as possible, for callers that already
+    /// know the exact set of card codes they want.
+    /// <para>
+    /// Prefer this over calling <see cref="GetBusinessPartnerByCodeAsync"/> in a loop: that pattern
+    /// costs one SAP request per customer and saturates the shared SAP concurrency gate when a rep
+    /// with a long assigned list opens the mobile app.
+    /// </para>
+    /// Codes SAP does not know are simply absent from the result, and the result order does not
+    /// track the request order.
+    /// </summary>
+    Task<List<BusinessPartnerDto>> GetBusinessPartnersByCodesAsync(
+        IReadOnlyCollection<string> cardCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads one business partner's credit limit, balance and consolidating parent, live from SAP.
     /// Returns null when the card code does not exist.
     /// </summary>

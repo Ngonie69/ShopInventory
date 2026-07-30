@@ -1,10 +1,13 @@
+using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ShopInventory.DTOs;
 using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartners;
 using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartnersByType;
 using ShopInventory.Features.BusinessPartners.Queries.SearchBusinessPartners;
 using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartnerByCode;
+using ShopInventory.Features.BusinessPartners.Queries.GetBusinessPartnersByCodes;
 using ShopInventory.Features.BusinessPartners.Queries.GetPaymentTerms;
 
 namespace ShopInventory.Controllers;
@@ -13,6 +16,12 @@ namespace ShopInventory.Controllers;
 [Authorize(Policy = "ApiAccess")]
 public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
 {
+    /// <summary>
+    /// Upper bound on one batch request. Well above any real assigned-customer list, and low enough
+    /// that a caller cannot turn a single request into an unbounded run of SAP reads.
+    /// </summary>
+    private const int MaxBatchCardCodes = 200;
+
     [HttpGet]
     public async Task<IActionResult> GetBusinessPartners(CancellationToken cancellationToken)
     {
@@ -31,6 +40,42 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
     public async Task<IActionResult> SearchBusinessPartners([FromQuery] string q, CancellationToken cancellationToken)
     {
         var result = await mediator.Send(new SearchBusinessPartnersQuery(q), cancellationToken);
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Resolves a known set of card codes in one call.
+    /// <para>
+    /// Declared before the <c>{cardCode}</c> route so "batch" is not swallowed as a card code.
+    /// </para>
+    /// </summary>
+    /// <param name="cardCodes">
+    /// Comma-separated card codes. Repeating the parameter works too, so both
+    /// <c>?cardCodes=A,B</c> and <c>?cardCodes=A&amp;cardCodes=B</c> are accepted.
+    /// </param>
+    [HttpGet("batch")]
+    [ProducesResponseType(typeof(BusinessPartnerListResponseDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetBusinessPartnersByCodes(
+        [FromQuery] string[]? cardCodes,
+        CancellationToken cancellationToken)
+    {
+        var codes = (cardCodes ?? [])
+            .SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count > MaxBatchCardCodes)
+        {
+            return Problem(
+            [
+                Error.Validation(
+                    "BusinessPartner.TooManyCodes",
+                    $"At most {MaxBatchCardCodes} card codes can be requested at once.")
+            ]);
+        }
+
+        var result = await mediator.Send(new GetBusinessPartnersByCodesQuery(codes), cancellationToken);
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
