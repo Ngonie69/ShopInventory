@@ -39,31 +39,36 @@ public class ExceptionCenterController(IMediator mediator) : ApiControllerBase
         return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
-    [HttpPost("items/{source}/{itemId:int}/retry")]
+    /// <remarks>
+    /// <paramref name="itemKey"/> identifies the item within its source: a decimal id for the
+    /// int-keyed sources, a Guid for the approval-gated ones. The int-keyed sources are addressed
+    /// by exactly the value they always were, so existing callers need no change.
+    /// </remarks>
+    [HttpPost("items/{source}/{itemKey}/retry")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> RetryItem(string source, int itemId, CancellationToken cancellationToken)
+    public async Task<IActionResult> RetryItem(string source, string itemKey, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new RetryExceptionCenterItemCommand(source, itemId), cancellationToken);
+        var result = await mediator.Send(new RetryExceptionCenterItemCommand(source, itemKey), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Retry queued" }), errors => Problem(errors));
     }
 
-    [HttpPost("items/{source}/{itemId:int}/acknowledge")]
+    [HttpPost("items/{source}/{itemKey}/acknowledge")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> AcknowledgeItem(string source, int itemId, CancellationToken cancellationToken)
+    public async Task<IActionResult> AcknowledgeItem(string source, string itemKey, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new AcknowledgeExceptionCenterItemCommand(source, itemId), cancellationToken);
+        var result = await mediator.Send(new AcknowledgeExceptionCenterItemCommand(source, itemKey), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Item acknowledged" }), errors => Problem(errors));
     }
 
-    [HttpPost("items/{source}/{itemId:int}/assign-to-me")]
+    [HttpPost("items/{source}/{itemKey}/assign-to-me")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> AssignItem(string source, int itemId, CancellationToken cancellationToken)
+    public async Task<IActionResult> AssignItem(string source, string itemKey, CancellationToken cancellationToken)
     {
-        var result = await mediator.Send(new AssignExceptionCenterItemCommand(source, itemId), cancellationToken);
+        var result = await mediator.Send(new AssignExceptionCenterItemCommand(source, itemKey), cancellationToken);
         return result.Match(_ => Ok(new { Message = "Item assigned" }), errors => Problem(errors));
     }
 }

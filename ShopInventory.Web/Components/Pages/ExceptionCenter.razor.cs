@@ -210,7 +210,7 @@ public partial class ExceptionCenter : IDisposable
 
         try
         {
-            var result = await Mediator.Send(new RetryExceptionCenterItemCommand(item.Source, item.ItemId));
+            var result = await Mediator.Send(new RetryExceptionCenterItemCommand(item.Source, item.ItemKey));
             if (result.IsError)
             {
                 errorMessage = result.FirstError.Description;
@@ -224,7 +224,7 @@ public partial class ExceptionCenter : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to retry exception center item {Source}:{ItemId}", item.Source, item.ItemId);
+            Logger.LogError(ex, "Failed to retry exception center item {Source}:{ItemKey}", item.Source, item.ItemKey);
             errorMessage = "Retry request failed.";
         }
         finally
@@ -300,7 +300,7 @@ public partial class ExceptionCenter : IDisposable
 
         try
         {
-            var result = await Mediator.Send(new AcknowledgeExceptionCenterItemCommand(item.Source, item.ItemId));
+            var result = await Mediator.Send(new AcknowledgeExceptionCenterItemCommand(item.Source, item.ItemKey));
             if (result.IsError)
             {
                 errorMessage = result.FirstError.Description;
@@ -314,7 +314,7 @@ public partial class ExceptionCenter : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to acknowledge exception center item {Source}:{ItemId}", item.Source, item.ItemId);
+            Logger.LogError(ex, "Failed to acknowledge exception center item {Source}:{ItemKey}", item.Source, item.ItemKey);
             errorMessage = "Acknowledge request failed.";
         }
         finally
@@ -336,7 +336,7 @@ public partial class ExceptionCenter : IDisposable
 
         try
         {
-            var result = await Mediator.Send(new AssignExceptionCenterItemCommand(item.Source, item.ItemId));
+            var result = await Mediator.Send(new AssignExceptionCenterItemCommand(item.Source, item.ItemKey));
             if (result.IsError)
             {
                 errorMessage = result.FirstError.Description;
@@ -350,7 +350,7 @@ public partial class ExceptionCenter : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to assign exception center item {Source}:{ItemId}", item.Source, item.ItemId);
+            Logger.LogError(ex, "Failed to assign exception center item {Source}:{ItemKey}", item.Source, item.ItemKey);
             errorMessage = "Assign request failed.";
         }
         finally
@@ -478,7 +478,7 @@ public partial class ExceptionCenter : IDisposable
         => !string.IsNullOrWhiteSpace(currentUsername)
            && !string.Equals(item.AssignedToUsername, currentUsername, StringComparison.OrdinalIgnoreCase);
 
-    private static string GetItemKey(ExceptionCenterItemModel item) => $"{item.Source}:{item.ItemId}";
+    private static string GetItemKey(ExceptionCenterItemModel item) => $"{item.Source}:{item.ItemKey}";
 
     private static DateTime EnsureUtc(DateTime value)
         => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);

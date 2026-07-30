@@ -123,7 +123,9 @@ public sealed class ExceptionCenterClusterDto
 public sealed class ExceptionCenterItemRefDto
 {
     public string Source { get; set; } = string.Empty;
-    public int ItemId { get; set; }
+
+    /// <summary>Routing key, so a batch can mix int-keyed and Guid-keyed sources.</summary>
+    public string ItemKey { get; set; } = string.Empty;
 }
 
 public sealed class ExceptionCenterBatchRetryRequestDto
@@ -177,7 +179,19 @@ public sealed class ExceptionCenterTrendPointDto
 public sealed class ExceptionCenterItemDto
 {
     public string Source { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The item's int primary key, for the sources that have one; zero for Guid-keyed sources.
+    /// Route on <see cref="ItemKey"/> instead.
+    /// </summary>
     public int ItemId { get; set; }
+
+    /// <summary>
+    /// Identifies the item within its source regardless of how that source is keyed. For
+    /// int-keyed sources this is the decimal id, so it is what the item was always addressed by.
+    /// </summary>
+    public string ItemKey { get; set; } = string.Empty;
+
     public string Category { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Reference { get; set; } = string.Empty;

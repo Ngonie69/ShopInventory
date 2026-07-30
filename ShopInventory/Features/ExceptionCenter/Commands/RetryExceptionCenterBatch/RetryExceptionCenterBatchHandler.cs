@@ -18,8 +18,8 @@ public sealed class RetryExceptionCenterBatchHandler(
         CancellationToken cancellationToken)
     {
         var requested = command.Items?
-            .Where(item => !string.IsNullOrWhiteSpace(item.Source) && item.ItemId > 0)
-            .GroupBy(item => $"{item.Source}:{item.ItemId}", StringComparer.OrdinalIgnoreCase)
+            .Where(item => !string.IsNullOrWhiteSpace(item.Source) && !string.IsNullOrWhiteSpace(item.ItemKey))
+            .GroupBy(item => $"{item.Source}:{item.ItemKey}", StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToList() ?? [];
 
@@ -42,7 +42,7 @@ public sealed class RetryExceptionCenterBatchHandler(
         foreach (var item in requested)
         {
             var outcome = await mediator.Send(
-                new RetryExceptionCenterItemCommand(item.Source, item.ItemId),
+                new RetryExceptionCenterItemCommand(item.Source, item.ItemKey),
                 cancellationToken);
 
             if (outcome.IsError)
@@ -50,7 +50,7 @@ public sealed class RetryExceptionCenterBatchHandler(
                 result.FailedCount++;
                 if (result.Failures.Count < 10)
                 {
-                    result.Failures.Add($"{item.Source}:{item.ItemId} — {outcome.FirstError.Description}");
+                    result.Failures.Add($"{item.Source}:{item.ItemKey} — {outcome.FirstError.Description}");
                 }
 
                 continue;

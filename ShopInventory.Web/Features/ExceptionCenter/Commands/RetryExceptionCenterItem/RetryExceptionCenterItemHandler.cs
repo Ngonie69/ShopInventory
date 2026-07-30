@@ -16,12 +16,12 @@ public sealed class RetryExceptionCenterItemHandler(
     {
         try
         {
-            var success = await exceptionCenterService.RetryItemAsync(request.Source, request.ItemId, cancellationToken);
+            var success = await exceptionCenterService.RetryItemAsync(request.Source, request.ItemKey, cancellationToken);
             return success ? Result.Success : Errors.ExceptionCenter.RetryFailed("Retry request was rejected.");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error retrying exception center item {Source}:{ItemId}", request.Source, request.ItemId);
+            logger.LogError(ex, "Error retrying exception center item {Source}:{ItemKey}", request.Source, request.ItemKey);
             return Errors.ExceptionCenter.RetryFailed("Retry request was rejected.");
         }
     }

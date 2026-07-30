@@ -16,12 +16,12 @@ public sealed class AcknowledgeExceptionCenterItemHandler(
     {
         try
         {
-            var success = await exceptionCenterService.AcknowledgeItemAsync(request.Source, request.ItemId, cancellationToken);
+            var success = await exceptionCenterService.AcknowledgeItemAsync(request.Source, request.ItemKey, cancellationToken);
             return success ? Result.Success : Errors.ExceptionCenter.AcknowledgeFailed("Acknowledge request was rejected.");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error acknowledging exception center item {Source}:{ItemId}", request.Source, request.ItemId);
+            logger.LogError(ex, "Error acknowledging exception center item {Source}:{ItemKey}", request.Source, request.ItemKey);
             return Errors.ExceptionCenter.AcknowledgeFailed("Acknowledge request was rejected.");
         }
     }

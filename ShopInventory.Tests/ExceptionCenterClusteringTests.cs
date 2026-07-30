@@ -1,3 +1,5 @@
+using ShopInventory.DTOs;
+using ShopInventory.Features.ExceptionCenter;
 using ShopInventory.Features.ExceptionCenter.Queries.GetExceptionCenter;
 
 namespace ShopInventory.Tests;
@@ -115,5 +117,105 @@ public sealed class ExceptionCenterClusteringTests
 
         Assert.Equal("sap-hana-date-literal", classification.Signature);
         Assert.Contains("yyyy-MM-dd", classification.Guidance);
+    }
+
+    /// <summary>
+    /// The triage split is on whether anything will reattempt the item on a timer, not on
+    /// whether a human is allowed to press retry. A held transfer is retryable by hand
+    /// precisely because nothing else will touch it, and calling that "self-healing" would
+    /// hide it from the view an operator opens on.
+    /// </summary>
+    [Fact]
+    public void WorkNothingReattemptsOnATimerNeedsAHuman()
+    {
+        var heldTransfer = new ExceptionCenterItemDto
+        {
+            Source = ExceptionCenterSources.PendingInventoryTransferPost,
+            Status = "Failed",
+            LastError = "SAP rejected the transfer",
+            RetryCount = 0,
+            MaxRetries = 0,
+            CanRetry = true,
+            OccurredAtUtc = DateTime.UtcNow.AddHours(-3)
+        };
+
+        var failedCallback = new ExceptionCenterItemDto
+        {
+            Source = ExceptionCenterSources.PaymentCallback,
+            Status = "Failed",
+            LastError = "Declined by issuer",
+            MaxRetries = 0,
+            CanRetry = false
+        };
+
+        GetExceptionCenterHandler.Enrich(heldTransfer, DateTime.UtcNow);
+        GetExceptionCenterHandler.Enrich(failedCallback, DateTime.UtcNow);
+
+        Assert.Equal("Blocked", heldTransfer.Triage);
+        Assert.Equal("Blocked", failedCallback.Triage);
+    }
+
+    [Fact]
+    public void QueueWorkWithAttemptsLeftIsLeftToRetryItself()
+    {
+        var retrying = new ExceptionCenterItemDto
+        {
+            Source = ExceptionCenterSources.InvoiceQueue,
+            Status = "Failed",
+            LastError = "SAP circuit breaker is open. Retry after 30 seconds.",
+            RetryCount = 1,
+            MaxRetries = 3,
+            CanRetry = true,
+            NextRetryAtUtc = DateTime.UtcNow.AddMinutes(4)
+        };
+
+        var exhausted = new ExceptionCenterItemDto
+        {
+            Source = ExceptionCenterSources.InvoiceQueue,
+            Status = "Failed",
+            LastError = "SAP circuit breaker is open. Retry after 30 seconds.",
+            RetryCount = 3,
+            MaxRetries = 3,
+            CanRetry = true
+        };
+
+        var stalled = new ExceptionCenterItemDto
+        {
+            Source = ExceptionCenterSources.InvoiceQueue,
+            Status = "Processing",
+            ProcessingStartedAtUtc = DateTime.UtcNow.AddHours(-2),
+            RetryCount = 1,
+            MaxRetries = 3
+        };
+
+        GetExceptionCenterHandler.Enrich(retrying, DateTime.UtcNow);
+        GetExceptionCenterHandler.Enrich(exhausted, DateTime.UtcNow);
+        GetExceptionCenterHandler.Enrich(stalled, DateTime.UtcNow);
+
+        Assert.Equal("Retrying", retrying.Triage);
+        Assert.False(retrying.IsRetryOverdue);
+        Assert.Equal("Blocked", exhausted.Triage);
+        Assert.Equal("Stalled", stalled.Triage);
+    }
+
+    [Fact]
+    public void ARetryScheduledLongAgoIsFlaggedOverdue()
+    {
+        var overdue = new ExceptionCenterItemDto
+        {
+            Source = ExceptionCenterSources.InvoiceQueue,
+            Status = "Failed",
+            LastError = "Connection refused",
+            RetryCount = 1,
+            MaxRetries = 3,
+            CanRetry = true,
+            NextRetryAtUtc = DateTime.UtcNow.AddHours(-4)
+        };
+
+        GetExceptionCenterHandler.Enrich(overdue, DateTime.UtcNow);
+
+        // Still Retrying by status, but the queue processor plainly is not draining it.
+        Assert.True(overdue.IsRetryOverdue);
+        Assert.Equal("Retrying", overdue.Triage);
     }
 }
