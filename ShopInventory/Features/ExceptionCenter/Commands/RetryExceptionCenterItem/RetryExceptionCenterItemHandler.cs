@@ -26,6 +26,7 @@ public sealed class RetryExceptionCenterItemHandler(
             "invoice-queue" => await RetryInvoiceAsync(command.ItemId, cancellationToken),
             "inventory-transfer-queue" => await RetryTransferAsync(command.ItemId, cancellationToken),
             "mobile-order-post-processing" => await RetryMobileAsync(command.ItemId, cancellationToken),
+            "incoming-payment-queue" => await RetryIncomingPaymentAsync(command.ItemId, cancellationToken),
             "payment-callback" => Errors.ExceptionCenter.RetryNotSupported(command.Source),
             "payment-callback-rejection" => Errors.ExceptionCenter.RetryNotSupported(command.Source),
             "credit-note-fiscalization" => Errors.ExceptionCenter.RetryNotSupported(command.Source),
@@ -104,6 +105,37 @@ public sealed class RetryExceptionCenterItemHandler(
             await context.SaveChangesAsync(token);
 
             logger.LogInformation("Exception center retried mobile post-processing item {ItemId}", itemId);
+            return Result.Success;
+        }
+
+        // The incoming payment worker picks up anything Pending, so resetting the entry
+        // is enough to requeue it — the same shape as the mobile queue above.
+        async Task<ErrorOr<Success>> RetryIncomingPaymentAsync(int itemId, CancellationToken token)
+        {
+            var entry = await context.IncomingPaymentQueue
+                .AsTracking()
+                .FirstOrDefaultAsync(q => q.Id == itemId, token);
+
+            if (entry == null)
+            {
+                return Errors.ExceptionCenter.ItemNotFound(command.Source, itemId);
+            }
+
+            if (entry.Status is not IncomingPaymentQueueStatus.Failed and not IncomingPaymentQueueStatus.RequiresReview)
+            {
+                return Errors.ExceptionCenter.RetryNotSupported(command.Source);
+            }
+
+            entry.Status = IncomingPaymentQueueStatus.Pending;
+            entry.RetryCount = 0;
+            entry.LastError = null;
+            entry.NextRetryAt = null;
+            entry.ProcessingStartedAt = null;
+            entry.ProcessedAt = null;
+
+            await context.SaveChangesAsync(token);
+
+            logger.LogInformation("Exception center retried incoming payment queue item {ItemId} ({ExternalReference})", itemId, entry.ExternalReference);
             return Result.Success;
         }
     }

@@ -1,0 +1,1450 @@
+/* ==========================================================================
+   Exception Center — Nocturne
+
+   Same arrangement as settings.css and create-invoice.css: the Nocturne design
+   is a single dark scheme, so this module paints its own ground and does not
+   follow the app's light/dark toggle. Tokens are copied from the design system.
+
+   Rules live in a plain stylesheet rather than a scoped Razor <style> block
+   because app.css carries global `.dark-theme input/select/button` rules that
+   have to be out-specified — so every control is given a class, which makes
+   each selector two classes deep and wins regardless of load order.
+   ========================================================================== */
+
+.exc {
+    /* — Nocturne tokens — */
+    --exc-bg: #161826;
+    --exc-surface: #232532;
+    --exc-text: #e9e9ed;
+    --exc-accent: #9184d9;
+    --exc-divider: rgba(233, 233, 237, .16);
+
+    --exc-neutral-800: #3f424d;
+    --exc-neutral-900: #292b31;
+
+    --exc-accent-100: #f5f4ff;
+    --exc-accent-300: #d2cefd;
+    --exc-accent-400: #b5abfc;
+    --exc-accent-900: #2b2741;
+
+    --exc-danger: #e8697d;
+    --exc-warn: #e0a44a;
+    --exc-calm: #7fc8a9;
+
+    --exc-t-70: rgba(233, 233, 237, .70);
+    --exc-t-60: rgba(233, 233, 237, .60);
+    --exc-t-52: rgba(233, 233, 237, .52);
+    --exc-t-45: rgba(233, 233, 237, .45);
+    --exc-t-40: rgba(233, 233, 237, .40);
+
+    --exc-space-1: 2.8px;
+    --exc-space-2: 5.6px;
+    --exc-space-3: 8.4px;
+    --exc-space-4: 11.2px;
+    --exc-space-6: 16.8px;
+    --exc-space-8: 22.4px;
+
+    --exc-radius-sm: 4px;
+    --exc-radius-md: 8px;
+    --exc-radius-lg: 14px;
+
+    --exc-shadow-sm: 0 0 0 1px #3f424d;
+    --exc-shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, .55);
+
+    /* Failure families. Muted enough to sit together in one list, distinct
+       enough to tell two root causes apart at a glance. */
+    --exc-fam-sap: #b5abfc;
+    --exc-fam-connectivity: #7fb2d9;
+    --exc-fam-fiscal: #e0a44a;
+    --exc-fam-stock: #7fc8a9;
+    --exc-fam-data: #d9a0c8;
+    --exc-fam-payment: #d98a6a;
+    --exc-fam-worker: #9397ab;
+    --exc-fam-unknown: #9397ab;
+
+    background: var(--exc-bg);
+    color: var(--exc-text);
+    color-scheme: dark;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    border-radius: 12px;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; inside this page that would flatten the accent
+   and danger colours on WebKit, so hand the fill back to `color`. */
+.exc,
+.exc * {
+    -webkit-text-fill-color: currentColor;
+    box-sizing: border-box;
+}
+
+.exc ::selection {
+    background: rgba(145, 132, 217, .30);
+}
+
+.exc :focus {
+    outline: none;
+}
+
+.exc :focus-visible {
+    outline: 2px solid var(--exc-accent);
+    outline-offset: 2px;
+}
+
+.exc h1,
+.exc h2,
+.exc h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    line-height: 1.12;
+    margin: 0;
+}
+
+.exc p {
+    margin: 0;
+}
+
+.exc-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.exc-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    backdrop-filter: blur(10px);
+    background: rgba(22, 24, 38, .88);
+    border-radius: 12px 12px 0 0;
+}
+
+.exc-header-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: var(--exc-space-6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--exc-space-8);
+}
+
+.exc-header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.exc-header-title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-3);
+}
+
+.exc-header-title-row i {
+    font-size: 17px;
+    color: var(--exc-accent);
+}
+
+.exc-header-title h1 {
+    font-size: 22px;
+    letter-spacing: -.01em;
+}
+
+.exc-header-title p {
+    font-size: 12.5px;
+    color: var(--exc-t-52);
+}
+
+.exc-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-4);
+}
+
+.exc-asof {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--exc-t-45);
+    white-space: nowrap;
+}
+
+.exc-asof i {
+    font-size: 12px;
+}
+
+/* Freestanding rules fade to transparent at both ends — a Nocturne signature. */
+.exc-rule {
+    height: 1px;
+    border: 0;
+    margin: 0;
+    background: linear-gradient(to right,
+            transparent, var(--exc-divider) 48px,
+            var(--exc-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.exc-body {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: var(--exc-space-8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--exc-space-6);
+}
+
+.exc-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: var(--exc-space-6);
+    align-items: start;
+}
+
+/* Grid items default to min-content, and the cards' min-content is wide (long
+   error text, badge rows). Without this the columns push past the viewport. */
+.exc-split > * {
+    min-width: 0;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+
+.exc-card {
+    display: flex;
+    flex-direction: column;
+    padding: var(--exc-space-8) var(--exc-space-8) var(--exc-space-6);
+    border-radius: var(--exc-radius-md);
+    background: var(--exc-surface);
+    box-shadow: var(--exc-shadow-sm);
+    min-width: 0;
+}
+
+.exc-card + .exc-card {
+    margin-top: var(--exc-space-6);
+}
+
+.exc-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--exc-space-4);
+    padding-bottom: var(--exc-space-6);
+}
+
+.exc-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: var(--exc-radius-md);
+    background: var(--exc-accent-900);
+    color: var(--exc-accent);
+    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .35);
+    font-size: 16px;
+}
+
+.exc-card-icon-danger {
+    background: rgba(232, 105, 125, .14);
+    color: var(--exc-danger);
+    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .35);
+}
+
+.exc-card-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.exc-card-text h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+}
+
+.exc-card-text p {
+    font-size: 12.5px;
+    color: var(--exc-t-52);
+}
+
+.exc-card-aside {
+    margin-left: auto;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-2);
+}
+
+/* ── Triage tiles ───────────────────────────────────────────────────────── */
+
+.exc-triage {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--exc-space-3);
+}
+
+.exc-tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--exc-space-1);
+    padding: var(--exc-space-4) var(--exc-space-6);
+    border-radius: var(--exc-radius-md);
+    background: var(--exc-surface);
+    box-shadow: var(--exc-shadow-sm);
+    min-width: 0;
+    text-align: left;
+    border: 0;
+    color: inherit;
+    font: inherit;
+}
+
+/* Tiles that filter the queue below announce themselves as pressable. */
+button.exc-tile {
+    cursor: pointer;
+}
+
+button.exc-tile:hover {
+    box-shadow: 0 0 0 1px #595d6c;
+}
+
+button.exc-tile.exc-tile-on {
+    box-shadow: 0 0 0 1px var(--exc-accent);
+}
+
+.exc-tile-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--exc-t-40);
+}
+
+.exc-tile-label i {
+    font-size: 12px;
+}
+
+.exc-tile-value {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* For money and durations, which are wide enough that 30px would clip. */
+.exc-tile-value-sm {
+    font-size: 20px;
+}
+
+.exc-tile-note {
+    font-size: 11.5px;
+    color: var(--exc-t-52);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.exc-tile-danger .exc-tile-value,
+.exc-tile-danger .exc-tile-label {
+    color: var(--exc-danger);
+}
+
+.exc-tile-danger {
+    box-shadow: 0 0 0 1px rgba(232, 105, 125, .42);
+}
+
+.exc-tile-warn .exc-tile-value,
+.exc-tile-warn .exc-tile-label {
+    color: var(--exc-warn);
+}
+
+.exc-tile-calm .exc-tile-value {
+    color: var(--exc-calm);
+}
+
+.exc-tile-quiet .exc-tile-value {
+    color: var(--exc-t-70);
+}
+
+.exc-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11.5px;
+}
+
+.exc-delta-up {
+    color: var(--exc-danger);
+}
+
+.exc-delta-down {
+    color: var(--exc-calm);
+}
+
+.exc-delta-flat {
+    color: var(--exc-t-45);
+}
+
+/* ── Root cause list ────────────────────────────────────────────────────── */
+
+.exc-causes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--exc-space-3);
+}
+
+.exc-cause {
+    --exc-fam: var(--exc-fam-unknown);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--exc-space-3);
+    padding: var(--exc-space-4) var(--exc-space-4) var(--exc-space-4) var(--exc-space-6);
+    border-radius: var(--exc-radius-md);
+    background: var(--exc-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+}
+
+/* The family stripe carries the colour, so the text stays legible. */
+.exc-cause::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: var(--exc-space-3);
+    bottom: var(--exc-space-3);
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--exc-fam);
+}
+
+.exc-fam-sap { --exc-fam: var(--exc-fam-sap); }
+.exc-fam-connectivity { --exc-fam: var(--exc-fam-connectivity); }
+.exc-fam-fiscal { --exc-fam: var(--exc-fam-fiscal); }
+.exc-fam-stock { --exc-fam: var(--exc-fam-stock); }
+.exc-fam-data { --exc-fam: var(--exc-fam-data); }
+.exc-fam-payment { --exc-fam: var(--exc-fam-payment); }
+.exc-fam-worker { --exc-fam: var(--exc-fam-worker); }
+.exc-fam-unknown { --exc-fam: var(--exc-fam-unknown); }
+
+.exc-cause-top {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--exc-space-3);
+}
+
+.exc-cause-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    margin-top: 1px;
+    border-radius: var(--exc-radius-sm);
+    background: rgba(233, 233, 237, .07);
+    color: var(--exc-fam);
+    font-size: 14px;
+}
+
+@supports (background: color-mix(in srgb, red 10%, transparent)) {
+    .exc-cause-icon {
+        background: color-mix(in srgb, var(--exc-fam) 14%, transparent);
+    }
+}
+
+.exc-cause-heading {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.exc-cause-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--exc-text);
+}
+
+.exc-cause-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--exc-space-3);
+    font-size: 11.5px;
+    color: var(--exc-t-45);
+}
+
+.exc-cause-meta > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.exc-cause-meta i {
+    font-size: 12px;
+}
+
+.exc-cause-count {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+}
+
+.exc-cause-count strong {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.exc-cause-count span {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--exc-t-40);
+}
+
+.exc-cause-count-blocked strong {
+    color: var(--exc-danger);
+}
+
+.exc-cause-guidance {
+    display: flex;
+    gap: var(--exc-space-3);
+    padding: var(--exc-space-3);
+    border-radius: var(--exc-radius-sm);
+    background: rgba(233, 233, 237, .04);
+    font-size: 12.5px;
+    color: var(--exc-t-70);
+}
+
+.exc-cause-guidance i {
+    flex: none;
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--exc-fam);
+}
+
+.exc-cause-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--exc-space-2);
+}
+
+.exc-cause-foot-spacer {
+    margin-left: auto;
+}
+
+.exc-cause-error {
+    margin: 0;
+    padding: var(--exc-space-3);
+    border-radius: var(--exc-radius-sm);
+    background: #161826;
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+    font-family: 'Space Grotesk', ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--exc-t-60);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 190px;
+    overflow: auto;
+}
+
+/* ── Sparkline & aging ──────────────────────────────────────────────────── */
+
+.exc-spark {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 62px;
+    padding-top: var(--exc-space-2);
+}
+
+.exc-spark-bar {
+    flex: 1;
+    min-width: 0;
+    border-radius: 2px 2px 0 0;
+    background: var(--exc-accent-900);
+    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .28);
+    min-height: 2px;
+}
+
+.exc-spark-bar-hot {
+    background: rgba(232, 105, 125, .32);
+    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .45);
+}
+
+.exc-spark-bar-empty {
+    background: rgba(233, 233, 237, .05);
+    box-shadow: none;
+}
+
+.exc-spark-axis {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 5px;
+    font-size: 10.5px;
+    color: var(--exc-t-40);
+}
+
+.exc-aging {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: rgba(233, 233, 237, .06);
+    margin-top: var(--exc-space-4);
+}
+
+.exc-aging-seg {
+    min-width: 0;
+}
+
+.exc-aging-legend {
+    display: flex;
+    flex-direction: column;
+    gap: var(--exc-space-2);
+    padding-top: var(--exc-space-3);
+}
+
+.exc-aging-legend-row {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-3);
+    font-size: 12px;
+}
+
+.exc-aging-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 2px;
+}
+
+/* The dot is also a span, so the label has to be selected by exclusion or it
+   would hand `flex: 1` to the dot and stretch it across the row. */
+.exc-aging-legend-row > span:not(.exc-aging-dot) {
+    flex: 1;
+    min-width: 0;
+    color: var(--exc-t-60);
+}
+
+.exc-aging-legend-row strong {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Source health ──────────────────────────────────────────────────────── */
+
+.exc-srcs {
+    display: flex;
+    flex-direction: column;
+}
+
+.exc-src {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-3);
+    padding: var(--exc-space-3) 0;
+    border-top: 1px solid var(--exc-divider);
+    font-size: 13px;
+}
+
+.exc-src:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.exc-src-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.exc-src-body strong {
+    font-weight: 500;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.exc-src-body span {
+    font-size: 11.5px;
+    color: var(--exc-t-45);
+}
+
+.exc-src-counts {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-2);
+}
+
+/* ── Exposure ───────────────────────────────────────────────────────────── */
+
+.exc-exposure {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--exc-space-3);
+}
+
+.exc-exposure-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--exc-space-3) var(--exc-space-4);
+    border-radius: var(--exc-radius-md);
+    background: var(--exc-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+    min-width: 0;
+}
+
+.exc-exposure-cell span {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--exc-t-40);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.exc-exposure-cell strong {
+    font-size: 17px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.exc-exposure-cell em {
+    font-style: normal;
+    font-size: 11px;
+    color: var(--exc-t-45);
+}
+
+/* ── Filters ────────────────────────────────────────────────────────────── */
+
+.exc-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--exc-space-2);
+    padding-bottom: var(--exc-space-4);
+}
+
+.exc-preset {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px var(--exc-space-3);
+    border: 0;
+    border-radius: 6px;
+    background: rgba(233, 233, 237, .06);
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+    color: var(--exc-t-70);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.exc-preset:hover {
+    background: rgba(233, 233, 237, .10);
+    color: var(--exc-text);
+}
+
+.exc-preset-on {
+    background: rgba(145, 132, 217, .16);
+    box-shadow: inset 0 0 0 1px var(--exc-accent);
+    color: var(--exc-accent-300);
+}
+
+.exc-preset-count {
+    font-variant-numeric: tabular-nums;
+    opacity: .7;
+}
+
+.exc-filter-spacer {
+    margin-left: auto;
+}
+
+.exc-search {
+    position: relative;
+    width: 240px;
+    max-width: 100%;
+}
+
+.exc-search i {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    opacity: .5;
+    pointer-events: none;
+}
+
+.exc .exc-input {
+    width: 100%;
+    min-height: 30px;
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--exc-text);
+    caret-color: var(--exc-accent);
+    background: var(--exc-neutral-900);
+    border: 1px solid var(--exc-divider);
+    border-radius: var(--exc-radius-md);
+}
+
+.exc .exc-search .exc-input {
+    padding-left: 27px;
+}
+
+.exc .exc-input::placeholder {
+    color: var(--exc-t-40);
+}
+
+.exc .exc-input:hover {
+    border-color: rgba(233, 233, 237, .45);
+}
+
+.exc .exc-input:focus-visible {
+    border-color: var(--exc-accent);
+    outline-offset: 0;
+}
+
+.exc .exc-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 26px;
+    cursor: pointer;
+    min-width: 132px;
+}
+
+.exc .exc-select option {
+    background: var(--exc-neutral-900);
+    color: var(--exc-text);
+}
+
+.exc-select-wrap {
+    position: relative;
+}
+
+.exc-select-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    opacity: .55;
+    pointer-events: none;
+}
+
+.exc-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--exc-space-3);
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--exc-t-60);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.exc-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.exc-switch-track {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex: none;
+    border-radius: 9px;
+    border: 1px solid var(--exc-divider);
+    background: rgba(233, 233, 237, .06);
+    transition: background .18s, border-color .18s;
+}
+
+.exc-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: rgba(233, 233, 237, .55);
+    transition: transform .18s, background .18s;
+}
+
+.exc-switch:hover .exc-switch-track {
+    border-color: var(--exc-accent);
+}
+
+.exc-switch input:checked + .exc-switch-track {
+    background: rgba(145, 132, 217, .28);
+    border-color: var(--exc-accent);
+}
+
+.exc-switch input:checked + .exc-switch-track::after {
+    transform: translateX(16px);
+    background: var(--exc-accent);
+}
+
+.exc-switch input:focus-visible + .exc-switch-track {
+    outline: 2px solid var(--exc-accent);
+    outline-offset: 2px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.exc .exc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--exc-text);
+    background: transparent;
+    border: 1px solid transparent;
+    padding: var(--exc-space-2) 10.08px;
+    border-radius: var(--exc-radius-md);
+    white-space: nowrap;
+}
+
+.exc .exc-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.exc .exc-btn-primary {
+    color: var(--exc-accent);
+    border-color: var(--exc-accent);
+}
+
+.exc .exc-btn-primary:hover:not(:disabled) {
+    background: rgba(145, 132, 217, .12);
+}
+
+.exc .exc-btn-secondary {
+    border-color: var(--exc-divider);
+}
+
+.exc .exc-btn-secondary:hover:not(:disabled) {
+    background: rgba(233, 233, 237, .07);
+}
+
+.exc .exc-btn-ghost {
+    color: var(--exc-accent);
+    padding-inline: var(--exc-space-2);
+}
+
+.exc .exc-btn-ghost:hover:not(:disabled) {
+    background: rgba(145, 132, 217, .10);
+}
+
+.exc .exc-btn-sm {
+    font-size: 12.5px;
+    padding: 3px var(--exc-space-3);
+}
+
+/* ── Badges ─────────────────────────────────────────────────────────────── */
+
+.exc-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 6px;
+    font-size: 10.5px;
+    letter-spacing: .02em;
+    white-space: nowrap;
+    background: var(--exc-neutral-800);
+    color: var(--exc-accent-100);
+}
+
+.exc-badge i {
+    font-size: 11px;
+}
+
+.exc-badge-blocked {
+    background: rgba(232, 105, 125, .14);
+    color: var(--exc-danger);
+    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .34);
+}
+
+.exc-badge-stalled {
+    background: rgba(224, 164, 74, .12);
+    color: var(--exc-warn);
+    box-shadow: inset 0 0 0 1px rgba(224, 164, 74, .30);
+}
+
+.exc-badge-retrying {
+    background: rgba(127, 200, 169, .12);
+    color: var(--exc-calm);
+    box-shadow: inset 0 0 0 1px rgba(127, 200, 169, .28);
+}
+
+.exc-badge-quiet {
+    background: transparent;
+    color: var(--exc-t-45);
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+}
+
+/* ── Work queue table ───────────────────────────────────────────────────── */
+
+.exc-table-wrap {
+    overflow-x: auto;
+    border-radius: var(--exc-radius-md);
+    background: var(--exc-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+}
+
+/* Wide enough that the three row actions stay on one line; narrower than this and
+   the wrap made every row three lines tall. Below it the wrapper scrolls. */
+.exc-table {
+    width: 100%;
+    min-width: 1060px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.exc-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--exc-space-3) var(--exc-space-4);
+    background: var(--exc-neutral-900);
+    border-bottom: 1px solid var(--exc-divider);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--exc-t-40);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.exc-table thead th.exc-right,
+.exc-table tbody td.exc-right {
+    text-align: right;
+}
+
+.exc-table tbody td {
+    padding: var(--exc-space-3) var(--exc-space-4);
+    border-bottom: 1px solid rgba(233, 233, 237, .07);
+    vertical-align: top;
+}
+
+.exc-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.exc-table tbody tr:hover td {
+    background: rgba(233, 233, 237, .03);
+}
+
+.exc-row-open td {
+    background: rgba(145, 132, 217, .06);
+}
+
+.exc-cell-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    max-width: 380px;
+}
+
+.exc-ref {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-2);
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.exc-ref-open {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--exc-t-45);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.exc-ref-open:hover {
+    color: var(--exc-text);
+    background: rgba(233, 233, 237, .10);
+}
+
+.exc-sub {
+    font-size: 11.5px;
+    color: var(--exc-t-52);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.exc-owner {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--exc-accent-300);
+}
+
+.exc-owner i {
+    font-size: 11px;
+}
+
+.exc-cause-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 260px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--exc-t-70);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.exc-cause-link:hover {
+    color: var(--exc-text);
+    text-decoration: underline;
+}
+
+.exc-cause-link i {
+    flex: none;
+    font-size: 12px;
+    color: var(--exc-fam, var(--exc-fam-unknown));
+}
+
+.exc-cause-link span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Attempts as a meter: at-a-glance "one try left" versus "burnt out". */
+.exc-attempts {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-2);
+    white-space: nowrap;
+}
+
+.exc-attempts-pips {
+    display: flex;
+    gap: 2px;
+}
+
+.exc-pip {
+    width: 4px;
+    height: 12px;
+    border-radius: 1px;
+    background: rgba(233, 233, 237, .14);
+}
+
+.exc-pip-used {
+    background: var(--exc-warn);
+}
+
+.exc-pip-out {
+    background: var(--exc-danger);
+}
+
+.exc-attempts-text {
+    font-size: 11.5px;
+    color: var(--exc-t-45);
+    font-variant-numeric: tabular-nums;
+}
+
+.exc-age {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.exc-age-old {
+    color: var(--exc-warn);
+}
+
+.exc-age-stale {
+    color: var(--exc-danger);
+}
+
+.exc-money {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.exc-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--exc-space-2);
+    flex-wrap: nowrap;
+}
+
+.exc-detail td {
+    padding: 0 var(--exc-space-4) var(--exc-space-4);
+    background: rgba(145, 132, 217, .06);
+}
+
+.exc-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--exc-space-3);
+    padding-bottom: var(--exc-space-3);
+}
+
+.exc-detail-field {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.exc-detail-field span {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--exc-t-40);
+}
+
+.exc-detail-field strong {
+    font-weight: 500;
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
+}
+
+/* ── Alerts, empty, loading ─────────────────────────────────────────────── */
+
+.exc-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--exc-space-3);
+    padding: var(--exc-space-3) var(--exc-space-4);
+    border-radius: var(--exc-radius-md);
+    font-size: 13px;
+}
+
+.exc-alert i {
+    font-size: 15px;
+    flex: none;
+    margin-top: 1px;
+}
+
+.exc-alert span {
+    flex: 1;
+    min-width: 0;
+}
+
+.exc-alert-success {
+    background: rgba(145, 132, 217, .12);
+    color: var(--exc-accent-300);
+    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .32);
+}
+
+.exc-alert-error {
+    background: rgba(232, 105, 125, .10);
+    color: var(--exc-danger);
+    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .32);
+}
+
+.exc-alert-warn {
+    background: rgba(224, 164, 74, .10);
+    color: var(--exc-warn);
+    box-shadow: inset 0 0 0 1px rgba(224, 164, 74, .28);
+}
+
+.exc-alert-info {
+    background: rgba(233, 233, 237, .05);
+    color: var(--exc-t-70);
+    box-shadow: inset 0 0 0 1px var(--exc-divider);
+}
+
+.exc-alert-close {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--exc-radius-sm);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: .7;
+}
+
+.exc-alert-close:hover {
+    opacity: 1;
+    background: rgba(233, 233, 237, .10);
+}
+
+.exc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--exc-space-3);
+    padding: var(--exc-space-8) var(--exc-space-4);
+    font-size: 13px;
+    color: var(--exc-t-52);
+    text-align: center;
+}
+
+.exc-empty i {
+    font-size: 26px;
+    color: var(--exc-calm);
+}
+
+.exc-empty-inline {
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: var(--exc-space-4);
+    font-size: 12.5px;
+    text-align: left;
+}
+
+.exc-empty-inline i {
+    font-size: 15px;
+    color: var(--exc-t-45);
+}
+
+.exc-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--exc-space-4);
+    padding: 96px 0;
+    font-size: 13px;
+    color: var(--exc-t-52);
+}
+
+.exc-spin {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(233, 233, 237, .2);
+    border-top-color: var(--exc-accent);
+    animation: exc-spin .8s linear infinite;
+}
+
+.exc-spin-lg {
+    width: 30px;
+    height: 30px;
+    border-width: 3px;
+}
+
+@keyframes exc-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.exc-footnote {
+    display: flex;
+    align-items: center;
+    gap: var(--exc-space-3);
+    padding-top: var(--exc-space-4);
+    margin-top: var(--exc-space-4);
+    font-size: 11.5px;
+    color: var(--exc-t-45);
+    border-top: 1px solid var(--exc-divider);
+}
+
+.exc-footnote i {
+    font-size: 13px;
+    flex: none;
+}
+
+/* ── Narrow viewports ───────────────────────────────────────────────────── */
+
+@media (max-width: 1080px) {
+    .exc-split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 900px) {
+    .exc-header-inner,
+    .exc-body {
+        padding-left: var(--exc-space-6);
+        padding-right: var(--exc-space-6);
+    }
+
+    .exc-card {
+        padding: var(--exc-space-6) var(--exc-space-4);
+    }
+
+    .exc-search {
+        width: 100%;
+    }
+
+    .exc-filter-spacer {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 640px) {
+    .exc-header-inner {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--exc-space-4);
+    }
+
+    .exc-header-actions {
+        justify-content: space-between;
+    }
+
+    .exc-tile-value {
+        font-size: 26px;
+    }
+}
