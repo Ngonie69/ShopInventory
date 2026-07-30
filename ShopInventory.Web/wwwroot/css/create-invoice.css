@@ -1,17 +1,89 @@
 /* ==========================================================================
    Create Invoice — Nocturne
-   The imported design (Create Invoice.dc.html) is a single dark scheme, so this
-   module paints its own ground and does not follow the app's light/dark toggle.
-   Every value below comes from that design.
+
+   The imported design (Create Invoice.dc.html) is drawn as a dark scheme, so
+   the dark palette below is the design's own; the light palette is its daylight
+   counterpart — same structure and same hues, re-anchored on paper and with the
+   accents darkened to stay legible on it. Every colour in the module is a
+   variable, so the two palettes are the only place colour is decided.
+
+   Light is the base and dark is the override, matching the rest of the app and
+   the order App.razor's early theme script stamps the class in: `.dark-theme`
+   lands on <html> and <body> before first paint, so neither scheme flashes.
+   Tints are written `rgba(var(--civ-*-rgb), a)` so a palette swap carries the
+   translucent washes with it.
 
    Rules live here rather than in an inline <style> block because a scoped
    Razor style block cannot reach native controls the way these selectors need
    to, and because app.css carries global `.dark-theme input/select` rules that
    have to be out-specified — every control is given a class so the selector is
    two classes deep and wins regardless of load order.
+
+   The print dialog renders outside `.civ`, so it carries the palette itself and
+   is named alongside `.civ` in the control selectors — via `:is()`, which keeps
+   them exactly two classes deep.
    ========================================================================== */
 
-.civ {
+.civ,
+.civ-modal {
+    --civ-bg: #f4f7fa;
+    --civ-ink: #0f1e2c;
+    --civ-ink-2: #26394a;
+    --civ-muted: #5c7183;
+    --civ-muted-2: #6d8093;
+    --civ-muted-3: #6b7f92;
+    --civ-label: #617689;
+    --civ-surface: #ffffff;
+    --civ-surface-2: #eef2f7;
+    --civ-field: #ffffff;
+    --civ-edge: #dde4ec;
+    --civ-hairline: #e3e9f0;
+    --civ-rowline: #e9eef4;
+    --civ-field-edge: #cfd9e3;
+    --civ-field-edge-hi: #aabbcc;
+    --civ-ghost-edge: #cfd9e3;
+    --civ-ghost-ink: #4c6376;
+    /* The design's mint reads as a highlight on its dark ground; on paper the
+       same hue has to carry text, so it is taken down to where it clears 4.5:1
+       both on the card and on its own 10% tint. */
+    --civ-accent: #077a58;
+    --civ-accent-hi: #095f46;
+    --civ-accent-rgb: 7, 122, 88;
+    --civ-info: #2f6fe0;
+    --civ-info-rgb: 47, 111, 224;
+    --civ-info-ink: #2557b0;
+    --civ-warn: #96600f;
+    --civ-warn-rgb: 150, 96, 15;
+    --civ-bad: #c8394f;
+    --civ-bad-rgb: 200, 57, 79;
+    --civ-bad-edge: #eccbd1;
+    --civ-bad-ink: #a32a3d;
+    --civ-alert-bad-ink: #8f2334;
+    --civ-ok-ink: #0b6b4f;
+    --civ-solid: #14263a;
+    --civ-solid-hi: #0f1e2c;
+    --civ-solid-ink: #ffffff;
+    --civ-on-solid-ring: rgba(255, 255, 255, .3);
+    --civ-dashed: #c7d3df;
+    --civ-sep: #b0bfcd;
+    --civ-x-edge: #d7dee7;
+    --civ-x-ink: #6d8093;
+    --civ-placeholder: #93a5b6;
+    --civ-readonly-ink: #45596b;
+    /* The select caret, whole. A var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --civ-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8093' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    --civ-shadow-rgb: 16, 32, 47;
+    --civ-shadow-a: .14;
+    --civ-shadow-lg-a: .2;
+    --civ-scrim-a: .4;
+    --civ-scheme: light;
+
+    color-scheme: var(--civ-scheme);
+}
+
+.dark-theme .civ,
+.dark-theme .civ-modal {
     --civ-bg: #0b131e;
     --civ-ink: #e7eef5;
     --civ-ink-2: #cfdae4;
@@ -31,15 +103,39 @@
     --civ-ghost-ink: #9db0c1;
     --civ-accent: #35d6a4;
     --civ-accent-hi: #6ee7bf;
+    --civ-accent-rgb: 53, 214, 164;
     --civ-info: #7aa7ff;
+    --civ-info-rgb: 122, 167, 255;
+    --civ-info-ink: #a9c4ff;
     --civ-warn: #e0a44a;
+    --civ-warn-rgb: 224, 164, 74;
     --civ-bad: #e8697d;
+    --civ-bad-rgb: 232, 105, 125;
+    --civ-bad-edge: #3a2530;
+    --civ-bad-ink: #e8a3ae;
+    --civ-alert-bad-ink: #f0c0c8;
+    --civ-ok-ink: #b6ecd8;
     --civ-solid: #eef4f8;
+    --civ-solid-hi: #ffffff;
+    --civ-solid-ink: #0b131e;
+    --civ-on-solid-ring: rgba(11, 19, 30, .25);
     --civ-dashed: #2a3949;
+    --civ-sep: #3c4c5c;
+    --civ-x-edge: #2a2130;
+    --civ-x-ink: #7d8b99;
+    --civ-placeholder: #5b6e80;
+    --civ-readonly-ink: #b9c7d4;
+    --civ-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8091' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    --civ-shadow-rgb: 4, 9, 15;
+    --civ-shadow-a: .55;
+    --civ-shadow-lg-a: .6;
+    --civ-scrim-a: .68;
+    --civ-scheme: dark;
+}
 
+.civ {
     background: var(--civ-bg);
     color: var(--civ-ink);
-    color-scheme: dark;
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
@@ -51,13 +147,15 @@
    theme for an iOS input fix; inside this page that would flatten the accent
    and warning colours on WebKit, so hand the fill back to `color`. */
 .civ,
-.civ * {
+.civ *,
+.civ-modal,
+.civ-modal * {
     -webkit-text-fill-color: currentColor;
     box-sizing: border-box;
 }
 
 .civ ::selection {
-    background: rgba(53, 214, 164, .25);
+    background: rgba(var(--civ-accent-rgb), .25);
 }
 
 .civ :focus-visible {
@@ -102,7 +200,7 @@
 }
 
 .civ-crumb-sep {
-    color: #3c4c5c;
+    color: var(--civ-sep);
 }
 
 .civ-crumb-now {
@@ -114,9 +212,9 @@
     align-items: center;
     gap: 7px;
     padding: 4px 10px;
-    border: 1px solid #3a2530;
+    border: 1px solid var(--civ-bad-edge);
     border-radius: 999px;
-    background: rgba(232, 105, 125, .07);
+    background: rgba(var(--civ-bad-rgb), .07);
     color: var(--civ-bad);
     font-size: 11px;
     letter-spacing: .04em;
@@ -132,14 +230,14 @@
 }
 
 .civ-pill.is-ready {
-    border-color: rgba(53, 214, 164, .35);
-    background: rgba(53, 214, 164, .07);
+    border-color: rgba(var(--civ-accent-rgb), .35);
+    background: rgba(var(--civ-accent-rgb), .07);
     color: var(--civ-accent);
 }
 
 .civ-pill.is-syncing {
-    border-color: rgba(224, 164, 74, .35);
-    background: rgba(224, 164, 74, .07);
+    border-color: rgba(var(--civ-warn-rgb), .35);
+    background: rgba(var(--civ-warn-rgb), .07);
     color: var(--civ-warn);
 }
 
@@ -169,7 +267,7 @@
 }
 
 .civ-btn:active:not(:disabled) {
-    background: rgba(53, 214, 164, .1);
+    background: rgba(var(--civ-accent-rgb), .1);
 }
 
 .civ-btn:disabled {
@@ -180,12 +278,12 @@
 .civ-btn-accent {
     padding: 6px 12px;
     border-color: var(--civ-accent);
-    background: rgba(53, 214, 164, .08);
+    background: rgba(var(--civ-accent-rgb), .08);
     color: var(--civ-accent);
 }
 
 .civ-btn-accent:hover:not(:disabled) {
-    background: rgba(53, 214, 164, .16);
+    background: rgba(var(--civ-accent-rgb), .16);
     color: var(--civ-accent);
 }
 
@@ -196,7 +294,7 @@
     border: none;
     border-radius: 8px;
     background: var(--civ-solid);
-    color: var(--civ-bg);
+    color: var(--civ-solid-ink);
     font-size: 12.5px;
     font-weight: 600;
     letter-spacing: .07em;
@@ -204,8 +302,8 @@
 }
 
 .civ-btn-solid:hover:not(:disabled) {
-    background: #ffffff;
-    color: var(--civ-bg);
+    background: var(--civ-solid-hi);
+    color: var(--civ-solid-ink);
 }
 
 .civ-btn-solid:active:not(:disabled) {
@@ -233,18 +331,31 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid #2a2130;
+    border: 1px solid var(--civ-x-edge);
     border-radius: 6px;
     background: transparent;
-    color: #7d8b99;
+    color: var(--civ-x-ink);
     cursor: pointer;
     font-size: 13px;
+    line-height: 1;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+/* Drawn inline rather than set in the icon font: this is the only control on
+   the page whose whole label is its glyph, so if the font fails to arrive it
+   would read as an empty square with no way to tell it apart from a dead
+   button. The path is Phosphor's `x` at 256, so it matches its neighbours. */
+.civ-btn-x svg {
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+    display: block;
 }
 
 .civ-btn-x:hover {
     border-color: var(--civ-bad);
     color: var(--civ-bad);
-    background: rgba(232, 105, 125, .08);
+    background: rgba(var(--civ-bad-rgb), .08);
 }
 
 /* ── Page head ──────────────────────────────────────────────────────────── */
@@ -422,8 +533,8 @@
     color: var(--civ-bad);
 }
 
-.civ .civ-input,
-.civ .civ-select {
+:is(.civ, .civ-modal) .civ-input,
+:is(.civ, .civ-modal) .civ-select {
     width: 100%;
     background: var(--civ-field);
     border: 1px solid var(--civ-field-edge);
@@ -438,43 +549,43 @@
     transition: border-color .15s;
 }
 
-.civ .civ-select {
+:is(.civ, .civ-modal) .civ-select {
     padding-right: 28px;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8091' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-image: var(--civ-caret);
     background-repeat: no-repeat;
     background-position: right 10px center;
 }
 
-.civ .civ-input:hover:not(:disabled):not([readonly]),
-.civ .civ-select:hover:not(:disabled) {
+:is(.civ, .civ-modal) .civ-input:hover:not(:disabled):not([readonly]),
+:is(.civ, .civ-modal) .civ-select:hover:not(:disabled) {
     border-color: var(--civ-field-edge-hi);
 }
 
-.civ .civ-input:focus,
-.civ .civ-select:focus {
+:is(.civ, .civ-modal) .civ-input:focus,
+:is(.civ, .civ-modal) .civ-select:focus {
     border-color: var(--civ-accent);
     outline: none;
 }
 
-.civ .civ-input::placeholder {
-    color: #5b6e80;
-    -webkit-text-fill-color: #5b6e80;
+:is(.civ, .civ-modal) .civ-input::placeholder {
+    color: var(--civ-placeholder);
+    -webkit-text-fill-color: var(--civ-placeholder);
     opacity: 1;
 }
 
-.civ .civ-input[readonly] {
-    color: #b9c7d4;
+:is(.civ, .civ-modal) .civ-input[readonly] {
+    color: var(--civ-readonly-ink);
     cursor: default;
 }
 
-.civ .civ-input:disabled,
-.civ .civ-select:disabled {
+:is(.civ, .civ-modal) .civ-input:disabled,
+:is(.civ, .civ-modal) .civ-select:disabled {
     opacity: .55;
     cursor: not-allowed;
 }
 
-.civ .civ-input.is-bad,
-.civ .civ-select.is-bad {
+:is(.civ, .civ-modal) .civ-input.is-bad,
+:is(.civ, .civ-modal) .civ-select.is-bad {
     border-color: var(--civ-bad);
 }
 
@@ -533,7 +644,7 @@
     background: var(--civ-surface);
     border: 1px solid var(--civ-edge);
     border-radius: 8px;
-    box-shadow: 0 18px 44px rgba(4, 9, 15, .55);
+    box-shadow: 0 18px 44px rgba(var(--civ-shadow-rgb), var(--civ-shadow-a));
 }
 
 .civ-drop.is-wide {
@@ -563,7 +674,7 @@
 
 .civ-drop-i:hover,
 .civ-drop-i.is-sel {
-    background: rgba(53, 214, 164, .1);
+    background: rgba(var(--civ-accent-rgb), .1);
     color: var(--civ-ink);
 }
 
@@ -584,17 +695,17 @@
     gap: 4px;
     padding: 3px 7px;
     border-radius: 999px;
-    border: 1px solid rgba(122, 167, 255, .3);
-    background: rgba(122, 167, 255, .1);
-    color: #a9c4ff;
+    border: 1px solid rgba(var(--civ-info-rgb), .3);
+    background: rgba(var(--civ-info-rgb), .1);
+    color: var(--civ-info-ink);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
 .civ-drop-price.is-customer {
-    border-color: rgba(53, 214, 164, .35);
-    background: rgba(53, 214, 164, .1);
+    border-color: rgba(var(--civ-accent-rgb), .35);
+    background: rgba(var(--civ-accent-rgb), .1);
     color: var(--civ-accent);
 }
 
@@ -616,7 +727,7 @@
     gap: 14px;
     flex-wrap: wrap;
     padding: 12px 18px;
-    background: rgba(122, 167, 255, .03);
+    background: rgba(var(--civ-info-rgb), .03);
     border-bottom: 1px solid var(--civ-edge);
 }
 
@@ -635,7 +746,7 @@
     color: var(--civ-ghost-ink);
 }
 
-.civ .civ-select.is-sm {
+:is(.civ, .civ-modal) .civ-select.is-sm {
     width: auto;
     max-width: 230px;
     padding: 6px 26px 6px 8px;
@@ -648,8 +759,8 @@
     gap: 7px;
     padding: 6px 12px;
     border-radius: 999px;
-    border: 1px solid rgba(53, 214, 164, .45);
-    background: rgba(53, 214, 164, .1);
+    border: 1px solid rgba(var(--civ-accent-rgb), .45);
+    background: rgba(var(--civ-accent-rgb), .1);
     color: var(--civ-accent);
     font-size: 12px;
 }
@@ -701,17 +812,17 @@
     text-align: center;
 }
 
-.civ .civ-cell {
+:is(.civ, .civ-modal) .civ-cell {
     padding: 8px 8px;
     font-size: 13px;
     font-variant-numeric: tabular-nums;
 }
 
-.civ .civ-select.civ-cell {
+:is(.civ, .civ-modal) .civ-select.civ-cell {
     padding-right: 24px;
 }
 
-.civ .civ-num {
+:is(.civ, .civ-modal) .civ-num {
     padding: 8px 6px;
     font-size: 13px;
     text-align: right;
@@ -719,7 +830,7 @@
 }
 
 /* Description reads as text until touched, then becomes a field. */
-.civ .civ-desc {
+:is(.civ, .civ-modal) .civ-desc {
     background: transparent;
     border-color: transparent;
     padding: 8px 9px;
@@ -727,12 +838,12 @@
     font-size: 13px;
 }
 
-.civ .civ-desc:hover:not([readonly]) {
+:is(.civ, .civ-modal) .civ-desc:hover:not([readonly]) {
     border-color: var(--civ-field-edge);
     background: var(--civ-field);
 }
 
-.civ .civ-desc:focus {
+:is(.civ, .civ-modal) .civ-desc:focus {
     border-color: var(--civ-accent);
     background: var(--civ-field);
     color: var(--civ-ink);
@@ -744,8 +855,8 @@
     gap: 5px;
     padding: 4px 8px;
     border-radius: 999px;
-    border: 1px solid rgba(53, 214, 164, .35);
-    background: rgba(53, 214, 164, .1);
+    border: 1px solid rgba(var(--civ-accent-rgb), .35);
+    background: rgba(var(--civ-accent-rgb), .1);
     color: var(--civ-accent);
     font-size: 10px;
     letter-spacing: .07em;
@@ -809,7 +920,7 @@
 /* ── Totals panel ───────────────────────────────────────────────────────── */
 .civ-total-card {
     padding: 18px;
-    box-shadow: 0 1px 0 rgba(53, 214, 164, .12) inset;
+    box-shadow: 0 1px 0 rgba(var(--civ-accent-rgb), .12) inset;
 }
 
 .civ-total-hd {
@@ -858,7 +969,7 @@
     cursor: pointer;
 }
 
-.civ .civ-check input {
+:is(.civ, .civ-modal) .civ-check input {
     width: 15px;
     height: 15px;
     accent-color: var(--civ-accent);
@@ -908,7 +1019,7 @@
 }
 
 .civ-checks-i.is-no {
-    color: #e8a3ae;
+    color: var(--civ-bad-ink);
 }
 
 .civ-checks-ic {
@@ -919,13 +1030,13 @@
     align-items: center;
     justify-content: center;
     font-size: 9px;
-    background: rgba(53, 214, 164, .16);
+    background: rgba(var(--civ-accent-rgb), .16);
     color: var(--civ-accent);
     flex-shrink: 0;
 }
 
 .civ-checks-i.is-no .civ-checks-ic {
-    background: rgba(232, 105, 125, .16);
+    background: rgba(var(--civ-bad-rgb), .16);
     color: var(--civ-bad);
 }
 
@@ -968,7 +1079,7 @@
     padding: 12px 14px;
     border-radius: 10px;
     border: 1px solid var(--civ-edge);
-    background: rgba(122, 167, 255, .04);
+    background: rgba(var(--civ-info-rgb), .04);
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--civ-muted);
@@ -999,9 +1110,9 @@
 }
 
 .civ-alert.is-ok {
-    border: 1px solid rgba(53, 214, 164, .35);
-    background: rgba(53, 214, 164, .07);
-    color: #b6ecd8;
+    border: 1px solid rgba(var(--civ-accent-rgb), .35);
+    background: rgba(var(--civ-accent-rgb), .07);
+    color: var(--civ-ok-ink);
 }
 
 .civ-alert.is-ok > i {
@@ -1009,9 +1120,9 @@
 }
 
 .civ-alert.is-err {
-    border: 1px solid rgba(232, 105, 125, .35);
-    background: rgba(232, 105, 125, .07);
-    color: #f0c0c8;
+    border: 1px solid rgba(var(--civ-bad-rgb), .35);
+    background: rgba(var(--civ-bad-rgb), .07);
+    color: var(--civ-alert-bad-ink);
 }
 
 .civ-alert.is-err > i {
@@ -1041,9 +1152,9 @@
 .civ-err-panel {
     margin-bottom: 12px;
     padding: 11px 13px;
-    border: 1px solid rgba(232, 105, 125, .3);
+    border: 1px solid rgba(var(--civ-bad-rgb), .3);
     border-radius: 8px;
-    background: rgba(232, 105, 125, .06);
+    background: rgba(var(--civ-bad-rgb), .06);
 }
 
 .civ-err-panel-t {
@@ -1062,7 +1173,7 @@
     margin: 0;
     font-size: 11.5px;
     line-height: 1.6;
-    color: #e8a3ae;
+    color: var(--civ-bad-ink);
 }
 
 /* ── Print dialog ───────────────────────────────────────────────────────── */
@@ -1074,8 +1185,8 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(4, 9, 15, .68);
-    color-scheme: dark;
+    background: rgba(var(--civ-shadow-rgb), var(--civ-scrim-a));
+    color: var(--civ-ink);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
 }
@@ -1085,10 +1196,10 @@
     max-width: 460px;
     max-height: calc(100vh - 48px);
     overflow-y: auto;
-    background: var(--civ-surface, #101b28);
-    border: 1px solid var(--civ-edge, #1c2937);
+    background: var(--civ-surface);
+    border: 1px solid var(--civ-edge);
     border-radius: 12px;
-    box-shadow: 0 24px 64px rgba(4, 9, 15, .6);
+    box-shadow: 0 24px 64px rgba(var(--civ-shadow-rgb), var(--civ-shadow-lg-a));
 }
 
 .civ-dialog-hd {
@@ -1178,7 +1289,7 @@
 .civ-spin {
     width: 13px;
     height: 13px;
-    border: 2px solid rgba(53, 214, 164, .25);
+    border: 2px solid rgba(var(--civ-accent-rgb), .25);
     border-top-color: var(--civ-accent);
     border-radius: 50%;
     display: inline-block;
@@ -1187,8 +1298,8 @@
 }
 
 .civ-spin.on-solid {
-    border-color: rgba(11, 19, 30, .25);
-    border-top-color: var(--civ-bg);
+    border-color: var(--civ-on-solid-ring);
+    border-top-color: var(--civ-solid-ink);
 }
 
 @keyframes civ-spin {

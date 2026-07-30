@@ -24,8 +24,8 @@
 <PageTitle>Create Invoice - Shop Inventory</PageTitle>
 
 @* Styles live in wwwroot/css/create-invoice.css (linked from App.razor). The
-   imported design is a single dark scheme, so this page keeps its own ground
-   regardless of the app theme. *@
+   imported design is a dark scheme; that file carries it and its light
+   counterpart, and follows the app's theme toggle like every other page. *@
 
 <div class="civ">
     <div class="civ-accentbar"></div>
@@ -366,9 +366,15 @@
                                             <div class="civ-amt-v">@GetDisplayLineTotal(line).ToString("N2")</div>
                                             <div class="civ-amt-x">@AlternatePriceLabel @GetAlternateLineTotal(line).ToString("N2")</div>
                                         </div>
+                                        @* The glyph is drawn inline, not set in the icon font: it is this
+                                           button's only label, so a font that fails to load would leave an
+                                           empty square that reads as a broken control. *@
                                         <button type="button" class="civ-btn-x" title="Remove line"
+                                                aria-label="Remove line @(index + 1)"
                                                 @onclick="() => RemoveLine(index)">
-                                            <i class="ph ph-x"></i>
+                                            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                            </svg>
                                         </button>
                                         @if (lineErrors.Any())
                                         {
