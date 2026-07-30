@@ -925,7 +925,7 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
                 state => state.CacheKey == CreditNoteProjectionSyncService.CacheKey,
                 cancellationToken);
         var now = DateTime.UtcNow;
-        var isFresh = IsCreditNoteProjectionFresh(
+        var isFresh = CreditNoteProjectionFreshness.IsFresh(
             syncState,
             creditNoteSyncSettings.Value,
             now);
@@ -942,23 +942,6 @@ ORDER BY T0.""BaseEntry"", T0.""BaseRef"", T1.""DocDate"", T1.""DocNum"", T0.""L
               "Some credit-note statuses are not yet verified.";
 
         return new CreditNoteLookupResult(lookup, false, warning);
-    }
-
-    internal static bool IsCreditNoteProjectionFresh(
-        CacheSyncStateEntity? syncState,
-        CreditNoteSyncSettings settings,
-        DateTime nowUtc)
-    {
-        if (syncState?.LastSyncedAt is not { } lastSyncedAt)
-        {
-            return false;
-        }
-
-        var hasCurrentError = syncState.LastErrorAt.HasValue &&
-            syncState.LastErrorAt.Value >= lastSyncedAt;
-        return !hasCurrentError &&
-            nowUtc - lastSyncedAt <= TimeSpan.FromMinutes(
-                Math.Max(1, settings.StaleAfterMinutes));
     }
 
     private async Task<Dictionary<int, CreditNoteInfo>> GetCreditNoteLookupFromCreditNotesApiAsync(

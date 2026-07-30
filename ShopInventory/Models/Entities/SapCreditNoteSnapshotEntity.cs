@@ -27,6 +27,13 @@ public sealed class SapCreditNoteSnapshotEntity
     [MaxLength(10)]
     public string? DocCurrency { get; set; }
 
+    /// <summary>
+    /// The SAP header remark. This is what the application shows as a credit note's reason, so the
+    /// list can be served from here without reading the document back out of SAP.
+    /// </summary>
+    [MaxLength(254)]
+    public string? Comments { get; set; }
+
     [Column(TypeName = "decimal(18,2)")]
     public decimal DocTotal { get; set; }
 

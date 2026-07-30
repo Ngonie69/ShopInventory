@@ -14,6 +14,12 @@ public interface ICreditNoteProjectionSyncService
 {
     Task SyncAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Whether the projection may be read in place of SAP: the job is on, the initial backfill has
+    /// finished, and the last sync is inside the staleness window.
+    /// </summary>
+    Task<bool> IsReadyForReadsAsync(CancellationToken cancellationToken = default);
+
     Task UpsertAsync(
         IReadOnlyCollection<SAPCreditNote> creditNotes,
         CancellationToken cancellationToken = default);
@@ -36,6 +42,7 @@ public sealed class CreditNoteProjectionSyncService(
     private const string CheckpointConfigKey = "CreditNoteSync.Checkpoint";
     private const string DisplayName = "Credit Notes";
     private const int MaxErrorLength = 1000;
+    private const int CommentsMaxLength = 254;
     private readonly CreditNoteSyncSettings _settings = options.Value;
 
     public async Task SyncAsync(CancellationToken cancellationToken = default)
@@ -116,6 +123,34 @@ public sealed class CreditNoteProjectionSyncService(
 
             throw;
         }
+    }
+
+    /// <summary>
+    /// The backfill check is the important half: a projection can be perfectly fresh and still be
+    /// only part-way through its first walk of SAP history, and reading it then would answer a
+    /// query about an older month with silence rather than with rows.
+    /// </summary>
+    public async Task<bool> IsReadyForReadsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_settings.Enabled)
+        {
+            return false;
+        }
+
+        var syncState = await context.CacheSyncStates
+            .AsNoTracking()
+            .SingleOrDefaultAsync(entry => entry.CacheKey == CacheKey, cancellationToken);
+
+        if (!CreditNoteProjectionFreshness.IsFresh(syncState, _settings, DateTime.UtcNow))
+        {
+            return false;
+        }
+
+        var checkpointRow = await context.SystemConfigs
+            .AsNoTracking()
+            .SingleOrDefaultAsync(config => config.Key == CheckpointConfigKey, cancellationToken);
+
+        return TryReadCheckpoint(checkpointRow?.Value)?.BackfillCompleted == true;
     }
 
     public async Task UpsertAsync(
@@ -283,20 +318,35 @@ public sealed class CreditNoteProjectionSyncService(
             await context.SaveChangesAsync(cancellationToken);
         }
 
-        ProjectionCheckpoint checkpoint;
-        try
+        var checkpoint = TryReadCheckpoint(row.Value);
+        if (checkpoint is null)
         {
-            checkpoint = string.IsNullOrWhiteSpace(row.Value)
-                ? new ProjectionCheckpoint()
-                : JsonSerializer.Deserialize<ProjectionCheckpoint>(row.Value) ?? new ProjectionCheckpoint();
-        }
-        catch (JsonException ex)
-        {
-            logger.LogWarning(ex, "Resetting invalid credit-note projection checkpoint");
+            logger.LogWarning("Resetting invalid credit-note projection checkpoint");
             checkpoint = new ProjectionCheckpoint();
         }
 
         return (row, checkpoint);
+    }
+
+    /// <summary>
+    /// Returns the stored checkpoint, an empty one when nothing is stored, or null when the stored
+    /// value is not readable.
+    /// </summary>
+    private static ProjectionCheckpoint? TryReadCheckpoint(string? storedValue)
+    {
+        if (string.IsNullOrWhiteSpace(storedValue))
+        {
+            return new ProjectionCheckpoint();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<ProjectionCheckpoint>(storedValue) ?? new ProjectionCheckpoint();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task SaveCheckpointAsync(
@@ -342,6 +392,7 @@ public sealed class CreditNoteProjectionSyncService(
         target.CardCode = source.CardCode?.Trim();
         target.CardName = source.CardName?.Trim();
         target.DocCurrency = source.DocCurrency?.Trim();
+        target.Comments = Truncate(source.Comments?.Trim(), CommentsMaxLength);
         target.DocTotal = source.DocTotal;
         target.VatSum = source.VatSum;
         target.DocumentStatus = source.DocumentStatus?.Trim();
@@ -407,8 +458,8 @@ public sealed class CreditNoteProjectionSyncService(
         string.Equals(value, "tYES", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(value, "Y", StringComparison.OrdinalIgnoreCase);
 
-    private static string Truncate(string value, int maxLength) =>
-        value.Length <= maxLength ? value : value[..maxLength];
+    private static string? Truncate(string? value, int maxLength) =>
+        value is null || value.Length <= maxLength ? value : value[..maxLength];
 
     private sealed record ProjectionCheckpoint(
         DateTime? BackfillStartDate = null,

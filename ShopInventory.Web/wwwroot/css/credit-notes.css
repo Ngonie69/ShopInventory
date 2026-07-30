@@ -1,0 +1,1155 @@
+/* ==========================================================================
+   Credit Notes — Nocturne
+
+   Replicates the imported design (Credit Notes.dc.html) on the Nocturne
+   design system: a dense, quiet table on a near-neutral blue-grey ground,
+   Inter at 500, 8px radii, outlined buttons, and rules that fade to
+   transparent over 48px at each end rather than stopping cleanly.
+
+   The import is drawn as a single dark scheme, so the dark palette below is
+   the design's own — #161826 ground, #232532 surface, the #9184d9 blurple
+   accent and its OKLCH ramps, unchanged. The light palette is its daylight
+   counterpart: same structure and same hue, re-anchored on paper, with the
+   accent taken down from #9184d9 to #5f52c4 so it can carry the note links,
+   the applied-status text and the open balances it colours (#9184d9 is 3.0:1
+   on white — enough for chrome, not for text).
+
+   Light is the base and `.dark-theme` the override, matching the rest of the
+   app and the order App.razor's pre-paint script stamps the class in, so
+   neither scheme flashes.
+
+   The design writes its muted text as `color-mix(--color-text N%, transparent)`
+   at seven percentages. Those are collapsed into six opaque ink steps here:
+   over a dark ground the mix and the step render the same, and an opaque step
+   lets the light theme keep the same visual hierarchy at contrasts that hold
+   up on paper — a 42% mix of near-black on #f4f4f8 does not.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same two reasons as create-invoice.css: a scoped style block cannot reach
+   native controls the way these selectors need to, and app.css carries global
+   `.dark-theme input/select/textarea` rules that have to be out-specified —
+   so every control carries a class and every control selector is two classes
+   deep, winning regardless of load order.
+   ========================================================================== */
+
+.cnx,
+.cnx-overlay {
+    --cnx-bg: #f4f4f8;
+    --cnx-surface: #ffffff;
+    --cnx-field: #ffffff;
+    --cnx-ink: #1b1c26;
+    --cnx-ink-2: #35374a;
+    --cnx-mute: #4e5164;
+    --cnx-mute-2: #656879;
+    --cnx-mute-3: #7b7e8e;
+    --cnx-faint: #a0a2ae;
+    --cnx-placeholder: #9498a8;
+    --cnx-divider: rgba(27, 28, 38, .14);
+    --cnx-rowline: rgba(27, 28, 38, .09);
+    --cnx-hover: rgba(27, 28, 38, .04);
+    --cnx-press: rgba(27, 28, 38, .09);
+    --cnx-field-edge: #d4d6e2;
+    --cnx-field-edge-hi: #a9adc0;
+    --cnx-accent: #5f52c4;
+    --cnx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-300 (a pale lavender); on paper the same role has to be
+       the deep end of the ramp instead. */
+    --cnx-accent-text: #473d99;
+    --cnx-tag-bg: #e4e7f5;
+    --cnx-tag-ink: #3f424d;
+    --cnx-dot-open: #9397ab;
+    --cnx-dot-draft: #b2b6ca;
+    --cnx-dot-void: #cfd3e5;
+    --cnx-bad: #b3273c;
+    --cnx-bad-bg: #fdf0f2;
+    --cnx-bad-edge: #f0ccd3;
+    --cnx-ok: #0b6b4f;
+    --cnx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --cnx-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
+    --cnx-scrim: rgba(41, 43, 49, .34);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --cnx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --cnx-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --cnx-s1: 2.8px;
+    --cnx-s2: 5.6px;
+    --cnx-s3: 8.4px;
+    --cnx-s4: 11.2px;
+    --cnx-s6: 16.8px;
+    --cnx-s8: 22.4px;
+    --cnx-r-sm: 4px;
+    --cnx-r-md: 8px;
+    --cnx-r-lg: 14px;
+
+    color-scheme: var(--cnx-scheme);
+}
+
+.dark-theme .cnx,
+.dark-theme .cnx-overlay {
+    --cnx-bg: #161826;
+    --cnx-surface: #232532;
+    --cnx-field: #232532;
+    --cnx-ink: #e9e9ed;
+    --cnx-ink-2: #aeaeb5;
+    --cnx-mute: #9999a1;
+    --cnx-mute-2: #87878f;
+    --cnx-mute-3: #72727d;
+    --cnx-faint: #5a5a66;
+    --cnx-placeholder: #6b6b77;
+    --cnx-divider: rgba(233, 233, 237, .16);
+    --cnx-rowline: rgba(233, 233, 237, .08);
+    --cnx-hover: rgba(233, 233, 237, .04);
+    --cnx-press: rgba(233, 233, 237, .1);
+    --cnx-field-edge: rgba(233, 233, 237, .16);
+    --cnx-field-edge-hi: rgba(233, 233, 237, .45);
+    --cnx-accent: #9184d9;
+    --cnx-accent-rgb: 145, 132, 217;
+    --cnx-accent-text: #d2cefd;
+    --cnx-tag-bg: #3f424d;
+    --cnx-tag-ink: #f3f5fe;
+    --cnx-dot-open: #b2b6ca;
+    --cnx-dot-draft: #75798c;
+    --cnx-dot-void: #595d6c;
+    --cnx-bad: #e8697d;
+    --cnx-bad-bg: #2f2028;
+    --cnx-bad-edge: #4a2c35;
+    --cnx-ok: #b6ecd8;
+    --cnx-shadow-sm: 0 0 0 1px #3f424d;
+    --cnx-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+    --cnx-scrim: rgba(10, 11, 18, .62);
+    --cnx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --cnx-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.cnx {
+    min-height: 100vh;
+    background: var(--cnx-bg);
+    color: var(--cnx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cnx *,
+.cnx-overlay * {
+    box-sizing: border-box;
+}
+
+.cnx :focus-visible,
+.cnx-overlay :focus-visible {
+    outline: 2px solid var(--cnx-accent);
+    outline-offset: 2px;
+}
+
+.cnx ::selection,
+.cnx-overlay ::selection {
+    background: rgba(var(--cnx-accent-rgb), .3);
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-control separators stay solid. */
+.cnx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--cnx-divider) 48px,
+            var(--cnx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.cnx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--cnx-bg) 88%, transparent);
+}
+
+@supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+    .cnx-head {
+        background: var(--cnx-bg);
+    }
+}
+
+.cnx-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--cnx-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--cnx-s8);
+}
+
+.cnx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.cnx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s3);
+}
+
+.cnx-titles-row i {
+    font-size: 17px;
+    color: var(--cnx-accent);
+}
+
+.cnx-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--cnx-ink);
+}
+
+.cnx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--cnx-mute-2);
+}
+
+.cnx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s4);
+}
+
+.cnx-count {
+    font-size: 12px;
+    color: var(--cnx-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.cnx-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--cnx-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cnx-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.cnx .cnx-btn,
+.cnx-overlay .cnx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--cnx-s2) calc(var(--cnx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--cnx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--cnx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.cnx .cnx-btn:disabled,
+.cnx-overlay .cnx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.cnx .cnx-btn-primary,
+.cnx-overlay .cnx-btn-primary {
+    color: var(--cnx-accent);
+    border-color: var(--cnx-accent);
+    letter-spacing: .02em;
+}
+
+.cnx .cnx-btn-primary:hover:not(:disabled),
+.cnx-overlay .cnx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--cnx-accent-rgb), .12);
+}
+
+.cnx .cnx-btn-primary:active:not(:disabled),
+.cnx-overlay .cnx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--cnx-accent-rgb), .22);
+}
+
+.cnx .cnx-btn-secondary,
+.cnx-overlay .cnx-btn-secondary {
+    border-color: var(--cnx-divider);
+}
+
+.cnx .cnx-btn-secondary:hover:not(:disabled),
+.cnx-overlay .cnx-btn-secondary:hover:not(:disabled) {
+    background: var(--cnx-hover);
+}
+
+.cnx .cnx-btn-secondary:active:not(:disabled),
+.cnx-overlay .cnx-btn-secondary:active:not(:disabled) {
+    background: var(--cnx-press);
+}
+
+.cnx .cnx-btn-ghost,
+.cnx-overlay .cnx-btn-ghost {
+    color: var(--cnx-accent);
+    padding-inline: var(--cnx-s1);
+}
+
+.cnx .cnx-btn-ghost:hover:not(:disabled),
+.cnx-overlay .cnx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--cnx-accent-rgb), .1);
+}
+
+.cnx .cnx-btn-ghost:active:not(:disabled),
+.cnx-overlay .cnx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--cnx-accent-rgb), .18);
+}
+
+.cnx .cnx-btn-bad,
+.cnx-overlay .cnx-btn-bad {
+    color: var(--cnx-bad);
+    border-color: var(--cnx-bad-edge);
+}
+
+.cnx .cnx-btn-bad:hover:not(:disabled),
+.cnx-overlay .cnx-btn-bad:hover:not(:disabled) {
+    background: var(--cnx-bad-bg);
+}
+
+.cnx .cnx-btn-sm,
+.cnx-overlay .cnx-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.cnx .cnx-btn-icon,
+.cnx-overlay .cnx-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.cnx .cnx-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+.cnx .cnx-btn svg,
+.cnx-overlay .cnx-btn svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+    fill: currentColor;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.cnx-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--cnx-s4);
+    flex-wrap: wrap;
+}
+
+.cnx-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--cnx-mute);
+}
+
+.cnx .cnx-input,
+.cnx-overlay .cnx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--cnx-ink);
+    caret-color: var(--cnx-accent);
+    background: var(--cnx-field);
+    background-image: none;
+    border: 1px solid var(--cnx-field-edge);
+    border-radius: var(--cnx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.cnx .cnx-input:hover,
+.cnx-overlay .cnx-input:hover {
+    border-color: var(--cnx-field-edge-hi);
+}
+
+.cnx .cnx-input:focus-visible,
+.cnx-overlay .cnx-input:focus-visible {
+    border-color: var(--cnx-accent);
+    outline-offset: 0;
+}
+
+.cnx .cnx-input::placeholder,
+.cnx-overlay .cnx-input::placeholder {
+    color: var(--cnx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--cnx-placeholder);
+}
+
+.cnx .cnx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The date input's own indicator is the control's only affordance, so it is
+   tinted to the ink rather than left as the browser's black-on-dark default. */
+.cnx .cnx-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+    filter: var(--cnx-date-icon-filter, none);
+}
+
+.dark-theme .cnx .cnx-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.cnx-select {
+    position: relative;
+}
+
+.cnx .cnx-select select.cnx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.cnx-select .cnx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--cnx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.cnx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.cnx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--cnx-surface);
+    border-radius: var(--cnx-r-md);
+    box-shadow: var(--cnx-shadow-sm);
+    overflow: hidden;
+}
+
+.cnx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s4);
+    padding: var(--cnx-s4) var(--cnx-s6);
+    min-height: 54px;
+}
+
+.cnx-selected {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cnx-s2);
+    font-size: 13px;
+    color: var(--cnx-accent-text);
+}
+
+.cnx-selected .cnx-pip {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--cnx-accent);
+}
+
+.cnx-range {
+    font-size: 13px;
+    color: var(--cnx-mute-2);
+}
+
+.cnx-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s2);
+    margin-left: auto;
+}
+
+.cnx-hint {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cnx-s2);
+    font-size: 12px;
+    color: var(--cnx-mute-3);
+}
+
+.cnx-hint i {
+    font-size: 13px;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.cnx-tablewrap {
+    overflow-x: auto;
+}
+
+.cnx-table {
+    width: 100%;
+    min-width: 940px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.cnx-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cnx-mute);
+    padding: var(--cnx-s2);
+    white-space: nowrap;
+}
+
+.cnx-table td {
+    padding: var(--cnx-s2);
+    vertical-align: middle;
+}
+
+.cnx-table th:first-child,
+.cnx-table td:first-child {
+    width: 34px;
+    padding-left: var(--cnx-s6);
+}
+
+.cnx-table th:last-child,
+.cnx-table td:last-child {
+    padding-right: var(--cnx-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cnx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Row rules are painted as row-level strips so the end-fade spans the row
+   rather than restarting in every cell. */
+.cnx-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--cnx-divider) 48px,
+            var(--cnx-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cnx-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--cnx-rowline) 48px,
+            var(--cnx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cnx-table tbody tr:hover {
+    /* the hover tint layers over the row rule, which keeps painting */
+    background:
+        linear-gradient(var(--cnx-hover), var(--cnx-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--cnx-rowline) 48px,
+            var(--cnx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cnx-table tbody tr.is-selected,
+.cnx-table tbody tr.is-selected:hover {
+    background:
+        linear-gradient(rgba(var(--cnx-accent-rgb), .09), rgba(var(--cnx-accent-rgb), .09)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--cnx-rowline) 48px,
+            var(--cnx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cnx-table tbody tr.is-dim {
+    opacity: .66;
+}
+
+.cnx-table tbody tr.is-void {
+    text-decoration: line-through;
+    text-decoration-color: var(--cnx-faint);
+}
+
+.cnx-th-sort {
+    cursor: pointer;
+    user-select: none;
+}
+
+.cnx-th-sort:hover {
+    color: var(--cnx-ink-2);
+}
+
+.cnx-th-sort .cnx-sort-mark {
+    margin-left: 4px;
+    font-size: 9px;
+    color: var(--cnx-accent);
+}
+
+.cnx .cnx-check {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--cnx-accent);
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.cnx .cnx-check:disabled {
+    cursor: not-allowed;
+    opacity: .35;
+}
+
+.cnx .cnx-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--cnx-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.cnx .cnx-link:hover {
+    color: var(--cnx-accent-text);
+    text-decoration: underline;
+}
+
+.cnx-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 130px;
+}
+
+.cnx-cust-name {
+    font-weight: 500;
+}
+
+.cnx-cust-code {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--cnx-mute-3);
+}
+
+.cnx-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--cnx-ink-2);
+}
+
+.cnx-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--cnx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--cnx-tag-bg);
+    color: var(--cnx-tag-ink);
+}
+
+.cnx-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.cnx-status .cnx-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--cnx-dot-open);
+}
+
+.cnx-status .cnx-dot.is-applied {
+    background: var(--cnx-accent);
+}
+
+.cnx-status .cnx-dot.is-draft {
+    background: var(--cnx-dot-draft);
+}
+
+.cnx-status .cnx-dot.is-void {
+    background: var(--cnx-dot-void);
+}
+
+.cnx-status-text {
+    color: var(--cnx-mute);
+}
+
+.cnx-status-text.is-applied {
+    color: var(--cnx-accent-text);
+}
+
+.cnx-fiscal {
+    white-space: nowrap;
+    font-size: 12.5px;
+    color: var(--cnx-mute-2);
+}
+
+.cnx-reason {
+    display: block;
+    max-width: 210px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--cnx-mute);
+}
+
+.cnx-bal {
+    color: var(--cnx-faint);
+}
+
+.cnx-bal.is-open {
+    color: var(--cnx-accent-text);
+    font-weight: 500;
+}
+
+.cnx-rowactions {
+    display: inline-flex;
+    gap: var(--cnx-s1);
+    justify-content: flex-end;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.cnx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cnx-s3);
+    padding: 56px var(--cnx-s6);
+    font-size: 13.5px;
+}
+
+.cnx-empty i {
+    font-size: 22px;
+    color: var(--cnx-accent);
+    opacity: .8;
+}
+
+.cnx-skel {
+    height: 11px;
+    border-radius: var(--cnx-r-sm);
+    background: var(--cnx-rowline);
+    animation: cnx-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cnx-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cnx-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.cnx-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s4);
+    padding: var(--cnx-s4) var(--cnx-s6);
+    border-top: 1px solid var(--cnx-divider);
+}
+
+.cnx-foot-range {
+    font-size: 12px;
+    color: var(--cnx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.cnx-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s2);
+    margin-left: auto;
+}
+
+.cnx-page-label {
+    font-size: 12px;
+    color: var(--cnx-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alert ─────────────────────────────────────────────────────────────── */
+
+.cnx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cnx-s3);
+    padding: var(--cnx-s3) var(--cnx-s4);
+    border-radius: var(--cnx-r-md);
+    background: var(--cnx-bad-bg);
+    border: 1px solid var(--cnx-bad-edge);
+    color: var(--cnx-bad);
+    font-size: 13px;
+}
+
+.cnx-alert-body {
+    flex: 1;
+}
+
+/* ── Overlays: drawer and dialogs ──────────────────────────────────────── */
+/* Both render below the app bar rather than over it: the page container is a
+   stacking context, so an overlay centred on the full viewport is painted
+   over by the topbar however high its z-index. */
+
+.cnx-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--cnx-ink);
+}
+
+.cnx-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--cnx-scrim);
+    z-index: 9998;
+}
+
+.cnx-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(640px, 95vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--cnx-surface);
+    box-shadow: var(--cnx-shadow-lg);
+    font-size: 14px;
+}
+
+.cnx-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s4);
+    padding: var(--cnx-s4) var(--cnx-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--cnx-divider);
+}
+
+.cnx-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s3);
+}
+
+.cnx-drawer-title i {
+    color: var(--cnx-accent);
+    font-size: 15px;
+}
+
+.cnx-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--cnx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cnx-s6);
+}
+
+.cnx-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--cnx-s2);
+    padding: var(--cnx-s4) var(--cnx-s6);
+    border-top: 1px solid var(--cnx-divider);
+    flex-shrink: 0;
+}
+
+.cnx-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--cnx-s4);
+}
+
+.cnx-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cnx-mute-3);
+    margin-bottom: 2px;
+}
+
+.cnx-dd {
+    font-size: 13.5px;
+    color: var(--cnx-ink);
+}
+
+.cnx-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cnx-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s2);
+    margin-bottom: var(--cnx-s3);
+}
+
+.cnx-note {
+    padding: var(--cnx-s3) var(--cnx-s4);
+    border-radius: var(--cnx-r-md);
+    background: var(--cnx-hover);
+    font-size: 13px;
+    color: var(--cnx-ink-2);
+}
+
+.cnx-note .cnx-dt {
+    color: var(--cnx-mute-3);
+}
+
+.cnx-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.cnx-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cnx-mute);
+    padding: var(--cnx-s2);
+    white-space: nowrap;
+}
+
+.cnx-lines td {
+    padding: var(--cnx-s2);
+    color: var(--cnx-ink-2);
+}
+
+/* A row rule, not a row fill: the strip needs a gradient, because a bare colour
+   in `background` ignores the 1px size and floods the whole row. These rules do
+   not fade at the ends — inside a box, Nocturne keeps its separators solid. */
+.cnx-lines thead tr,
+.cnx-lines tbody tr,
+.cnx-lines tfoot tr:first-child {
+    background: linear-gradient(var(--cnx-rowline), var(--cnx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.cnx-lines tfoot td {
+    color: var(--cnx-ink);
+}
+
+.cnx-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--cnx-s4) var(--cnx-s6);
+    border-radius: var(--cnx-r-md);
+    border: 1px solid var(--cnx-accent);
+    background: rgba(var(--cnx-accent-rgb), .08);
+}
+
+.cnx-total-label {
+    font-size: 13px;
+    color: var(--cnx-mute);
+}
+
+.cnx-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--cnx-accent-text);
+}
+
+.cnx-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--cnx-s4);
+    background: var(--cnx-scrim);
+}
+
+.cnx-dialog {
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--cnx-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--cnx-s4);
+    padding: var(--cnx-s6);
+    border-radius: var(--cnx-r-lg);
+    background: var(--cnx-surface);
+    box-shadow: var(--cnx-shadow-lg);
+    font-size: 14px;
+}
+
+.cnx-dialog-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s3);
+}
+
+.cnx-dialog-title i {
+    font-size: 17px;
+    color: var(--cnx-accent);
+}
+
+.cnx-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cnx-s4);
+    overflow-y: auto;
+}
+
+.cnx-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--cnx-s2);
+}
+
+.cnx-confirm {
+    display: flex;
+    align-items: center;
+    gap: var(--cnx-s4);
+    padding: var(--cnx-s3) var(--cnx-s4);
+    border-radius: var(--cnx-r-md);
+    background: var(--cnx-hover);
+}
+
+.cnx-confirm-count {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--cnx-r-md);
+    border: 1px solid var(--cnx-accent);
+    color: var(--cnx-accent-text);
+    font-size: 15px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.cnx-confirm-copy {
+    font-size: 13.5px;
+}
+
+.cnx-confirm-sub {
+    font-size: 12.5px;
+    color: var(--cnx-mute-2);
+}
+
+.cnx-overlay .cnx-textarea {
+    min-height: 88px;
+    resize: vertical;
+    line-height: 1.5;
+    padding: var(--cnx-s2) 10px;
+}
+
+.cnx-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: cnx-spin .7s linear infinite;
+}
+
+@keyframes cnx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+    .cnx-shell,
+    .cnx-body {
+        padding-left: var(--cnx-s6);
+        padding-right: var(--cnx-s6);
+    }
+
+    .cnx-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--cnx-s4);
+    }
+
+    .cnx-head-actions {
+        justify-content: space-between;
+    }
+
+    .cnx-field {
+        flex: 1 1 140px;
+    }
+
+    .cnx-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .cnx-grid {
+        grid-template-columns: 1fr;
+    }
+}
