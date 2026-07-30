@@ -12,6 +12,13 @@ public static partial class Errors
         public static Error NotFoundByNumber(string orderNumber) =>
             Error.NotFound("SalesOrder.NotFound", $"Sales order '{orderNumber}' not found.");
 
+        /// <summary>
+        /// A miss here is a normal answer, not a fault: the mobile app asks whether a draft's
+        /// idempotency key already produced an order, and "no" means the draft is safe to send.
+        /// </summary>
+        public static Error NotFoundByClientRequestId(string clientRequestId) =>
+            Error.NotFound("SalesOrder.NotFound", $"No sales order has been created for client request '{clientRequestId}'.");
+
         public static readonly Error Unauthorized =
             Error.Unauthorized("SalesOrder.Unauthorized", "User is not authenticated.");
 

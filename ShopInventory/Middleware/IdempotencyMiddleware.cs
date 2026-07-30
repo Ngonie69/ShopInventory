@@ -60,6 +60,20 @@ public class IdempotencyMiddleware
             "POST /api/invoice/pods/validate-bulk",
     };
 
+    // Endpoints whose handler owns idempotency through IIdempotencyRequestStore, which persists the
+    // response and replays the real document. This middleware cannot: it only remembers a status
+    // code, so its replay answers with a bare message and the caller never learns what was created.
+    // Because the key branch below triggers on the header alone — for any path, enforced or not —
+    // letting it run here would shadow the handler and lose exactly the document the retry wanted.
+    // Matched on both ends because the variable segment sits in the middle. A bare prefix of
+    // "POST /api/crates/transactions/" would also swallow .../ensure-invoice, which owns no
+    // idempotency of its own.
+    private static readonly (string Prefix, string Suffix)[] HandlerOwnedIdempotencyRoutes =
+    {
+            ("POST /api/crates/transactions/", "/pods"),
+            ("POST /api/crates/transactions/", "/grvs"),
+    };
+
     private static readonly string[] MobileSalesOrderCompatibilityRoles =
     {
             ApplicationRoles.Merchandiser,
@@ -90,7 +104,7 @@ public class IdempotencyMiddleware
         var requiresIdempotency = IdempotencyRequiredPaths.Any(p => path.StartsWith(p));
         var endpointKey = $"{context.Request.Method} {path.TrimEnd('/')}";
 
-        if (IdempotencySkippedEndpoints.Contains(endpointKey))
+        if (IdempotencySkippedEndpoints.Contains(endpointKey) || IsHandlerOwnedIdempotency(endpointKey))
         {
             await _next(context);
             return;
@@ -187,6 +201,23 @@ public class IdempotencyMiddleware
         {
             await _next(context);
         }
+    }
+
+    private static bool IsHandlerOwnedIdempotency(string endpointKey)
+    {
+        foreach (var (prefix, suffix) in HandlerOwnedIdempotencyRoutes)
+        {
+            if (endpointKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && endpointKey.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+                // Guard against prefix and suffix overlapping on a route that has neither a
+                // variable segment nor anything between them.
+                && endpointKey.Length > prefix.Length + suffix.Length)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsMobileSalesOrderCompatibilityRequest(HttpContext context, string endpointKey)

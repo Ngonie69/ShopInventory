@@ -227,6 +227,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
         [FromForm] decimal quantity,
         [FromForm] string? submissionRole,
         [FromForm] string? notes,
+        [FromForm] string? clientRequestId,
         IFormFile file,
         CancellationToken cancellationToken = default)
     {
@@ -250,7 +251,8 @@ public class CratesController(ISender mediator) : ApiControllerBase
                 stream,
                 file.FileName,
                 file.ContentType,
-                GetUserId()),
+                GetUserId(),
+                ResolveClientRequestId(clientRequestId)),
             cancellationToken);
 
         return result.Match(Ok, Problem);
@@ -277,6 +279,7 @@ public class CratesController(ISender mediator) : ApiControllerBase
     public async Task<IActionResult> CreateGrv(
         int crateTransactionId,
         [FromForm] string reason,
+        [FromForm] string? clientRequestId,
         IFormFile file,
         CancellationToken cancellationToken = default)
     {
@@ -298,10 +301,34 @@ public class CratesController(ISender mediator) : ApiControllerBase
                 stream,
                 file.FileName,
                 file.ContentType,
-                GetUserId()),
+                GetUserId(),
+                ResolveClientRequestId(clientRequestId)),
             cancellationToken);
 
         return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Takes the idempotency key from the form field, falling back to the header.
+    /// </summary>
+    /// <remarks>
+    /// The form field is the one to send. These endpoints do their own durable idempotency in the
+    /// handler, which replays the original document; <see cref="Middleware.IdempotencyMiddleware"/>
+    /// replays a bare message instead, and it intercepts on the header alone before the handler is
+    /// reached. The middleware defers to the handler for these two routes — see its
+    /// HandlerOwnedIdempotencyPrefixes — so either carrier now works, but the field keeps the key
+    /// out of the middleware's per-instance cache entirely.
+    /// </remarks>
+    private string? ResolveClientRequestId(string? clientRequestId)
+    {
+        if (!string.IsNullOrWhiteSpace(clientRequestId))
+        {
+            return clientRequestId.Trim();
+        }
+
+        return Request.Headers.TryGetValue("Idempotency-Key", out var headerValues)
+            ? headerValues.FirstOrDefault()?.Trim()
+            : null;
     }
 
     private Guid? GetUserId()

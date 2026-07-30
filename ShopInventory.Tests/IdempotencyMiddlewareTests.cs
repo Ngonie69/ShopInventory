@@ -91,11 +91,64 @@ public class IdempotencyMiddlewareTests
         Assert.Equal(2, calls);
     }
 
-    private static DefaultHttpContext CreateContext(string key)
+    [Theory]
+    [InlineData("/api/crates/transactions/42/pods")]
+    [InlineData("/api/crates/transactions/42/grvs")]
+    public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
+    {
+        // These handlers persist their response through IIdempotencyRequestStore and replay the real
+        // document. This middleware only remembers a status code, so if it short-circuited the retry
+        // the caller would get a bare message and never learn what was created.
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                Interlocked.Increment(ref calls);
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var key = $"handler-owned-{Guid.NewGuid():N}";
+        await middleware.InvokeAsync(CreateContext(key, path));
+        var retry = CreateContext(key, path);
+        await middleware.InvokeAsync(retry);
+
+        Assert.Equal(StatusCodes.Status200OK, retry.Response.StatusCode);
+        Assert.False(retry.Response.Headers.ContainsKey("Idempotency-Replayed"));
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task Sibling_crate_routes_keep_the_middleware_guard()
+    {
+        // ensure-invoice shares the /api/crates/transactions/ prefix but owns no idempotency of its
+        // own, so a prefix-only rule would have silently dropped its guard.
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                Interlocked.Increment(ref calls);
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var key = $"ensure-invoice-{Guid.NewGuid():N}";
+        const string path = "/api/crates/transactions/ensure-invoice";
+        await middleware.InvokeAsync(CreateContext(key, path));
+        var retry = CreateContext(key, path);
+        await middleware.InvokeAsync(retry);
+
+        Assert.Equal("true", retry.Response.Headers["Idempotency-Replayed"]);
+        Assert.Equal(1, calls);
+    }
+
+    private static DefaultHttpContext CreateContext(string key, string path = "/api/salesorder")
     {
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Post;
-        context.Request.Path = "/api/salesorder";
+        context.Request.Path = path;
         context.Request.Headers["Idempotency-Key"] = key;
         context.Response.Body = new MemoryStream();
         return context;

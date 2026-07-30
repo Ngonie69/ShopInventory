@@ -12,5 +12,6 @@ public sealed record UploadCratePodCommand(
     Stream FileStream,
     string FileName,
     string ContentType,
-    Guid? UserId
+    Guid? UserId,
+    string? ClientRequestId = null
 ) : IRequest<ErrorOr<CratePodSubmissionDto>>;

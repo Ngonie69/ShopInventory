@@ -10,5 +10,6 @@ public sealed record CreateCrateGrvCommand(
     Stream FileStream,
     string FileName,
     string ContentType,
-    Guid? UserId
+    Guid? UserId,
+    string? ClientRequestId = null
 ) : IRequest<ErrorOr<CrateGrvDto>>;
