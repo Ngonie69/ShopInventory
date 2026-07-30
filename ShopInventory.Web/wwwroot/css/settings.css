@@ -1,0 +1,1484 @@
+/* ==========================================================================
+   Settings — Nocturne
+   The imported design (Settings.dc.html + _ds/nocturne .../styles.css) is a
+   single dark scheme, so this module paints its own ground and does not follow
+   the app's light/dark toggle — same arrangement as create-invoice.css.
+
+   Every token below is copied from the design system's styles.css; every
+   measurement below comes from Settings.dc.html.
+
+   Rules live in a plain stylesheet rather than a scoped Razor <style> block
+   because app.css carries global `.dark-theme input/select/button` rules that
+   have to be out-specified — so every control is given a class, which makes
+   each selector two classes deep and wins regardless of load order.
+   ========================================================================== */
+
+.stg {
+    /* — Nocturne tokens — */
+    --stg-bg: #161826;
+    --stg-surface: #232532;
+    --stg-text: #e9e9ed;
+    --stg-accent: #9184d9;
+    --stg-divider: rgba(233, 233, 237, .16);
+
+    --stg-neutral-800: #3f424d;
+    --stg-neutral-900: #292b31;
+
+    --stg-accent-100: #f5f4ff;
+    --stg-accent-300: #d2cefd;
+    --stg-accent-400: #b5abfc;
+    --stg-accent-800: #423a6a;
+    --stg-accent-900: #2b2741;
+
+    /* Roles the design system leaves to the product. Red matches the bad-state
+       red create-invoice.css already uses, so the two Nocturne pages agree. */
+    --stg-danger: #e8697d;
+    --stg-danger-dim: #7d2e3b;
+    --stg-warn: #e0a44a;
+
+    /* Text at the mixes the design applies over and over. */
+    --stg-t-70: rgba(233, 233, 237, .70);
+    --stg-t-60: rgba(233, 233, 237, .60);
+    --stg-t-52: rgba(233, 233, 237, .52);
+    --stg-t-45: rgba(233, 233, 237, .45);
+    --stg-t-40: rgba(233, 233, 237, .40);
+
+    --stg-space-1: 2.8px;
+    --stg-space-2: 5.6px;
+    --stg-space-3: 8.4px;
+    --stg-space-4: 11.2px;
+    --stg-space-6: 16.8px;
+    --stg-space-8: 22.4px;
+
+    --stg-radius-sm: 4px;
+    --stg-radius-md: 8px;
+    --stg-radius-lg: 14px;
+
+    --stg-shadow-sm: 0 0 0 1px #3f424d;
+    --stg-shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, .55);
+    --stg-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+
+    background: var(--stg-bg);
+    color: var(--stg-text);
+    color-scheme: dark;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    border-radius: 12px;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; inside this page that would flatten the accent
+   and danger colours on WebKit, so hand the fill back to `color`. */
+.stg,
+.stg * {
+    -webkit-text-fill-color: currentColor;
+    box-sizing: border-box;
+}
+
+.stg ::selection {
+    background: rgba(145, 132, 217, .30);
+}
+
+.stg :focus {
+    outline: none;
+}
+
+.stg :focus-visible {
+    outline: 2px solid var(--stg-accent);
+    outline-offset: 2px;
+}
+
+.stg h1,
+.stg h2,
+.stg h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    line-height: 1.12;
+    margin: 0;
+}
+
+.stg p {
+    margin: 0;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.stg-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    backdrop-filter: blur(10px);
+    background: rgba(22, 24, 38, .88);
+    border-radius: 12px 12px 0 0;
+}
+
+.stg-header-inner {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: var(--stg-space-6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--stg-space-8);
+}
+
+.stg-header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.stg-header-title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+}
+
+.stg-header-title-row i {
+    font-size: 17px;
+    color: var(--stg-accent);
+}
+
+.stg-header-title h1 {
+    font-size: 22px;
+    letter-spacing: -.01em;
+}
+
+.stg-header-title p {
+    font-size: 12.5px;
+    color: var(--stg-t-52);
+}
+
+.stg-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-4);
+}
+
+/* Freestanding rules fade to transparent at both ends — a Nocturne signature. */
+.stg-rule {
+    height: 1px;
+    border: 0;
+    margin: 0;
+    background: linear-gradient(to right,
+            transparent, var(--stg-divider) 48px,
+            var(--stg-divider) calc(100% - 48px), transparent);
+}
+
+.stg-saved-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--stg-accent-300);
+    white-space: nowrap;
+}
+
+.stg-saved-flag i {
+    font-size: 13px;
+}
+
+.stg-dirty-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--stg-t-60);
+    white-space: nowrap;
+}
+
+.stg-dirty-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--stg-accent);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.stg-body {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: var(--stg-space-8) 32px 96px;
+    display: grid;
+    grid-template-columns: 208px 1fr;
+    gap: var(--stg-space-8);
+    align-items: start;
+}
+
+.stg-main {
+    min-width: 0;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────────── */
+
+.stg-nav {
+    position: sticky;
+    top: 92px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+}
+
+.stg-nav-label {
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--stg-t-40);
+    padding: 0 0 var(--stg-space-3) var(--stg-space-4);
+}
+
+.stg-nav-label + .stg-nav-label,
+.stg-nav-item + .stg-nav-label {
+    padding-top: var(--stg-space-6);
+}
+
+/* The design animates one shared indicator between items; because every item
+   is the same height, an accent bar on the active item lands in exactly the
+   same place, and it survives without JavaScript. */
+.stg-nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    width: 100%;
+    padding: 7px var(--stg-space-4);
+    border: 0;
+    border-radius: var(--stg-radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.stg-nav-item i {
+    font-size: 15px;
+    opacity: .75;
+    flex: none;
+}
+
+.stg-nav-item:hover {
+    background: rgba(233, 233, 237, .06);
+}
+
+.stg-nav-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--stg-accent);
+    opacity: 0;
+    transform: scaleY(.4);
+    transition: opacity .2s, transform .22s cubic-bezier(.4, 0, .2, 1);
+}
+
+.stg-nav-item.active {
+    color: var(--stg-accent);
+}
+
+.stg-nav-item.active i {
+    opacity: 1;
+}
+
+.stg-nav-item.active::before {
+    opacity: 1;
+    transform: scaleY(1);
+}
+
+.stg-nav-item-danger.active,
+.stg-nav-item-danger:hover {
+    color: var(--stg-danger);
+}
+
+.stg-nav-item-danger.active::before {
+    background: var(--stg-danger);
+}
+
+/* ── Section card ───────────────────────────────────────────────────────── */
+
+.stg-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: var(--stg-space-8) var(--stg-space-8) var(--stg-space-6);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-surface);
+    box-shadow: var(--stg-shadow-sm);
+}
+
+.stg-card + .stg-card {
+    margin-top: var(--stg-space-6);
+}
+
+.stg-section-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--stg-space-4);
+    padding-bottom: var(--stg-space-6);
+}
+
+.stg-section-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-accent-900);
+    color: var(--stg-accent);
+    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .35);
+    font-size: 16px;
+}
+
+.stg-section-icon-danger {
+    background: rgba(232, 105, 125, .14);
+    color: var(--stg-danger);
+    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .35);
+}
+
+.stg-section-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.stg-section-text h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+}
+
+.stg-section-text p {
+    font-size: 12.5px;
+    color: var(--stg-t-52);
+}
+
+.stg-section-head-action {
+    margin-left: auto;
+    flex: none;
+}
+
+/* ── Setting row ────────────────────────────────────────────────────────── */
+
+.stg-row {
+    display: grid;
+    grid-template-columns: 1fr 264px;
+    gap: var(--stg-space-6);
+    align-items: center;
+    padding: var(--stg-space-4) 0;
+    border-top: 1px solid var(--stg-divider);
+}
+
+.stg-row-top {
+    align-items: flex-start;
+}
+
+.stg-row-stack {
+    grid-template-columns: 1fr;
+}
+
+.stg-row-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.stg-row-label {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.stg-row-desc {
+    font-size: 12.5px;
+    color: var(--stg-t-52);
+}
+
+.stg-row-desc strong {
+    color: var(--stg-t-70);
+    font-weight: 500;
+}
+
+.stg-row-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    opacity: .38;
+    transition: opacity .15s;
+    width: fit-content;
+}
+
+.stg-row-meta:hover {
+    opacity: .8;
+}
+
+.stg-row-meta i {
+    font-size: 11px;
+}
+
+.stg-row-control {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-2);
+    justify-content: flex-end;
+}
+
+.stg-row-control-stack {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+}
+
+.stg-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 10px;
+    letter-spacing: .02em;
+    padding: 1px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--stg-accent);
+    color: var(--stg-accent);
+    white-space: nowrap;
+}
+
+.stg-tag-neutral {
+    border-color: transparent;
+    background: var(--stg-neutral-800);
+    color: var(--stg-accent-100);
+}
+
+.stg-tag-danger {
+    border-color: var(--stg-danger);
+    color: var(--stg-danger);
+}
+
+.stg-footnote {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    padding-top: var(--stg-space-6);
+    margin-top: var(--stg-space-4);
+    font-size: 11.5px;
+    color: var(--stg-t-45);
+    border-top: 1px solid var(--stg-divider);
+}
+
+.stg-footnote i {
+    font-size: 13px;
+    flex: none;
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────── */
+
+.stg .stg-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--stg-text);
+    caret-color: var(--stg-accent);
+    background: var(--stg-surface);
+    border: 1px solid var(--stg-divider);
+    border-radius: var(--stg-radius-md);
+}
+
+.stg .stg-input::placeholder {
+    color: var(--stg-t-40);
+}
+
+.stg .stg-input:hover {
+    border-color: rgba(233, 233, 237, .45);
+}
+
+.stg .stg-input:focus-visible {
+    border-color: var(--stg-accent);
+    outline-offset: 0;
+}
+
+.stg .stg-input:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.stg textarea.stg-input {
+    min-height: 72px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.stg .stg-select {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 28px;
+    cursor: pointer;
+}
+
+.stg .stg-select option {
+    background: var(--stg-neutral-900);
+    color: var(--stg-text);
+}
+
+.stg-select-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-select-caret {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    opacity: .55;
+    pointer-events: none;
+}
+
+.stg-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.stg-field > label {
+    font-size: 12px;
+    color: var(--stg-t-70);
+}
+
+.stg-field-hint {
+    font-size: 11.5px;
+    color: var(--stg-t-45);
+}
+
+.stg-req {
+    color: var(--stg-danger);
+}
+
+/* Search combobox — the design's warehouse picker, reused for every lookup. */
+.stg-combo {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-combo-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    opacity: .5;
+    pointer-events: none;
+}
+
+.stg-combo .stg-input {
+    padding-left: 27px;
+}
+
+.stg-combo-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--stg-radius-sm);
+    background: transparent;
+    color: var(--stg-t-52);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.stg-combo-clear:hover {
+    color: var(--stg-text);
+    background: rgba(233, 233, 237, .08);
+}
+
+.stg-combo-menu {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 5px);
+    left: 0;
+    right: 0;
+    padding: var(--stg-space-2);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    box-shadow: var(--stg-shadow-md);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-height: 210px;
+    overflow: auto;
+}
+
+.stg-combo-item {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    width: 100%;
+    padding: 6px var(--stg-space-3);
+    border: 0;
+    border-radius: var(--stg-radius-sm);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.stg-combo-item:hover {
+    background: rgba(145, 132, 217, .16);
+}
+
+.stg-combo-item i {
+    font-size: 14px;
+    color: var(--stg-accent);
+    flex: none;
+}
+
+.stg-combo-code {
+    font-variant-numeric: tabular-nums;
+    opacity: .6;
+    font-size: 12px;
+    flex: none;
+}
+
+.stg-combo-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stg-combo-empty {
+    padding: var(--stg-space-3);
+    font-size: 12.5px;
+    color: rgba(233, 233, 237, .5);
+}
+
+/* Switch — the design system has no boolean control, so this is built from its
+   own tokens: divider-bordered track, accent when on. */
+.stg-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--stg-t-60);
+    user-select: none;
+}
+
+.stg-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.stg-switch-track {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex: none;
+    border-radius: 9px;
+    border: 1px solid var(--stg-divider);
+    background: rgba(233, 233, 237, .06);
+    transition: background .18s, border-color .18s;
+}
+
+.stg-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: rgba(233, 233, 237, .55);
+    transition: transform .18s, background .18s;
+}
+
+.stg-switch:hover .stg-switch-track {
+    border-color: var(--stg-accent);
+}
+
+.stg-switch input:checked + .stg-switch-track {
+    background: rgba(145, 132, 217, .28);
+    border-color: var(--stg-accent);
+}
+
+.stg-switch input:checked + .stg-switch-track::after {
+    transform: translateX(16px);
+    background: var(--stg-accent);
+}
+
+.stg-switch input:focus-visible + .stg-switch-track {
+    outline: 2px solid var(--stg-accent);
+    outline-offset: 2px;
+}
+
+.stg-switch input:disabled + .stg-switch-track {
+    opacity: .5;
+}
+
+.stg-switch-text {
+    min-width: 22px;
+}
+
+.stg-check {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: var(--stg-space-3);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.stg-check input {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    margin: 2px 0 0;
+    flex: none;
+    border: 1.5px solid var(--stg-divider);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.stg-check:hover input {
+    border-color: var(--stg-accent);
+}
+
+.stg-check input:checked {
+    border-color: var(--stg-accent);
+    background: var(--stg-accent);
+    /* The inner ring reads as a gap, so it has to match the list's ground, not the card's. */
+    box-shadow: inset 0 0 0 2px var(--stg-neutral-900);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.stg .stg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--stg-text);
+    background: transparent;
+    border: 1px solid transparent;
+    padding: var(--stg-space-2) 10.08px;
+    border-radius: var(--stg-radius-md);
+    white-space: nowrap;
+}
+
+.stg .stg-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.stg .stg-btn-primary {
+    color: var(--stg-accent);
+    border-color: var(--stg-accent);
+}
+
+.stg .stg-btn-primary:hover:not(:disabled) {
+    background: rgba(145, 132, 217, .12);
+}
+
+.stg .stg-btn-primary:active:not(:disabled) {
+    background: rgba(145, 132, 217, .22);
+}
+
+.stg .stg-btn-secondary {
+    border-color: var(--stg-divider);
+}
+
+.stg .stg-btn-secondary:hover:not(:disabled) {
+    background: rgba(233, 233, 237, .07);
+}
+
+.stg .stg-btn-secondary:active:not(:disabled) {
+    background: rgba(233, 233, 237, .14);
+}
+
+.stg .stg-btn-ghost {
+    color: var(--stg-accent);
+    padding-inline: var(--stg-space-1);
+}
+
+.stg .stg-btn-ghost:hover:not(:disabled) {
+    background: rgba(145, 132, 217, .10);
+}
+
+.stg .stg-btn-danger {
+    color: var(--stg-danger);
+    border-color: var(--stg-danger);
+}
+
+.stg .stg-btn-danger:hover:not(:disabled) {
+    background: rgba(232, 105, 125, .12);
+}
+
+.stg .stg-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    flex: none;
+}
+
+.stg .stg-btn-sm {
+    font-size: 13px;
+    padding: 3px var(--stg-space-3);
+}
+
+/* ── Alerts ─────────────────────────────────────────────────────────────── */
+
+.stg-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-3) var(--stg-space-4);
+    margin-bottom: var(--stg-space-4);
+    border-radius: var(--stg-radius-md);
+    font-size: 13px;
+}
+
+.stg-alert i {
+    font-size: 15px;
+    flex: none;
+    margin-top: 1px;
+}
+
+.stg-alert span {
+    flex: 1;
+    min-width: 0;
+}
+
+.stg-alert-success {
+    background: rgba(145, 132, 217, .12);
+    color: var(--stg-accent-300);
+    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .32);
+}
+
+.stg-alert-error {
+    background: rgba(232, 105, 125, .10);
+    color: var(--stg-danger);
+    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .32);
+}
+
+.stg-alert-info {
+    background: rgba(233, 233, 237, .05);
+    color: var(--stg-t-70);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+}
+
+.stg-alert-warn {
+    background: rgba(224, 164, 74, .10);
+    color: var(--stg-warn);
+    box-shadow: inset 0 0 0 1px rgba(224, 164, 74, .28);
+}
+
+.stg-alert-close {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--stg-radius-sm);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: .7;
+}
+
+.stg-alert-close:hover {
+    opacity: 1;
+    background: rgba(233, 233, 237, .10);
+}
+
+/* ── Stat strip ─────────────────────────────────────────────────────────── */
+
+.stg-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: var(--stg-space-3);
+    padding-bottom: var(--stg-space-6);
+}
+
+.stg-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--stg-space-3) var(--stg-space-4);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+    min-width: 0;
+}
+
+.stg-stat span {
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--stg-t-40);
+}
+
+.stg-stat strong {
+    font-weight: 500;
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Inner panel (quick picks, test output, sub-groups) ─────────────────── */
+
+.stg-panel {
+    margin-top: var(--stg-space-6);
+    padding: var(--stg-space-4);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+}
+
+.stg-panel-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--stg-space-4);
+    margin-bottom: var(--stg-space-3);
+}
+
+.stg-panel-head h3 {
+    font-size: 13px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--stg-t-70);
+}
+
+.stg-panel-head p {
+    font-size: 12.5px;
+    color: var(--stg-t-52);
+    margin-top: 2px;
+}
+
+.stg-panel-head-aside {
+    margin-left: auto;
+    flex: none;
+    font-size: 12px;
+    color: var(--stg-t-45);
+    white-space: nowrap;
+}
+
+.stg-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--stg-space-2);
+}
+
+.stg-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px var(--stg-space-3);
+    border-radius: 6px;
+    background: rgba(233, 233, 237, .06);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+    font-size: 12.5px;
+    max-width: 100%;
+}
+
+.stg-chip-on {
+    box-shadow: inset 0 0 0 1px var(--stg-accent);
+    color: var(--stg-accent-300);
+}
+
+.stg-chip > i {
+    font-size: 13px;
+    flex: none;
+    opacity: .8;
+}
+
+.stg-chip > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stg-chip-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--stg-radius-sm);
+    background: transparent;
+    color: var(--stg-t-52);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.stg-chip-btn:hover {
+    color: var(--stg-text);
+    background: rgba(233, 233, 237, .10);
+}
+
+.stg-chip-btn-danger:hover {
+    color: var(--stg-danger);
+    background: rgba(232, 105, 125, .12);
+}
+
+.stg-empty {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-4);
+    font-size: 12.5px;
+    color: var(--stg-t-45);
+}
+
+.stg-empty i {
+    font-size: 15px;
+}
+
+.stg-inline-add {
+    display: flex;
+    gap: var(--stg-space-2);
+    margin-top: var(--stg-space-3);
+}
+
+.stg-inline-add .stg-input {
+    flex: 1;
+}
+
+/* ── Checkable list (business partners) ─────────────────────────────────── */
+
+.stg-list {
+    max-height: 300px;
+    overflow: auto;
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+    padding: var(--stg-space-2);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.stg-list-row {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    padding: 5px var(--stg-space-3);
+    border-radius: var(--stg-radius-sm);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.stg-list-row:hover {
+    background: rgba(233, 233, 237, .06);
+}
+
+.stg-list-row.selected {
+    background: rgba(145, 132, 217, .14);
+}
+
+.stg-list-row-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--stg-space-3);
+}
+
+.stg-list-code {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    opacity: .6;
+    flex: none;
+}
+
+.stg-list-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.stg-list-aside {
+    flex: none;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--stg-t-45);
+}
+
+/* ── Sync tiles ─────────────────────────────────────────────────────────── */
+
+.stg-sync-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--stg-space-3);
+    padding-top: var(--stg-space-4);
+    border-top: 1px solid var(--stg-divider);
+}
+
+.stg-sync-card {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-3) var(--stg-space-4);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+}
+
+.stg-sync-card-all {
+    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .35);
+}
+
+.stg-sync-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border-radius: var(--stg-radius-sm);
+    background: var(--stg-accent-900);
+    color: var(--stg-accent);
+    font-size: 14px;
+}
+
+.stg-sync-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.stg-sync-body h3 {
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.stg-sync-body span {
+    font-size: 11.5px;
+    color: var(--stg-t-45);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* ── Schedule cards ─────────────────────────────────────────────────────── */
+
+.stg-sched-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+    gap: var(--stg-space-3);
+    padding-top: var(--stg-space-4);
+    border-top: 1px solid var(--stg-divider);
+}
+
+.stg-sched-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-4);
+    border-radius: var(--stg-radius-md);
+    background: var(--stg-neutral-900);
+    box-shadow: inset 0 0 0 1px var(--stg-divider);
+}
+
+.stg-sched-card-off {
+    opacity: .62;
+}
+
+.stg-sched-top {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--stg-space-3);
+}
+
+.stg-sched-top-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+}
+
+.stg-sched-top-text h3 {
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+}
+
+.stg-sched-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--stg-t-52);
+}
+
+.stg-sched-meta div {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-3);
+}
+
+.stg-sched-meta i {
+    font-size: 13px;
+    flex: none;
+    opacity: .7;
+}
+
+.stg-sched-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--stg-space-2);
+    padding-top: var(--stg-space-3);
+    border-top: 1px solid var(--stg-divider);
+}
+
+.stg-sched-confirm {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--stg-danger);
+}
+
+/* ── Dialog ─────────────────────────────────────────────────────────────── */
+
+.stg-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: grid;
+    place-items: center;
+    padding: var(--stg-space-4);
+    background: rgba(41, 43, 49, .72);
+    backdrop-filter: blur(2px);
+}
+
+.stg-dialog {
+    width: min(440px, 100%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-4);
+    border-radius: var(--stg-radius-lg);
+    background: var(--stg-surface);
+    box-shadow: var(--stg-shadow-lg);
+    max-height: calc(100vh - 32px);
+}
+
+.stg-dialog-wide {
+    width: min(620px, 100%);
+}
+
+.stg-dialog-title {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 20px;
+    line-height: 1.12;
+}
+
+.stg-dialog-body {
+    font-size: 14px;
+    color: rgba(233, 233, 237, .85);
+    overflow: auto;
+}
+
+.stg-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--stg-space-2);
+    margin-top: var(--stg-space-2);
+}
+
+.stg-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--stg-space-4);
+}
+
+.stg-dialog-head p {
+    font-size: 12.5px;
+    color: var(--stg-t-52);
+    margin-top: 2px;
+}
+
+.stg-dialog-close {
+    margin-left: auto;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--stg-radius-sm);
+    background: transparent;
+    color: var(--stg-t-52);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.stg-dialog-close:hover {
+    color: var(--stg-text);
+    background: rgba(233, 233, 237, .08);
+}
+
+.stg-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--stg-space-4);
+}
+
+.stg-form-grid-full {
+    grid-column: 1 / -1;
+}
+
+.stg-danger-list {
+    margin: 0;
+    padding-left: var(--stg-space-8);
+    font-size: 12.5px;
+    color: var(--stg-t-52);
+}
+
+/* ── Loading ────────────────────────────────────────────────────────────── */
+
+.stg-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--stg-space-4);
+    padding: 96px 0;
+    font-size: 13px;
+    color: var(--stg-t-52);
+}
+
+.stg-spin {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(233, 233, 237, .2);
+    border-top-color: var(--stg-accent);
+    animation: stg-spin .8s linear infinite;
+}
+
+.stg-spin-lg {
+    width: 30px;
+    height: 30px;
+    border-width: 3px;
+}
+
+@keyframes stg-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.stg-pane-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--stg-space-3);
+    padding: var(--stg-space-8) 0;
+    font-size: 13px;
+    color: var(--stg-t-52);
+}
+
+/* ── Narrow viewports ───────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .stg-header-inner,
+    .stg-body {
+        padding-left: var(--stg-space-6);
+        padding-right: var(--stg-space-6);
+    }
+
+    .stg-body {
+        grid-template-columns: 1fr;
+    }
+
+    .stg-nav {
+        position: static;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 1px;
+    }
+
+    /* The group labels only make sense in a single column. */
+    .stg-nav-label {
+        display: none;
+    }
+
+    .stg-row,
+    .stg-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .stg-row-control {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .stg-header-inner {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--stg-space-4);
+    }
+
+    .stg-header-actions {
+        justify-content: flex-end;
+    }
+
+    .stg-card {
+        padding: var(--stg-space-6) var(--stg-space-4);
+    }
+}

@@ -494,11 +494,12 @@ window.printReportHtml = function (htmlContent) {
     }, 300);
 };
 
-// Print a PDF from base64-encoded bytes using an embedded iframe
-// Opens the browser print dialog which allows the user to pick their configured printer
-window.printPdfFromBase64 = function (base64Data, copies) {
-    copies = copies || 1;
-
+// Print a PDF from base64-encoded bytes using an embedded iframe.
+// This hands off to the browser's own print dialog, which is the only thing that can choose a
+// printer or a copy count from a web page. We therefore call print() exactly once: an earlier
+// version looped it `copies` times, which stacked that many modal dialogs on the cashier instead
+// of producing that many copies. Copies are set by the operator in the dialog.
+window.printPdfFromBase64 = function (base64Data) {
     const binaryString = atob(base64Data);
     const byteArray = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
@@ -528,10 +529,8 @@ window.printPdfFromBase64 = function (base64Data, copies) {
         try {
             // Small delay to ensure PDF is fully rendered
             setTimeout(function () {
-                for (let c = 0; c < copies; c++) {
-                    iframe.contentWindow.focus();
-                    iframe.contentWindow.print();
-                }
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
                 // Clean up blob URL after a delay
                 setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
             }, 500);

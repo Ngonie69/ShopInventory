@@ -13,51 +13,39 @@
 
 <div class="container-fluid fade-in staff-dashboard staff-shell crpod-page">
     <div class="crpod-hero">
-        <div class="crpod-hero-content">
-            <div>
-                <h2 class="crpod-hero-title">
-                    <span class="crpod-hero-icon">
-                        <i class="bi bi-clock-history"></i>
-                    </span>
-                    Crate POD History
-                </h2>
-                <p class="crpod-hero-subtitle">Review submitted crate POD records, preview supporting files, and manage crate POD attachments from a dedicated history page.</p>
+        <div class="crpod-hero-top">
+            <div class="crpod-hero-heading">
+                <span class="crpod-hero-icon">
+                    <i class="bi bi-clock-history"></i>
+                </span>
+                <div>
+                    <h2 class="crpod-hero-title">Crate POD History</h2>
+                    <p class="crpod-hero-subtitle">Review submitted crate PODs and manage their supporting files.</p>
+                </div>
             </div>
-            <div class="crpod-hero-actions">
-                <span class="crpod-stat-pill crpod-stat-pill-neutral">
-                    <i class="bi bi-boxes me-1"></i>@pods.Count submissions
-                </span>
-                <span class="crpod-stat-pill crpod-stat-pill-warning">
-                    <i class="bi bi-paperclip me-1"></i>@attachmentCount attachments
-                </span>
-                <span class="crpod-stat-pill crpod-stat-pill-success">
-                    <i class="bi bi-receipt-cutoff me-1"></i>@PodEligibleTransactions.Count() invoice transactions
-                </span>
-                <button type="button" class="crpod-refresh-btn" @onclick="RefreshAllAsync" disabled="@isLoading">
-                    <i class="bi bi-arrow-clockwise"></i>
-                    <span>@(isLoading ? "Refreshing..." : "Refresh")</span>
-                </button>
+            <button type="button" class="crpod-refresh-btn" @onclick="RefreshAllAsync" disabled="@isLoading">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>@(isLoading ? "Refreshing..." : "Refresh")</span>
+            </button>
+        </div>
+
+        <div class="crpod-hero-stats">
+            <div class="crpod-stat">
+                <span class="crpod-stat-value">@pods.Count</span>
+                <span class="crpod-stat-label">Submissions</span>
+            </div>
+            <div class="crpod-stat">
+                <span class="crpod-stat-value">@attachmentCount</span>
+                <span class="crpod-stat-label">Attachments</span>
+            </div>
+            <div class="crpod-stat">
+                <span class="crpod-stat-value">@PodEligibleTransactions.Count()</span>
+                <span class="crpod-stat-label">Invoice transactions</span>
             </div>
         </div>
     </div>
 
-    <div class="crpod-mode-toggle mb-3">
-        <a class="crpod-mode-btn" href="/pods">
-            <i class="bi bi-box-seam me-1"></i> Product PODs
-        </a>
-        <button type="button" class="crpod-mode-btn crpod-mode-active">
-            <i class="bi bi-boxes me-1"></i> Crate PODs
-        </button>
-    </div>
-
-    <div class="crpod-mode-toggle mb-4">
-        <a class="crpod-mode-btn" href="/crates/pods">
-            <i class="bi bi-receipt-cutoff me-1"></i> Invoice Crate Transactions
-        </a>
-        <button type="button" class="crpod-mode-btn crpod-mode-active">
-            <i class="bi bi-clock-history me-1"></i> Crate POD History
-        </button>
-    </div>
+    <PodNavTabs Active="PodNavTabs.PodNavTab.CrateHistory" />
 
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
@@ -75,8 +63,8 @@
                     <i class="bi bi-eye"></i>
                 </div>
                 <div>
-                    <h3 class="crpod-card-title mb-1">Read-only crate POD history</h3>
-                    <p class="crpod-card-note mb-0">You can review crate POD submissions, preview supported documents, and download attachments from this page, but upload and delete actions remain limited to the crate field roles.</p>
+                    <h3 class="crpod-card-title mb-1">Read-only access</h3>
+                    <p class="crpod-card-note mb-0">You can preview and download crate POD documents. Upload and delete are limited to the crate field roles.</p>
                 </div>
             </div>
         </div>
@@ -85,10 +73,10 @@
     <div class="crpod-card">
         <div class="crpod-card-header">
             <div>
-                <h3 class="crpod-card-title">Crate POD History</h3>
-                <p class="crpod-card-note">Review submitted crate PODs separately from the transaction register, with quick filters for role and search.</p>
+                <h3 class="crpod-card-title">Submissions</h3>
+                <p class="crpod-card-note">Every crate POD uploaded, newest first.</p>
             </div>
-            <span class="crpod-header-count">@filteredPods.Count matching submissions</span>
+            <span class="crpod-header-count">@filteredPods.Count of @pods.Count</span>
         </div>
 
         <div class="crpod-filter-bar crpod-filter-bar-history">
@@ -109,7 +97,10 @@
 
         @if (!filteredPods.Any())
         {
-            <div class="crpod-empty-state">No crate POD submissions match the current filters.</div>
+            <div class="crpod-empty-state">
+                <i class="bi bi-inbox"></i>
+                <span>No crate POD submissions match the current filters.</span>
+            </div>
         }
         else
         {
