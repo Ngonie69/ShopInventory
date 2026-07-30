@@ -1,0 +1,1248 @@
+/* ==========================================================================
+   Create Invoice — Nocturne
+   The imported design (Create Invoice.dc.html) is a single dark scheme, so this
+   module paints its own ground and does not follow the app's light/dark toggle.
+   Every value below comes from that design.
+
+   Rules live here rather than in an inline <style> block because a scoped
+   Razor style block cannot reach native controls the way these selectors need
+   to, and because app.css carries global `.dark-theme input/select` rules that
+   have to be out-specified — every control is given a class so the selector is
+   two classes deep and wins regardless of load order.
+   ========================================================================== */
+
+.civ {
+    --civ-bg: #0b131e;
+    --civ-ink: #e7eef5;
+    --civ-ink-2: #cfdae4;
+    --civ-muted: #8b9eb0;
+    --civ-muted-2: #6d8091;
+    --civ-muted-3: #66798a;
+    --civ-label: #7c8fa1;
+    --civ-surface: #101b28;
+    --civ-surface-2: #16232f;
+    --civ-field: #0d1723;
+    --civ-edge: #1c2937;
+    --civ-hairline: #1b2836;
+    --civ-rowline: #18242f;
+    --civ-field-edge: #21303f;
+    --civ-field-edge-hi: #2b3d4e;
+    --civ-ghost-edge: #22303f;
+    --civ-ghost-ink: #9db0c1;
+    --civ-accent: #35d6a4;
+    --civ-accent-hi: #6ee7bf;
+    --civ-info: #7aa7ff;
+    --civ-warn: #e0a44a;
+    --civ-bad: #e8697d;
+    --civ-solid: #eef4f8;
+    --civ-dashed: #2a3949;
+
+    background: var(--civ-bg);
+    color: var(--civ-ink);
+    color-scheme: dark;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    border-radius: 12px;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; inside this page that would flatten the accent
+   and warning colours on WebKit, so hand the fill back to `color`. */
+.civ,
+.civ * {
+    -webkit-text-fill-color: currentColor;
+    box-sizing: border-box;
+}
+
+.civ ::selection {
+    background: rgba(53, 214, 164, .25);
+}
+
+.civ :focus-visible {
+    outline: 2px solid var(--civ-accent);
+    outline-offset: 2px;
+}
+
+.civ-accentbar {
+    height: 2px;
+    border-radius: 12px 12px 0 0;
+    background: linear-gradient(90deg, #35d6a4 0%, #2fa5b5 38%, #7f7ab0 68%, #c9963f 100%);
+}
+
+.civ-shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 22px 32px 56px;
+}
+
+.civ-spacer {
+    flex: 1;
+}
+
+/* ── Breadcrumb strip ───────────────────────────────────────────────────── */
+.civ-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--civ-muted-2);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.civ-crumbs a {
+    color: var(--civ-muted);
+    text-decoration: none;
+}
+
+.civ-crumbs a:hover {
+    color: var(--civ-accent);
+}
+
+.civ-crumb-sep {
+    color: #3c4c5c;
+}
+
+.civ-crumb-now {
+    color: var(--civ-ink);
+}
+
+.civ-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border: 1px solid #3a2530;
+    border-radius: 999px;
+    background: rgba(232, 105, 125, .07);
+    color: var(--civ-bad);
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+
+.civ-pill .civ-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+}
+
+.civ-pill.is-ready {
+    border-color: rgba(53, 214, 164, .35);
+    background: rgba(53, 214, 164, .07);
+    color: var(--civ-accent);
+}
+
+.civ-pill.is-syncing {
+    border-color: rgba(224, 164, 74, .35);
+    background: rgba(224, 164, 74, .07);
+    color: var(--civ-warn);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.civ-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border: 1px solid var(--civ-ghost-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--civ-ghost-ink);
+    font-family: inherit;
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.civ-btn:hover:not(:disabled) {
+    border-color: var(--civ-accent);
+    color: var(--civ-accent);
+}
+
+.civ-btn:active:not(:disabled) {
+    background: rgba(53, 214, 164, .1);
+}
+
+.civ-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.civ-btn-accent {
+    padding: 6px 12px;
+    border-color: var(--civ-accent);
+    background: rgba(53, 214, 164, .08);
+    color: var(--civ-accent);
+}
+
+.civ-btn-accent:hover:not(:disabled) {
+    background: rgba(53, 214, 164, .16);
+    color: var(--civ-accent);
+}
+
+.civ-btn-solid {
+    width: 100%;
+    gap: 8px;
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    background: var(--civ-solid);
+    color: var(--civ-bg);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
+
+.civ-btn-solid:hover:not(:disabled) {
+    background: #ffffff;
+    color: var(--civ-bg);
+}
+
+.civ-btn-solid:active:not(:disabled) {
+    background: var(--civ-ink-2);
+}
+
+.civ-btn-wide {
+    width: 100%;
+    padding: 11px;
+    border-radius: 8px;
+    font-size: 12px;
+    letter-spacing: .06em;
+}
+
+.civ-btn-danger:hover:not(:disabled) {
+    border-color: var(--civ-bad);
+    color: var(--civ-bad);
+    background: transparent;
+}
+
+.civ-btn-x {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #2a2130;
+    border-radius: 6px;
+    background: transparent;
+    color: #7d8b99;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.civ-btn-x:hover {
+    border-color: var(--civ-bad);
+    color: var(--civ-bad);
+    background: rgba(232, 105, 125, .08);
+}
+
+/* ── Page head ──────────────────────────────────────────────────────────── */
+.civ-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--civ-hairline);
+}
+
+.civ-head-main {
+    flex: 1;
+    min-width: 280px;
+}
+
+.civ-head-main h1 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    color: var(--civ-ink);
+}
+
+.civ-head-main p {
+    margin: 7px 0 0;
+    font-size: 13px;
+    color: var(--civ-muted);
+}
+
+.civ-stats {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+.civ-stat {
+    padding: 0 22px;
+    border-left: 1px solid var(--civ-hairline);
+}
+
+.civ-stat:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.civ-stat:last-child {
+    padding-right: 0;
+}
+
+.civ-stat-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--civ-muted-2);
+    margin-bottom: 5px;
+}
+
+.civ-stat-v {
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-stat-v.is-vat {
+    color: var(--civ-warn);
+}
+
+.civ-stat-v.is-total {
+    color: var(--civ-accent);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.civ-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 322px;
+    gap: 20px;
+    align-items: start;
+    margin-top: 22px;
+}
+
+.civ-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.civ-aside {
+    position: sticky;
+    top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.civ-card {
+    background: var(--civ-surface);
+    border: 1px solid var(--civ-edge);
+    border-radius: 10px;
+}
+
+.civ-card-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--civ-edge);
+}
+
+.civ-card-hd i {
+    font-size: 16px;
+    color: var(--civ-info);
+}
+
+.civ-card-hd h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--civ-ink);
+}
+
+.civ-count {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--civ-surface-2);
+    color: var(--civ-ghost-ink);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-note {
+    font-size: 11px;
+    color: var(--civ-muted-2);
+}
+
+.civ-card-bd {
+    padding: 18px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+.civ-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px 16px;
+}
+
+.civ-span2 {
+    grid-column: span 2;
+}
+
+.civ-span3 {
+    grid-column: span 3;
+}
+
+.civ-lab {
+    display: block;
+    min-width: 0;
+}
+
+.civ-lab-t {
+    display: block;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--civ-label);
+    margin-bottom: 6px;
+}
+
+.civ-req {
+    color: var(--civ-bad);
+}
+
+.civ .civ-input,
+.civ .civ-select {
+    width: 100%;
+    background: var(--civ-field);
+    border: 1px solid var(--civ-field-edge);
+    border-radius: 6px;
+    padding: 9px 11px;
+    color: var(--civ-ink);
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.35;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s;
+}
+
+.civ .civ-select {
+    padding-right: 28px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8091' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.civ .civ-input:hover:not(:disabled):not([readonly]),
+.civ .civ-select:hover:not(:disabled) {
+    border-color: var(--civ-field-edge-hi);
+}
+
+.civ .civ-input:focus,
+.civ .civ-select:focus {
+    border-color: var(--civ-accent);
+    outline: none;
+}
+
+.civ .civ-input::placeholder {
+    color: #5b6e80;
+    -webkit-text-fill-color: #5b6e80;
+    opacity: 1;
+}
+
+.civ .civ-input[readonly] {
+    color: #b9c7d4;
+    cursor: default;
+}
+
+.civ .civ-input:disabled,
+.civ .civ-select:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.civ .civ-input.is-bad,
+.civ .civ-select.is-bad {
+    border-color: var(--civ-bad);
+}
+
+.civ-field-err {
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--civ-bad);
+}
+
+.civ-field-meta {
+    font-size: 12px;
+    color: var(--civ-muted);
+    line-height: 1.5;
+}
+
+.civ-field-meta i {
+    color: var(--civ-muted-3);
+    margin-right: 5px;
+}
+
+/* ── Combobox (customer, item code) ─────────────────────────────────────── */
+.civ-combo {
+    position: relative;
+}
+
+.civ-combo-clear {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--civ-muted-2);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.civ-combo-clear:hover {
+    color: var(--civ-bad);
+}
+
+.civ-drop {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--civ-surface);
+    border: 1px solid var(--civ-edge);
+    border-radius: 8px;
+    box-shadow: 0 18px 44px rgba(4, 9, 15, .55);
+}
+
+.civ-drop.is-wide {
+    min-width: 320px;
+}
+
+.civ-drop-i {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 11px;
+    border: none;
+    border-bottom: 1px solid var(--civ-rowline);
+    background: transparent;
+    color: var(--civ-ink-2);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.civ-drop-i:last-child {
+    border-bottom: none;
+}
+
+.civ-drop-i:hover,
+.civ-drop-i.is-sel {
+    background: rgba(53, 214, 164, .1);
+    color: var(--civ-ink);
+}
+
+.civ-drop-code {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-drop-sub {
+    display: block;
+    font-size: 11px;
+    color: var(--civ-muted-2);
+}
+
+.civ-drop-price {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(122, 167, 255, .3);
+    background: rgba(122, 167, 255, .1);
+    color: #a9c4ff;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.civ-drop-price.is-customer {
+    border-color: rgba(53, 214, 164, .35);
+    background: rgba(53, 214, 164, .1);
+    color: var(--civ-accent);
+}
+
+.civ-drop-price small {
+    font-size: 9.5px;
+    opacity: .75;
+}
+
+.civ-drop-empty {
+    padding: 10px 11px;
+    font-size: 12px;
+    color: var(--civ-muted-2);
+}
+
+/* ── Line defaults bar ──────────────────────────────────────────────────── */
+.civ-defaults {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 12px 18px;
+    background: rgba(122, 167, 255, .03);
+    border-bottom: 1px solid var(--civ-edge);
+}
+
+.civ-defaults-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--civ-muted-2);
+}
+
+.civ-inline-lab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--civ-ghost-ink);
+}
+
+.civ .civ-select.is-sm {
+    width: auto;
+    max-width: 230px;
+    padding: 6px 26px 6px 8px;
+    font-size: 12.5px;
+}
+
+.civ-batchmode {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(53, 214, 164, .45);
+    background: rgba(53, 214, 164, .1);
+    color: var(--civ-accent);
+    font-size: 12px;
+}
+
+/* ── Line rows ──────────────────────────────────────────────────────────── */
+.civ-lines {
+    overflow-x: auto;
+    padding: 0 18px 18px;
+}
+
+/* `overflow-x: auto` also clips vertically, which would cut the item picker off
+   at the bottom of the table. While a picker is open the clip is lifted; at the
+   widths where the rows fit (>= ~940px) nothing overflows either way. */
+.civ-lines.is-picking {
+    overflow: visible;
+}
+
+.civ-lines-inner {
+    min-width: 900px;
+}
+
+.civ-row {
+    display: grid;
+    grid-template-columns: 24px 132px minmax(150px, 1fr) 132px 56px 84px 52px 96px 100px 28px;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 0;
+    border-top: 1px solid var(--civ-rowline);
+}
+
+.civ-row.is-head {
+    padding: 12px 0 9px;
+    border-top: none;
+    align-items: end;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--civ-muted-3);
+}
+
+.civ-r {
+    text-align: right;
+}
+
+.civ-n {
+    font-size: 11px;
+    color: var(--civ-muted-3);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.civ .civ-cell {
+    padding: 8px 8px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.civ .civ-select.civ-cell {
+    padding-right: 24px;
+}
+
+.civ .civ-num {
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Description reads as text until touched, then becomes a field. */
+.civ .civ-desc {
+    background: transparent;
+    border-color: transparent;
+    padding: 8px 9px;
+    color: var(--civ-ink-2);
+    font-size: 13px;
+}
+
+.civ .civ-desc:hover:not([readonly]) {
+    border-color: var(--civ-field-edge);
+    background: var(--civ-field);
+}
+
+.civ .civ-desc:focus {
+    border-color: var(--civ-accent);
+    background: var(--civ-field);
+    color: var(--civ-ink);
+}
+
+.civ-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(53, 214, 164, .35);
+    background: rgba(53, 214, 164, .1);
+    color: var(--civ-accent);
+    font-size: 10px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.civ-amt-v {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--civ-accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-amt-x {
+    font-size: 10.5px;
+    color: var(--civ-muted-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-row-err {
+    grid-column: 2 / -1;
+    font-size: 11px;
+    color: var(--civ-bad);
+}
+
+.civ-addline {
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px;
+    border: 1px dashed var(--civ-dashed);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--civ-muted);
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+}
+
+.civ-addline:hover {
+    border-color: var(--civ-accent);
+    color: var(--civ-accent);
+}
+
+.civ-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 34px 0;
+    font-size: 12.5px;
+    color: var(--civ-muted);
+}
+
+/* ── Totals panel ───────────────────────────────────────────────────────── */
+.civ-total-card {
+    padding: 18px;
+    box-shadow: 0 1px 0 rgba(53, 214, 164, .12) inset;
+}
+
+.civ-total-hd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.civ-total-k {
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--civ-label);
+}
+
+.civ-total-cur {
+    font-size: 11px;
+    color: var(--civ-muted-3);
+}
+
+.civ-total-v {
+    font-size: 38px;
+    font-weight: 500;
+    color: var(--civ-accent);
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-total-sub {
+    font-size: 12px;
+    color: var(--civ-muted);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.civ-check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 16px 0 12px;
+    font-size: 12.5px;
+    color: var(--civ-ghost-ink);
+    cursor: pointer;
+}
+
+.civ .civ-check input {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--civ-accent);
+    appearance: auto;
+    -webkit-appearance: auto;
+    margin: 0;
+}
+
+.civ-gap-sm {
+    margin-top: 8px;
+}
+
+/* ── Pre-flight checks ──────────────────────────────────────────────────── */
+.civ-panel {
+    padding: 16px 18px;
+}
+
+.civ-panel-hd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.civ-panel-hd i {
+    font-size: 15px;
+    color: var(--civ-info);
+}
+
+.civ-panel-t {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.civ-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.civ-checks-i {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--civ-ink-2);
+}
+
+.civ-checks-i.is-no {
+    color: #e8a3ae;
+}
+
+.civ-checks-ic {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    background: rgba(53, 214, 164, .16);
+    color: var(--civ-accent);
+    flex-shrink: 0;
+}
+
+.civ-checks-i.is-no .civ-checks-ic {
+    background: rgba(232, 105, 125, .16);
+    color: var(--civ-bad);
+}
+
+/* ── Cached data ────────────────────────────────────────────────────────── */
+.civ-cache {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    font-size: 12px;
+    color: var(--civ-ghost-ink);
+}
+
+.civ-cache-i {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+.civ-cache-i i {
+    color: var(--civ-muted-3);
+    flex-shrink: 0;
+}
+
+.civ-cache-ft {
+    margin-top: 13px;
+    padding-top: 11px;
+    border-top: 1px solid var(--civ-hairline);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--civ-muted-3);
+}
+
+/* ── Notes, alerts, errors ──────────────────────────────────────────────── */
+.civ-info-note {
+    display: flex;
+    gap: 9px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--civ-edge);
+    background: rgba(122, 167, 255, .04);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--civ-muted);
+}
+
+.civ-info-note > i {
+    font-size: 14px;
+    color: var(--civ-info);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.civ-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.civ-alert > i {
+    font-size: 15px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.civ-alert.is-ok {
+    border: 1px solid rgba(53, 214, 164, .35);
+    background: rgba(53, 214, 164, .07);
+    color: #b6ecd8;
+}
+
+.civ-alert.is-ok > i {
+    color: var(--civ-accent);
+}
+
+.civ-alert.is-err {
+    border: 1px solid rgba(232, 105, 125, .35);
+    background: rgba(232, 105, 125, .07);
+    color: #f0c0c8;
+}
+
+.civ-alert.is-err > i {
+    color: var(--civ-bad);
+}
+
+.civ-alert-bd {
+    flex: 1;
+    min-width: 0;
+}
+
+.civ-alert-x {
+    border: none;
+    background: transparent;
+    color: inherit;
+    opacity: .55;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.civ-alert-x:hover {
+    opacity: 1;
+}
+
+.civ-err-panel {
+    margin-bottom: 12px;
+    padding: 11px 13px;
+    border: 1px solid rgba(232, 105, 125, .3);
+    border-radius: 8px;
+    background: rgba(232, 105, 125, .06);
+}
+
+.civ-err-panel-t {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--civ-bad);
+    margin-bottom: 6px;
+}
+
+.civ-err-panel ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: #e8a3ae;
+}
+
+/* ── Print dialog ───────────────────────────────────────────────────────── */
+.civ-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(4, 9, 15, .68);
+    color-scheme: dark;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+}
+
+.civ-dialog {
+    width: 100%;
+    max-width: 460px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    background: var(--civ-surface, #101b28);
+    border: 1px solid var(--civ-edge, #1c2937);
+    border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(4, 9, 15, .6);
+}
+
+.civ-dialog-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 15px 18px;
+    border-bottom: 1px solid var(--civ-edge);
+}
+
+.civ-dialog-hd i {
+    font-size: 16px;
+    color: var(--civ-info);
+}
+
+.civ-dialog-hd h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--civ-ink);
+}
+
+.civ-dialog-bd {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.civ-dialog-ft {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--civ-edge);
+}
+
+.civ-dialog-ft .civ-btn-solid {
+    width: auto;
+    padding: 9px 16px;
+}
+
+.civ-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.civ-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--civ-field-edge);
+    background: var(--civ-field);
+    color: var(--civ-ghost-ink);
+    font-size: 11.5px;
+}
+
+.civ-chip button {
+    border: none;
+    background: transparent;
+    color: var(--civ-muted-2);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.civ-chip button:hover {
+    color: var(--civ-bad);
+}
+
+.civ-row-inline {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.civ-w-narrow {
+    max-width: 110px;
+}
+
+/* ── Spinner ────────────────────────────────────────────────────────────── */
+.civ-spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(53, 214, 164, .25);
+    border-top-color: var(--civ-accent);
+    border-radius: 50%;
+    display: inline-block;
+    animation: civ-spin .7s linear infinite;
+    flex-shrink: 0;
+}
+
+.civ-spin.on-solid {
+    border-color: rgba(11, 19, 30, .25);
+    border-top-color: var(--civ-bg);
+}
+
+@keyframes civ-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow viewports ───────────────────────────────────────────────────────
+   The imported design is a desktop workspace and carries no breakpoints; these
+   keep it usable below its 1440px shell without changing any of its values. */
+@media (max-width: 1120px) {
+    .civ-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .civ-aside {
+        position: static;
+    }
+}
+
+@media (max-width: 900px) {
+    .civ-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .civ-span3 {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 720px) {
+    .civ-shell {
+        padding: 18px 16px 44px;
+    }
+
+    .civ-head-main h1 {
+        font-size: 24px;
+    }
+
+    .civ-stats {
+        gap: 12px 0;
+    }
+
+    .civ-stat {
+        padding: 0 16px;
+    }
+
+    .civ-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .civ-span2,
+    .civ-span3 {
+        grid-column: span 1;
+    }
+}
