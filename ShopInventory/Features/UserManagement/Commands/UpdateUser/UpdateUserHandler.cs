@@ -101,7 +101,7 @@ public sealed class UpdateUserHandler(
 
                 if (usernameExists)
                 {
-                    return Errors.UserManagement.UpdateFailed("Username already exists");
+                    return Errors.UserManagement.DuplicateUsername;
                 }
 
                 user.Username = requestedUsername;
@@ -118,7 +118,7 @@ public sealed class UpdateUserHandler(
 
             if (emailExists)
             {
-                return Errors.UserManagement.UpdateFailed("Email already exists");
+                return Errors.UserManagement.DuplicateEmail;
             }
 
             user.Email = command.Request.Email;
