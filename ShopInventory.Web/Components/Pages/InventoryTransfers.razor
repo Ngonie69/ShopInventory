@@ -1501,17 +1501,23 @@
             }
         </div>
         <div class="itx-drawer-foot">
-            @if (CanCurrentUserDecide(selectedTransferRequest) && selectedTransferRequest.ApprovalStages.Count == 0)
+            @if (CanCurrentUserConvertUntrackedRequest(selectedTransferRequest))
             {
+                <span class="itx-note" style="margin:0 auto 0 0;">
+                    <i class="bi bi-info-circle"></i>
+                    Raised in SAP, so there are no approval stages here. Converting records your
+                    authorisation and generates the transfer.
+                </span>
                 <button type="button" class="itx-btn itx-btn-primary"
                         disabled="@(isConverting || isRejecting)"
                         @onclick="() => ConvertRequest(selectedTransferRequest)">
-                    <i class="bi bi-check-circle"></i> @GetApprovalActionLabel(selectedTransferRequest)
+                    <i class="bi bi-box-arrow-in-down"></i> Convert to Transfer
                 </button>
                 <button type="button" class="itx-btn itx-btn-danger"
                         disabled="@(isConverting || isRejecting)"
+                        title="Close the request in SAP without generating a transfer"
                         @onclick="() => RejectRequest(selectedTransferRequest)">
-                    <i class="bi bi-x-circle"></i> Reject
+                    <i class="bi bi-x-circle"></i> Close in SAP
                 </button>
             }
             <button type="button" class="itx-btn" @onclick="CloseRequestModal">Close</button>
@@ -1582,6 +1588,10 @@
     // ── Editing a transfer request ──────────────────────
     private static readonly string[] RequestEditorRoles =
         [UserRoles.Admin, UserRoles.StockController, UserRoles.DepotController, UserRoles.Manager];
+    // Mirrors [Authorize] on POST api/inventorytransfer/request/{docEntry}/convert. Managers may
+    // edit a request but not convert one, so this is deliberately not RequestEditorRoles.
+    private static readonly string[] RequestConverterRoles =
+        [UserRoles.Admin, UserRoles.StockController, UserRoles.DepotController];
     private bool isEditingRequestLines = false;
     private bool isSavingRequestEdit = false;
     private bool isDecidingRequestEdit = false;
@@ -3178,6 +3188,22 @@
     private bool CanCurrentUserDecide(InventoryTransferRequestDto? request)
         => request is not null && request.ApprovalStages.Any(stage => CanCurrentUserDecideStage(request, stage));
 
+    /// <summary>
+    /// A request raised in SAP has no approval progress here, so the per-stage actions never appear
+    /// for it. Someone who could authorize it can still convert it in one step: the API records
+    /// their authorisation and generates the transfer, or converts outright when they run the source
+    /// warehouse. Mirrors the roles and the source-warehouse scope the convert endpoint enforces;
+    /// the server decides either way.
+    /// </summary>
+    private bool CanCurrentUserConvertUntrackedRequest(InventoryTransferRequestDto? request)
+        => request is not null &&
+           request.ApprovalStages.Count == 0 &&
+           IsRequestConvertible(request) &&
+           currentUserId.HasValue &&
+           currentUserRole is not null &&
+           RequestConverterRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase) &&
+           CanActOnRequestSource(request);
+
     private bool CanCurrentUserDecideStage(InventoryTransferRequestDto? request, ApprovalStageProgressModel stage)
     {
         if (!IsRequestConvertible(request) || !string.Equals(stage.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return false;
@@ -3214,8 +3240,6 @@
             request.ApprovalStages.Any(stage => stage.AuthorizerUserIds.Contains(currentUserId.Value) ||
                                                 stage.AuthorizerRoles.Contains(currentUserRole ?? string.Empty, StringComparer.OrdinalIgnoreCase)));
 
-    private string GetApprovalActionLabel(InventoryTransferRequestDto request) => "Approve";
-
     private string? GetDecisionRemarks(Guid stageId)
         => decisionRemarks.TryGetValue(stageId, out var value) ? value : null;
 
@@ -3226,7 +3250,9 @@
         "StockController" => "Stock Officer",
         "DepotController" => "Depot Controller",
         "Admin" => "Administrator",
-        null or "" => "Administrator review",
+        // No role means no approval was raised here — the request came straight from SAP. This used
+        // to read "Administrator review", which described a review that does not exist.
+        null or "" => "—",
         _ => role
     };
 
