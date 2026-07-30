@@ -1501,20 +1501,20 @@
             }
         </div>
         <div class="itx-drawer-foot">
-            @if (CanCurrentUserConvertUntrackedRequest(selectedTransferRequest))
+            @if (ShowsUntrackedRequestActions(selectedTransferRequest))
             {
+                var canConvert = CanCurrentUserConvertUntrackedRequest(selectedTransferRequest);
                 <span class="itx-note" style="margin:0 auto 0 0;">
                     <i class="bi bi-info-circle"></i>
-                    Raised in SAP, so there are no approval stages here. Converting records your
-                    authorisation and generates the transfer.
+                    @UntrackedRequestActionNote(selectedTransferRequest)
                 </span>
                 <button type="button" class="itx-btn itx-btn-primary"
-                        disabled="@(isConverting || isRejecting)"
+                        disabled="@(isConverting || isRejecting || !canConvert)"
                         @onclick="() => ConvertRequest(selectedTransferRequest)">
                     <i class="bi bi-box-arrow-in-down"></i> Convert to Transfer
                 </button>
                 <button type="button" class="itx-btn itx-btn-danger"
-                        disabled="@(isConverting || isRejecting)"
+                        disabled="@(isConverting || isRejecting || !canConvert)"
                         title="Close the request in SAP without generating a transfer"
                         @onclick="() => RejectRequest(selectedTransferRequest)">
                     <i class="bi bi-x-circle"></i> Close in SAP
@@ -3189,20 +3189,35 @@
         => request is not null && request.ApprovalStages.Any(stage => CanCurrentUserDecideStage(request, stage));
 
     /// <summary>
-    /// A request raised in SAP has no approval progress here, so the per-stage actions never appear
-    /// for it. Someone who could authorize it can still convert it in one step: the API records
-    /// their authorisation and generates the transfer, or converts outright when they run the source
-    /// warehouse. Mirrors the roles and the source-warehouse scope the convert endpoint enforces;
-    /// the server decides either way.
+    /// Whether the drawer offers a SAP-raised request's own actions at all. Such a request has no
+    /// approval progress here, so the per-stage actions never appear for it, and converting is the
+    /// only way through the app. Shown to every role the convert endpoint admits — including a
+    /// depot controller who does not run the source warehouse, who is told why it is out of reach
+    /// rather than shown an empty footer and left guessing.
     /// </summary>
-    private bool CanCurrentUserConvertUntrackedRequest(InventoryTransferRequestDto? request)
+    private bool ShowsUntrackedRequestActions(InventoryTransferRequestDto? request)
         => request is not null &&
            request.ApprovalStages.Count == 0 &&
            IsRequestConvertible(request) &&
            currentUserId.HasValue &&
            currentUserRole is not null &&
-           RequestConverterRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase) &&
-           CanActOnRequestSource(request);
+           RequestConverterRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether those actions can actually be taken. Mirrors the source-warehouse scope the convert
+    /// and close endpoints enforce, so the button is dead before it is pressed rather than after;
+    /// the server decides either way.
+    /// </summary>
+    private bool CanCurrentUserConvertUntrackedRequest(InventoryTransferRequestDto? request)
+        => ShowsUntrackedRequestActions(request) && CanActOnRequestSource(request);
+
+    private string UntrackedRequestActionNote(InventoryTransferRequestDto request)
+        => CanActOnRequestSource(request)
+            ? "Raised in SAP, so there are no approval stages here. Converting records your " +
+              "authorisation and generates the transfer."
+            : $"Raised in SAP, and {request.FromWarehouse} is not one of your assigned warehouses. " +
+              $"Converting issues stock out of {request.FromWarehouse}, so it is for whoever runs " +
+              "that warehouse, a stock officer, or an administrator.";
 
     private bool CanCurrentUserDecideStage(InventoryTransferRequestDto? request, ApprovalStageProgressModel stage)
     {

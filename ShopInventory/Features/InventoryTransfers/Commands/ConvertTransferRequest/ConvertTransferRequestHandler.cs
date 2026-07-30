@@ -32,12 +32,10 @@ public sealed class ConvertTransferRequestHandler(
             var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
             if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
 
-            // Someone who runs the source warehouse is issuing their own stock, so they convert
-            // the request outright. Everyone else goes through the approval process below.
             var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
                 command.UserId, document.FromWarehouse, cancellationToken);
             if (!scopeCheck.IsError && command.GenerateDocument &&
-                await warehouseAuthorizer.GetSourceScopeAsync(command.UserId, cancellationToken) is not null)
+                await ConvertsOutrightAsync(command, cancellationToken))
             {
                 return await ConvertWithoutApprovalAsync(command, document, cancellationToken);
             }
@@ -124,9 +122,32 @@ public sealed class ConvertTransferRequestHandler(
     }
 
     /// <summary>
+    /// Whether this caller converts the request outright rather than through the approval process.
+    /// Either way the source-warehouse check has already passed, so this only decides which route
+    /// the conversion takes — never whether the caller may convert at all.
+    /// </summary>
+    private async Task<bool> ConvertsOutrightAsync(
+        ConvertTransferRequestCommand command,
+        CancellationToken cancellationToken)
+    {
+        // A warehouse-scoped caller who cleared the check runs the source warehouse, so they are
+        // issuing their own stock.
+        if (await warehouseAuthorizer.GetSourceScopeAsync(command.UserId, cancellationToken) is not null)
+            return true;
+
+        // A request raised in SAP has no approval process here — this app was never its gate, and
+        // routing one through the engine opens the catch-all administrator stage. Only an
+        // administrator authorizes that stage, so a stock officer this endpoint admits was refused
+        // their own conversion with "You are not an authorizer for the selected approval stage".
+        // The audit log records who converted it, on this route as on the one above.
+        return !await approvalService.HasApprovalAsync(
+            ApprovalDocumentTypes.InventoryTransferRequest, command.DocEntry.ToString(), cancellationToken);
+    }
+
+    /// <summary>
     /// Converts a request the caller is authorised to issue stock for, without routing it
-    /// through the approval stages. The approval request is still closed off as generated so
-    /// the document's history reads the same either way.
+    /// through the approval stages. The approval request, where there is one, is still closed off
+    /// as generated so the document's history reads the same either way.
     /// </summary>
     private async Task<ErrorOr<TransferRequestConvertedResponseDto>> ConvertWithoutApprovalAsync(
         ConvertTransferRequestCommand command,
@@ -157,7 +178,7 @@ public sealed class ConvertTransferRequestHandler(
             {
                 await auditService.LogAsync(AuditActions.ConvertTransferRequest, "TransferRequest", command.DocEntry.ToString(),
                     $"Generated transfer {transfer.DocEntry} directly from request #{document.DocNum} " +
-                    $"(source warehouse {document.FromWarehouse} is assigned to the user)", true);
+                    $"(the user is authorised to issue stock from {document.FromWarehouse})", true);
             }
             catch { }
 

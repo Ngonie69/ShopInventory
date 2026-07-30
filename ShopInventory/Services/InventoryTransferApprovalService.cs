@@ -86,6 +86,13 @@ public interface IInventoryTransferApprovalService
     Task<(ApprovalRequestEntity Request, List<ApprovalStageProgressDto> Stages)> GetProgressAsync(
         ApprovalDocumentContext document,
         CancellationToken cancellationToken);
+    /// <summary>
+    /// Whether an approval request has already been opened for a document — a read, unlike
+    /// <see cref="GetProgressAsync"/>, which opens one. This app is the approval gate only for
+    /// documents it raised itself, so this is how a caller tells those apart from a document
+    /// that arrived from SAP without ever passing through the approval process.
+    /// </summary>
+    Task<bool> HasApprovalAsync(string documentType, string documentKey, CancellationToken cancellationToken);
     Task MarkGeneratedAsync(int requestDocEntry, int transferDocEntry, int transferDocNum, Guid generatedByUserId, bool byAuthorizer, CancellationToken cancellationToken);
     Task MarkGeneratedAsync(string documentType, string documentKey, int generatedDocEntry, int generatedDocNum, Guid generatedByUserId, bool byAuthorizer, CancellationToken cancellationToken);
     Task<List<ApprovalStageDefinitionDto>> GetStagesAsync(CancellationToken cancellationToken);
@@ -291,6 +298,11 @@ public sealed class InventoryTransferApprovalService(
         var request = await EnsureRequestAsync(document, null, cancellationToken);
         return (request, BuildProgress(request, Deserialize<ApprovalStageSnapshot>(request.StageSnapshotsJson)));
     }
+
+    public Task<bool> HasApprovalAsync(string documentType, string documentKey, CancellationToken cancellationToken)
+        => context.ApprovalRequests.AsNoTracking().AnyAsync(
+            request => request.DocumentType == documentType && request.DocumentKey == documentKey,
+            cancellationToken);
 
     public async Task<ErrorOr<ApprovalDecisionOutcomeDto>> SubmitDecisionAsync(
         ApprovalDocumentContext document,
