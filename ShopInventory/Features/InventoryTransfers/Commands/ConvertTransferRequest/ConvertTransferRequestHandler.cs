@@ -32,18 +32,18 @@ public sealed class ConvertTransferRequestHandler(
             var document = await sapClient.GetInventoryTransferRequestByDocEntryAsync(command.DocEntry, cancellationToken);
             if (document is null) return Errors.InventoryTransfer.TransferRequestNotFound(command.DocEntry);
 
-            var scopeCheck = await warehouseAuthorizer.EnsureCanActOnSourceAsync(
-                command.UserId, document.FromWarehouse, cancellationToken);
-            if (!scopeCheck.IsError && command.GenerateDocument &&
-                await ConvertsOutrightAsync(command, cancellationToken))
+            if (command.GenerateDocument)
             {
+                var conversionCheck = await warehouseAuthorizer.EnsureCanConvertRequestAsync(
+                    command.UserId, document.FromWarehouse, cancellationToken);
+                if (conversionCheck.IsError)
+                    return conversionCheck.Errors;
+
+                // Admins and stock controllers may convert any request. Depot controllers reach
+                // this point only when the source warehouse is assigned to them. The request's
+                // origin (this app or SAP) deliberately does not change that rule.
                 return await ConvertWithoutApprovalAsync(command, document, cancellationToken);
             }
-
-            // Warehouse-scoped callers may take part in the approval of a request that is not
-            // theirs, but generating the document off the back of it stays out of reach.
-            if (scopeCheck.IsError && command.GenerateDocument)
-                return scopeCheck.Errors;
 
             var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:approve:{command.GenerateDocument}";
             var acquired = await idempotencyRequestStore.TryAcquireAsync<TransferRequestConvertedResponseDto>(
@@ -122,32 +122,9 @@ public sealed class ConvertTransferRequestHandler(
     }
 
     /// <summary>
-    /// Whether this caller converts the request outright rather than through the approval process.
-    /// Either way the source-warehouse check has already passed, so this only decides which route
-    /// the conversion takes — never whether the caller may convert at all.
-    /// </summary>
-    private async Task<bool> ConvertsOutrightAsync(
-        ConvertTransferRequestCommand command,
-        CancellationToken cancellationToken)
-    {
-        // A warehouse-scoped caller who cleared the check runs the source warehouse, so they are
-        // issuing their own stock.
-        if (await warehouseAuthorizer.GetSourceScopeAsync(command.UserId, cancellationToken) is not null)
-            return true;
-
-        // A request raised in SAP has no approval process here — this app was never its gate, and
-        // routing one through the engine opens the catch-all administrator stage. Only an
-        // administrator authorizes that stage, so a stock officer this endpoint admits was refused
-        // their own conversion with "You are not an authorizer for the selected approval stage".
-        // The audit log records who converted it, on this route as on the one above.
-        return !await approvalService.HasApprovalAsync(
-            ApprovalDocumentTypes.InventoryTransferRequest, command.DocEntry.ToString(), cancellationToken);
-    }
-
-    /// <summary>
-    /// Converts a request the caller is authorised to issue stock for, without routing it
-    /// through the approval stages. The approval request, where there is one, is still closed off
-    /// as generated so the document's history reads the same either way.
+    /// Converts a request the caller is authorised to issue stock for. The approval request, where
+    /// there is one, is closed off as generated so the document history remains accurate even
+    /// though conversion does not depend on where the request originated.
     /// </summary>
     private async Task<ErrorOr<TransferRequestConvertedResponseDto>> ConvertWithoutApprovalAsync(
         ConvertTransferRequestCommand command,

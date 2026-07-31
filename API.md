@@ -1164,17 +1164,12 @@ populated only for requests raised through this API, which open an approval requ
 created. A request raised directly in SAP has none, so it comes back with `approvalStatus: null` and
 an empty `approvalStages`, and `documentStatus` is the only status it carries.
 
-Such a request is still actionable: `POST /api/InventoryTransfer/request/{docEntry}/convert` (Admin,
-StockController, DepotController) converts it outright and generates the SAP transfer in one call,
-recording the conversion in the audit log. No approval is opened — this API is the approval gate
-only for requests it raised itself, and routing a SAP-raised one through the engine put it on the
-catch-all administrator stage, which refused every caller but an administrator. A warehouse-scoped
-caller who is not assigned the source warehouse still gets 403.
-
-For a request this API *did* raise, `/convert` goes through the approval process as before: the
-caller's decision is recorded against a stage they authorize, and the SAP transfer is generated only
-once every stage is approved. The one exception is a caller assigned the source warehouse, who is
-issuing their own stock and converts outright.
+`POST /api/InventoryTransfer/request/{docEntry}/convert` applies the same rule regardless of where
+the request originated. An Admin or StockController converts it outright and generates the SAP
+transfer in one call. A DepotController does the same only when the source warehouse is in their
+`assignedWarehouseCodes`; otherwise the call returns 403. If the app raised the request, its
+approval record is marked as generated so its history stays consistent. If SAP raised it, no
+approval record is opened. Every successful conversion is recorded in the audit log.
 
 `POST /api/InventoryTransfer/request/{docEntry}/close` turns a request down, and closes the SAP
 document either way. For a request raised directly in SAP that is the whole of it — there is no
@@ -1208,9 +1203,17 @@ close.
 
 #### Approval gate on direct transfers
 
-`POST /api/InventoryTransfer` does **not** post to SAP. Quantities, warehouse codes and stock are
-validated, then the transfer is held locally and an approval request is opened against the
-configured stages. The response is `202 Accepted`:
+`POST /api/InventoryTransfer` validates quantities, warehouse codes and stock before deciding
+whether to post or hold the transfer:
+
+- A DepotController transferring entirely between warehouses in their
+  `assignedWarehouseCodes` posts immediately and returns `201 Created`.
+- If any effective destination is not assigned to that DepotController, the transfer is held for
+  Stock Officer approval. Line-level `toWarehouseCode` values are checked as well as the header.
+- A source warehouse outside the DepotController's assignments also prevents direct posting.
+- Other interactive roles retain the configured approval process.
+
+A held transfer returns `202 Accepted`:
 
 ```json
 {
@@ -1289,6 +1292,10 @@ held direct transfer. Violations return `403` with
 `InventoryTransfer.WarehouseNotAssigned`, or `InventoryTransfer.NoAssignedWarehouses` when the
 account has no warehouses at all. Administrators are unrestricted, and other roles are not
 warehouse-scoped.
+
+When a DepotController creates an actual transfer, an unassigned destination is routed to approval
+rather than refused. It remains unposted until a StockController approves it. A transfer whose
+effective source and destination warehouses are all assigned to the DepotController posts directly.
 
 A depot controller may also only **name** their own warehouses: `fromWarehouse` and `toWarehouse` on
 a request change must each be one of their `assignedWarehouseCodes`, or the call is refused with

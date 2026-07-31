@@ -51,6 +51,11 @@ public static partial class Errors
         public static readonly Error ApproverNotAuthenticated =
             Error.Unauthorized("InventoryTransfer.ApproverNotAuthenticated", "The approver is not authenticated.");
 
+        public static readonly Error TransferRequestConverterRoleRequired =
+            Error.Forbidden(
+                "InventoryTransfer.TransferRequestConverterRoleRequired",
+                "Only an administrator, stock controller, or depot controller can convert a transfer request.");
+
         public static Error ApproverRoleRequired(string roleName) =>
             Error.Forbidden("InventoryTransfer.ApproverRoleRequired", $"This transfer request must be approved by a {roleName}.");
 

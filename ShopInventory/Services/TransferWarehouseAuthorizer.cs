@@ -14,6 +14,15 @@ namespace ShopInventory.Services;
 public interface ITransferWarehouseAuthorizer
 {
     /// <summary>
+    /// Confirms the user has a role that may convert transfer requests and, for a depot
+    /// controller, that the request draws stock from one of their assigned warehouses.
+    /// </summary>
+    Task<ErrorOr<Success>> EnsureCanConvertRequestAsync(
+        Guid userId,
+        string? fromWarehouse,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Confirms the user may action a transfer that draws stock out of <paramref name="fromWarehouse"/>.
     /// </summary>
     Task<ErrorOr<Success>> EnsureCanActOnSourceAsync(Guid userId, string? fromWarehouse, CancellationToken cancellationToken);
@@ -44,6 +53,29 @@ public sealed class TransferWarehouseAuthorizer(ApplicationDbContext context) : 
         string? fromWarehouse,
         CancellationToken cancellationToken)
         => EnsureInScopeAsync(userId, fromWarehouse, Errors.InventoryTransfer.WarehouseNotAssigned, cancellationToken);
+
+    public async Task<ErrorOr<Success>> EnsureCanConvertRequestAsync(
+        Guid userId,
+        string? fromWarehouse,
+        CancellationToken cancellationToken)
+    {
+        var user = await context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == userId && item.IsActive, cancellationToken);
+        if (user is null)
+            return Errors.InventoryTransfer.ApproverNotAuthenticated;
+
+        if (string.Equals(user.Role, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(user.Role, ApplicationRoles.StockController, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result.Success;
+        }
+
+        if (!string.Equals(user.Role, ApplicationRoles.DepotController, StringComparison.OrdinalIgnoreCase))
+            return Errors.InventoryTransfer.TransferRequestConverterRoleRequired;
+
+        return await EnsureInScopeAsync(
+            userId, fromWarehouse, Errors.InventoryTransfer.WarehouseNotAssigned, cancellationToken);
+    }
 
     public Task<ErrorOr<Success>> EnsureCanAssignWarehouseAsync(
         Guid userId,

@@ -13,16 +13,12 @@ using ShopInventory.Services;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Covers who may turn a transfer request into an SAP inventory transfer, and which of the two
-/// routes their conversion takes.
+/// Covers who may turn a transfer request into an SAP inventory transfer.
 /// </summary>
 /// <remarks>
-/// The endpoint admits administrators, stock officers and depot controllers, but the approval
-/// engine is the catch-all administrator stage for a request this app never raised — so a stock
-/// officer used to be admitted to the endpoint and then refused by the stage as "not an
-/// authorizer", with no other way through the app. Converting a SAP-raised request outright is
-/// what fixes that; converting a request the app *did* raise outright would skip the approval
-/// stages it was created with, which is the thing these tests exist to stop.
+/// Administrators and stock controllers may convert regardless of whether the request originated
+/// in this app or directly in SAP. Depot controllers may convert only when stock leaves one of
+/// their assigned warehouses.
 /// </remarks>
 public sealed class TransferRequestConversionTests : IDisposable
 {
@@ -126,11 +122,10 @@ public sealed class TransferRequestConversionTests : IDisposable
     // ── A request this app raised ───────────────────────
 
     [Fact]
-    public async Task A_request_the_app_raised_still_goes_through_its_approval_stages()
+    public async Task A_stock_controller_converts_a_request_the_app_raised()
     {
-        // The request carries an approval process because the app raised it. Converting outright
-        // would walk straight past the stages it was created with, so the conversion has to be
-        // refused for anyone the stages do not authorize.
+        // An app approval record must not turn conversion into an approval-stage authorization
+        // check for a stock controller.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var officer = await AddUserAsync(ApplicationRoles.StockController);
@@ -138,18 +133,30 @@ public sealed class TransferRequestConversionTests : IDisposable
 
         var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, officer.Id), default);
 
-        Assert.True(result.IsError);
-        Assert.Equal("ApprovalProcess.NotAuthorizer", result.FirstError.Code);
-        Assert.Equal(0, sap.Conversions);
+        Assert.False(result.IsError);
+        Assert.Equal(1, sap.Conversions);
+        var approval = Assert.Single(_context.ApprovalRequests);
+        Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, approval.Status);
     }
 
     [Fact]
-    public async Task Approving_the_last_stage_of_a_request_the_app_raised_generates_the_transfer()
+    public async Task An_administrator_converts_a_request_the_app_raised()
     {
-        // A request raised by a stock officer routes to depot acceptance; the depot controller who
-        // authorizes that stage completes the process, and the transfer is generated off the back
-        // of it. Their own warehouse is not the source here, so this is the approval route, not the
-        // outright one.
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, Source);
+        await OpenApprovalAsync(requester);
+        var admin = await AddUserAsync(ApplicationRoles.Admin);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, admin.Id), default);
+
+        Assert.False(result.IsError);
+        Assert.Equal(1, sap.Conversions);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_converts_an_app_request_for_their_assigned_warehouse()
+    {
+        // Origin does not change the warehouse boundary.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
@@ -161,6 +168,35 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Equal(1, sap.Conversions);
         var approval = Assert.Single(_context.ApprovalRequests);
         Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, approval.Status);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_cannot_convert_an_app_request_for_an_unassigned_warehouse()
+    {
+        var requester = await AddUserAsync(ApplicationRoles.StockController);
+        await OpenApprovalAsync(requester);
+        var controller = await AddUserAsync(ApplicationRoles.DepotController, Destination);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, controller.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.WarehouseNotAssigned", result.FirstError.Code);
+        Assert.Equal(0, sap.Conversions);
+        Assert.Equal(ApprovalRequestStatuses.Pending, Assert.Single(_context.ApprovalRequests).Status);
+    }
+
+    [Fact]
+    public async Task A_non_converter_role_cannot_bypass_the_endpoint_role_check()
+    {
+        var manager = await AddUserAsync(ApplicationRoles.Manager);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, manager.Id), default);
+
+        Assert.True(result.IsError);
+        Assert.Equal("InventoryTransfer.TransferRequestConverterRoleRequired", result.FirstError.Code);
+        Assert.Equal(0, sap.Conversions);
     }
 
     // ── Helpers ─────────────────────────────────────────
