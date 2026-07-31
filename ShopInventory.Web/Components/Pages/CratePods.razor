@@ -9,6 +9,14 @@
 @{
     var filteredTransactions = FilteredPodTransactions.ToList();
     var selectedTransaction = SelectedPodTransaction;
+    var totalPages = Math.Max(1, (int)Math.Ceiling(filteredTransactions.Count / (double)TransactionPageSize));
+    var currentPage = ResolveTransactionPage(totalPages);
+    var firstRowNumber = filteredTransactions.Count == 0 ? 0 : ((currentPage - 1) * TransactionPageSize) + 1;
+    var lastRowNumber = Math.Min(currentPage * TransactionPageSize, filteredTransactions.Count);
+    var pagedTransactions = filteredTransactions
+        .Skip((currentPage - 1) * TransactionPageSize)
+        .Take(TransactionPageSize)
+        .ToList();
 }
 
 <div class="container-fluid fade-in staff-dashboard staff-shell crpod-page">
@@ -421,28 +429,53 @@
     }
 
     <div class="crpod-card">
-        <div class="crpod-card-header">
-            <div>
-                <h3 class="crpod-card-title">Invoice Crate Transactions</h3>
-                <p class="crpod-card-note">Driver and merchandiser crate counts for every invoice-linked transaction.</p>
+        <div class="crpod-list-header">
+            <div class="crpod-list-heading">
+                <i class="bi bi-list-task"></i>
+                <span>Invoice Crate Transactions</span>
             </div>
-            <span class="crpod-header-count">@filteredTransactions.Count of @PodEligibleTransactions.Count()</span>
+            <span class="crpod-record-count">@filteredTransactions.Count records</span>
         </div>
 
-        <div class="crpod-filter-bar">
-            <div class="crpod-filter-search">
-                <i class="bi bi-search"></i>
-                <input type="text" class="form-control crpod-input" @bind="transactionFilterSearch" @bind:event="oninput"
-                       placeholder="Search invoice #, shop, notes, or status" />
+        <div class="crpod-filter-grid">
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Search</label>
+                <input type="text" class="form-control crpod-input" @bind="TransactionFilterSearch" @bind:event="oninput"
+                       placeholder="Invoice #, shop, notes, or status" />
             </div>
-            <select class="form-select crpod-input crpod-filter-select" @bind="transactionFilterStatus">
-                <option value="all">All statuses</option>
-                <option value="PendingDriverPod">Pending Driver POD</option>
-                <option value="PendingMerchandiserPod">Pending Merch POD</option>
-                <option value="Matched">Matched</option>
-                <option value="VariancePendingGrv">Variance Pending GRV</option>
-                <option value="GrvRaised">GRV Raised</option>
-            </select>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Shop Code</label>
+                <input type="text" class="form-control crpod-input" @bind="TransactionFilterShopCode" @bind:event="oninput"
+                       placeholder="e.g. SPA055" />
+            </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Status</label>
+                <select class="form-select crpod-input" @bind="TransactionFilterStatus">
+                    <option value="all">All statuses</option>
+                    <option value="PendingDriverPod">Pending Driver POD</option>
+                    <option value="PendingMerchandiserPod">Pending Merch POD</option>
+                    <option value="Matched">Matched</option>
+                    <option value="VariancePendingGrv">Variance Pending GRV</option>
+                    <option value="GrvRaised">GRV Raised</option>
+                </select>
+            </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">From Date</label>
+                <input type="date" class="form-control crpod-input" @bind="TransactionFilterFromDate" />
+            </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">To Date</label>
+                <input type="date" class="form-control crpod-input" @bind="TransactionFilterToDate" />
+            </div>
+            @if (HasTransactionFilters)
+            {
+                <div class="crpod-filter-field crpod-filter-field-action">
+                    <button type="button" class="crpod-filter-clear" @onclick="ClearTransactionFilters">
+                        <i class="bi bi-x-circle"></i>
+                        <span>Clear</span>
+                    </button>
+                </div>
+            }
         </div>
 
         @if (!canViewCrateTransactions)
@@ -462,42 +495,61 @@
         else
         {
             <div class="crpod-table-wrap">
-                <table class="table table-hover mb-0 align-middle crpod-table mobile-card-table">
+                <table class="table mb-0 align-middle crpod-table crpod-history-table mobile-card-table">
                     <thead>
                         <tr>
-                            <th>Invoice</th>
+                            <th>Invoice #</th>
                             <th>Shop</th>
+                            <th>Date</th>
                             <th class="text-end">Expected</th>
                             <th class="text-end">Driver</th>
                             <th class="text-end">Merch</th>
+                            <th>Documents</th>
                             <th>Status</th>
                             @if (canSubmitPods && uploadMode == CratePodUploadMode.Single)
                             {
-                                <th class="text-center">Action</th>
+                                <th class="text-end">Action</th>
                             }
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var transaction in filteredTransactions)
+                        @foreach (var transaction in pagedTransactions)
                         {
                             <tr class="@(uploadMode == CratePodUploadMode.Single && selectedPodTransactionId == transaction.Id ? "crpod-row-selected" : string.Empty)">
-                                <td data-label="Invoice">
-                                    <div class="crpod-table-primary">@GetReferenceLabel(transaction)</div>
-                                    <div class="crpod-table-sub">@transaction.EffectiveDate.ToString("dd MMM yyyy")</div>
+                                <td data-label="Invoice #">
+                                    <span class="crpod-doc-badge">@(transaction.InvoiceDocNum?.ToString() ?? $"TX {transaction.Id}")</span>
                                 </td>
                                 <td data-label="Shop">
-                                    <div class="crpod-table-primary">@transaction.ShopCardCode</div>
-                                    <div class="crpod-table-sub">@(transaction.ShopName ?? "-")</div>
+                                    <div class="crpod-table-primary">@(string.IsNullOrWhiteSpace(transaction.ShopName) ? transaction.ShopCardCode : transaction.ShopName)</div>
+                                    <div class="crpod-table-sub">@transaction.ShopCardCode</div>
+                                </td>
+                                <td data-label="Date">
+                                    <div class="crpod-table-primary">@transaction.EffectiveDate.ToString("MMM dd, yyyy")</div>
+                                    <div class="crpod-table-sub">@transaction.EffectiveDate.ToString("HH:mm")</div>
                                 </td>
                                 <td data-label="Expected" class="text-end fw-semibold">@transaction.ExpectedQuantity.ToString("N2")</td>
                                 <td data-label="Driver" class="text-end">@FormatQuantity(transaction.DriverQuantity)</td>
                                 <td data-label="Merch" class="text-end">@FormatQuantity(transaction.MerchandiserQuantity)</td>
+                                <td data-label="Documents">
+                                    <div class="crpod-doc-flags">
+                                        <span class="crpod-doc-flag @(transaction.HasDriverPodDocument ? "crpod-doc-flag-on" : string.Empty)"
+                                              title="@(transaction.HasDriverPodDocument ? "Driver document attached" : "Driver document pending")">
+                                            <i class="bi @(transaction.HasDriverPodDocument ? "bi-check-circle-fill" : "bi-circle")"></i>
+                                            <span>Driver</span>
+                                        </span>
+                                        <span class="crpod-doc-flag @(transaction.HasMerchandiserPodDocument ? "crpod-doc-flag-on" : string.Empty)"
+                                              title="@(transaction.HasMerchandiserPodDocument ? "Merchandiser document attached" : "Merchandiser document pending")">
+                                            <i class="bi @(transaction.HasMerchandiserPodDocument ? "bi-check-circle-fill" : "bi-circle")"></i>
+                                            <span>Merch</span>
+                                        </span>
+                                    </div>
+                                </td>
                                 <td data-label="Status">
                                     <span class="crpod-status-badge @GetTransactionStatusTone(transaction.Status)">@GetStatusLabel(transaction.Status)</span>
                                 </td>
                                 @if (canSubmitPods && uploadMode == CratePodUploadMode.Single)
                                 {
-                                    <td data-label="Action" class="text-center">
+                                    <td data-label="Action" class="text-end">
                                         <button type="button" class="crpod-row-btn @(selectedPodTransactionId == transaction.Id ? "crpod-row-btn-active" : string.Empty)"
                                                 @onclick="() => SelectPodTransaction(transaction.Id)">
                                             @(selectedPodTransactionId == transaction.Id ? "Selected" : "Use for upload")
@@ -508,6 +560,42 @@
                         }
                     </tbody>
                 </table>
+            </div>
+
+            <div class="crpod-pagination">
+                <div class="crpod-pagination-info">
+                    Showing @firstRowNumber-@lastRowNumber of @filteredTransactions.Count
+                </div>
+                <div class="crpod-pagination-controls">
+                    <label class="crpod-pagination-size">
+                        <span>Rows</span>
+                        <select class="form-select crpod-input" @bind="TransactionPageSize">
+                            @foreach (var size in CratePageSizeOptions)
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                    </label>
+                    <div class="crpod-pagination-btns">
+                        <button type="button" class="crpod-page-btn" title="First page"
+                                disabled="@(currentPage <= 1)" @onclick="() => GoToTransactionPage(1)">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button type="button" class="crpod-page-btn" title="Previous page"
+                                disabled="@(currentPage <= 1)" @onclick="() => GoToTransactionPage(currentPage - 1)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <span class="crpod-page-indicator">Page @currentPage of @totalPages</span>
+                        <button type="button" class="crpod-page-btn" title="Next page"
+                                disabled="@(currentPage >= totalPages)" @onclick="() => GoToTransactionPage(currentPage + 1)">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button type="button" class="crpod-page-btn" title="Last page"
+                                disabled="@(currentPage >= totalPages)" @onclick="() => GoToTransactionPage(totalPages)">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
         }
     </div>

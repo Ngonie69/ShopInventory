@@ -7,8 +7,16 @@
 <PageTitle>Crate POD History - Shop Inventory</PageTitle>
 
 @{
-    var filteredPods = FilteredPodHistory.ToList();
+    var filteredRows = FilteredPodAttachmentRows.ToList();
     var attachmentCount = pods.Sum(pod => pod.Attachments.Count);
+    var totalPages = Math.Max(1, (int)Math.Ceiling(filteredRows.Count / (double)PodHistoryPageSize));
+    var currentPage = ResolvePodHistoryPage(totalPages);
+    var firstRowNumber = filteredRows.Count == 0 ? 0 : ((currentPage - 1) * PodHistoryPageSize) + 1;
+    var lastRowNumber = Math.Min(currentPage * PodHistoryPageSize, filteredRows.Count);
+    var pagedRows = filteredRows
+        .Skip((currentPage - 1) * PodHistoryPageSize)
+        .Take(PodHistoryPageSize)
+        .ToList();
 }
 
 <div class="container-fluid fade-in staff-dashboard staff-shell crpod-page">
@@ -71,31 +79,58 @@
     }
 
     <div class="crpod-card">
-        <div class="crpod-card-header">
-            <div>
-                <h3 class="crpod-card-title">Submissions</h3>
-                <p class="crpod-card-note">Every crate POD uploaded, newest first.</p>
+        <div class="crpod-list-header">
+            <div class="crpod-list-heading">
+                <i class="bi bi-list-task"></i>
+                <span>Crate POD Uploads</span>
             </div>
-            <span class="crpod-header-count">@filteredPods.Count of @pods.Count</span>
+            <span class="crpod-record-count">@filteredRows.Count records</span>
         </div>
 
-        <div class="crpod-filter-bar crpod-filter-bar-history">
-            <div class="crpod-tab-bar">
-                <button type="button" class="crpod-tab @(podHistoryRoleFilter == "all" ? "crpod-tab-active" : string.Empty)"
-                        @onclick='() => podHistoryRoleFilter = "all"'>All</button>
-                <button type="button" class="crpod-tab @(podHistoryRoleFilter == "Driver" ? "crpod-tab-active" : string.Empty)"
-                        @onclick='() => podHistoryRoleFilter = "Driver"'>Driver</button>
-                <button type="button" class="crpod-tab @(podHistoryRoleFilter == "Merchandiser" ? "crpod-tab-active" : string.Empty)"
-                        @onclick='() => podHistoryRoleFilter = "Merchandiser"'>Merchandiser</button>
+        <div class="crpod-filter-grid">
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Search</label>
+                <input type="text" class="form-control crpod-input" @bind="PodHistorySearch" @bind:event="oninput"
+                       placeholder="Invoice #, shop, file, or uploader" />
             </div>
-            <div class="crpod-filter-search">
-                <i class="bi bi-search"></i>
-                <input type="text" class="form-control crpod-input" @bind="podHistorySearch" @bind:event="oninput"
-                       placeholder="Search invoice #, shop, user, or notes" />
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Shop Code</label>
+                <input type="text" class="form-control crpod-input" @bind="PodHistoryShopCode" @bind:event="oninput"
+                       placeholder="e.g. SPA055" />
             </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Uploaded By</label>
+                <input type="text" class="form-control crpod-input" @bind="PodHistoryUploadedBy" @bind:event="oninput"
+                       placeholder="username" />
+            </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">Role</label>
+                <select class="form-select crpod-input" @bind="PodHistoryRoleFilter">
+                    <option value="all">All roles</option>
+                    <option value="Driver">Driver</option>
+                    <option value="Merchandiser">Merchandiser</option>
+                </select>
+            </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">From Date</label>
+                <input type="date" class="form-control crpod-input" @bind="PodHistoryFromDate" />
+            </div>
+            <div class="crpod-filter-field">
+                <label class="crpod-label">To Date</label>
+                <input type="date" class="form-control crpod-input" @bind="PodHistoryToDate" />
+            </div>
+            @if (HasPodHistoryFilters)
+            {
+                <div class="crpod-filter-field crpod-filter-field-action">
+                    <button type="button" class="crpod-filter-clear" @onclick="ClearPodHistoryFilters">
+                        <i class="bi bi-x-circle"></i>
+                        <span>Clear</span>
+                    </button>
+                </div>
+            }
         </div>
 
-        @if (!filteredPods.Any())
+        @if (!filteredRows.Any())
         {
             <div class="crpod-empty-state">
                 <i class="bi bi-inbox"></i>
@@ -105,83 +140,123 @@
         else
         {
             <div class="crpod-table-wrap">
-                <table class="table table-hover mb-0 align-middle crpod-table mobile-card-table">
+                <table class="table mb-0 align-middle crpod-table crpod-history-table mobile-card-table">
                     <thead>
                         <tr>
-                            <th>Invoice</th>
-                            <th>Role</th>
+                            <th>Invoice #</th>
+                            <th>Shop</th>
+                            <th>File</th>
+                            <th>Notes</th>
                             <th class="text-end">Quantity</th>
+                            <th>Size</th>
                             <th>Uploaded</th>
-                            <th>Documents</th>
+                            <th>By</th>
+                            <th class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var pod in filteredPods)
+                        @foreach (var row in pagedRows)
                         {
+                            var pod = row.Pod;
+                            var attachment = row.Attachment;
+
                             <tr>
-                                <td data-label="Invoice">
-                                    <div class="crpod-table-primary">@GetPodReferenceLabel(pod)</div>
-                                    <div class="crpod-table-sub">@pod.ShopCardCode@if (!string.IsNullOrWhiteSpace(pod.ShopName))
-                                        {
-                                            <span> - @pod.ShopName</span>
-                                        }</div>
+                                <td data-label="Invoice #">
+                                    <span class="crpod-doc-badge">@(pod.InvoiceDocNum?.ToString() ?? $"TX {pod.CrateTransactionId}")</span>
                                 </td>
-                                <td data-label="Role">
-                                    <span class="crpod-role-badge @GetSubmissionRoleTone(pod.SubmissionRole)">@pod.SubmissionRole</span>
+                                <td data-label="Shop">
+                                    <div class="crpod-table-primary">@(string.IsNullOrWhiteSpace(pod.ShopName) ? pod.ShopCardCode : pod.ShopName)</div>
+                                    <div class="crpod-table-sub">@pod.ShopCardCode</div>
                                 </td>
-                                <td data-label="Quantity" class="text-end fw-semibold">@pod.Quantity.ToString("N2")</td>
-                                <td data-label="Uploaded">
-                                    <div class="crpod-table-primary">@(pod.SubmittedByUserName ?? "Unknown user")</div>
-                                    <div class="crpod-table-sub">@pod.SubmittedAt.ToString("dd MMM yyyy HH:mm")</div>
-                                    @if (!string.IsNullOrWhiteSpace(pod.Notes))
+                                <td data-label="File">
+                                    @if (attachment is null)
                                     {
-                                        <div class="crpod-table-note">@pod.Notes</div>
-                                    }
-                                </td>
-                                <td data-label="Documents">
-                                    @if (pod.Attachments.Count == 0)
-                                    {
-                                        <span class="crpod-table-sub">No documents</span>
+                                        <div class="crpod-table-sub">No documents</div>
                                     }
                                     else
                                     {
-                                        <div class="crpod-attachments">
-                                            @foreach (var attachment in pod.Attachments)
-                                            {
-                                                <div class="crpod-attachment-card">
-                                                    <div class="crpod-attachment-meta">
-                                                        <div class="crpod-table-primary">@attachment.FileName</div>
-                                                        <div class="crpod-table-sub">@attachment.FileSizeFormatted • @attachment.UploadedAt.ToString("dd MMM yyyy HH:mm")</div>
-                                                    </div>
-                                                    <div class="crpod-attachment-actions">
-                                                        @if (CanPreviewAttachment(attachment.MimeType))
-                                                        {
-                                                            <button type="button" class="crpod-attachment-action crpod-attachment-action-view"
-                                                                    @onclick="() => ViewAttachmentAsync(attachment)">
-                                                                View
-                                                            </button>
-                                                        }
-                                                        <button type="button" class="crpod-attachment-action crpod-attachment-action-download"
-                                                                @onclick="() => DownloadAttachmentAsync(attachment)">
-                                                            Download
-                                                        </button>
-                                                        @if (canDeleteCratePods)
-                                                        {
-                                                            <button type="button" class="crpod-attachment-action crpod-attachment-action-delete"
-                                                                    @onclick="() => BeginDeleteAttachment(pod, attachment)">
-                                                                Delete
-                                                            </button>
-                                                        }
-                                                    </div>
-                                                </div>
-                                            }
-                                        </div>
+                                        <div class="crpod-file-name">@attachment.FileName</div>
+                                        <div class="crpod-table-sub">@(attachment.MimeType ?? "unknown type")</div>
                                     }
+                                </td>
+                                <td data-label="Notes" class="crpod-table-note-cell">@(string.IsNullOrWhiteSpace(pod.Notes) ? "-" : pod.Notes)</td>
+                                <td data-label="Quantity" class="text-end fw-semibold">@pod.Quantity.ToString("N2")</td>
+                                <td data-label="Size" class="crpod-size-cell">@(attachment?.FileSizeFormatted ?? "-")</td>
+                                <td data-label="Uploaded">
+                                    <div class="crpod-table-primary">@((attachment?.UploadedAt ?? pod.SubmittedAt).ToString("MMM dd, yyyy"))</div>
+                                    <div class="crpod-table-sub">@((attachment?.UploadedAt ?? pod.SubmittedAt).ToString("HH:mm"))</div>
+                                </td>
+                                <td data-label="By">
+                                    <div class="crpod-table-primary">@(pod.SubmittedByUserName ?? "Unknown user")</div>
+                                    <div class="crpod-table-sub">
+                                        <span class="crpod-role-badge @GetSubmissionRoleTone(pod.SubmissionRole)">@pod.SubmissionRole</span>
+                                    </div>
+                                </td>
+                                <td data-label="Actions" class="text-end">
+                                    <div class="crpod-actions">
+                                        @if (attachment is not null && CanPreviewAttachment(attachment.MimeType))
+                                        {
+                                            <button type="button" class="crpod-action-btn crpod-action-view" title="View"
+                                                    @onclick="() => ViewAttachmentAsync(attachment)">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                        }
+                                        @if (attachment is not null)
+                                        {
+                                            <button type="button" class="crpod-action-btn crpod-action-download" title="Download"
+                                                    @onclick="() => DownloadAttachmentAsync(attachment)">
+                                                <i class="bi bi-download"></i>
+                                            </button>
+                                        }
+                                        @if (canDeleteCratePods)
+                                        {
+                                            <button type="button" class="crpod-action-btn crpod-action-delete" title="Delete"
+                                                    @onclick="() => BeginDeleteAttachment(pod, attachment)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                    </div>
                                 </td>
                             </tr>
                         }
                     </tbody>
                 </table>
+            </div>
+
+            <div class="crpod-pagination">
+                <div class="crpod-pagination-info">
+                    Showing @firstRowNumber-@lastRowNumber of @filteredRows.Count
+                </div>
+                <div class="crpod-pagination-controls">
+                    <label class="crpod-pagination-size">
+                        <span>Rows</span>
+                        <select class="form-select crpod-input" @bind="PodHistoryPageSize">
+                            @foreach (var size in CratePageSizeOptions)
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                    </label>
+                    <div class="crpod-pagination-btns">
+                        <button type="button" class="crpod-page-btn" title="First page"
+                                disabled="@(currentPage <= 1)" @onclick="() => GoToPodHistoryPage(1)">
+                            <i class="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button type="button" class="crpod-page-btn" title="Previous page"
+                                disabled="@(currentPage <= 1)" @onclick="() => GoToPodHistoryPage(currentPage - 1)">
+                            <i class="bi bi-chevron-left"></i>
+                        </button>
+                        <span class="crpod-page-indicator">Page @currentPage of @totalPages</span>
+                        <button type="button" class="crpod-page-btn" title="Next page"
+                                disabled="@(currentPage >= totalPages)" @onclick="() => GoToPodHistoryPage(currentPage + 1)">
+                            <i class="bi bi-chevron-right"></i>
+                        </button>
+                        <button type="button" class="crpod-page-btn" title="Last page"
+                                disabled="@(currentPage >= totalPages)" @onclick="() => GoToPodHistoryPage(totalPages)">
+                            <i class="bi bi-chevron-double-right"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
         }
     </div>
