@@ -177,21 +177,33 @@ public sealed class UpdateUserHandler(
             user.AssignedCostCentreCode = null;
         }
 
-        if (command.Request.AllowedPaymentMethods != null)
+        if (ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role))
         {
-            user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
+            // These roles work across every G/L account, business partner and payment
+            // method. Clear anything a previous role left behind so the restrictions
+            // cannot outlive the role change.
+            user.SetAllowedPaymentMethods(null);
+            user.DefaultGLAccount = null;
+            user.SetAllowedPaymentBusinessPartners(null);
         }
-
-        if (command.Request.DefaultGLAccount != null)
+        else
         {
-            user.DefaultGLAccount = string.IsNullOrWhiteSpace(command.Request.DefaultGLAccount)
-                ? null
-                : command.Request.DefaultGLAccount;
-        }
+            if (command.Request.AllowedPaymentMethods != null)
+            {
+                user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
+            }
 
-        if (command.Request.AllowedPaymentBusinessPartners != null)
-        {
-            user.SetAllowedPaymentBusinessPartners(command.Request.AllowedPaymentBusinessPartners);
+            if (command.Request.DefaultGLAccount != null)
+            {
+                user.DefaultGLAccount = string.IsNullOrWhiteSpace(command.Request.DefaultGLAccount)
+                    ? null
+                    : command.Request.DefaultGLAccount;
+            }
+
+            if (command.Request.AllowedPaymentBusinessPartners != null)
+            {
+                user.SetAllowedPaymentBusinessPartners(command.Request.AllowedPaymentBusinessPartners);
+            }
         }
 
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)

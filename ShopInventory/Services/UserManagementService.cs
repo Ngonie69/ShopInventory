@@ -226,14 +226,17 @@ public class UserManagementService : IUserManagementService
         if (ApplicationRoles.RequiresAssignedSection(request.Role))
             user.AssignedSection = request.AssignedSection;
 
-        if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
-            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
+        if (!ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role))
+        {
+            if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
+                user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
 
-        if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
-            user.DefaultGLAccount = request.DefaultGLAccount;
+            if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
+                user.DefaultGLAccount = request.DefaultGLAccount;
 
-        if (request.AllowedPaymentBusinessPartners != null && request.AllowedPaymentBusinessPartners.Count > 0)
-            user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
+            if (request.AllowedPaymentBusinessPartners != null && request.AllowedPaymentBusinessPartners.Count > 0)
+                user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
+        }
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();

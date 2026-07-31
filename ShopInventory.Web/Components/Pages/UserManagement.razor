@@ -636,8 +636,8 @@
                                                             </div>
                                                         }
 
-                                                        <!-- Allowed Payment Methods (hidden for Admin, DepotController, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer, Lab) -->
-                                                        @if (userModel.Role != "Admin" && userModel.Role != "DepotController" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer" && userModel.Role != "Lab")
+                                                        <!-- Allowed Payment Methods (hidden for Admin, Cashier, DepotController, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer, Lab) -->
+                                                        @if (!UserRoles.HasUnrestrictedPaymentAccess(userModel.Role) && userModel.Role != "DepotController" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer" && userModel.Role != "Lab")
                                                         {
                                                             <div class="um-form-field um-form-full">
                                                                 <label>Allowed Payment Methods</label>
@@ -673,127 +673,18 @@
                                                                 </small>
                                                             </div>
                                                         }
-                                                        else if (userModel.Role == "Admin")
+                                                        else if (UserRoles.HasUnrestrictedPaymentAccess(userModel.Role))
                                                         {
                                                             <div class="um-form-field um-form-full">
                                                                 <label>Allowed Payment Methods</label>
                                                                 <small style="color:#059669; font-size:.82rem;">
-                                                                    <i class="bi bi-shield-check me-1"></i>Admin users automatically have access to all payment
-                                                                    methods.
+                                                                    <i class="bi bi-shield-check me-1"></i>@(userModel.Role == "Cashier" ? "Cashiers" : "Admin users")
+                                                                    automatically have access to all payment methods, every G/L account and all business
+                                                                    partners.
                                                                 </small>
                                                             </div>
                                                         }
 
-                                                        <!-- Incoming Payment Settings (Cashier only) -->
-                                                        @if (userModel.Role == "Cashier")
-                                                        {
-                                                            <div class="um-form-field um-form-full" style="margin-top: 0.5rem;">
-                                                                <div style="border-top: 1px solid #e5e7eb; padding-top: 1rem; margin-bottom: 0.5rem;">
-                                                                    <label
-                                                                        style="font-weight: 600; font-size: 0.95rem; color: #374151; display: flex; align-items: center; gap: 0.5rem;">
-                                                                        <i class="bi bi-wallet2" style="color: #059669;"></i>
-                                                                        Incoming Payment Settings
-                                                                    </label>
-                                                                    <small class="um-form-hint" style="margin-top: 0; margin-bottom: 0.75rem;">
-                                                                        Configure the G/L account and business partners this user can use when posting incoming
-                                                                        payments.
-                                                                        If not set, the system-wide defaults from Settings will be used.
-                                                                    </small>
-                                                                </div>
-                                                            </div>
-
-                                                            <div class="um-form-field">
-                                                                <label>Default G/L Account</label>
-                                                                @if (isLoadingGLAccounts)
-                                                                {
-                                                                    <div class="um-spinner-sm"></div>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <input type="text" class="um-input" placeholder="Search G/L accounts..."
-                                                                           @bind="glAccountSearchTerm" @bind:event="oninput" />
-                                                                    @if (!string.IsNullOrEmpty(userModel.DefaultGLAccount))
-                                                                    {
-                                                                        var gl = availableGLAccounts.FirstOrDefault(a => a.Code == userModel.DefaultGLAccount);
-                                                                        <div class="um-chip-wrap" style="margin-top: 0.35rem;">
-                                                                            <span class="um-chip um-chip-amber">
-                                                                                @(gl != null ? $"{gl.Code} – {gl.Name}" : userModel.DefaultGLAccount)
-                                                                                <button type="button" class="um-chip-remove"
-                                                                                        @onclick="() => { userModel.DefaultGLAccount = null; }">×</button>
-                                                                            </span>
-                                                                        </div>
-                                                                    }
-                                                                    @if (!string.IsNullOrWhiteSpace(glAccountSearchTerm))
-                                                                    {
-                                                                        <div
-                                                                            style="max-height: 180px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-top: 0.25rem;">
-                                                                            @foreach (var gl in FilteredGLAccounts.Take(20))
-                                                                            {
-                                                                                <div class="um-list-item @(userModel.DefaultGLAccount == gl.Code ? "selected" : "")"
-                                                                                     style="padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem;"
-                                                                                     @onclick="() => { userModel.DefaultGLAccount = gl.Code; glAccountSearchTerm = string.Empty; }">
-                                                                                    <strong>@gl.Code</strong> – @gl.Name
-                                                                                </div>
-                                                                            }
-                                                                        </div>
-                                                                    }
-                                                                }
-                                                                <small class="um-form-hint">The cash/bank account used for incoming payments</small>
-                                                            </div>
-
-                                                            <div class="um-form-field um-form-full">
-                                                                <label>Allowed Business Partners</label>
-                                                                @if (isLoadingPaymentBPs)
-                                                                {
-                                                                    <div class="um-spinner-sm"></div>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <input type="text" class="um-input" placeholder="Search business partners..."
-                                                                           @bind="paymentBPSearchTerm" @bind:event="oninput" />
-                                                                    @if (userModel.AllowedPaymentBusinessPartners.Count > 0)
-                                                                    {
-                                                                        <div class="um-chip-wrap" style="margin-top: 0.35rem;">
-                                                                            @foreach (var bpCode in userModel.AllowedPaymentBusinessPartners)
-                                                                            {
-                                                                                var bp = availablePaymentBPs.FirstOrDefault(b => b.CardCode == bpCode);
-                                                                                <span class="um-chip um-chip-amber">
-                                                                                    @(bp != null ? $"{bp.CardCode} – {bp.CardName}" : bpCode)
-                                                                                    <button type="button" class="um-chip-remove"
-                                                                                            @onclick="() => TogglePaymentBP(bpCode, false)">×</button>
-                                                                                </span>
-                                                                            }
-                                                                        </div>
-                                                                    }
-                                                                    <div
-                                                                        style="max-height: 200px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-top: 0.25rem;">
-                                                                        @foreach (var bp in FilteredPaymentBPs.Take(50))
-                                                                        {
-                                                                            var isChecked = userModel.AllowedPaymentBusinessPartners.Contains(bp.CardCode!);
-                                                                            <label class="um-list-item"
-                                                                                   style="display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem;">
-                                                                                <input type="checkbox" checked="@isChecked"
-                                                                                       @onchange="(e) => TogglePaymentBP(bp.CardCode!, (bool)(e.Value ?? false))" />
-                                                                                <span>
-                                                                                    <strong>@bp.CardCode</strong> – @bp.CardName
-                                                                                    @if (bp.Balance.HasValue && bp.Balance.Value != 0)
-                                                                                    {
-                                                                                        <span style="font-size: 0.75rem; color: #b45309; margin-left: 0.5rem;">
-                                                                                            Bal: @bp.Balance.Value.ToString("N2")
-                                                                                        </span>
-                                                                                    }
-                                                                                </span>
-                                                                            </label>
-                                                                        }
-                                                                    </div>
-                                                                }
-                                                                <small class="um-form-hint">
-                                                                    Select which business partners this user can choose when creating incoming payments.
-                                                                    If none are selected, the system default will be used.
-                                                                    (@userModel.AllowedPaymentBusinessPartners.Count selected)
-                                                                </small>
-                                                            </div>
-                                                        }
                                                     </div>
                                                 </div>
                                                 <div class="um-modal-footer">
@@ -3321,47 +3212,6 @@
     };
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
-    // Payment settings data (for the Cashier role)
-    private List<GLAccountDto> availableGLAccounts = new();
-    private bool isLoadingGLAccounts = false;
-    private string glAccountSearchTerm = string.Empty;
-    private List<BusinessPartnerDto> availablePaymentBPs = new();
-    private bool isLoadingPaymentBPs = false;
-    private string paymentBPSearchTerm = string.Empty;
-
-    private static readonly HashSet<string> _excludedAccountTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "at_Expenses", "at_Revenues"
-    };
-
-    private IEnumerable<GLAccountDto> FilteredGLAccounts
-    {
-        get
-        {
-            var eligible = availableGLAccounts.Where(gl => string.IsNullOrEmpty(gl.AccountType) ||
-!_excludedAccountTypes.Contains(gl.AccountType));
-            if (string.IsNullOrWhiteSpace(glAccountSearchTerm))
-                return eligible;
-            return eligible.Where(gl =>
-                (gl.Code?.Contains(glAccountSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (gl.Name?.Contains(glAccountSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
-        }
-    }
-
-    private IEnumerable<BusinessPartnerDto> FilteredPaymentBPs
-    {
-        get
-        {
-            var source = string.IsNullOrWhiteSpace(paymentBPSearchTerm)
-                ? availablePaymentBPs
-                : availablePaymentBPs.Where(bp =>
-                    (bp.CardCode?.Contains(paymentBPSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (bp.CardName?.Contains(paymentBPSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
-            return source.OrderByDescending(bp => userModel.AllowedPaymentBusinessPartners.Contains(bp.CardCode!))
-                         .ThenBy(bp => bp.CardCode);
-        }
-    }
-
     private bool showUserModal = false;
     private UserFormModel userModel = new();
     private UserDisplayModel? editingUser;
@@ -3462,8 +3312,6 @@ List<string>(AdminAvailableRoles);
                     await LoadWarehouses();
                     await LoadCustomers();
                     await LoadCostCentres();
-                    await LoadGLAccounts();
-                    await LoadPaymentBPs();
                     StateHasChanged();
                 });
             }
@@ -3585,56 +3433,6 @@ StringComparison.OrdinalIgnoreCase)))
             : businessPartner.CardName;
 
         return businessPartner.IsActive ? displayName : $"{displayName} (Inactive)";
-    }
-
-    private async Task LoadGLAccounts()
-    {
-        isLoadingGLAccounts = true;
-        try
-        {
-            var accounts = await MasterDataCache.GetGLAccountsAsync();
-            availableGLAccounts = accounts?.Where(a => a.IsActive).ToList() ?? new();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to load GL accounts: {ex.Message}");
-        }
-        finally
-        {
-            isLoadingGLAccounts = false;
-        }
-    }
-
-    private async Task LoadPaymentBPs()
-    {
-        isLoadingPaymentBPs = true;
-        try
-        {
-            var bps = await MasterDataCache.GetBusinessPartnersAsync();
-            availablePaymentBPs = bps?.Where(bp => bp.IsActive && (bp.CardType == "cCustomer" || bp.CardType == "C")).ToList() ??
-new();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to load payment business partners: {ex.Message}");
-        }
-        finally
-        {
-            isLoadingPaymentBPs = false;
-        }
-    }
-
-    private void TogglePaymentBP(string cardCode, bool isChecked)
-    {
-        if (isChecked)
-        {
-            if (!userModel.AllowedPaymentBusinessPartners.Contains(cardCode))
-                userModel.AllowedPaymentBusinessPartners.Add(cardCode);
-        }
-        else
-        {
-            userModel.AllowedPaymentBusinessPartners.Remove(cardCode);
-        }
     }
 
     private IEnumerable<BusinessPartnerDto> FilteredCustomers
@@ -4160,6 +3958,15 @@ new();
         else
         {
             model.AssignedCustomerCodes = new();
+        }
+
+        if (UserRoles.HasUnrestrictedPaymentAccess(model.Role))
+        {
+            // Cashiers and admins post against every G/L account, business partner and
+            // payment method, so no per-user payment restriction is sent for them.
+            model.AllowedPaymentMethods = new();
+            model.DefaultGLAccount = null;
+            model.AllowedPaymentBusinessPartners = new();
         }
     }
 

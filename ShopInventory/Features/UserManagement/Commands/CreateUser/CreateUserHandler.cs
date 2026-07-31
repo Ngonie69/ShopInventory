@@ -169,19 +169,22 @@ public sealed class CreateUserHandler(
             user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
         }
 
-        if (request.AllowedPaymentMethods is { Count: > 0 })
+        if (!ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role))
         {
-            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
-        }
+            if (request.AllowedPaymentMethods is { Count: > 0 })
+            {
+                user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
+            }
 
-        if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
-        {
-            user.DefaultGLAccount = request.DefaultGLAccount;
-        }
+            if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
+            {
+                user.DefaultGLAccount = request.DefaultGLAccount;
+            }
 
-        if (request.AllowedPaymentBusinessPartners is { Count: > 0 })
-        {
-            user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
+            if (request.AllowedPaymentBusinessPartners is { Count: > 0 })
+            {
+                user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
+            }
         }
 
         context.Users.Add(user);

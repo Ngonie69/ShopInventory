@@ -166,6 +166,15 @@ public static class ApplicationRoles
     public static bool RequiresAssignedCostCentreCode(string? role)
         => UsesLegacyRouteCustomerScope(role);
 
+    /// <summary>
+    /// Roles that take incoming payments across the whole ledger. They post against many
+    /// G/L accounts and any business partner, so the per-user payment restrictions
+    /// (default G/L account, allowed business partners, allowed payment methods) are never
+    /// applied to them and every payment method is available.
+    /// </summary>
+    public static bool HasUnrestrictedPaymentAccess(string? role)
+        => Contains([Admin, Cashier], role);
+
     public static string DescribeAssignableRoles() => string.Join(", ", AssignableRoles);
 
     private static bool Contains(IEnumerable<string> roles, string? role)

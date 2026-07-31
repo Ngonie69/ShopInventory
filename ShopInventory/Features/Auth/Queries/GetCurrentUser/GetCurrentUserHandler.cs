@@ -2,6 +2,7 @@ using ErrorOr;
 using MediatR;
 using ShopInventory.Common.Errors;
 using ShopInventory.DTOs;
+using ShopInventory.Models;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Auth.Queries.GetCurrentUser;
@@ -36,7 +37,10 @@ public sealed class GetCurrentUserHandler(
             AssignedWarehouseCode = user.AssignedWarehouseCode,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AssignedSection = user.AssignedSection,
-            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
+            // Roles with unrestricted payment access are never limited by a stored list.
+            AllowedPaymentMethods = ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role)
+                ? new()
+                : user.GetAllowedPaymentMethods(),
             AssignedCustomerCodes = user.GetCustomerCodes()
         };
     }

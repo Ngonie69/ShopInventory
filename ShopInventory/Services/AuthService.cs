@@ -269,6 +269,10 @@ public class AuthService : IAuthService
         _logger.LogInformation("Tokens refreshed for user {Username} from IP: {IpAddress}",
             user.Username, ipAddress);
 
+        // Roles with unrestricted payment access report no restrictions, so values stored
+        // before the role changed never reach the payment screen as claims.
+        var unrestrictedPayments = ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role);
+
         return new AuthLoginResponse
         {
             AccessToken = newAccessToken,
@@ -284,9 +288,9 @@ public class AuthService : IAuthService
                 AssignedSection = user.AssignedSection,
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-                DefaultGLAccount = user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
+                AllowedPaymentMethods = unrestrictedPayments ? new() : user.GetAllowedPaymentMethods(),
+                DefaultGLAccount = unrestrictedPayments ? null : user.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = unrestrictedPayments ? new() : user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
@@ -635,6 +639,10 @@ public class AuthService : IAuthService
         _dbContext.RefreshTokens.Add(refreshToken);
         await _dbContext.SaveChangesAsync(cancellationToken);
 
+        // Roles with unrestricted payment access report no restrictions, so values stored
+        // before the role changed never reach the payment screen as claims.
+        var unrestrictedPayments = ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role);
+
         return new AuthLoginResponse
         {
             AccessToken = accessToken,
@@ -650,9 +658,9 @@ public class AuthService : IAuthService
                 AssignedSection = user.AssignedSection,
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-                DefaultGLAccount = user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
+                AllowedPaymentMethods = unrestrictedPayments ? new() : user.GetAllowedPaymentMethods(),
+                DefaultGLAccount = unrestrictedPayments ? null : user.DefaultGLAccount,
+                AllowedPaymentBusinessPartners = unrestrictedPayments ? new() : user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
