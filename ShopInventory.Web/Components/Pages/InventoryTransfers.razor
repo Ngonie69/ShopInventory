@@ -924,9 +924,10 @@
                                 <tr>
                                     <td>
                                         <div class="strong">@line.ItemCode</div>
-                                        @if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+                                        @{ var itemName = LineItemName(line); }
+                                        @if (!string.IsNullOrWhiteSpace(itemName))
                                         {
-                                            <div class="muted">@line.ItemDescription</div>
+                                            <div class="muted">@itemName</div>
                                         }
                                     </td>
                                     <td><span class="itx-wh src">@(line.FromWarehouseCode ?? selectedPendingTransfer.FromWarehouse)</span></td>
@@ -1585,6 +1586,11 @@
     private const string ApprovedDecision = "Approved";
     private const string RejectedDecision = "NotApproved";
 
+    // Item names for the lines of drafts opened this session, keyed by item code. The API resolves
+    // descriptions from its own item table, which no sync populates, so in practice it returns the
+    // code alone and the name has to come from the web app's product cache.
+    private readonly Dictionary<string, string> pendingLineItemNames = new(StringComparer.OrdinalIgnoreCase);
+
     // ── Editing a transfer request ──────────────────────
     private static readonly string[] RequestEditorRoles =
         [UserRoles.Admin, UserRoles.StockController, UserRoles.DepotController, UserRoles.Manager];
@@ -2160,7 +2166,10 @@
             var detail = await TransferService.GetPendingTransferAsync(id.Value);
             // The drawer may have been closed or switched while the call was in flight.
             if (detail != null && selectedPendingTransfer?.Id == id)
+            {
                 selectedPendingTransfer = detail;
+                await LoadPendingLineItemNamesAsync(detail);
+            }
         }
         catch (Exception ex)
         {
@@ -2171,6 +2180,55 @@
             isLoadingPendingDetail = false;
             StateHasChanged();
         }
+    }
+
+    /// <summary>
+    /// Fills <see cref="pendingLineItemNames"/> for the draft being opened. The product cache is
+    /// held statically across circuits and is normally already warm, so this costs nothing beyond
+    /// a dictionary build; a cold cache reads the web app's own product table, never SAP.
+    /// </summary>
+    private async Task LoadPendingLineItemNamesAsync(PendingInventoryTransferDto pending)
+    {
+        var wanted = pending.Lines
+            .Select(line => line.ItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code) && !pendingLineItemNames.ContainsKey(code!))
+            .Select(code => code!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (wanted.Count == 0) return;
+
+        try
+        {
+            var products = await CacheService.GetProductsAsync();
+            foreach (var product in products)
+            {
+                if (!string.IsNullOrWhiteSpace(product.ItemCode) &&
+                    !string.IsNullOrWhiteSpace(product.ItemName) &&
+                    wanted.Contains(product.ItemCode))
+                {
+                    pendingLineItemNames[product.ItemCode] = product.ItemName;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // The code on its own is what the drawer showed before; a name is not worth failing over.
+            Logger.LogWarning(ex, "Could not resolve item names for pending transfer {PendingId}", pending.Id);
+        }
+    }
+
+    /// <summary>
+    /// The name to show under a draft line's item code: whatever the API resolved, else the web
+    /// app's product cache. Blank when neither knows the item, which leaves the bare code.
+    /// </summary>
+    private string? LineItemName(PendingInventoryTransferLineDto line)
+    {
+        if (!string.IsNullOrWhiteSpace(line.ItemDescription))
+            return line.ItemDescription;
+
+        return line.ItemCode is not null && pendingLineItemNames.TryGetValue(line.ItemCode, out var itemName)
+            ? itemName
+            : null;
     }
 
     private void ClosePendingTransfer()
@@ -2560,7 +2618,7 @@
         foreach (var line in lines)
         {
             rows.Append($"<tr><td>{lineNumber++}</td>")
-                .Append($"<td><strong>{Html(line.ItemCode)}</strong>{ItemDescriptionCell(line.ItemDescription)}</td>")
+                .Append($"<td><strong>{Html(line.ItemCode)}</strong>{ItemDescriptionCell(LineItemName(line))}</td>")
                 .Append($"<td>{Html(line.FromWarehouseCode ?? pending.FromWarehouse)}</td>")
                 .Append($"<td>{Html(line.ToWarehouseCode ?? pending.ToWarehouse)}</td>")
                 .Append($"<td class='num'>{Html(QuantityDisplay.Format(line.Quantity, line.UoMCode))}</td>")
