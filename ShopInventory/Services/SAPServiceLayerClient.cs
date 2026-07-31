@@ -47,6 +47,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
     private const string CurrenciesCacheKey = "SAP_Currencies";
     private const string PaymentTermsCacheKeyPrefix = "SAP_PaymentTerms_";
     private const string ItemCacheKeyPrefix = "SAP_Item_";
+    private const string ItemNameCacheKeyPrefix = "SAP_ItemName_";
 
     // Cost centres, currencies and payment terms are configuration: they are set up once and edited
     // rarely, but were re-read from SAP on every request that touched them.
@@ -3053,6 +3054,134 @@ ORDER BY T0.""ItemCode""";
         }
 
         return item;
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, string?>> GetItemNamesAsync(
+        IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var codes = itemCodes
+            .Select(UomQuantityValidation.NormalizeItemCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(code => code!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var namesByCode = codes.ToDictionary(
+            code => code,
+            _ => (string?)null,
+            StringComparer.OrdinalIgnoreCase);
+
+        if (codes.Count == 0)
+            return namesByCode;
+
+        // Names are re-read for every line each time someone opens a document, so the same handful
+        // of codes comes back around constantly. Only the codes this process has not resolved yet
+        // reach SAP.
+        var unresolved = new List<string>(codes.Count);
+        foreach (var code in codes)
+        {
+            if (_memoryCache.TryGetValue($"{ItemNameCacheKeyPrefix}{code}", out string? cachedName) &&
+                !string.IsNullOrWhiteSpace(cachedName))
+            {
+                namesByCode[code] = cachedName;
+            }
+            else
+            {
+                unresolved.Add(code);
+            }
+        }
+
+        if (unresolved.Count == 0)
+            return namesByCode;
+
+        try
+        {
+            await EnsureAuthenticatedAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The caller can live without the names; it cannot live with an exception.
+            _logger.LogWarning(ex, "Could not reach SAP to resolve {RequestedCount} item names", unresolved.Count);
+            return namesByCode;
+        }
+
+        foreach (var chunk in unresolved.Chunk(40))
+        {
+            try
+            {
+                var itemFilter = string.Join(
+                    " or ",
+                    chunk.Select(code => $"ItemCode eq '{SanitizeODataValue(code)}'"));
+                var endpoint =
+                    $"Items?$select=ItemCode,ItemName&$filter=({itemFilter})&$top={chunk.Length}";
+
+                var requestSession = _sessionId;
+
+                HttpRequestMessage CreateRequest(string? sessionId)
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+                    request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    return request;
+                }
+
+                var response = await _httpClient.SendAsync(CreateRequest(requestSession), cancellationToken);
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    await HandleAuthFailureAsync(requestSession, cancellationToken);
+                    response = await _httpClient.SendAsync(CreateRequest(_sessionId), cancellationToken);
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogWarning(
+                        "Failed to bulk-fetch item names: {StatusCode} - {Error}",
+                        response.StatusCode,
+                        errorContent);
+                    continue;
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var result = JsonSerializer.Deserialize<SAPResponse<Item>>(content);
+                foreach (var item in result?.Value ?? [])
+                {
+                    var resolvedCode = UomQuantityValidation.NormalizeItemCode(item.ItemCode);
+                    if (resolvedCode is null)
+                        continue;
+
+                    namesByCode[resolvedCode] = item.ItemName;
+
+                    // Only a name that came back is worth keeping. A code SAP had no answer for may
+                    // be a transient gap rather than a missing item, and caching the blank would
+                    // hold the bare code in front of the reader for the whole lifetime.
+                    if (!string.IsNullOrWhiteSpace(item.ItemName))
+                    {
+                        _memoryCache.Set(
+                            $"{ItemNameCacheKeyPrefix}{resolvedCode}",
+                            item.ItemName,
+                            ItemCacheLifetime);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to bulk-fetch item names for {Count} items", chunk.Length);
+            }
+        }
+
+        return namesByCode;
     }
 
     public async Task<List<BatchNumber>> GetBatchNumbersForItemInWarehouseAsync(

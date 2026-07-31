@@ -121,6 +121,21 @@ public interface ISAPServiceLayerClient
     Task<List<Item>> GetItemsInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);
     Task<(List<Item> Items, bool HasMore)> GetPagedItemsInWarehouseAsync(string warehouseCode, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<Item?> GetItemByCodeAsync(string itemCode, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves item names for the given codes, for display next to a bare item code.
+    /// </summary>
+    /// <remarks>
+    /// Best effort throughout: every requested code comes back as a key, carrying null where SAP
+    /// had no answer, and a chunk that fails is logged and skipped rather than thrown. Callers use
+    /// this to label a code they can already show on its own, so a missing name must not fail their
+    /// read. It reads the Items entity set directly rather than through SQLQueries, so unlike the
+    /// bulk SQL lookups it leaves no query object behind in SAP.
+    ///
+    /// Resolved names are cached in-process for 30 minutes, per code, so only codes this process has
+    /// not seen reach SAP. Codes it could not resolve are not cached, and are retried next call.
+    /// </remarks>
+    Task<Dictionary<string, string?>> GetItemNamesAsync(IEnumerable<string> itemCodes, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetBatchNumbersForItemInWarehouseAsync(string itemCode, string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetBatchNumbersForItemsInWarehouseAsync(IEnumerable<string> itemCodes, string warehouseCode, CancellationToken cancellationToken = default);
     Task<List<BatchNumber>> GetAllBatchNumbersInWarehouseAsync(string warehouseCode, CancellationToken cancellationToken = default);

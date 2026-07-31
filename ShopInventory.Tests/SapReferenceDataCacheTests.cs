@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -139,6 +140,52 @@ public class SapReferenceDataCacheTests
         Assert.Equal(1, sap.CountFor("Items"));
     }
 
+    [Fact]
+    public async Task Item_names_are_cached_per_code()
+    {
+        // Held-transfer lines resolve a name per code every time an approver opens the drawer.
+        var sap = new ReferenceDataServer();
+        var client = CreateClient(sap);
+
+        var first = await client.GetItemNamesAsync(["ITEM-A", "ITEM-B"]);
+        var second = await client.GetItemNamesAsync(["ITEM-A", "ITEM-B"]);
+
+        Assert.Equal("Item A", first["ITEM-A"]);
+        Assert.Equal("Item B", second["ITEM-B"]);
+        Assert.Equal(1, sap.CountFor("Items"));
+    }
+
+    [Fact]
+    public async Task Only_the_item_names_not_already_cached_are_asked_for()
+    {
+        var sap = new ReferenceDataServer();
+        var client = CreateClient(sap);
+
+        await client.GetItemNamesAsync(["ITEM-A"]);
+        var second = await client.GetItemNamesAsync(["item-a", "ITEM-B"]);
+
+        // The known code is matched case-insensitively, as codes are normalised before use, so the
+        // second read asks SAP about the new code alone.
+        Assert.Equal("Item A", second["ITEM-A"]);
+        Assert.Equal(2, sap.CountFor("Items"));
+        Assert.DoesNotContain("ITEM-A", sap.UrlsFor("Items")[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_item_name_that_did_not_come_back_is_asked_for_again()
+    {
+        // A code SAP had no answer for may be a transient gap rather than a missing item. Caching
+        // the blank would hold a bare item code in front of the reader for the full lifetime.
+        var sap = new ReferenceDataServer();
+        var client = CreateClient(sap);
+
+        await client.GetItemNamesAsync(["ITEM-GONE"]);
+        var second = await client.GetItemNamesAsync(["ITEM-GONE"]);
+
+        Assert.Null(second["ITEM-GONE"]);
+        Assert.Equal(2, sap.CountFor("Items"));
+    }
+
     private static SAPServiceLayerClient CreateClient(ReferenceDataServer sap)
     {
         var httpClient = new HttpClient(sap) { BaseAddress = new Uri("https://sap.invalid/b1s/v1/") };
@@ -159,6 +206,14 @@ public class SapReferenceDataCacheTests
 
     private sealed class ReferenceDataServer : HttpMessageHandler
     {
+        private static readonly Dictionary<string, string> KnownItemNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ITEM-A"] = "Item A",
+            ["ITEM-B"] = "Item B"
+        };
+
+        private static readonly Regex ItemCodeFilter = new(@"ItemCode eq '([^']+)'", RegexOptions.Compiled);
+
         private readonly List<string> _urls = [];
 
         /// <summary>Requests for a single profit centre by key, rather than the list.</summary>
@@ -213,6 +268,19 @@ public class SapReferenceDataCacheTests
             if (target.Contains("/Items(", StringComparison.Ordinal))
             {
                 return Task.FromResult(Json("{\"ItemCode\":\"ITEM-A\",\"ItemName\":\"An item\",\"SalesUnit\":\"EA\"}"));
+            }
+
+            if (target.Contains("/Items?", StringComparison.Ordinal))
+            {
+                // Answers the codes the filter names, and stays silent about the ones it does not
+                // know — which is how SAP reports a code that is not in the item master.
+                var rows = ItemCodeFilter
+                    .Matches(Uri.UnescapeDataString(target))
+                    .Select(match => match.Groups[1].Value)
+                    .Where(code => KnownItemNames.ContainsKey(code))
+                    .Select(code => $"{{\"ItemCode\":\"{code}\",\"ItemName\":\"{KnownItemNames[code]}\"}}");
+
+                return Task.FromResult(Json($"{{\"value\":[{string.Join(",", rows)}]}}"));
             }
 
             return Task.FromResult(Json("{\"value\":[]}"));
