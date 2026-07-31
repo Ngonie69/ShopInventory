@@ -8,10 +8,24 @@ namespace ShopInventory.Web.Components.Pages;
 
 public abstract class CratePodsPageBase : CrateTrackingPageBase
 {
-    protected string transactionFilterSearch = string.Empty;
-    protected string transactionFilterStatus = "all";
-    protected string podHistorySearch = string.Empty;
-    protected string podHistoryRoleFilter = "all";
+    protected static readonly int[] CratePageSizeOptions = [25, 50, 100];
+
+    private string transactionFilterSearch = string.Empty;
+    private string transactionFilterStatus = "all";
+    private string transactionFilterShopCode = string.Empty;
+    private DateTime? transactionFilterFromDate;
+    private DateTime? transactionFilterToDate;
+    private int transactionPage = 1;
+    private int transactionPageSize = 25;
+
+    private string podHistorySearch = string.Empty;
+    private string podHistoryRoleFilter = "all";
+    private string podHistoryShopCode = string.Empty;
+    private string podHistoryUploadedBy = string.Empty;
+    private DateTime? podHistoryFromDate;
+    private DateTime? podHistoryToDate;
+    private int podHistoryPage = 1;
+    private int podHistoryPageSize = 25;
 
     protected CratePodUploadMode uploadMode = CratePodUploadMode.Single;
     protected int bulkPodFileKey;
@@ -72,13 +86,194 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
         public string? ErrorMessage { get; set; }
     }
 
+    // Every transaction filter resets the pager, otherwise a narrowed list lands the user on an empty page.
+    protected string TransactionFilterSearch
+    {
+        get => transactionFilterSearch;
+        set => SetTransactionFilter(ref transactionFilterSearch, value);
+    }
+
+    protected string TransactionFilterStatus
+    {
+        get => transactionFilterStatus;
+        set => SetTransactionFilter(ref transactionFilterStatus, value);
+    }
+
+    protected string TransactionFilterShopCode
+    {
+        get => transactionFilterShopCode;
+        set => SetTransactionFilter(ref transactionFilterShopCode, value);
+    }
+
+    protected DateTime? TransactionFilterFromDate
+    {
+        get => transactionFilterFromDate;
+        set => SetTransactionFilter(ref transactionFilterFromDate, value);
+    }
+
+    protected DateTime? TransactionFilterToDate
+    {
+        get => transactionFilterToDate;
+        set => SetTransactionFilter(ref transactionFilterToDate, value);
+    }
+
+    protected int TransactionPageSize
+    {
+        get => transactionPageSize;
+        set
+        {
+            transactionPageSize = CratePageSizeOptions.Contains(value) ? value : CratePageSizeOptions[0];
+            transactionPage = 1;
+        }
+    }
+
+    protected int TransactionPage => transactionPage;
+
+    protected bool HasTransactionFilters =>
+        !string.IsNullOrWhiteSpace(transactionFilterSearch) ||
+        !string.IsNullOrWhiteSpace(transactionFilterShopCode) ||
+        !string.Equals(transactionFilterStatus, "all", StringComparison.OrdinalIgnoreCase) ||
+        transactionFilterFromDate.HasValue ||
+        transactionFilterToDate.HasValue;
+
     protected IEnumerable<CrateTransactionDto> FilteredPodTransactions => PodEligibleTransactions
-        .Where(transaction => MatchesTransactionFilters(transaction, transactionFilterSearch, transactionFilterStatus));
+        .Where(MatchesTransactionFilters);
+
+    protected void ClearTransactionFilters()
+    {
+        transactionFilterSearch = string.Empty;
+        transactionFilterShopCode = string.Empty;
+        transactionFilterStatus = "all";
+        transactionFilterFromDate = null;
+        transactionFilterToDate = null;
+        transactionPage = 1;
+    }
+
+    /// <summary>
+    /// Clamps the current page to the available range and returns it. Called while rendering,
+    /// so the pager never points past the end after a filter or a refresh shrinks the list.
+    /// </summary>
+    protected int ResolveTransactionPage(int totalPages)
+    {
+        transactionPage = Math.Clamp(transactionPage, 1, Math.Max(totalPages, 1));
+        return transactionPage;
+    }
+
+    protected void GoToTransactionPage(int page)
+    {
+        transactionPage = Math.Max(page, 1);
+    }
+
+    private void SetTransactionFilter<T>(ref T field, T value)
+    {
+        field = value;
+        transactionPage = 1;
+    }
+
+    // Same pager contract as the transaction list: every filter write returns to page one.
+    protected string PodHistorySearch
+    {
+        get => podHistorySearch;
+        set => SetPodHistoryFilter(ref podHistorySearch, value);
+    }
+
+    protected string PodHistoryRoleFilter
+    {
+        get => podHistoryRoleFilter;
+        set => SetPodHistoryFilter(ref podHistoryRoleFilter, value);
+    }
+
+    protected string PodHistoryShopCode
+    {
+        get => podHistoryShopCode;
+        set => SetPodHistoryFilter(ref podHistoryShopCode, value);
+    }
+
+    protected string PodHistoryUploadedBy
+    {
+        get => podHistoryUploadedBy;
+        set => SetPodHistoryFilter(ref podHistoryUploadedBy, value);
+    }
+
+    protected DateTime? PodHistoryFromDate
+    {
+        get => podHistoryFromDate;
+        set => SetPodHistoryFilter(ref podHistoryFromDate, value);
+    }
+
+    protected DateTime? PodHistoryToDate
+    {
+        get => podHistoryToDate;
+        set => SetPodHistoryFilter(ref podHistoryToDate, value);
+    }
+
+    protected int PodHistoryPageSize
+    {
+        get => podHistoryPageSize;
+        set
+        {
+            podHistoryPageSize = CratePageSizeOptions.Contains(value) ? value : CratePageSizeOptions[0];
+            podHistoryPage = 1;
+        }
+    }
 
     protected IEnumerable<CratePodSubmissionDto> FilteredPodHistory => pods
-        .Where(pod => MatchesPodFilters(pod, podHistorySearch, podHistoryRoleFilter))
+        .Where(MatchesPodHistoryFilters)
         .OrderByDescending(pod => pod.SubmittedAt)
         .ThenByDescending(pod => pod.InvoiceDocNum);
+
+    /// <summary>
+    /// One row per uploaded file, so the history reads like the product POD upload list.
+    /// Submissions without documents still get a row, otherwise they would vanish from the page.
+    /// </summary>
+    protected IEnumerable<CratePodAttachmentRow> FilteredPodAttachmentRows => FilteredPodHistory
+        .SelectMany(pod => pod.Attachments.Count == 0
+            ? Enumerable.Repeat(new CratePodAttachmentRow(pod, null), 1)
+            : pod.Attachments
+                .OrderByDescending(attachment => attachment.UploadedAt)
+                .Select(attachment => new CratePodAttachmentRow(pod, attachment)));
+
+    protected bool HasPodHistoryFilters =>
+        !string.IsNullOrWhiteSpace(podHistorySearch) ||
+        !string.IsNullOrWhiteSpace(podHistoryShopCode) ||
+        !string.IsNullOrWhiteSpace(podHistoryUploadedBy) ||
+        !string.Equals(podHistoryRoleFilter, "all", StringComparison.OrdinalIgnoreCase) ||
+        podHistoryFromDate.HasValue ||
+        podHistoryToDate.HasValue;
+
+    protected sealed record CratePodAttachmentRow(CratePodSubmissionDto Pod, DocumentAttachmentDto? Attachment);
+
+    protected void ClearPodHistoryFilters()
+    {
+        podHistorySearch = string.Empty;
+        podHistoryShopCode = string.Empty;
+        podHistoryUploadedBy = string.Empty;
+        podHistoryRoleFilter = "all";
+        podHistoryFromDate = null;
+        podHistoryToDate = null;
+        podHistoryPage = 1;
+    }
+
+    /// <summary>
+    /// Clamps the current page to the available range and returns it, so deleting the last
+    /// document on a page cannot strand the user past the end of the list.
+    /// </summary>
+    protected int ResolvePodHistoryPage(int totalPages)
+    {
+        podHistoryPage = Math.Clamp(podHistoryPage, 1, Math.Max(totalPages, 1));
+        return podHistoryPage;
+    }
+
+    protected void GoToPodHistoryPage(int page)
+    {
+        podHistoryPage = Math.Max(page, 1);
+    }
+
+    private void SetPodHistoryFilter<T>(ref T field, T value)
+    {
+        field = value;
+        podHistoryPage = 1;
+    }
 
     protected CrateTransactionDto? SelectedPodTransaction => selectedPodTransactionId.HasValue
         ? PodEligibleTransactions.FirstOrDefault(transaction => transaction.Id == selectedPodTransactionId.Value)
@@ -550,7 +745,7 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
         attachmentViewerMimeType = null;
     }
 
-    protected void BeginDeleteAttachment(CratePodSubmissionDto pod, DocumentAttachmentDto attachment)
+    protected void BeginDeleteAttachment(CratePodSubmissionDto pod, DocumentAttachmentDto? attachment)
     {
         if (!canDeleteCratePods)
         {
@@ -608,20 +803,37 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
         }
     }
 
-    protected static bool MatchesTransactionFilters(CrateTransactionDto transaction, string? search, string? status)
+    protected bool MatchesTransactionFilters(CrateTransactionDto transaction)
     {
-        if (!string.IsNullOrWhiteSpace(status) && !string.Equals(status, "all", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(transaction.Status, status, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(transactionFilterStatus) &&
+            !string.Equals(transactionFilterStatus, "all", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(transaction.Status, transactionFilterStatus, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(search))
+        if (!string.IsNullOrWhiteSpace(transactionFilterShopCode) &&
+            !transaction.ShopCardCode.Contains(transactionFilterShopCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (transactionFilterFromDate.HasValue && transaction.EffectiveDate.Date < transactionFilterFromDate.Value.Date)
+        {
+            return false;
+        }
+
+        if (transactionFilterToDate.HasValue && transaction.EffectiveDate.Date > transactionFilterToDate.Value.Date)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(transactionFilterSearch))
         {
             return true;
         }
 
-        var term = search.Trim();
+        var term = transactionFilterSearch.Trim();
         return (transaction.InvoiceDocNum?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                transaction.ShopCardCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                (transaction.ShopName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
@@ -629,25 +841,49 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
                (transaction.Notes?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
-    protected static bool MatchesPodFilters(CratePodSubmissionDto pod, string? search, string? role)
+    protected bool MatchesPodHistoryFilters(CratePodSubmissionDto pod)
     {
-        if (!string.IsNullOrWhiteSpace(role) && !string.Equals(role, "all", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(pod.SubmissionRole, role, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(podHistoryRoleFilter) &&
+            !string.Equals(podHistoryRoleFilter, "all", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(pod.SubmissionRole, podHistoryRoleFilter, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(search))
+        if (!string.IsNullOrWhiteSpace(podHistoryShopCode) &&
+            !pod.ShopCardCode.Contains(podHistoryShopCode.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(podHistoryUploadedBy) &&
+            (pod.SubmittedByUserName?.Contains(podHistoryUploadedBy.Trim(), StringComparison.OrdinalIgnoreCase) != true))
+        {
+            return false;
+        }
+
+        if (podHistoryFromDate.HasValue && pod.SubmittedAt.Date < podHistoryFromDate.Value.Date)
+        {
+            return false;
+        }
+
+        if (podHistoryToDate.HasValue && pod.SubmittedAt.Date > podHistoryToDate.Value.Date)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(podHistorySearch))
         {
             return true;
         }
 
-        var term = search.Trim();
+        var term = podHistorySearch.Trim();
         return (pod.InvoiceDocNum?.ToString().Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                pod.ShopCardCode.Contains(term, StringComparison.OrdinalIgnoreCase) ||
                (pod.ShopName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
                (pod.SubmittedByUserName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-               (pod.Notes?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+               (pod.Notes?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
+               pod.Attachments.Any(attachment => attachment.FileName.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
     protected static string GetTransactionStatusTone(string status)

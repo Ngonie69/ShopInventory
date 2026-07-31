@@ -724,6 +724,275 @@
         border-color: #0f766e;
     }
 
+    /* ---------- Upload list header + filter grid ---------- */
+    /* Mirrors .pod-list-header / .pod-filter-bar on the product POD page so both
+       upload lists read as the same screen. */
+
+    .crpod-list-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.2rem;
+        border-bottom: 1px solid #eef2f7;
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        color: #0f172a;
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .crpod-list-heading {
+        display: inline-flex;
+        align-items: center;
+        gap: .5rem;
+        min-width: 0;
+    }
+
+    .crpod-record-count {
+        font-size: .8rem;
+        font-weight: 500;
+        color: #64748b;
+        background: #f1f5f9;
+        border-radius: 999px;
+        padding: .25rem .75rem;
+        white-space: nowrap;
+    }
+
+    .crpod-filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        align-items: end;
+        gap: .75rem;
+        padding: 1rem 1.2rem;
+        border-bottom: 1px solid #eef2f7;
+        background: #fbfdff;
+    }
+
+    .crpod-filter-field {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .crpod-filter-field-action {
+        justify-content: flex-end;
+    }
+
+    .crpod-filter-clear {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: .4rem;
+        min-height: 44px;
+        border: 1px solid #dbe4ea;
+        border-radius: 12px;
+        background: #fff;
+        color: #475569;
+        font-size: .84rem;
+        font-weight: 600;
+        transition: border-color .15s ease, color .15s ease;
+    }
+
+    .crpod-filter-clear:hover {
+        border-color: #0f766e;
+        color: #0f766e;
+    }
+
+    /* ---------- Upload list rows ---------- */
+
+    .crpod-doc-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 58px;
+        padding: .3rem .65rem;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #0f766e, #14b8a6);
+        color: #fff;
+        font-size: .85rem;
+        font-weight: 700;
+        letter-spacing: .02em;
+        white-space: nowrap;
+    }
+
+    .crpod-file-name {
+        color: #0f172a;
+        font-size: .85rem;
+        font-weight: 600;
+        word-break: break-word;
+    }
+
+    .crpod-table-note-cell {
+        color: #64748b;
+    }
+
+    .crpod-size-cell {
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+    }
+
+    .crpod-history-table tbody td {
+        vertical-align: middle;
+    }
+
+    .crpod-history-table tbody tr:hover td {
+        background: #f0fdfa;
+    }
+
+    .crpod-actions {
+        display: flex;
+        gap: .35rem;
+        justify-content: flex-end;
+    }
+
+    .crpod-action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        background: transparent;
+        font-size: .95rem;
+        transition: background .2s ease, border-color .2s ease;
+    }
+
+    .crpod-action-view {
+        color: #0f766e;
+    }
+
+    .crpod-action-view:hover {
+        background: #f0fdfa;
+        border-color: #99f6e4;
+    }
+
+    .crpod-action-download {
+        color: #0369a1;
+    }
+
+    .crpod-action-download:hover {
+        background: #f0f9ff;
+        border-color: #7dd3fc;
+    }
+
+    .crpod-action-delete {
+        color: #dc2626;
+    }
+
+    .crpod-action-delete:hover {
+        background: #fef2f2;
+        border-color: #fca5a5;
+    }
+
+    .crpod-doc-flags {
+        display: flex;
+        gap: .35rem;
+        flex-wrap: wrap;
+    }
+
+    .crpod-doc-flag {
+        display: inline-flex;
+        align-items: center;
+        gap: .3rem;
+        padding: .25rem .55rem;
+        border-radius: 999px;
+        background: #f1f5f9;
+        color: #94a3b8;
+        font-size: .72rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .crpod-doc-flag-on {
+        background: #ecfdf5;
+        color: #047857;
+    }
+
+    /* ---------- Pagination ---------- */
+
+    .crpod-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .75rem;
+        flex-wrap: wrap;
+        padding: .85rem 1.2rem;
+        border-top: 1px solid #eef2f7;
+        background: #fbfdff;
+    }
+
+    .crpod-pagination-info {
+        font-size: .8rem;
+        color: #64748b;
+        font-weight: 500;
+    }
+
+    .crpod-pagination-controls {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        flex-wrap: wrap;
+    }
+
+    .crpod-pagination-size {
+        display: inline-flex;
+        align-items: center;
+        gap: .45rem;
+        margin: 0;
+        font-size: .8rem;
+        font-weight: 600;
+        color: #64748b;
+    }
+
+    .crpod-pagination-size .crpod-input {
+        width: auto;
+        min-height: 36px;
+        padding-top: .25rem;
+        padding-bottom: .25rem;
+        font-size: .82rem;
+    }
+
+    .crpod-pagination-btns {
+        display: flex;
+        align-items: center;
+        gap: .25rem;
+    }
+
+    .crpod-page-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid #dbe4ea;
+        border-radius: 10px;
+        background: #fff;
+        color: #475569;
+        font-size: .9rem;
+        transition: border-color .15s ease, color .15s ease, background .15s ease;
+    }
+
+    .crpod-page-btn:hover:not(:disabled) {
+        border-color: #0f766e;
+        color: #0f766e;
+        background: #f0fdfa;
+    }
+
+    .crpod-page-btn:disabled {
+        opacity: .45;
+        cursor: not-allowed;
+    }
+
+    .crpod-page-indicator {
+        padding: 0 .5rem;
+        font-size: .82rem;
+        font-weight: 600;
+        color: #0f172a;
+        white-space: nowrap;
+    }
+
     /* ---------- Tables ---------- */
 
     .crpod-table-wrap {
@@ -985,7 +1254,9 @@
         .crpod-hero,
         .crpod-card-header,
         .crpod-card-body,
-        .crpod-filter-bar {
+        .crpod-filter-bar,
+        .crpod-list-header,
+        .crpod-filter-grid {
             padding-left: 1rem;
             padding-right: 1rem;
         }
@@ -1044,9 +1315,38 @@
         }
 
         .crpod-card-header,
-        .crpod-filter-bar {
+        .crpod-filter-bar,
+        .crpod-list-header {
             flex-direction: column;
             align-items: stretch;
+        }
+
+        .crpod-filter-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .crpod-filter-clear {
+            width: 100%;
+        }
+
+        .crpod-actions {
+            justify-content: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .crpod-pagination {
+            flex-direction: column;
+            align-items: stretch;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .crpod-pagination-controls {
+            justify-content: space-between;
+        }
+
+        .crpod-pagination-info {
+            text-align: center;
         }
 
         .crpod-segment {
@@ -1142,9 +1442,110 @@
 
     .dark-theme .crpod-card-header,
     .dark-theme .crpod-filter-bar,
+    .dark-theme .crpod-list-header,
+    .dark-theme .crpod-filter-grid,
     .dark-theme .crpod-table thead th {
         background: #0f172a;
         border-color: #334155;
+    }
+
+    .dark-theme .crpod-list-header {
+        color: #f8fafc;
+    }
+
+    .dark-theme .crpod-record-count,
+    .dark-theme .crpod-table-note-cell {
+        color: #94a3b8;
+    }
+
+    .dark-theme .crpod-record-count {
+        background: #334155;
+    }
+
+    .dark-theme .crpod-file-name {
+        color: #f8fafc;
+    }
+
+    .dark-theme .crpod-filter-clear {
+        background: #1e293b;
+        border-color: #334155;
+        color: #cbd5e1;
+    }
+
+    .dark-theme .crpod-filter-clear:hover {
+        border-color: #2dd4bf;
+        color: #2dd4bf;
+    }
+
+    .dark-theme .crpod-history-table tbody tr:hover td {
+        background: rgba(45, 212, 191, 0.08);
+    }
+
+    .dark-theme .crpod-action-btn {
+        color: #e2e8f0;
+    }
+
+    .dark-theme .crpod-action-view {
+        color: #2dd4bf;
+    }
+
+    .dark-theme .crpod-action-view:hover {
+        background: rgba(45, 212, 191, 0.14);
+        border-color: rgba(45, 212, 191, 0.28);
+    }
+
+    .dark-theme .crpod-action-download {
+        color: #93c5fd;
+    }
+
+    .dark-theme .crpod-action-download:hover {
+        background: rgba(59, 130, 246, 0.14);
+        border-color: rgba(59, 130, 246, 0.28);
+    }
+
+    .dark-theme .crpod-action-delete {
+        color: #fca5a5;
+    }
+
+    .dark-theme .crpod-action-delete:hover {
+        background: rgba(220, 38, 38, 0.18);
+        border-color: rgba(248, 113, 113, 0.28);
+    }
+
+    .dark-theme .crpod-doc-flag {
+        background: #1e293b;
+        color: #94a3b8;
+    }
+
+    .dark-theme .crpod-doc-flag-on {
+        background: rgba(5, 150, 105, 0.18);
+        color: #6ee7b7;
+    }
+
+    .dark-theme .crpod-pagination {
+        background: #0f172a;
+        border-color: #334155;
+    }
+
+    .dark-theme .crpod-pagination-info,
+    .dark-theme .crpod-pagination-size {
+        color: #94a3b8;
+    }
+
+    .dark-theme .crpod-page-indicator {
+        color: #f8fafc;
+    }
+
+    .dark-theme .crpod-page-btn {
+        background: #1e293b;
+        border-color: #334155;
+        color: #cbd5e1;
+    }
+
+    .dark-theme .crpod-page-btn:hover:not(:disabled) {
+        background: rgba(45, 212, 191, 0.14);
+        border-color: #2dd4bf;
+        color: #2dd4bf;
     }
 
     .dark-theme .crpod-card-title,
