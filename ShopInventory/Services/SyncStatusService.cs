@@ -335,10 +335,11 @@ public class SyncStatusService : ISyncStatusService
         var queueStatus = await offlineQueueService.GetQueueStatusAsync(cancellationToken);
         var healthSummary = await GetHealthSummaryAsync(cancellationToken);
 
-        // Get cache sync statuses
+        // Get cache sync statuses. There is deliberately no "Products" row: nothing writes the
+        // API's Products table, so it only ever reported 0 items and "Unknown", which reads as a
+        // broken sync rather than a cache that does not exist. Item names now come from SAP.
         var cacheStatuses = new List<CacheSyncStatusDto>
         {
-            await GetCacheSyncStatusAsync("Products", cancellationToken),
             await GetCacheSyncStatusAsync("Prices", cancellationToken),
             await GetCacheSyncStatusAsync("BusinessPartners", cancellationToken),
             await GetCacheSyncStatusAsync("Warehouses", cancellationToken),
@@ -485,16 +486,6 @@ public class SyncStatusService : ISyncStatusService
         {
             switch (cacheKey)
             {
-                case CacheStatusKeys.Products:
-                    {
-                        var itemCount = await _context.Products.CountAsync(cancellationToken);
-                        var lastSyncedAt = await _context.Products
-                            .Where(p => p.LastSyncedAt != null)
-                            .OrderByDescending(p => p.LastSyncedAt)
-                            .Select(p => p.LastSyncedAt)
-                            .FirstOrDefaultAsync(cancellationToken);
-                        return BuildCacheStatus(cacheKey, cacheKey, itemCount, lastSyncedAt);
-                    }
                 case CacheStatusKeys.Prices:
                     {
                         var itemCount = await _context.ItemPrices.CountAsync(cancellationToken);

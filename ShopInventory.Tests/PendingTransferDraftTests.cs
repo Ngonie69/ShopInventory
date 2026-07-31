@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers;
@@ -160,24 +161,27 @@ public sealed class PendingTransferDraftTests : IDisposable
     // ── Line descriptions ───────────────────────────────
 
     [Fact]
-    public async Task Line_items_carry_the_item_name_from_the_item_cache()
+    public async Task Line_items_carry_the_item_name_from_SAP()
     {
         // The payload stores item codes only. Without the name, an approver signing off a draft
         // has nothing to check the code against.
-        await AddProductAsync("ITEM-1", "Yoghurt 500ml");
+        var sap = SapNaming(new() { ["ITEM-1"] = "Yoghurt 500ml" });
         var transfers = new[] { DtoWithLines("ITEM-1") };
 
-        await PendingTransferItemDescriptions.AttachAsync(_context, transfers, default);
+        await PendingTransferItemDescriptions.AttachAsync(sap, SapEnabled, transfers, default);
 
         Assert.Equal("Yoghurt 500ml", transfers[0].Lines[0].ItemDescription);
     }
 
     [Fact]
-    public async Task An_item_the_cache_has_not_seen_keeps_a_blank_description()
+    public async Task An_item_SAP_has_no_name_for_keeps_a_blank_description()
     {
+        // Best effort: the lookup answers for every code it was asked about, carrying null for the
+        // ones it could not resolve.
+        var sap = SapNaming(new() { ["ITEM-MISSING"] = null });
         var transfers = new[] { DtoWithLines("ITEM-MISSING") };
 
-        await PendingTransferItemDescriptions.AttachAsync(_context, transfers, default);
+        await PendingTransferItemDescriptions.AttachAsync(sap, SapEnabled, transfers, default);
 
         Assert.Null(transfers[0].Lines[0].ItemDescription);
     }
@@ -185,18 +189,74 @@ public sealed class PendingTransferDraftTests : IDisposable
     [Fact]
     public async Task Descriptions_are_resolved_across_every_draft_in_one_pass()
     {
-        await AddProductAsync("ITEM-1", "Yoghurt 500ml");
-        await AddProductAsync("ITEM-2", "Milk 1L");
+        var requests = new List<List<string>>();
+        var sap = SapNaming(
+            new() { ["ITEM-1"] = "Yoghurt 500ml", ["ITEM-2"] = "Milk 1L" },
+            requests);
         var transfers = new[] { DtoWithLines("ITEM-1", "ITEM-2"), DtoWithLines("ITEM-2") };
 
-        await PendingTransferItemDescriptions.AttachAsync(_context, transfers, default);
+        await PendingTransferItemDescriptions.AttachAsync(sap, SapEnabled, transfers, default);
 
         Assert.Equal("Yoghurt 500ml", transfers[0].Lines[0].ItemDescription);
         Assert.Equal("Milk 1L", transfers[0].Lines[1].ItemDescription);
         Assert.Equal("Milk 1L", transfers[1].Lines[0].ItemDescription);
+        // One call, and the repeated code asked about once.
+        Assert.Equal(new[] { new[] { "ITEM-1", "ITEM-2" } }, requests.Select(codes => codes.ToArray()));
+    }
+
+    [Fact]
+    public async Task Descriptions_stay_blank_when_SAP_is_switched_off()
+    {
+        // Nothing to fall back on locally — the API's own item table is never populated — so the
+        // line keeps the bare code rather than the read failing.
+        var transfers = new[] { DtoWithLines("ITEM-1") };
+
+        await PendingTransferItemDescriptions.AttachAsync(
+            StubProxy.Unused<ISAPServiceLayerClient>(),
+            new SAPSettings { Enabled = false },
+            transfers,
+            default);
+
+        Assert.Null(transfers[0].Lines[0].ItemDescription);
+    }
+
+    [Fact]
+    public async Task A_line_without_an_item_code_is_left_alone()
+    {
+        var transfers = new[] { new PendingInventoryTransferDto
+        {
+            Lines = [new PendingInventoryTransferLineDto { LineNum = 0, Quantity = 1m }]
+        } };
+
+        await PendingTransferItemDescriptions.AttachAsync(
+            StubProxy.Unused<ISAPServiceLayerClient>(), SapEnabled, transfers, default);
+
+        Assert.Null(transfers[0].Lines[0].ItemDescription);
     }
 
     // ── Helpers ─────────────────────────────────────────
+
+    private static readonly SAPSettings SapEnabled = new() { Enabled = true };
+
+    /// <summary>
+    /// A SAP stand-in that answers the item-name lookup from <paramref name="names"/>, recording
+    /// the codes each call asked about.
+    /// </summary>
+    private static ISAPServiceLayerClient SapNaming(
+        Dictionary<string, string?> names,
+        List<List<string>>? requests = null) =>
+        StubProxy.For<ISAPServiceLayerClient>((method, args) =>
+        {
+            Assert.Equal(nameof(ISAPServiceLayerClient.GetItemNamesAsync), method.Name);
+
+            var requested = ((IEnumerable<string>)args![0]!).ToList();
+            requests?.Add(requested);
+
+            return Task.FromResult(requested.ToDictionary(
+                code => code,
+                code => names.GetValueOrDefault(code),
+                StringComparer.OrdinalIgnoreCase));
+        });
 
     private static PendingInventoryTransferDto DtoWithLines(params string[] itemCodes) => new()
     {
@@ -207,12 +267,6 @@ public sealed class PendingTransferDraftTests : IDisposable
             Quantity = 1m
         })]
     };
-
-    private async Task AddProductAsync(string itemCode, string itemName)
-    {
-        _context.Products.Add(new ProductEntity { ItemCode = itemCode, ItemName = itemName });
-        await _context.SaveChangesAsync();
-    }
 
     private static PendingInventoryTransferEntity Pending(string? draftNumber, DateTime createdAtUtc) => new()
     {

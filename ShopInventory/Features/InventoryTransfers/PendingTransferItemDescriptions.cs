@@ -1,6 +1,7 @@
-using Microsoft.EntityFrameworkCore;
-using ShopInventory.Data;
+using ShopInventory.Common.Validation;
+using ShopInventory.Configuration;
 using ShopInventory.DTOs;
+using ShopInventory.Services;
 
 namespace ShopInventory.Features.InventoryTransfers;
 
@@ -12,19 +13,31 @@ namespace ShopInventory.Features.InventoryTransfers;
 public static class PendingTransferItemDescriptions
 {
     /// <summary>
-    /// Resolves descriptions from the local item cache in one query across every draft being
-    /// returned. Items the cache has not seen keep a blank description: the code alone is what
-    /// the drawer showed before, and it is not worth blocking the read on SAP for.
+    /// Resolves descriptions from SAP for every draft being returned, in chunked reads.
     /// </summary>
+    /// <remarks>
+    /// This used to read the API's own <c>Products</c> table, but nothing in the codebase ever
+    /// writes that table, so every description came back null and any consumer other than the
+    /// Blazor app — which falls back to its own product cache — showed a bare code. SAP is the only
+    /// source here that actually holds the names.
+    ///
+    /// Codes SAP cannot answer for keep a blank description, as does every code when SAP is
+    /// switched off or unreachable: the code alone is what the drawer showed before, and it is not
+    /// worth failing an approver's read over.
+    /// </remarks>
     public static async Task AttachAsync(
-        ApplicationDbContext context,
+        ISAPServiceLayerClient sapClient,
+        SAPSettings sapSettings,
         IReadOnlyList<PendingInventoryTransferDto> transfers,
         CancellationToken cancellationToken)
     {
+        if (!sapSettings.Enabled)
+            return;
+
         var lines = transfers.SelectMany(transfer => transfer.Lines).ToList();
         var itemCodes = lines
-            .Select(line => line.ItemCode)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Select(line => UomQuantityValidation.NormalizeItemCode(line.ItemCode))
+            .Where(code => code is not null)
             .Select(code => code!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -32,21 +45,15 @@ public static class PendingTransferItemDescriptions
         if (itemCodes.Count == 0)
             return;
 
-        var products = await context.Products.AsNoTracking()
-            .Where(product => itemCodes.Contains(product.ItemCode))
-            .Select(product => new { product.ItemCode, product.ItemName })
-            .ToListAsync(cancellationToken);
-
-        if (products.Count == 0)
-            return;
-
-        var names = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var product in products)
-            names[product.ItemCode] = product.ItemName;
+        var names = await sapClient.GetItemNamesAsync(itemCodes, cancellationToken);
 
         foreach (var line in lines)
         {
-            if (line.ItemCode is not null && names.TryGetValue(line.ItemCode, out var itemName))
+            var itemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode);
+            if (itemCode is null)
+                continue;
+
+            if (names.TryGetValue(itemCode, out var itemName) && !string.IsNullOrWhiteSpace(itemName))
                 line.ItemDescription = itemName;
         }
     }

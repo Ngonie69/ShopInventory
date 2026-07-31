@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
@@ -22,7 +24,9 @@ public interface IPendingInventoryTransferEnricher
 public sealed class PendingInventoryTransferEnricher(
     ApplicationDbContext context,
     IInventoryTransferApprovalService approvalService,
-    ITransferWarehouseAuthorizer warehouseAuthorizer) : IPendingInventoryTransferEnricher
+    ITransferWarehouseAuthorizer warehouseAuthorizer,
+    ISAPServiceLayerClient sapClient,
+    IOptions<SAPSettings> sapSettings) : IPendingInventoryTransferEnricher
 {
     public async Task<List<PendingInventoryTransferDto>> EnrichAsync(
         IReadOnlyList<PendingInventoryTransferEntity> pendingTransfers,
@@ -57,8 +61,11 @@ public sealed class PendingInventoryTransferEnricher(
             results.Add(dto);
         }
 
+        // Only the detail path pays for the item-name lookup: the approval queue is served without
+        // lines, so it stays a single query with no SAP call behind it.
         if (includeLines)
-            await PendingTransferItemDescriptions.AttachAsync(context, results, cancellationToken);
+            await PendingTransferItemDescriptions.AttachAsync(
+                sapClient, sapSettings.Value, results, cancellationToken);
 
         return results;
     }
