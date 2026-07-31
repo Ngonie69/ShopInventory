@@ -17,8 +17,8 @@ namespace ShopInventory.Tests;
 /// </summary>
 /// <remarks>
 /// Administrators and stock controllers may convert regardless of whether the request originated
-/// in this app or directly in SAP. Depot controllers may convert only when stock leaves one of
-/// their assigned warehouses.
+/// in this app or directly in SAP. Depot controllers may act only when stock leaves one of their
+/// assigned warehouses, and their action must complete approval before anything posts to SAP.
 /// </remarks>
 public sealed class TransferRequestConversionTests : IDisposable
 {
@@ -94,7 +94,7 @@ public sealed class TransferRequestConversionTests : IDisposable
     }
 
     [Fact]
-    public async Task A_depot_controller_converts_a_request_out_of_a_warehouse_they_run()
+    public async Task A_depot_controller_submits_a_SAP_request_for_approval()
     {
         var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
         var sap = new RecordingSapClient();
@@ -102,7 +102,47 @@ public sealed class TransferRequestConversionTests : IDisposable
         var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, controller.Id), default);
 
         Assert.False(result.IsError);
+        Assert.Null(result.Value.Transfer);
+        Assert.Equal(0, sap.Conversions);
+        var approval = Assert.Single(_context.ApprovalRequests);
+        Assert.Equal("Depot Controller Transfers", approval.TemplateName);
+        Assert.Equal(ApprovalRequestStatuses.Pending, approval.Status);
+    }
+
+    [Fact]
+    public async Task A_stock_officer_approval_posts_a_SAP_request_submitted_by_a_depot_controller()
+    {
+        var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
+        var officer = await AddUserAsync(ApplicationRoles.StockController);
+        var sap = new RecordingSapClient();
+        var handler = Handler(sap);
+
+        var submitted = await handler.Handle(
+            new ConvertTransferRequestCommand(RequestDocEntry, controller.Id), default);
+        var (_, stages) = await ApprovalService().GetProgressAsync(
+            new ApprovalDocumentContext(
+                ApprovalDocumentTypes.InventoryTransferRequest,
+                RequestDocEntry.ToString(),
+                RequestDocEntry.ToString(),
+                Source,
+                Destination),
+            default);
+        var stockStage = Assert.Single(stages);
+
+        var approved = await handler.Handle(
+            new ConvertTransferRequestCommand(
+                RequestDocEntry, officer.Id, stockStage.StageId, "Approved for posting", true),
+            default);
+
+        Assert.False(submitted.IsError);
+        Assert.False(approved.IsError);
+        Assert.NotNull(approved.Value.Transfer);
         Assert.Equal(1, sap.Conversions);
+        var approval = Assert.Single(_context.ApprovalRequests);
+        Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, approval.Status);
+        var decision = Assert.Single(approval.Decisions);
+        Assert.Equal(officer.Id, decision.AuthorizerUserId);
+        Assert.Equal(ApprovalDecisionValues.Approved, decision.Decision);
     }
 
     [Fact]
@@ -154,9 +194,10 @@ public sealed class TransferRequestConversionTests : IDisposable
     }
 
     [Fact]
-    public async Task A_depot_controller_converts_an_app_request_for_their_assigned_warehouse()
+    public async Task A_depot_controller_approval_posts_an_app_request_when_it_completes_the_process()
     {
-        // Origin does not change the warehouse boundary.
+        // A stock-controller request awaits Depot Acceptance. The depot controller is allowed to
+        // approve that stage for their source warehouse, and only then does the transfer post.
         var requester = await AddUserAsync(ApplicationRoles.StockController);
         await OpenApprovalAsync(requester);
         var controller = await AddUserAsync(ApplicationRoles.DepotController, Source);
@@ -168,6 +209,23 @@ public sealed class TransferRequestConversionTests : IDisposable
         Assert.Equal(1, sap.Conversions);
         var approval = Assert.Single(_context.ApprovalRequests);
         Assert.Equal(ApprovalRequestStatuses.GeneratedByAuthorizer, approval.Status);
+    }
+
+    [Fact]
+    public async Task A_depot_controller_cannot_post_their_own_app_request_before_stock_approval()
+    {
+        var requester = await AddUserAsync(ApplicationRoles.DepotController, Source);
+        await OpenApprovalAsync(requester);
+        var sap = new RecordingSapClient();
+
+        var result = await Handler(sap).Handle(new ConvertTransferRequestCommand(RequestDocEntry, requester.Id), default);
+
+        Assert.False(result.IsError);
+        Assert.Null(result.Value.Transfer);
+        Assert.Equal(0, sap.Conversions);
+        var approval = Assert.Single(_context.ApprovalRequests);
+        Assert.Equal("Depot Controller Transfers", approval.TemplateName);
+        Assert.Equal(ApprovalRequestStatuses.Pending, approval.Status);
     }
 
     [Fact]

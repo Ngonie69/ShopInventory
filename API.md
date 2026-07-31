@@ -1166,10 +1166,12 @@ an empty `approvalStages`, and `documentStatus` is the only status it carries.
 
 `POST /api/InventoryTransfer/request/{docEntry}/convert` applies the same rule regardless of where
 the request originated. An Admin or StockController converts it outright and generates the SAP
-transfer in one call. A DepotController does the same only when the source warehouse is in their
-`assignedWarehouseCodes`; otherwise the call returns 403. If the app raised the request, its
-approval record is marked as generated so its history stays consistent. If SAP raised it, no
-approval record is opened. Every successful conversion is recorded in the audit log.
+transfer in one call. A DepotController may submit conversion only when the source warehouse is in
+their `assignedWarehouseCodes`; otherwise the call returns 403. A depot-controller submission does
+not post directly to SAP: it creates or continues the request's approval process, and the transfer
+is generated only after that process completes. For a request raised directly in SAP this opens
+Stock Officer Approval. For an app-raised request, the existing approval history is continued.
+Every successful submission and conversion is recorded in the audit log.
 
 `POST /api/InventoryTransfer/request/{docEntry}/close` turns a request down, and closes the SAP
 document either way. For a request raised directly in SAP that is the whole of it — there is no
@@ -1203,15 +1205,10 @@ close.
 
 #### Approval gate on direct transfers
 
-`POST /api/InventoryTransfer` validates quantities, warehouse codes and stock before deciding
-whether to post or hold the transfer:
-
-- A DepotController transferring entirely between warehouses in their
-  `assignedWarehouseCodes` posts immediately and returns `201 Created`.
-- If any effective destination is not assigned to that DepotController, the transfer is held for
-  Stock Officer approval. Line-level `toWarehouseCode` values are checked as well as the header.
-- A source warehouse outside the DepotController's assignments also prevents direct posting.
-- Other interactive roles retain the configured approval process.
+`POST /api/InventoryTransfer` validates quantities, warehouse codes and stock, then holds the
+transfer locally and opens the configured approval process. A DepotController's transfer always
+routes to Stock Officer approval, including transfers between warehouses assigned to that depot
+controller. No interactive inventory transfer posts directly to SAP from this endpoint.
 
 A held transfer returns `202 Accepted`:
 
@@ -1293,9 +1290,9 @@ held direct transfer. Violations return `403` with
 account has no warehouses at all. Administrators are unrestricted, and other roles are not
 warehouse-scoped.
 
-When a DepotController creates an actual transfer, an unassigned destination is routed to approval
-rather than refused. It remains unposted until a StockController approves it. A transfer whose
-effective source and destination warehouses are all assigned to the DepotController posts directly.
+When a DepotController creates an actual transfer, it is always routed to approval rather than
+posted directly. It remains unposted until a StockController approves it, regardless of whether the
+source and destination warehouses are assigned to the DepotController.
 
 A depot controller may also only **name** their own warehouses: `fromWarehouse` and `toWarehouse` on
 a request change must each be one of their `assignedWarehouseCodes`, or the call is refused with

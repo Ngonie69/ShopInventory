@@ -39,10 +39,58 @@ public sealed class ConvertTransferRequestHandler(
                 if (conversionCheck.IsError)
                     return conversionCheck.Errors;
 
-                // Admins and stock controllers may convert any request. Depot controllers reach
-                // this point only when the source warehouse is assigned to them. The request's
-                // origin (this app or SAP) deliberately does not change that rule.
-                return await ConvertWithoutApprovalAsync(command, document, cancellationToken);
+                // Admins and stock controllers may convert any request directly. A depot
+                // controller reaches this point only for an assigned source warehouse, but must
+                // still pass through an approval stage before anything posts to SAP.
+                var sourceScope = await warehouseAuthorizer.GetSourceScopeAsync(
+                    command.UserId, cancellationToken);
+                // A stage id means the caller used the approval action (including "Approve &
+                // Add"). Record that decision before generating instead of taking the role's
+                // ordinary direct-conversion shortcut.
+                if (sourceScope is null && !command.StageId.HasValue)
+                    return await ConvertWithoutApprovalAsync(command, document, cancellationToken);
+
+                if (sourceScope is not null)
+                {
+                    var approval = await approvalService.EnsureRequestAsync(
+                        document, command.UserId, cancellationToken);
+                    var (_, stages) = await approvalService.GetProgressAsync(
+                        ApprovalDocumentContext.ForTransferRequest(document), cancellationToken);
+                    var depotMayApprovePendingStage = stages.Any(stage =>
+                        string.Equals(stage.Status, ApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase) &&
+                        (stage.AuthorizerUserIds.Contains(command.UserId) ||
+                         stage.AuthorizerRoles.Contains(ApplicationRoles.DepotController, StringComparer.OrdinalIgnoreCase)));
+
+                    if (!depotMayApprovePendingStage)
+                    {
+                        var pendingStages = stages
+                            .Where(stage => string.Equals(
+                                stage.Status, ApprovalRequestStatuses.Pending, StringComparison.OrdinalIgnoreCase))
+                            .Select(stage => stage.StageName)
+                            .ToList();
+                        var awaiting = pendingStages.Count == 0
+                            ? approval.TemplateName
+                            : string.Join(", ", pendingStages);
+
+                        try
+                        {
+                            await auditService.LogAsync(
+                                AuditActions.SubmitTransferForApproval,
+                                "TransferRequest",
+                                command.DocEntry.ToString(),
+                                $"Depot controller submitted conversion of request #{document.DocNum} for approval. Awaiting: {awaiting}",
+                                true);
+                        }
+                        catch { }
+
+                        return new TransferRequestConvertedResponseDto
+                        {
+                            Message = $"Transfer request #{document.DocNum} is awaiting {awaiting} before it can post to SAP.",
+                            RequestDocEntry = command.DocEntry,
+                            Transfer = null
+                        };
+                    }
+                }
             }
 
             var key = $"{command.DocEntry}:{command.StageId?.ToString() ?? "auto"}:{command.UserId}:approve:{command.GenerateDocument}";

@@ -1353,12 +1353,12 @@
                                                             @if (isSubmitting)
                                                             {
                                                                 <span class="spinner-border spinner-border-sm me-2"></span>
-                                                                <span>@(WillPostImmediately ? "Processing Transfer…" : "Submitting for Approval…")</span>
+                                                                <span>Submitting for Approval…</span>
                                                             }
                                                             else
                                                             {
                                                                 <i class="bi bi-send-fill me-2"></i>
-                                                                <span>@(WillPostImmediately ? "Execute Transfer" : "Submit for Approval")</span>
+                                                                <span>Submit for Approval</span>
                                                             }
                                                         </MudButton>
 
@@ -1369,19 +1369,7 @@
 
                                                         <div class="info-hint mt-3">
                                                             <i class="bi bi-info-circle-fill flex-shrink-0"></i>
-                                                            @if (WillPostImmediately)
-                                                            {
-                                                                <span>Both warehouses are assigned to you, so this transfer will post immediately after stock validation.</span>
-                                                            }
-                                                            else if (IsDepotController && selectedToWarehouse is not null &&
-                                                                     !IsAssignedWarehouse(selectedToWarehouse.WarehouseCode))
-                                                            {
-                                                                <span>@selectedToWarehouse.WarehouseCode is not assigned to you. This transfer will require Stock Officer approval before it posts.</span>
-                                                            }
-                                                            else
-                                                            {
-                                                                <span>This transfer will be submitted for approval and will post after all required stages approve it.</span>
-                                                            }
+                                                            <span>This transfer will be submitted for approval and cannot post to SAP until all required stages approve it.</span>
                                                         </div>
                                                         </div>
                                                     </div>
@@ -1415,7 +1403,6 @@
     private List<WarehouseDto> cachedWarehouses = new();
     private WarehouseDto? selectedFromWarehouse;
     private WarehouseDto? selectedToWarehouse;
-    private string? currentUserRole;
     private HashSet<string> assignedWarehouseCodes = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Products ────────────────────────────────────────
@@ -1461,11 +1448,11 @@
             .Select(claim => claim.Value)
             .Where(code => !string.IsNullOrWhiteSpace(code))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        currentUserRole = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+        var role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
         var assignedWarehouse = assignedWarehouseCodes.FirstOrDefault();
 
         if (!string.IsNullOrEmpty(assignedWarehouse) &&
-            (currentUserRole == "StockController" || currentUserRole == "DepotController"))
+            (role == "StockController" || role == "DepotController"))
         {
             selectedFromWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == assignedWarehouse);
             if (!string.IsNullOrEmpty(selectedFromWarehouse?.WarehouseCode))
@@ -1724,17 +1711,6 @@
         && lines.Count > 0
         && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
     }
-
-    private bool IsDepotController =>
-        string.Equals(currentUserRole, "DepotController", StringComparison.OrdinalIgnoreCase);
-
-    private bool IsAssignedWarehouse(string? warehouseCode) =>
-        !string.IsNullOrWhiteSpace(warehouseCode) && assignedWarehouseCodes.Contains(warehouseCode);
-
-    private bool WillPostImmediately =>
-        IsDepotController &&
-        IsAssignedWarehouse(selectedFromWarehouse?.WarehouseCode) &&
-        IsAssignedWarehouse(selectedToWarehouse?.WarehouseCode);
 
     // ── Step indicator helpers ──────────────────────────
     private bool IsStepCompleted(int step) => step switch

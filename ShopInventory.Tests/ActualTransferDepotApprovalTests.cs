@@ -14,7 +14,7 @@ using ShopInventory.Services;
 namespace ShopInventory.Tests;
 
 /// <summary>
-/// Pins the destination rule for actual transfers raised by a depot controller.
+/// Pins the approval gate for every actual transfer raised by a depot controller.
 /// </summary>
 public sealed class ActualTransferDepotApprovalTests : IDisposable
 {
@@ -39,7 +39,7 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
     }
 
     [Fact]
-    public async Task Depot_transfer_between_assigned_warehouses_posts_immediately()
+    public async Task Depot_transfer_between_assigned_warehouses_requires_approval()
     {
         var controller = await AddDepotControllerAsync("WH01", "WH02");
         var sap = new RecordingSapClient();
@@ -48,11 +48,12 @@ public sealed class ActualTransferDepotApprovalTests : IDisposable
             new CreateInventoryTransferCommand(Request("WH01", "WH02"), controller.Id), default);
 
         Assert.False(result.IsError);
-        Assert.False(result.Value.RequiresApproval);
-        Assert.NotNull(result.Value.Transfer);
-        Assert.Equal(1, sap.TransfersCreated);
-        Assert.Empty(_context.PendingInventoryTransfers);
-        Assert.Empty(_context.ApprovalRequests);
+        Assert.True(result.Value.RequiresApproval);
+        Assert.Null(result.Value.Transfer);
+        Assert.NotNull(result.Value.PendingTransfer);
+        Assert.Equal(0, sap.TransfersCreated);
+        Assert.Single(_context.PendingInventoryTransfers);
+        Assert.Equal(ApprovalRequestStatuses.Pending, Assert.Single(_context.ApprovalRequests).Status);
     }
 
     [Fact]

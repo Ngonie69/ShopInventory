@@ -8,7 +8,6 @@ using ShopInventory.Common.Validation;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
-using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -16,9 +15,9 @@ using ShopInventory.Services;
 namespace ShopInventory.Features.InventoryTransfers.Commands.CreateInventoryTransfer;
 
 /// <summary>
-/// Accepts a direct inventory transfer. A depot controller moving stock entirely between their
-/// assigned warehouses posts immediately; a depot transfer to an unassigned warehouse, and all
-/// other interactive transfers, are held until the approval process completes.
+/// Accepts a direct inventory transfer and holds it locally until the approval process completes.
+/// Nothing is posted to SAP here; the pending-transfer poster runs only after every required stage
+/// has approved it.
 /// </summary>
 public sealed class CreateInventoryTransferHandler(
     ApplicationDbContext context,
@@ -153,9 +152,6 @@ public sealed class CreateInventoryTransferHandler(
         if (stockError is not null)
             return stockError.Value;
 
-        if (CanDepotControllerPostDirectly(submitter, request))
-            return await PostDirectlyAsync(submitter, request, cancellationToken);
-
         var pending = new PendingInventoryTransferEntity
         {
             ClientRequestId = idempotencyKey,
@@ -205,84 +201,6 @@ public sealed class CreateInventoryTransferHandler(
         catch { }
 
         return BuildSubmittedResponse(pending, replayed: false);
-    }
-
-    /// <summary>
-    /// A depot controller does not need approval when every effective source and destination is
-    /// assigned to them. A line-level warehouse overrides the header for that line.
-    /// </summary>
-    private static bool CanDepotControllerPostDirectly(
-        User submitter,
-        CreateInventoryTransferRequest request)
-    {
-        if (!string.Equals(submitter.Role, ApplicationRoles.DepotController, StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        var assigned = submitter.GetWarehouseCodes()
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Select(code => code.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (assigned.Count == 0)
-            return false;
-
-        var lines = request.Lines ?? [];
-        return lines.Count > 0 && lines.All(line =>
-            IsAssigned(assigned, line.FromWarehouseCode ?? request.FromWarehouse) &&
-            IsAssigned(assigned, line.ToWarehouseCode ?? request.ToWarehouse));
-    }
-
-    private static bool IsAssigned(HashSet<string> assigned, string? warehouseCode)
-        => !string.IsNullOrWhiteSpace(warehouseCode) && assigned.Contains(warehouseCode.Trim());
-
-    private async Task<ErrorOr<InventoryTransferCreatedResponseDto>> PostDirectlyAsync(
-        User submitter,
-        CreateInventoryTransferRequest request,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var transfer = await sapClient.CreateInventoryTransferAsync(request, cancellationToken);
-            logger.LogInformation(
-                "Depot controller {User} posted inventory transfer {DocEntry} directly between assigned warehouses. From: {FromWarehouse}, To: {ToWarehouse}",
-                submitter.Username, transfer.DocEntry, request.FromWarehouse, request.ToWarehouse);
-
-            try
-            {
-                await auditService.LogAsync(
-                    AuditActions.CreateTransfer, "InventoryTransfer", transfer.DocEntry.ToString(),
-                    $"Transfer #{transfer.DocNum} from {request.FromWarehouse} to {request.ToWarehouse} " +
-                    "posted directly by a depot controller between assigned warehouses", true);
-            }
-            catch { }
-
-            return new InventoryTransferCreatedResponseDto
-            {
-                Message = $"Inventory transfer #{transfer.DocNum} created successfully.",
-                RequiresApproval = false,
-                Transfer = transfer.ToDto()
-            };
-        }
-        catch (ArgumentException exception)
-        {
-            return Errors.InventoryTransfer.ValidationFailed(exception.Message);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
-        }
-        catch (OperationCanceledException)
-        {
-            return Errors.InventoryTransfer.SapTimeout;
-        }
-        catch (HttpRequestException exception)
-        {
-            return Errors.InventoryTransfer.SapConnectionError(exception.Message);
-        }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Failed to post depot inventory transfer directly");
-            return Errors.InventoryTransfer.CreationFailed(exception.Message);
-        }
     }
 
     /// <summary>

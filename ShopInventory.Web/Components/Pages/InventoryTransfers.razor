@@ -1505,6 +1505,7 @@
             @if (ShowsRequestConversionAction(selectedTransferRequest))
             {
                 var canConvert = CanCurrentUserConvertRequest(selectedTransferRequest);
+                var requiresApproval = IsWarehouseScopedRole(currentUserRole);
                 <span class="itx-note">
                     <i class="bi bi-info-circle"></i>
                     @RequestConversionActionNote(selectedTransferRequest)
@@ -1512,7 +1513,8 @@
                 <button type="button" class="itx-btn itx-btn-primary"
                         disabled="@(isConverting || isRejecting || !canConvert)"
                         @onclick="() => ConvertRequest(selectedTransferRequest)">
-                    <i class="bi bi-box-arrow-in-down"></i> Convert to Transfer
+                    <i class="bi @(requiresApproval ? "bi-send-check" : "bi-box-arrow-in-down")"></i>
+                    @(requiresApproval ? "Submit for Approval" : "Convert to Transfer")
                 </button>
                 @if (selectedTransferRequest.ApprovalStages.Count == 0)
                 {
@@ -3271,9 +3273,11 @@
 
     private string RequestConversionActionNote(InventoryTransferRequestDto request)
         => CanActOnRequestSource(request)
-            ? request.ApprovalStages.Count == 0
-                ? "Raised in SAP. Converting generates the inventory transfer directly."
-                : "Raised in the app. You are authorised to convert it directly to an inventory transfer."
+            ? IsWarehouseScopedRole(currentUserRole)
+                ? "As a Depot Controller, this request must complete approval before the transfer can post to SAP."
+                : request.ApprovalStages.Count == 0
+                    ? "Raised in SAP. Converting generates the inventory transfer directly."
+                    : "Raised in the app. You are authorised to convert it directly to an inventory transfer."
             : $"{request.FromWarehouse} is not one of your assigned warehouses. " +
               $"Converting issues stock out of {request.FromWarehouse}, so it is for whoever runs " +
               "that warehouse, a stock officer, or an administrator.";
