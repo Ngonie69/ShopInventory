@@ -13,9 +13,7 @@ public sealed record GetMobileOrdersQuery(
     DateTime? FromDate,
     DateTime? ToDate,
     string? Search,
-    /// <summary>
-    /// Restricts the list to one customer. Search does not cover card codes, so without this the
-    /// app had to page through a rep's whole order history and filter on the device.
-    /// </summary>
+    // Restricts the list to one customer. Search does not cover card codes, so without this the
+    // app had to page through a rep's whole order history and filter on the device.
     string? CardCode = null
 ) : IRequest<ErrorOr<SalesOrderListResponseDto>>;
