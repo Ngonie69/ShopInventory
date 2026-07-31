@@ -1099,15 +1099,27 @@
 
 .itx-drawer-foot {
     display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: .5rem;
     padding: .85rem 1.25rem;
     background: var(--itx-rule) no-repeat top / 100% 1px;
     flex-shrink: 0;
 }
 
-/* The drawer's leading action takes the free width; the rest stay their size. */
+/* The drawer's leading action takes the free width; the rest stay their size.
+   Below a comfortable width it wraps to a line of its own rather than
+   squeezing the buttons that follow it. */
 .itx-drawer-foot > :first-child {
-    flex: 1;
+    flex: 1 1 13rem;
+}
+
+/* A note leading the footer explains the actions beside it: it wraps, so it
+   sets the row height, and the buttons must not stretch to match. */
+.itx-drawer-foot .itx-note {
+    margin: 0;
+    line-height: 1.35;
 }
 
 .itx-grid {
