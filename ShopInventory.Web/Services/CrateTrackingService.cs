@@ -1,7 +1,6 @@
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.Forms;
 using ShopInventory.Web.Models;
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 
@@ -29,60 +28,8 @@ public class CrateTrackingService(
 {
     private const long MaxUploadSize = 20 * 1024 * 1024;
 
-    private async Task EnsureAuthenticationAsync()
-    {
-        try
-        {
-            // Goes through the auth state provider so an expired access token is renewed from the
-            // refresh token instead of being sent to the API and coming back as a 401.
-            var token = await authStateProvider.GetAccessTokenAsync()
-                        ?? await localStorage.GetItemAsync<string>("authToken");
-            var currentToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch
-        {
-        }
-    }
-
-    /// <summary>
-    /// Sends an authenticated request, renewing the access token and retrying once if the API
-    /// rejects it. The request factory is invoked per attempt because a request message and its
-    /// multipart content cannot be resent.
-    /// </summary>
-    private async Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
-    {
-        await EnsureAuthenticationAsync();
-        var response = await sendAsync();
-
-        if (response.StatusCode != HttpStatusCode.Unauthorized)
-        {
-            return response;
-        }
-
-        var rejectedToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-        var refreshedToken = await authStateProvider.RefreshAccessTokenAsync(rejectedToken);
-        if (string.IsNullOrWhiteSpace(refreshedToken) ||
-            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
-        {
-            return response;
-        }
-
-        logger.LogInformation("Retrying request after refreshing an expired access token");
-        response.Dispose();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
-        return await sendAsync();
-    }
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(httpClient, authStateProvider, localStorage, sendAsync, logger);
 
     public async Task<List<CrateTransactionDto>?> GetTransactionsAsync(string? search = null, string? status = null, string? transactionType = null, CancellationToken cancellationToken = default)
     {
@@ -394,7 +341,7 @@ public class CrateTrackingService(
 
     /// <summary>
     /// A browser file buffered into memory. Read once up front so the multipart body can be rebuilt
-    /// if <see cref="SendAuthenticatedAsync"/> has to retry - the browser stream is not re-readable.
+    /// if the send is retried after a token renewal - the browser stream is not re-readable.
     /// </summary>
     private readonly record struct BufferedFile(byte[] Bytes, string FileName, string ContentType);
 

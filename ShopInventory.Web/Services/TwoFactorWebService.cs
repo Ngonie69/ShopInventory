@@ -94,32 +94,8 @@ public class TwoFactorWebService : ITwoFactorWebService
         _logger = logger;
     }
 
-    private async Task EnsureAuthenticationAsync()
-    {
-        try
-        {
-            // Goes through the auth state provider so an expired access token is renewed from the
-            // refresh token instead of being sent to the API and coming back as a 401.
-            var token = await _authStateProvider.GetAccessTokenAsync()
-                        ?? await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("Could not access localStorage for auth token: {Message}", ex.Message);
-        }
-    }
+    private Task EnsureAuthenticationAsync()
+        => ApiTokenAuthentication.ApplyAsync(_httpClient, _authStateProvider, _localStorage, _logger);
 
     /// <summary>
     /// Sends an authenticated request, renewing the access token and retrying once if the API
@@ -136,17 +112,13 @@ public class TwoFactorWebService : ITwoFactorWebService
             return response;
         }
 
-        var rejectedToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-        var refreshedToken = await _authStateProvider.RefreshAccessTokenAsync(rejectedToken);
-        if (string.IsNullOrWhiteSpace(refreshedToken) ||
-            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
+        var renewedToken = await ApiTokenAuthentication.RenewAfterUnauthorizedAsync(_httpClient, _authStateProvider, _logger);
+        if (string.IsNullOrWhiteSpace(renewedToken))
         {
             return response;
         }
 
-        _logger.LogInformation("Retrying request after refreshing an expired access token");
         response.Dispose();
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
         return await sendAsync();
     }
 

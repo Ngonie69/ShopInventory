@@ -46,62 +46,8 @@ public class SalesOrderService : ISalesOrderService
         _clientAuditContext = clientAuditContext;
     }
 
-    private async Task EnsureAuthenticationAsync()
-    {
-        try
-        {
-            // Goes through the auth state provider so an expired access token is renewed from the
-            // refresh token instead of being sent to the API and coming back as a 401.
-            var token = await _authStateProvider.GetAccessTokenAsync()
-                        ?? await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch
-        {
-            // localStorage not available during prerendering
-        }
-    }
-
-    /// <summary>
-    /// Sends an authenticated request, renewing the access token and retrying once if the API
-    /// rejects it. The request factory is invoked per attempt because a request message cannot be
-    /// resent. Retries reuse the caller's Idempotency-Key: a 401 is raised by the authorization
-    /// middleware, which runs before the API records the key, so the retry is processed as new work.
-    /// </summary>
-    private async Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
-    {
-        await EnsureAuthenticationAsync();
-        var response = await sendAsync();
-
-        if (response.StatusCode != HttpStatusCode.Unauthorized)
-        {
-            return response;
-        }
-
-        var rejectedToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-        var refreshedToken = await _authStateProvider.RefreshAccessTokenAsync(rejectedToken);
-        if (string.IsNullOrWhiteSpace(refreshedToken) ||
-            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
-        {
-            return response;
-        }
-
-        _logger.LogInformation("Retrying request after refreshing an expired access token");
-        response.Dispose();
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
-        return await sendAsync();
-    }
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(_httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
 
     /// <summary>
     /// GET helper for the read paths that deserialize straight from the response body.

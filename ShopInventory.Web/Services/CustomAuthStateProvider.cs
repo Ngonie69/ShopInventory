@@ -18,10 +18,15 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
     private readonly AuthenticationState _anonymous;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
+    // How long to wait before retrying a refresh that failed for a transient reason. Callers that
+    // poll for a token (PodService) would otherwise hit the API's auth rate limit.
+    private static readonly TimeSpan RefreshRetryBackoff = TimeSpan.FromSeconds(5);
+
     // In-memory cache for auth state during same session
     private string? _cachedToken;
     private UserInfo? _cachedUserInfo;
     private DateTime? _cachedExpiresAt;
+    private DateTime? _lastRefreshFailureAt;
 
     private enum RefreshOutcome
     {
@@ -182,6 +187,13 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
                 return _cachedToken;
             }
 
+            if (_lastRefreshFailureAt.HasValue &&
+                DateTime.UtcNow - _lastRefreshFailureAt.Value < RefreshRetryBackoff)
+            {
+                _logger.LogDebug("Skipping refresh, the previous attempt failed moments ago");
+                return null;
+            }
+
             string? refreshToken = null;
             try
             {
@@ -204,6 +216,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
                 {
                     case RefreshOutcome.Succeeded:
                         _logger.LogInformation("Access token refreshed");
+                        _lastRefreshFailureAt = null;
                         token = _cachedToken;
                         break;
 
@@ -214,6 +227,7 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
 
                     default:
                         // Transient failure (network/server) - keep the session so the user can retry.
+                        _lastRefreshFailureAt = DateTime.UtcNow;
                         break;
                 }
             }

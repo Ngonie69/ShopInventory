@@ -110,73 +110,23 @@ public class MasterDataCacheService : IMasterDataCacheService
     }
 
     /// <summary>
-    /// Ensures the HttpClient carries a valid access token, renewed from the refresh token when the
-    /// current one has expired.
+    /// Ensures the HttpClient carries a valid access token, renewing an expired one first.
     /// </summary>
     private async Task EnsureAuthenticationAsync(HttpClient? client = null)
     {
         var targetClient = client ?? _httpClient;
 
-        try
+        var token = await ApiTokenAuthentication.ApplyAsync(targetClient, _authStateProvider, _localStorage, _logger);
+        if (string.IsNullOrWhiteSpace(token))
         {
-            // Goes through the auth state provider so an expired access token is renewed from the
-            // refresh token instead of being sent to the API and coming back as a 401.
-            var token = await _authStateProvider.GetAccessTokenAsync()
-                        ?? await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = targetClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                targetClient.DefaultRequestHeaders.Authorization = null;
-                _logger.LogWarning("No auth token found in localStorage - API calls may fail");
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                targetClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                _logger.LogDebug("Updated auth header from localStorage for API call");
-            }
-        }
-        catch (Exception ex)
-        {
-            // localStorage not available during prerendering
-            _logger.LogDebug("Could not access localStorage for auth token: {Message}", ex.Message);
+            _logger.LogWarning("No auth token available - API calls may fail");
         }
     }
 
-    /// <summary>
-    /// Sends an authenticated request, renewing the access token and retrying once if the API
-    /// rejects it. The request factory is invoked per attempt because a request message cannot be
-    /// resent.
-    /// </summary>
-    private async Task<HttpResponseMessage> SendAuthenticatedAsync(
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(
         Func<Task<HttpResponseMessage>> sendAsync,
         HttpClient? client = null)
-    {
-        var targetClient = client ?? _httpClient;
-
-        await EnsureAuthenticationAsync(targetClient);
-        var response = await sendAsync();
-
-        if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized)
-        {
-            return response;
-        }
-
-        var rejectedToken = targetClient.DefaultRequestHeaders.Authorization?.Parameter;
-        var refreshedToken = await _authStateProvider.RefreshAccessTokenAsync(rejectedToken);
-        if (string.IsNullOrWhiteSpace(refreshedToken) ||
-            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
-        {
-            return response;
-        }
-
-        _logger.LogInformation("Retrying master data request after refreshing an expired access token");
-        response.Dispose();
-        targetClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
-        return await sendAsync();
-    }
+        => ApiTokenAuthentication.SendAsync(client ?? _httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
 
     /// <summary>
     /// GET helper for the sync paths, which all expect the response body to deserialize or throw.
@@ -242,6 +192,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             _logger.LogInformation("Syncing products from API to database...");
 
+            // Ensure auth header is set before API call
             // Fetch products from API
             var response = await GetAuthenticatedJsonAsync<ProductsResponse>("api/product");
             var apiProducts = response?.Products ?? new List<ProductDto>();
@@ -610,6 +561,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     {
         _logger.LogInformation("Syncing prices from API cache to local database...");
 
+        // Ensure auth header is set before API call
         // Use cached endpoint - prices are synced from SAP every 5 minutes by the API
         using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/price/cached"));
         _logger.LogDebug("API response status: {Status}", httpResponse.StatusCode);
@@ -871,6 +823,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     {
         _logger.LogInformation("Syncing business partners from API to database...");
 
+        // Ensure auth header is set before API call
         var response = await GetAuthenticatedJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
         var apiPartners = response?.BusinessPartners ?? new List<BusinessPartnerDto>();
 
@@ -1167,6 +1120,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             _logger.LogInformation("Syncing warehouses from API to database...");
 
+            // Ensure auth header is set before API call
             var response = await GetAuthenticatedJsonAsync<WarehouseListResponse>("api/stock/warehouses");
             var apiWarehouses = response?.Warehouses ?? new List<WarehouseDto>();
 
@@ -1402,6 +1356,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             _logger.LogInformation("Syncing G/L accounts from API to database...");
 
+            // Ensure auth header is set before API call
             var response = await GetAuthenticatedJsonAsync<GLAccountListResponse>("api/glaccount");
             var apiAccounts = response?.Accounts ?? new List<GLAccountDto>();
 

@@ -48,44 +48,23 @@ public class PodService : IPodService
 
     private async Task EnsureAuthenticationAsync(CancellationToken cancellationToken = default)
     {
+        // The token can still be unreadable for a moment after the circuit starts, so keep polling
+        // for it rather than firing the request unauthenticated.
         for (var attempt = 0; attempt < AuthenticationRetryCount; attempt++)
         {
-            try
+            var token = await ApiTokenAuthentication.ApplyAsync(_httpClient, _authStateProvider, _localStorage);
+            if (!string.IsNullOrWhiteSpace(token))
             {
-                // Goes through the auth state provider so an expired access token is renewed from the
-                // refresh token instead of being sent to the API and coming back as a 401.
-                var token = await _authStateProvider.GetAccessTokenAsync()
-                            ?? await _localStorage.GetItemAsync<string>("authToken");
-                var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-                if (string.IsNullOrWhiteSpace(token))
-                {
-                    if (attempt == AuthenticationRetryCount - 1)
-                    {
-                        _httpClient.DefaultRequestHeaders.Authorization = null;
-                        _logger.LogWarning("POD auth token was unavailable after {AttemptCount} attempts", AuthenticationRetryCount);
-                        return;
-                    }
-                }
-                else
-                {
-                    if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-                    {
-                        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                    }
-
-                    return;
-                }
-            }
-            catch (Exception ex) when (attempt < AuthenticationRetryCount - 1)
-            {
-                _logger.LogDebug(ex, "POD auth token is not available yet on attempt {Attempt}", attempt + 1);
+                return;
             }
 
-            if (attempt < AuthenticationRetryCount - 1)
+            if (attempt == AuthenticationRetryCount - 1)
             {
-                await Task.Delay(AuthenticationRetryDelay, cancellationToken);
+                _logger.LogWarning("POD auth token was unavailable after {AttemptCount} attempts", AuthenticationRetryCount);
+                return;
             }
+
+            await Task.Delay(AuthenticationRetryDelay, cancellationToken);
         }
     }
 
@@ -106,17 +85,15 @@ public class PodService : IPodService
             return response;
         }
 
-        var rejectedToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-        var refreshedToken = await _authStateProvider.RefreshAccessTokenAsync(rejectedToken);
-        if (string.IsNullOrWhiteSpace(refreshedToken) ||
-            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
+        // Renew the token the API just rejected instead of re-attaching the same one. When the
+        // session cannot be renewed the 401 is genuine, so hand it back rather than retrying.
+        var renewedToken = await ApiTokenAuthentication.RenewAfterUnauthorizedAsync(_httpClient, _authStateProvider, _logger);
+        if (string.IsNullOrWhiteSpace(renewedToken))
         {
             return response;
         }
 
-        _logger.LogInformation("Retrying POD request after refreshing an expired access token");
         response.Dispose();
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
         return await sendAsync();
     }
 
@@ -142,6 +119,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync(cancellationToken);
             var url = $"api/invoice/pods?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(cardCode))
                 url += $"&cardCode={Uri.EscapeDataString(cardCode)}";
@@ -180,7 +158,8 @@ public class PodService : IPodService
     {
         try
         {
-            var response = await GetAuthenticatedJsonAsync<DocumentAttachmentListResponse>(
+            await EnsureAuthenticationAsync();
+            var response = await _httpClient.GetFromJsonAsync<DocumentAttachmentListResponse>(
                 $"api/invoice/{docEntry}/attachments");
 
             if (response?.Attachments != null)
@@ -345,6 +324,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync(cancellationToken);
             var from = fromDate.ToString("yyyy-MM-dd");
             var to = toDate.ToString("yyyy-MM-dd");
             var includeCreditNoteActivityText = includeCreditNoteActivity ? "true" : "false";
@@ -367,6 +347,7 @@ public class PodService : IPodService
     {
         try
         {
+            await EnsureAuthenticationAsync();
             return await GetAuthenticatedJsonAsync<PodDashboardModel>("api/invoice/pod-dashboard");
         }
         catch (Exception ex)

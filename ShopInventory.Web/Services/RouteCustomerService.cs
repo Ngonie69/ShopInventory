@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -33,12 +32,7 @@ public class RouteCustomerService(
 
             var url = $"api/route-customers?{string.Join("&", queryParams)}";
             using var response = await SendAuthenticatedAsync(() => httpClient.GetAsync(url));
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Failed to fetch route customers: {StatusCode}", (int)response.StatusCode);
-                return [];
-            }
-
+            response.EnsureSuccessStatusCode();
             return await response.Content.ReadFromJsonAsync<List<RouteCustomerModel>>() ?? [];
         }
         catch (Exception ex)
@@ -97,61 +91,8 @@ public class RouteCustomerService(
         }
     }
 
-    private async Task EnsureAuthenticationAsync()
-    {
-        try
-        {
-            // Goes through the auth state provider so an expired access token is renewed from the
-            // refresh token instead of being sent to the API and coming back as a 401.
-            var token = await authStateProvider.GetAccessTokenAsync()
-                        ?? await localStorage.GetItemAsync<string>("authToken");
-            var currentToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch
-        {
-            httpClient.DefaultRequestHeaders.Authorization = null;
-        }
-    }
-
-    /// <summary>
-    /// Sends an authenticated request, renewing the access token and retrying once if the API
-    /// rejects it. The request factory is invoked per attempt because a request message cannot be
-    /// resent.
-    /// </summary>
-    private async Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
-    {
-        await EnsureAuthenticationAsync();
-        var response = await sendAsync();
-
-        if (response.StatusCode != HttpStatusCode.Unauthorized)
-        {
-            return response;
-        }
-
-        var rejectedToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-        var refreshedToken = await authStateProvider.RefreshAccessTokenAsync(rejectedToken);
-        if (string.IsNullOrWhiteSpace(refreshedToken) ||
-            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
-        {
-            return response;
-        }
-
-        logger.LogInformation("Retrying request after refreshing an expired access token");
-        response.Dispose();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
-        return await sendAsync();
-    }
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(httpClient, authStateProvider, localStorage, sendAsync, logger);
 
     private static async Task<string> ExtractErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)
     {

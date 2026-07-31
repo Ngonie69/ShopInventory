@@ -182,9 +182,9 @@
                 // Connect to SignalR hub for real-time push notifications
                 try
                 {
-                    // Resolved through the auth state provider so the hub is handed a token that has
-                    // been renewed if it expired, and so each reconnect asks for a fresh one rather
-                    // than replaying the token this circuit started with.
+                    // Via the auth state provider so the hub is handed a token that is still valid.
+                    // Passed as a factory rather than a value: the hub reconnects automatically, and
+                    // a captured token would be re-presented long after it expired.
                     var token = await AuthStateProvider.GetAccessTokenAsync();
                     if (!string.IsNullOrWhiteSpace(token))
                     {
