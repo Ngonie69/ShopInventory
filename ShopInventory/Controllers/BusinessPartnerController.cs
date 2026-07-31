@@ -53,6 +53,7 @@ public class BusinessPartnerController(IMediator mediator) : ApiControllerBase
     /// Comma-separated card codes. Repeating the parameter works too, so both
     /// <c>?cardCodes=A,B</c> and <c>?cardCodes=A&amp;cardCodes=B</c> are accepted.
     /// </param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     [HttpGet("batch")]
     [ProducesResponseType(typeof(BusinessPartnerListResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetBusinessPartnersByCodes(
