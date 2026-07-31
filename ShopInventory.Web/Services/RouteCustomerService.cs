@@ -24,8 +24,6 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync();
-
             var queryParams = new List<string> { $"activeOnly={activeOnly.ToString().ToLowerInvariant()}" };
             if (!string.IsNullOrWhiteSpace(assignedBusinessPartnerCode))
             {
@@ -33,7 +31,9 @@ public class RouteCustomerService(
             }
 
             var url = $"api/route-customers?{string.Join("&", queryParams)}";
-            return await httpClient.GetFromJsonAsync<List<RouteCustomerModel>>(url) ?? [];
+            using var response = await SendAuthenticatedAsync(() => httpClient.GetAsync(url));
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<List<RouteCustomerModel>>() ?? [];
         }
         catch (Exception ex)
         {
@@ -46,9 +46,7 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync();
-
-            var response = await httpClient.PutAsJsonAsync($"api/route-customers/{id}", request);
+            using var response = await SendAuthenticatedAsync(() => httpClient.PutAsJsonAsync($"api/route-customers/{id}", request));
             if (!response.IsSuccessStatusCode)
             {
                 var message = await ExtractErrorMessageAsync(response, "Failed to update route customer.");
@@ -74,9 +72,7 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync();
-
-            var response = await httpClient.DeleteAsync($"api/route-customers/{id}");
+            using var response = await SendAuthenticatedAsync(() => httpClient.DeleteAsync($"api/route-customers/{id}"));
             if (!response.IsSuccessStatusCode)
             {
                 var message = await ExtractErrorMessageAsync(response, "Failed to delete route customer.");
@@ -95,8 +91,8 @@ public class RouteCustomerService(
         }
     }
 
-    private Task EnsureAuthenticationAsync()
-        => ApiTokenAuthentication.ApplyAsync(httpClient, authStateProvider, localStorage, logger);
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(httpClient, authStateProvider, localStorage, sendAsync, logger);
 
     private static async Task<string> ExtractErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)
     {

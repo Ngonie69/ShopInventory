@@ -5,11 +5,10 @@
 @inject IThemeService ThemeService
 @inject ILocalizationService L
 @inject IJSRuntime JS
-@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
 @inject INotificationClientService NotificationClient
 @inject INotificationHubService NotificationHub
 @inject ISnackbar Snackbar
-@inject AuthenticationStateProvider AuthStateProvider
+@inject CustomAuthStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @inject IBrowserViewportService BrowserViewportService
@@ -184,13 +183,13 @@
                 try
                 {
                     // Via the auth state provider so the hub is handed a token that is still valid.
-                    var token = AuthStateProvider is CustomAuthStateProvider apiAuthState
-                        ? await apiAuthState.GetAccessTokenAsync()
-                        : await LocalStorage.GetItemAsync<string>("authToken");
+                    // Passed as a factory rather than a value: the hub reconnects automatically, and
+                    // a captured token would be re-presented long after it expired.
+                    var token = await AuthStateProvider.GetAccessTokenAsync();
                     if (!string.IsNullOrWhiteSpace(token))
                     {
                         NotificationHub.OnNotificationReceived += OnRealTimeNotification;
-                        await NotificationHub.StartAsync(token);
+                        await NotificationHub.StartAsync(() => AuthStateProvider.GetAccessTokenAsync());
                     }
                 }
                 catch (Exception ex)

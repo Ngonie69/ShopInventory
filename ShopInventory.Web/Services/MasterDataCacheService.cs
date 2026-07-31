@@ -123,6 +123,21 @@ public class MasterDataCacheService : IMasterDataCacheService
         }
     }
 
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(
+        Func<Task<HttpResponseMessage>> sendAsync,
+        HttpClient? client = null)
+        => ApiTokenAuthentication.SendAsync(client ?? _httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
+
+    /// <summary>
+    /// GET helper for the sync paths, which all expect the response body to deserialize or throw.
+    /// </summary>
+    private async Task<T?> GetAuthenticatedJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url, cancellationToken));
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+    }
+
     private static SemaphoreSlim GetLoadLock(string key)
     {
         return _loadLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
@@ -178,10 +193,8 @@ public class MasterDataCacheService : IMasterDataCacheService
             _logger.LogInformation("Syncing products from API to database...");
 
             // Ensure auth header is set before API call
-            await EnsureAuthenticationAsync();
-
             // Fetch products from API
-            var response = await _httpClient.GetFromJsonAsync<ProductsResponse>("api/product");
+            var response = await GetAuthenticatedJsonAsync<ProductsResponse>("api/product");
             var apiProducts = response?.Products ?? new List<ProductDto>();
 
             if (apiProducts.Count == 0)
@@ -195,7 +208,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-                var pricesResponse = await _httpClient.GetFromJsonAsync<ItemPricesResponse>("api/price/cached", cts.Token);
+                var pricesResponse = await GetAuthenticatedJsonAsync<ItemPricesResponse>("api/price/cached", cts.Token);
                 if (pricesResponse?.Prices != null)
                 {
                     priceDict = pricesResponse.Prices
@@ -503,7 +516,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         do
         {
             var encodedWarehouse = Uri.EscapeDataString(warehouseCode);
-            response = await _httpClient.GetFromJsonAsync<WarehouseProductsPagedResponse>(
+            response = await GetAuthenticatedJsonAsync<WarehouseProductsPagedResponse>(
                 $"api/product/warehouse/{encodedWarehouse}/paged?page={page}&pageSize={pageSize}");
 
             if (response?.Products is { Count: > 0 })
@@ -549,10 +562,8 @@ public class MasterDataCacheService : IMasterDataCacheService
         _logger.LogInformation("Syncing prices from API cache to local database...");
 
         // Ensure auth header is set before API call
-        await EnsureAuthenticationAsync();
-
         // Use cached endpoint - prices are synced from SAP every 5 minutes by the API
-        var httpResponse = await _httpClient.GetAsync("api/price/cached");
+        using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/price/cached"));
         _logger.LogDebug("API response status: {Status}", httpResponse.StatusCode);
 
         if (!httpResponse.IsSuccessStatusCode)
@@ -616,9 +627,9 @@ public class MasterDataCacheService : IMasterDataCacheService
         _logger.LogInformation("Triggering API price catalog sync before refreshing Web price cache...");
 
         var syncClient = _httpClientFactory.CreateClient("ShopInventoryApiLongRunning");
-        await EnsureAuthenticationAsync(syncClient);
-
-        var syncResponse = await syncClient.PostAsync("api/price/sync", null);
+        using var syncResponse = await SendAuthenticatedAsync(
+            () => syncClient.PostAsync("api/price/sync", null),
+            syncClient);
         _logger.LogDebug("Price catalog sync response status: {Status}", syncResponse.StatusCode);
 
         if (syncResponse.IsSuccessStatusCode)
@@ -813,9 +824,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         _logger.LogInformation("Syncing business partners from API to database...");
 
         // Ensure auth header is set before API call
-        await EnsureAuthenticationAsync();
-
-        var response = await _httpClient.GetFromJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
+        var response = await GetAuthenticatedJsonAsync<BusinessPartnerListResponse>("api/businesspartner");
         var apiPartners = response?.BusinessPartners ?? new List<BusinessPartnerDto>();
 
         if (apiPartners.Count == 0)
@@ -1112,9 +1121,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             _logger.LogInformation("Syncing warehouses from API to database...");
 
             // Ensure auth header is set before API call
-            await EnsureAuthenticationAsync();
-
-            var response = await _httpClient.GetFromJsonAsync<WarehouseListResponse>("api/stock/warehouses");
+            var response = await GetAuthenticatedJsonAsync<WarehouseListResponse>("api/stock/warehouses");
             var apiWarehouses = response?.Warehouses ?? new List<WarehouseDto>();
 
             if (apiWarehouses.Count == 0)
@@ -1350,9 +1357,7 @@ public class MasterDataCacheService : IMasterDataCacheService
             _logger.LogInformation("Syncing G/L accounts from API to database...");
 
             // Ensure auth header is set before API call
-            await EnsureAuthenticationAsync();
-
-            var response = await _httpClient.GetFromJsonAsync<GLAccountListResponse>("api/glaccount");
+            var response = await GetAuthenticatedJsonAsync<GLAccountListResponse>("api/glaccount");
             var apiAccounts = response?.Accounts ?? new List<GLAccountDto>();
 
             if (apiAccounts.Count == 0)
@@ -1552,12 +1557,10 @@ public class MasterDataCacheService : IMasterDataCacheService
         {
             _logger.LogInformation("Syncing cost centres from API to database...");
 
-            await EnsureAuthenticationAsync();
-
             _logger.LogInformation("Calling API: api/costcentre with BaseAddress: {BaseAddress}", _httpClient.BaseAddress);
 
             // Use GetAsync to get more detailed error information
-            using var httpResponse = await _httpClient.GetAsync("api/costcentre");
+            using var httpResponse = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/costcentre"));
 
             if (!httpResponse.IsSuccessStatusCode)
             {

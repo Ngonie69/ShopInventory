@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using Blazored.LocalStorage;
 
@@ -36,6 +37,42 @@ internal static class ApiTokenAuthentication
             logger?.LogDebug("Could not resolve the API access token: {Message}", ex.Message);
             return httpClient.DefaultRequestHeaders.Authorization?.Parameter;
         }
+    }
+
+    /// <summary>
+    /// Sends an authenticated request, renewing the access token and retrying once when the API
+    /// rejects it. The request factory is invoked per attempt because a request message - and any
+    /// content attached to it - cannot be resent.
+    ///
+    /// A retried write may reuse the caller's Idempotency-Key: the API raises the 401 in its
+    /// authorization middleware, which runs before <c>UseIdempotency()</c> records the key, so the
+    /// retry is processed as new work. Generating a fresh key would instead defeat dedup for a
+    /// request that did reach the handler.
+    /// </summary>
+    public static async Task<HttpResponseMessage> SendAsync(
+        HttpClient httpClient,
+        CustomAuthStateProvider authStateProvider,
+        ILocalStorageService localStorage,
+        Func<Task<HttpResponseMessage>> sendAsync,
+        ILogger? logger = null)
+    {
+        await ApplyAsync(httpClient, authStateProvider, localStorage, logger);
+        var response = await sendAsync();
+
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        var renewedToken = await RenewAfterUnauthorizedAsync(httpClient, authStateProvider, logger);
+        if (string.IsNullOrWhiteSpace(renewedToken))
+        {
+            // The session could not be renewed, so the 401 is genuine - hand it back unretried.
+            return response;
+        }
+
+        response.Dispose();
+        return await sendAsync();
     }
 
     /// <summary>

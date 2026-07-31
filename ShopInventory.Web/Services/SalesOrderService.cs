@@ -46,15 +46,29 @@ public class SalesOrderService : ISalesOrderService
         _clientAuditContext = clientAuditContext;
     }
 
-    private Task EnsureAuthenticationAsync()
-        => ApiTokenAuthentication.ApplyAsync(_httpClient, _authStateProvider, _localStorage, _logger);
+    private Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+        => ApiTokenAuthentication.SendAsync(_httpClient, _authStateProvider, _localStorage, sendAsync, _logger);
+
+    /// <summary>
+    /// GET helper for the read paths that deserialize straight from the response body.
+    /// </summary>
+    private async Task<T?> GetAuthenticatedAsync<T>(string url)
+    {
+        using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url));
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("API GET {Url} failed with status {StatusCode}", url, (int)response.StatusCode);
+            return default;
+        }
+
+        return await response.Content.ReadFromJsonAsync<T>();
+    }
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
         SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null)
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var queryParams = new List<string> { $"page={page}", $"pageSize={pageSize}" };
 
             if (status.HasValue)
@@ -75,7 +89,7 @@ public class SalesOrderService : ISalesOrderService
             var url = $"api/salesorder?{string.Join("&", queryParams)}";
             _logger.LogInformation("Fetching sales orders from API: {Url}", url);
 
-            var response = await _httpClient.GetAsync(url);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url));
             var content = await response.Content.ReadAsStringAsync();
 
             _logger.LogInformation("API Response Status: {StatusCode}, Content Length: {Length}",
@@ -110,8 +124,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            return NormalizeOrder(await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/{id}"));
+            return NormalizeOrder(await GetAuthenticatedAsync<SalesOrderDto>($"api/salesorder/{id}"));
         }
         catch (Exception ex)
         {
@@ -124,8 +137,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            return NormalizeOrder(await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/local/{id}"));
+            return NormalizeOrder(await GetAuthenticatedAsync<SalesOrderDto>($"api/salesorder/local/{id}"));
         }
         catch (Exception ex)
         {
@@ -138,8 +150,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            return NormalizeOrder(await _httpClient.GetFromJsonAsync<SalesOrderDto>($"api/salesorder/number/{Uri.EscapeDataString(orderNumber)}"));
+            return NormalizeOrder(await GetAuthenticatedAsync<SalesOrderDto>($"api/salesorder/number/{Uri.EscapeDataString(orderNumber)}"));
         }
         catch (Exception ex)
         {
@@ -168,12 +179,11 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var url = useLocal
                 ? $"api/salesorder/local/{id}/pdf"
                 : $"api/salesorder/{id}/pdf";
 
-            var response = await _httpClient.GetAsync(url);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url));
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadAsByteArrayAsync();
@@ -201,19 +211,20 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto?> CreateSalesOrderAsync(CreateSalesOrderRequest request)
     {
-        await EnsureAuthenticationAsync();
-
         var clientRequestId = EnsureClientRequestId(request);
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/salesorder")
+        using var response = await SendAuthenticatedAsync(async () =>
         {
-            Content = JsonContent.Create(request)
-        };
-        // Sent both as a header (for IdempotencyMiddleware) and in the body as ClientRequestId
-        // (for durable DB-backed dedup) so a retried submission cannot create a second order.
-        httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, "api/salesorder")
+            {
+                Content = JsonContent.Create(request)
+            };
+            // Sent both as a header (for IdempotencyMiddleware) and in the body as ClientRequestId
+            // (for durable DB-backed dedup) so a retried submission cannot create a second order.
+            httpRequest.Headers.Add("Idempotency-Key", clientRequestId);
+            return await _httpClient.SendAsync(httpRequest);
+        });
 
-        var response = await _httpClient.SendAsync(httpRequest);
         if (response.IsSuccessStatusCode)
         {
             return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -243,13 +254,17 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Put, $"api/salesorder/{id}")
+            var idempotencyKey = CreateOperationIdempotencyKey();
+            using var response = await SendAuthenticatedAsync(async () =>
             {
-                Content = JsonContent.Create(request)
-            };
-            httpRequest.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
-            using var response = await _httpClient.SendAsync(httpRequest);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Put, $"api/salesorder/{id}")
+                {
+                    Content = JsonContent.Create(request)
+                };
+                httpRequest.Headers.Add("Idempotency-Key", idempotencyKey);
+                return await _httpClient.SendAsync(httpRequest);
+            });
+
             if (response.IsSuccessStatusCode)
             {
                 return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -280,14 +295,18 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var request = new UpdateSalesOrderStatusRequest { Status = status, Comments = comments };
-            using var httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"api/salesorder/{id}/status")
+            var idempotencyKey = CreateOperationIdempotencyKey();
+            using var response = await SendAuthenticatedAsync(async () =>
             {
-                Content = JsonContent.Create(request)
-            };
-            httpRequest.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
-            using var response = await _httpClient.SendAsync(httpRequest);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Patch, $"api/salesorder/{id}/status")
+                {
+                    Content = JsonContent.Create(request)
+                };
+                httpRequest.Headers.Add("Idempotency-Key", idempotencyKey);
+                return await _httpClient.SendAsync(httpRequest);
+            });
+
             if (response.IsSuccessStatusCode)
             {
                 return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -304,11 +323,15 @@ public class SalesOrderService : ISalesOrderService
 
     public async Task<SalesOrderDto?> ApproveAsync(int id)
     {
-        await EnsureAuthenticationAsync();
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/approve");
-        request.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
-        AddClientAuditHeaders(request);
-        using var response = await _httpClient.SendAsync(request);
+        var idempotencyKey = CreateOperationIdempotencyKey();
+        using var response = await SendAuthenticatedAsync(async () =>
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/approve");
+            request.Headers.Add("Idempotency-Key", idempotencyKey);
+            AddClientAuditHeaders(request);
+            return await _httpClient.SendAsync(request);
+        });
+
         if (response.IsSuccessStatusCode)
         {
             return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
@@ -545,10 +568,14 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/convert-to-invoice");
-            request.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
-            using var response = await _httpClient.SendAsync(request);
+            var idempotencyKey = CreateOperationIdempotencyKey();
+            using var response = await SendAuthenticatedAsync(async () =>
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/convert-to-invoice");
+                request.Headers.Add("Idempotency-Key", idempotencyKey);
+                return await _httpClient.SendAsync(request);
+            });
+
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<InvoiceDto>();
@@ -567,8 +594,7 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.DeleteAsync($"api/salesorder/{id}");
+            using var response = await SendAuthenticatedAsync(() => _httpClient.DeleteAsync($"api/salesorder/{id}"));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -582,10 +608,14 @@ public class SalesOrderService : ISalesOrderService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/post-to-sap");
-            request.Headers.Add("Idempotency-Key", CreateOperationIdempotencyKey());
-            using var response = await _httpClient.SendAsync(request);
+            var idempotencyKey = CreateOperationIdempotencyKey();
+            using var response = await SendAuthenticatedAsync(async () =>
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"api/salesorder/{id}/post-to-sap");
+                request.Headers.Add("Idempotency-Key", idempotencyKey);
+                return await _httpClient.SendAsync(request);
+            });
+
             if (response.IsSuccessStatusCode)
             {
                 return NormalizeOrder(await response.Content.ReadFromJsonAsync<SalesOrderDto>());
