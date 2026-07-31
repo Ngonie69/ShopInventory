@@ -193,7 +193,10 @@ public sealed class InventoryTransferPostingJob : IJob
                 Quantity = l.Quantity,
                 UoMCode = l.UoMCode,
                 FromWarehouseCode = l.FromWarehouseCode ?? request.FromWarehouse,
-                ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse
+                ToWarehouseCode = l.WarehouseCode ?? request.ToWarehouse,
+                // The queued request carries the batch selection the operator made. Replaying it
+                // without that selection posts batches they never picked.
+                BatchNumbers = l.BatchNumbers
             }).ToList()
         };
 

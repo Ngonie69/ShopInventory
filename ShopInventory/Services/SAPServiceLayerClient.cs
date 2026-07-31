@@ -8871,11 +8871,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         // Load the transfer-specific management flags in bulk. A request per item was fast only
         // when viewed in isolation: it occupied the shared SAP request slots and made posting time
         // grow sharply once a transfer contained more lines than the concurrency limit.
+        // Lines that arrive with their own selection are read too: that selection still has to add
+        // up to the line quantity, and SAP reports a shortfall only as the opaque "Cannot add row
+        // without complete selection of batch/serial numbers" (-4014).
         var uniqueItemCodes = request.Lines!
-            .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
-                        l.BatchNumbers is not { Count: > 0 } &&
-                        l.SerialNumbers is not { Count: > 0 })
-            .Select(l => l.ItemCode!)
+            .Select(l => UomQuantityValidation.NormalizeItemCode(l.ItemCode))
+            .Where(code => !string.IsNullOrEmpty(code))
+            .Select(code => code!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         var itemMetadataCache = await GetInventoryTransferItemMetadataAsync(
@@ -8895,7 +8897,9 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
                     l.BatchNumbers is not { Count: > 0 } &&
                     l.SerialNumbers is not { Count: > 0 }
-                    && batchManagedItems.Contains(l.ItemCode!, StringComparer.OrdinalIgnoreCase))
+                    && batchManagedItems.Contains(
+                        UomQuantityValidation.NormalizeItemCode(l.ItemCode)!,
+                        StringComparer.OrdinalIgnoreCase))
                 .GroupBy(
                     l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01",
                     StringComparer.OrdinalIgnoreCase)
@@ -8916,7 +8920,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 {
                     foreach (var itemCode in itemCodes)
                     {
-                        batchCache[$"{itemCode}|{warehouse}"] = warehouseBatches
+                        batchCache[BuildTransferAllocationKey(itemCode, warehouse)] = warehouseBatches
                             .Where(b => string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
                             .ToList();
                     }
@@ -8961,7 +8965,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 {
                     foreach (var itemCode in result.ItemCodes)
                     {
-                        batchCache[$"{itemCode}|{result.Warehouse}"] = result.Batches
+                        batchCache[BuildTransferAllocationKey(itemCode, result.Warehouse)] = result.Batches
                             .Where(b => string.Equals(b.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
                             .ToList();
                     }
@@ -8988,7 +8992,9 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 .Where(l => !string.IsNullOrEmpty(l.ItemCode) &&
                     l.BatchNumbers is not { Count: > 0 } &&
                     l.SerialNumbers is not { Count: > 0 }
-                    && serialManagedItems.Contains(l.ItemCode!, StringComparer.OrdinalIgnoreCase))
+                    && serialManagedItems.Contains(
+                        UomQuantityValidation.NormalizeItemCode(l.ItemCode)!,
+                        StringComparer.OrdinalIgnoreCase))
                 .GroupBy(
                     l => l.FromWarehouseCode ?? request.FromWarehouse ?? "01",
                     StringComparer.OrdinalIgnoreCase)
@@ -9031,7 +9037,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             {
                 foreach (var itemCode in result.ItemCodes)
                 {
-                    serialCache[$"{itemCode}|{result.Warehouse}"] = result.Serials
+                    serialCache[BuildTransferAllocationKey(itemCode, result.Warehouse)] = result.Serials
                         .Where(s => string.Equals(s.ItemCode, itemCode, StringComparison.OrdinalIgnoreCase))
                         .ToList();
                 }
@@ -9040,6 +9046,13 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         // Build the SAP payload
         var lines = new List<object>();
+
+        // SAP validates the batch/serial selection of the whole document, so two lines for the
+        // same item cannot each be handed the full batch quantity. These ledgers record what the
+        // earlier lines already claimed.
+        var claimedBatchQuantities = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var claimedSerialNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         for (int i = 0; i < request.Lines!.Count; i++)
         {
             var line = request.Lines[i];
@@ -9051,6 +9064,8 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             }
 
             var fromWarehouse = line.FromWarehouseCode ?? request.FromWarehouse ?? "01";
+            var normalizedItemCode = UomQuantityValidation.NormalizeItemCode(line.ItemCode) ?? line.ItemCode!;
+            var allocationCacheKey = BuildTransferAllocationKey(line.ItemCode, fromWarehouse);
 
             var linePayload = new Dictionary<string, object>
             {
@@ -9060,195 +9075,244 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
                 ["WarehouseCode"] = line.ToWarehouseCode ?? request.ToWarehouse!
             };
 
-            // Add batch numbers if specified
-            if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
+            // The bulk read seeds an entry for every requested item and leaves it null when SAP
+            // did not return that item. Treating the null as "not batch-managed" is what let an
+            // unallocated row reach SAP, so an unresolved entry is read directly instead.
+            if (!itemMetadataCache.TryGetValue(normalizedItemCode, out var item) || item is null)
             {
-                var batchNumbers = line.BatchNumbers.Select(b =>
-                {
-                    // CRITICAL: Validate batch quantity
-                    if (b.Quantity <= 0)
-                    {
-                        throw new ArgumentException($"Line {i + 1}: Batch '{b.BatchNumber}' quantity must be greater than zero");
-                    }
-                    return new
-                    {
-                        BatchNumber = b.BatchNumber,
-                        Quantity = b.Quantity
-                    };
-                }).ToList();
-                linePayload["BatchNumbers"] = batchNumbers;
-            }
-            // Add serial numbers if specified
-            else if (line.SerialNumbers != null && line.SerialNumbers.Count > 0)
-            {
-                var serialNumbers = line.SerialNumbers.Select(s =>
-                {
-                    if (string.IsNullOrWhiteSpace(s.InternalSerialNumber))
-                    {
-                        throw new ArgumentException($"Line {i + 1}: Serial number is required");
-                    }
-                    var serialEntry = new Dictionary<string, object>
-                    {
-                        ["InternalSerialNumber"] = s.InternalSerialNumber!,
-                        ["Quantity"] = 1
-                    };
-                    if (s.SystemSerialNumber.HasValue)
-                    {
-                        serialEntry["SystemSerialNumber"] = s.SystemSerialNumber.Value;
-                    }
-                    return serialEntry;
-                }).ToList();
-                linePayload["SerialNumbers"] = serialNumbers;
-            }
-            else
-            {
-                // Auto-allocate batch/serial numbers using pre-fetched data
                 try
                 {
-                    // Use pre-fetched item metadata (falls back to live lookup only if not pre-fetched)
-                    if (!itemMetadataCache.TryGetValue(line.ItemCode!, out var item))
-                    {
-                        item = await GetItemByCodeAsync(line.ItemCode!, cancellationToken);
-                        itemMetadataCache[line.ItemCode!] = item;
-                    }
-
-                    if (item != null)
-                    {
-                        var allocationCacheKey = $"{line.ItemCode}|{fromWarehouse}";
-
-                        if (item.ManageBatchNumbers == "tYES")
-                        {
-                            _logger.LogInformation("Auto-allocating batch numbers for batch-managed item {ItemCode} in warehouse {Warehouse}",
-                                line.ItemCode, fromWarehouse);
-
-                            // Use pre-fetched batches or fetch if not in cache
-                            if (!batchCache.TryGetValue(allocationCacheKey, out var batches))
-                            {
-                                batches = await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
-                            }
-
-                            if (batches.Any())
-                            {
-                                var batchAllocations = new List<object>();
-                                var remainingQuantity = line.Quantity;
-
-                                foreach (var batch in batches.OrderBy(b => b.BatchNum))
-                                {
-                                    if (remainingQuantity <= 0) break;
-
-                                    if (batch.Quantity > 0)
-                                    {
-                                        var allocateQty = Math.Min(remainingQuantity, batch.Quantity);
-                                        batchAllocations.Add(new
-                                        {
-                                            BatchNumber = batch.BatchNum,
-                                            Quantity = allocateQty
-                                        });
-                                        remainingQuantity -= allocateQty;
-                                        _logger.LogDebug("Auto-allocated {Qty} from batch {BatchNum} for item {ItemCode}",
-                                            allocateQty, batch.BatchNum, line.ItemCode);
-                                    }
-                                }
-
-                                if (batchAllocations.Any())
-                                {
-                                    linePayload["BatchNumbers"] = batchAllocations;
-                                    _logger.LogInformation("Auto-allocated {Count} batches for item {ItemCode}, total: {Total}",
-                                        batchAllocations.Count, line.ItemCode, line.Quantity - remainingQuantity);
-                                }
-
-                                if (remainingQuantity > 0)
-                                {
-                                    var allocated = line.Quantity - remainingQuantity;
-                                    throw new ArgumentException(
-                                        $"Insufficient batch quantity for item {line.ItemCode} in warehouse {fromWarehouse}. " +
-                                        $"Requested: {line.Quantity}, Available in batches: {allocated}. " +
-                                        $"Please reduce the transfer quantity or replenish stock.");
-                                }
-                            }
-                            else
-                            {
-                                throw new ArgumentException(
-                                    $"No batches found for batch-managed item {line.ItemCode} in warehouse {fromWarehouse}. " +
-                                    $"Batch-managed items require batch allocation for transfers.");
-                            }
-                        }
-                        else if (item.ManageSerialNumbers == "tYES")
-                        {
-                            _logger.LogInformation("Auto-allocating serial numbers for serial-managed item {ItemCode} in warehouse {Warehouse}",
-                                line.ItemCode, fromWarehouse);
-
-                            // Use pre-fetched serials or fetch if not in cache
-                            if (!serialCache.TryGetValue(allocationCacheKey, out var serials))
-                            {
-                                serials = await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
-                            }
-
-                            if (serials.Any())
-                            {
-                                var serialAllocations = new List<object>();
-                                var remainingQuantity = (int)line.Quantity;
-
-                                foreach (var serial in serials.OrderBy(s => s.DistNumber))
-                                {
-                                    if (remainingQuantity <= 0) break;
-
-                                    if (serial.Quantity > 0)
-                                    {
-                                        var serialEntry = new Dictionary<string, object>
-                                        {
-                                            ["InternalSerialNumber"] = serial.InternalSerialNumber ?? serial.DistNumber ?? "",
-                                            ["Quantity"] = 1
-                                        };
-                                        if (serial.SystemNumber > 0)
-                                        {
-                                            serialEntry["SystemSerialNumber"] = serial.SystemNumber;
-                                        }
-                                        serialAllocations.Add(serialEntry);
-                                        remainingQuantity--;
-                                        _logger.LogDebug("Auto-allocated serial {SerialNum} for item {ItemCode}",
-                                            serial.DistNumber, line.ItemCode);
-                                    }
-                                }
-
-                                if (serialAllocations.Any())
-                                {
-                                    linePayload["SerialNumbers"] = serialAllocations;
-                                    _logger.LogInformation("Auto-allocated {Count} serial numbers for item {ItemCode}",
-                                        serialAllocations.Count, line.ItemCode);
-                                }
-
-                                if (remainingQuantity > 0)
-                                {
-                                    var allocated = (int)line.Quantity - remainingQuantity;
-                                    throw new ArgumentException(
-                                        $"Insufficient serial numbers for item {line.ItemCode} in warehouse {fromWarehouse}. " +
-                                        $"Requested: {(int)line.Quantity}, Available: {allocated}. " +
-                                        $"Serial-managed items require complete serial number selection.");
-                                }
-                            }
-                            else
-                            {
-                                throw new ArgumentException(
-                                    $"No serial numbers found for serial-managed item {line.ItemCode} in warehouse {fromWarehouse}. " +
-                                    $"Serial-managed items require serial number allocation for transfers.");
-                            }
-                        }
-                    }
+                    item = await GetItemByCodeAsync(line.ItemCode!, cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
-                catch (ArgumentException)
-                {
-                    throw;
-                }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to auto-allocate batch/serial for item {ItemCode}, proceeding without allocation", line.ItemCode);
-                    // Continue without allocation - SAP will return a clear error if required
+                    _logger.LogWarning(ex, "Failed to read management flags for transfer item {ItemCode}", line.ItemCode);
+                    item = null;
                 }
+
+                itemMetadataCache[normalizedItemCode] = item;
+            }
+
+            var managesBatches = item?.ManageBatchNumbers == "tYES";
+            var managesSerials = item?.ManageSerialNumbers == "tYES";
+
+            // Add batch numbers if specified
+            if (line.BatchNumbers != null && line.BatchNumbers.Count > 0)
+            {
+                var batchNumbers = new List<object>(line.BatchNumbers.Count);
+                var selectedQuantity = 0m;
+
+                foreach (var batchRequest in line.BatchNumbers)
+                {
+                    if (string.IsNullOrWhiteSpace(batchRequest.BatchNumber))
+                    {
+                        throw new ArgumentException($"Line {i + 1}: Batch number is required for item {line.ItemCode}");
+                    }
+
+                    // CRITICAL: Validate batch quantity
+                    if (batchRequest.Quantity <= 0)
+                    {
+                        throw new ArgumentException($"Line {i + 1}: Batch '{batchRequest.BatchNumber}' quantity must be greater than zero");
+                    }
+
+                    batchNumbers.Add(new
+                    {
+                        BatchNumber = batchRequest.BatchNumber,
+                        Quantity = batchRequest.Quantity
+                    });
+                    selectedQuantity += batchRequest.Quantity;
+                    ClaimBatchQuantity(
+                        claimedBatchQuantities,
+                        allocationCacheKey,
+                        batchRequest.BatchNumber!,
+                        batchRequest.Quantity);
+                }
+
+                // A selection that does not add up is the most common source of SAP's
+                // "Cannot add row without complete selection of batch/serial numbers" (-4014).
+                if (Math.Abs(selectedQuantity - line.Quantity) > AllocationQuantityTolerance)
+                {
+                    throw new ArgumentException(
+                        $"Line {i + 1}: the batch selection for item {line.ItemCode} covers {selectedQuantity} of {line.Quantity}. " +
+                        $"SAP requires the batch quantities on a line to add up to the line quantity.");
+                }
+
+                linePayload["BatchNumbers"] = batchNumbers;
+            }
+            // Add serial numbers if specified
+            else if (line.SerialNumbers != null && line.SerialNumbers.Count > 0)
+            {
+                RequireWholeSerialQuantity(line, i);
+
+                var serialNumbers = new List<object>(line.SerialNumbers.Count);
+                foreach (var serialRequest in line.SerialNumbers)
+                {
+                    if (string.IsNullOrWhiteSpace(serialRequest.InternalSerialNumber))
+                    {
+                        throw new ArgumentException($"Line {i + 1}: Serial number is required");
+                    }
+
+                    if (!claimedSerialNumbers.Add($"{allocationCacheKey}|{serialRequest.InternalSerialNumber}"))
+                    {
+                        throw new ArgumentException(
+                            $"Line {i + 1}: serial number '{serialRequest.InternalSerialNumber}' for item {line.ItemCode} " +
+                            $"is already allocated to another line of this transfer.");
+                    }
+
+                    var serialEntry = new Dictionary<string, object>
+                    {
+                        ["InternalSerialNumber"] = serialRequest.InternalSerialNumber!,
+                        ["Quantity"] = 1
+                    };
+                    if (serialRequest.SystemSerialNumber.HasValue)
+                    {
+                        serialEntry["SystemSerialNumber"] = serialRequest.SystemSerialNumber.Value;
+                    }
+                    serialNumbers.Add(serialEntry);
+                }
+
+                // SAP counts one unit per serial number, so anything short of the line quantity is
+                // an incomplete selection.
+                if (serialNumbers.Count != (int)line.Quantity)
+                {
+                    throw new ArgumentException(
+                        $"Line {i + 1}: the serial selection for item {line.ItemCode} covers {serialNumbers.Count} of {line.Quantity} units. " +
+                        $"SAP requires one serial number per unit transferred.");
+                }
+
+                linePayload["SerialNumbers"] = serialNumbers;
+            }
+            else if (managesBatches)
+            {
+                _logger.LogInformation("Auto-allocating batch numbers for batch-managed item {ItemCode} in warehouse {Warehouse}",
+                    line.ItemCode, fromWarehouse);
+
+                // Use pre-fetched batches or fetch if not in cache
+                if (!batchCache.TryGetValue(allocationCacheKey, out var batches))
+                {
+                    batches = await ReadTransferBatchesAsync(line, i, fromWarehouse, cancellationToken);
+                }
+
+                if (batches.Count == 0)
+                {
+                    throw new ArgumentException(
+                        $"No batches found for batch-managed item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                        $"Batch-managed items require batch allocation for transfers.");
+                }
+
+                var batchAllocations = new List<object>();
+                var remainingQuantity = line.Quantity;
+
+                foreach (var batch in batches.OrderBy(b => b.BatchNum, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (remainingQuantity <= 0) break;
+                    if (string.IsNullOrWhiteSpace(batch.BatchNum)) continue;
+
+                    var available = batch.Quantity - ClaimedBatchQuantity(
+                        claimedBatchQuantities,
+                        allocationCacheKey,
+                        batch.BatchNum!);
+                    if (available <= 0) continue;
+
+                    var allocateQty = Math.Min(remainingQuantity, available);
+                    batchAllocations.Add(new
+                    {
+                        BatchNumber = batch.BatchNum,
+                        Quantity = allocateQty
+                    });
+                    ClaimBatchQuantity(claimedBatchQuantities, allocationCacheKey, batch.BatchNum!, allocateQty);
+                    remainingQuantity -= allocateQty;
+                    _logger.LogDebug("Auto-allocated {Qty} from batch {BatchNum} for item {ItemCode}",
+                        allocateQty, batch.BatchNum, line.ItemCode);
+                }
+
+                if (remainingQuantity > 0)
+                {
+                    var allocated = line.Quantity - remainingQuantity;
+                    throw new ArgumentException(
+                        $"Insufficient batch quantity for item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                        $"Requested: {line.Quantity}, Available in batches: {allocated}. " +
+                        $"Please reduce the transfer quantity or replenish stock.");
+                }
+
+                linePayload["BatchNumbers"] = batchAllocations;
+                _logger.LogInformation("Auto-allocated {Count} batches for item {ItemCode}, total: {Total}",
+                    batchAllocations.Count, line.ItemCode, line.Quantity);
+            }
+            else if (managesSerials)
+            {
+                _logger.LogInformation("Auto-allocating serial numbers for serial-managed item {ItemCode} in warehouse {Warehouse}",
+                    line.ItemCode, fromWarehouse);
+
+                RequireWholeSerialQuantity(line, i);
+
+                // Use pre-fetched serials or fetch if not in cache
+                if (!serialCache.TryGetValue(allocationCacheKey, out var serials))
+                {
+                    serials = await ReadTransferSerialsAsync(line, i, fromWarehouse, cancellationToken);
+                }
+
+                if (serials.Count == 0)
+                {
+                    throw new ArgumentException(
+                        $"No serial numbers found for serial-managed item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                        $"Serial-managed items require serial number allocation for transfers.");
+                }
+
+                var serialAllocations = new List<object>();
+                var remainingUnits = (int)line.Quantity;
+
+                foreach (var serial in serials.OrderBy(s => s.DistNumber, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (remainingUnits <= 0) break;
+                    if (serial.Quantity <= 0) continue;
+
+                    var serialNumber = serial.InternalSerialNumber ?? serial.DistNumber;
+                    if (string.IsNullOrWhiteSpace(serialNumber)) continue;
+
+                    // A serial number is one physical unit: an earlier line for the same item
+                    // already moved it, so it cannot be allocated twice in one document.
+                    if (!claimedSerialNumbers.Add($"{allocationCacheKey}|{serialNumber}")) continue;
+
+                    var serialEntry = new Dictionary<string, object>
+                    {
+                        ["InternalSerialNumber"] = serialNumber!,
+                        ["Quantity"] = 1
+                    };
+                    if (serial.SystemNumber > 0)
+                    {
+                        serialEntry["SystemSerialNumber"] = serial.SystemNumber;
+                    }
+                    serialAllocations.Add(serialEntry);
+                    remainingUnits--;
+                    _logger.LogDebug("Auto-allocated serial {SerialNum} for item {ItemCode}",
+                        serial.DistNumber, line.ItemCode);
+                }
+
+                if (remainingUnits > 0)
+                {
+                    var allocated = (int)line.Quantity - remainingUnits;
+                    throw new ArgumentException(
+                        $"Insufficient serial numbers for item {line.ItemCode} in warehouse {fromWarehouse}. " +
+                        $"Requested: {(int)line.Quantity}, Available: {allocated}. " +
+                        $"Serial-managed items require complete serial number selection.");
+                }
+
+                linePayload["SerialNumbers"] = serialAllocations;
+                _logger.LogInformation("Auto-allocated {Count} serial numbers for item {ItemCode}",
+                    serialAllocations.Count, line.ItemCode);
+            }
+            else if (item is null)
+            {
+                // Management flags could not be read at all. Posting is still the better outcome
+                // for the ordinary item this almost always is, and SAP remains the authority.
+                _logger.LogWarning(
+                    "Posting transfer line {Line} for item {ItemCode} without batch/serial allocation: management flags unavailable",
+                    i + 1, line.ItemCode);
             }
 
             lines.Add(linePayload);
@@ -9305,6 +9369,17 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             _logger.LogError("Failed to create inventory transfer: {StatusCode} - {Error}",
                 response.StatusCode, responseContent);
 
+            // SAP names neither the row nor the item in -4014, so the message says what has to be
+            // true of the document instead of repeating the raw error on its own.
+            if (responseContent.Contains("-4014", StringComparison.Ordinal) ||
+                responseContent.Contains("complete selection of batch", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "SAP rejected the transfer because a row has an incomplete batch/serial selection. " +
+                    "Every unit on a batch-managed line must be allocated to batches, and a serial-managed " +
+                    $"line needs one serial number per unit: {responseContent}");
+            }
+
             // Check for SAP stock-related errors
             if (responseContent.Contains("insufficient", StringComparison.OrdinalIgnoreCase) ||
                 responseContent.Contains("negative", StringComparison.OrdinalIgnoreCase))
@@ -9322,6 +9397,101 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             createdTransfer?.DocEntry, createdTransfer?.DocNum);
 
         return createdTransfer ?? throw new Exception("Failed to deserialize created inventory transfer");
+    }
+
+    /// <summary>
+    /// Batch and serial allocations are cached per item and source warehouse. Item codes are
+    /// normalised so a line that carries stray whitespace still hits the pre-fetched entry.
+    /// </summary>
+    private static string BuildTransferAllocationKey(string? itemCode, string warehouseCode) =>
+        $"{UomQuantityValidation.NormalizeItemCode(itemCode)}|{warehouseCode.Trim()}";
+
+    /// <summary>
+    /// Rounding slack for comparing an allocated quantity against a line quantity. SAP keeps
+    /// inventory quantities to six decimals.
+    /// </summary>
+    private const decimal AllocationQuantityTolerance = 0.000001m;
+
+    private static decimal ClaimedBatchQuantity(
+        Dictionary<string, decimal> claimed,
+        string allocationCacheKey,
+        string batchNumber) =>
+        claimed.TryGetValue($"{allocationCacheKey}|{batchNumber}", out var quantity) ? quantity : 0m;
+
+    private static void ClaimBatchQuantity(
+        Dictionary<string, decimal> claimed,
+        string allocationCacheKey,
+        string batchNumber,
+        decimal quantity)
+    {
+        var key = $"{allocationCacheKey}|{batchNumber}";
+        claimed[key] = (claimed.TryGetValue(key, out var existing) ? existing : 0m) + quantity;
+    }
+
+    /// <summary>
+    /// A serial number stands for one physical unit, so a fractional line quantity can never be
+    /// covered completely and SAP would reject the document with -4014.
+    /// </summary>
+    private static void RequireWholeSerialQuantity(CreateInventoryTransferLineRequest line, int lineIndex)
+    {
+        if (line.Quantity != Math.Truncate(line.Quantity))
+        {
+            throw new ArgumentException(
+                $"Line {lineIndex + 1}: item {line.ItemCode} is serial-managed, so its quantity must be a whole " +
+                $"number of units. Current value: {line.Quantity}");
+        }
+    }
+
+    /// <summary>
+    /// Reads the batches for a single transfer line. A failure here cannot be swallowed: posting
+    /// the line unallocated only moves the failure to SAP, where it surfaces as -4014.
+    /// </summary>
+    private async Task<List<BatchNumber>> ReadTransferBatchesAsync(
+        CreateInventoryTransferLineRequest line,
+        int lineIndex,
+        string fromWarehouse,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetBatchNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Line {lineIndex + 1}: could not read the batches of batch-managed item {line.ItemCode} in " +
+                $"warehouse {fromWarehouse}, so the line cannot be allocated.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Reads the serial numbers for a single transfer line, for the same reason as
+    /// <see cref="ReadTransferBatchesAsync"/>.
+    /// </summary>
+    private async Task<List<SerialNumber>> ReadTransferSerialsAsync(
+        CreateInventoryTransferLineRequest line,
+        int lineIndex,
+        string fromWarehouse,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetSerialNumbersForItemInWarehouseAsync(line.ItemCode!, fromWarehouse, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Line {lineIndex + 1}: could not read the serial numbers of serial-managed item {line.ItemCode} in " +
+                $"warehouse {fromWarehouse}, so the line cannot be allocated.", ex);
+        }
     }
 
     private void ValidateInventoryTransferRequest(CreateInventoryTransferRequest request)
