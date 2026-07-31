@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -16,15 +17,14 @@ public interface IRouteCustomerService
 public class RouteCustomerService(
     HttpClient httpClient,
     ILogger<RouteCustomerService> logger,
-    ILocalStorageService localStorage
+    ILocalStorageService localStorage,
+    CustomAuthStateProvider authStateProvider
 ) : IRouteCustomerService
 {
     public async Task<List<RouteCustomerModel>> GetRouteCustomersAsync(string? assignedBusinessPartnerCode = null, bool activeOnly = true)
     {
         try
         {
-            await EnsureAuthenticationAsync(httpClient, localStorage);
-
             var queryParams = new List<string> { $"activeOnly={activeOnly.ToString().ToLowerInvariant()}" };
             if (!string.IsNullOrWhiteSpace(assignedBusinessPartnerCode))
             {
@@ -32,7 +32,14 @@ public class RouteCustomerService(
             }
 
             var url = $"api/route-customers?{string.Join("&", queryParams)}";
-            return await httpClient.GetFromJsonAsync<List<RouteCustomerModel>>(url) ?? [];
+            using var response = await SendAuthenticatedAsync(() => httpClient.GetAsync(url));
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Failed to fetch route customers: {StatusCode}", (int)response.StatusCode);
+                return [];
+            }
+
+            return await response.Content.ReadFromJsonAsync<List<RouteCustomerModel>>() ?? [];
         }
         catch (Exception ex)
         {
@@ -45,9 +52,7 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync(httpClient, localStorage);
-
-            var response = await httpClient.PutAsJsonAsync($"api/route-customers/{id}", request);
+            using var response = await SendAuthenticatedAsync(() => httpClient.PutAsJsonAsync($"api/route-customers/{id}", request));
             if (!response.IsSuccessStatusCode)
             {
                 var message = await ExtractErrorMessageAsync(response, "Failed to update route customer.");
@@ -73,9 +78,7 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync(httpClient, localStorage);
-
-            var response = await httpClient.DeleteAsync($"api/route-customers/{id}");
+            using var response = await SendAuthenticatedAsync(() => httpClient.DeleteAsync($"api/route-customers/{id}"));
             if (!response.IsSuccessStatusCode)
             {
                 var message = await ExtractErrorMessageAsync(response, "Failed to delete route customer.");
@@ -94,11 +97,14 @@ public class RouteCustomerService(
         }
     }
 
-    private static async Task EnsureAuthenticationAsync(HttpClient httpClient, ILocalStorageService localStorage)
+    private async Task EnsureAuthenticationAsync()
     {
         try
         {
-            var token = await localStorage.GetItemAsync<string>("authToken");
+            // Goes through the auth state provider so an expired access token is renewed from the
+            // refresh token instead of being sent to the API and coming back as a 401.
+            var token = await authStateProvider.GetAccessTokenAsync()
+                        ?? await localStorage.GetItemAsync<string>("authToken");
             var currentToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
 
             if (string.IsNullOrWhiteSpace(token))
@@ -116,6 +122,35 @@ public class RouteCustomerService(
         {
             httpClient.DefaultRequestHeaders.Authorization = null;
         }
+    }
+
+    /// <summary>
+    /// Sends an authenticated request, renewing the access token and retrying once if the API
+    /// rejects it. The request factory is invoked per attempt because a request message cannot be
+    /// resent.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+    {
+        await EnsureAuthenticationAsync();
+        var response = await sendAsync();
+
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        var rejectedToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+        var refreshedToken = await authStateProvider.RefreshAccessTokenAsync(rejectedToken);
+        if (string.IsNullOrWhiteSpace(refreshedToken) ||
+            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
+        {
+            return response;
+        }
+
+        logger.LogInformation("Retrying request after refreshing an expired access token");
+        response.Dispose();
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
+        return await sendAsync();
     }
 
     private static async Task<string> ExtractErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)

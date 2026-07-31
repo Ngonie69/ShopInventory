@@ -5,11 +5,10 @@
 @inject IThemeService ThemeService
 @inject ILocalizationService L
 @inject IJSRuntime JS
-@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
 @inject INotificationClientService NotificationClient
 @inject INotificationHubService NotificationHub
 @inject ISnackbar Snackbar
-@inject AuthenticationStateProvider AuthStateProvider
+@inject CustomAuthStateProvider AuthStateProvider
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @inject IBrowserViewportService BrowserViewportService
@@ -183,11 +182,14 @@
                 // Connect to SignalR hub for real-time push notifications
                 try
                 {
-                    var token = await LocalStorage.GetItemAsync<string>("authToken");
+                    // Resolved through the auth state provider so the hub is handed a token that has
+                    // been renewed if it expired, and so each reconnect asks for a fresh one rather
+                    // than replaying the token this circuit started with.
+                    var token = await AuthStateProvider.GetAccessTokenAsync();
                     if (!string.IsNullOrWhiteSpace(token))
                     {
                         NotificationHub.OnNotificationReceived += OnRealTimeNotification;
-                        await NotificationHub.StartAsync(token);
+                        await NotificationHub.StartAsync(() => AuthStateProvider.GetAccessTokenAsync());
                     }
                 }
                 catch (Exception ex)

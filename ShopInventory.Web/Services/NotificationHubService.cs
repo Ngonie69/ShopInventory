@@ -14,7 +14,11 @@ public interface INotificationHubService : IAsyncDisposable
     event Action? OnStockSnapshotUpdated;
     event Action<StockFetchProgressModel>? OnStockFetchProgress;
     event Action? OnConsolidationCompleted;
-    Task StartAsync(string accessToken);
+    /// <summary>
+    /// Opens the hub connection. The token is resolved per connection attempt rather than captured
+    /// once, so an automatic reconnect after the access token expires presents a renewed one.
+    /// </summary>
+    Task StartAsync(Func<Task<string?>> accessTokenProvider);
     Task StopAsync();
     bool IsConnected { get; }
 }
@@ -38,7 +42,7 @@ public class NotificationHubService : INotificationHubService, IAsyncDisposable
         _logger = logger;
     }
 
-    public async Task StartAsync(string accessToken)
+    public async Task StartAsync(Func<Task<string?>> accessTokenProvider)
     {
         if (_hubConnection is not null)
         {
@@ -53,7 +57,7 @@ public class NotificationHubService : INotificationHubService, IAsyncDisposable
         _hubConnection = new HubConnectionBuilder()
             .WithUrl(hubUrl, options =>
             {
-                options.AccessTokenProvider = () => Task.FromResult<string?>(accessToken);
+                options.AccessTokenProvider = accessTokenProvider;
             })
             .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30) })
             .Build();

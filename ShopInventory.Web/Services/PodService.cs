@@ -32,12 +32,18 @@ public class PodService : IPodService
     private readonly HttpClient _httpClient;
     private readonly ILogger<PodService> _logger;
     private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
 
-    public PodService(HttpClient httpClient, ILogger<PodService> logger, ILocalStorageService localStorage)
+    public PodService(
+        HttpClient httpClient,
+        ILogger<PodService> logger,
+        ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider)
     {
         _httpClient = httpClient;
         _logger = logger;
         _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
     }
 
     private async Task EnsureAuthenticationAsync(CancellationToken cancellationToken = default)
@@ -46,7 +52,10 @@ public class PodService : IPodService
         {
             try
             {
-                var token = await _localStorage.GetItemAsync<string>("authToken");
+                // Goes through the auth state provider so an expired access token is renewed from the
+                // refresh token instead of being sent to the API and coming back as a 401.
+                var token = await _authStateProvider.GetAccessTokenAsync()
+                            ?? await _localStorage.GetItemAsync<string>("authToken");
                 var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
 
                 if (string.IsNullOrWhiteSpace(token))
@@ -80,10 +89,40 @@ public class PodService : IPodService
         }
     }
 
-    private async Task<T?> GetAuthenticatedJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Sends an authenticated request, renewing the access token and retrying once if the API
+    /// rejects it. The request factory is invoked per attempt because a request message cannot be
+    /// resent.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAuthenticatedAsync(
+        Func<Task<HttpResponseMessage>> sendAsync,
+        CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticationAsync(cancellationToken);
-        using var response = await SendAuthenticatedGetAsync(url, cancellationToken);
+        var response = await sendAsync();
+
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        var rejectedToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+        var refreshedToken = await _authStateProvider.RefreshAccessTokenAsync(rejectedToken);
+        if (string.IsNullOrWhiteSpace(refreshedToken) ||
+            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
+        {
+            return response;
+        }
+
+        _logger.LogInformation("Retrying POD request after refreshing an expired access token");
+        response.Dispose();
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
+        return await sendAsync();
+    }
+
+    private async Task<T?> GetAuthenticatedJsonAsync<T>(string url, CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync(url, cancellationToken), cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -99,25 +138,10 @@ public class PodService : IPodService
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
     }
 
-    private async Task<HttpResponseMessage> SendAuthenticatedGetAsync(string url, CancellationToken cancellationToken)
-    {
-        var response = await _httpClient.GetAsync(url, cancellationToken);
-        if (response.StatusCode != HttpStatusCode.Unauthorized)
-        {
-            return response;
-        }
-
-        response.Dispose();
-        _httpClient.DefaultRequestHeaders.Authorization = null;
-        await EnsureAuthenticationAsync(cancellationToken);
-        return await _httpClient.GetAsync(url, cancellationToken);
-    }
-
     public async Task<PodAttachmentListResponse?> GetAllPodsAsync(int page = 1, int pageSize = 20, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, string? search = null, string? uploadedByUsername = null, string? uploadedFromLocation = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            await EnsureAuthenticationAsync(cancellationToken);
             var url = $"api/invoice/pods?page={page}&pageSize={pageSize}";
             if (!string.IsNullOrEmpty(cardCode))
                 url += $"&cardCode={Uri.EscapeDataString(cardCode)}";
@@ -156,8 +180,7 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.GetFromJsonAsync<DocumentAttachmentListResponse>(
+            var response = await GetAuthenticatedJsonAsync<DocumentAttachmentListResponse>(
                 $"api/invoice/{docEntry}/attachments");
 
             if (response?.Attachments != null)
@@ -190,7 +213,6 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync(cancellationToken);
             var request = new BulkPodValidationRequest
             {
                 DocNums = (docNums ?? Enumerable.Empty<int>()).Where(docNum => docNum > 0).Distinct().ToList(),
@@ -200,7 +222,9 @@ public class PodService : IPodService
             if (request.DocNums.Count == 0 && request.SalesOrderDocNums.Count == 0)
                 return new BulkPodValidationResponse();
 
-            var response = await _httpClient.PostAsJsonAsync("api/invoice/pods/validate-bulk", request, cancellationToken);
+            using var response = await SendAuthenticatedAsync(
+                () => _httpClient.PostAsJsonAsync("api/invoice/pods/validate-bulk", request, cancellationToken),
+                cancellationToken);
             if (response.IsSuccessStatusCode)
                 return await response.Content.ReadFromJsonAsync<BulkPodValidationResponse>(cancellationToken);
 
@@ -224,35 +248,41 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            // Buffer the Blazor BrowserFileStream into a MemoryStream.
-            // BrowserFileStream is non-seekable (reads via SignalR) and causes
-            // MultipartFormDataContent to fail computing content-length.
+            // Buffer the Blazor BrowserFileStream into memory. BrowserFileStream is non-seekable
+            // (reads via SignalR) and causes MultipartFormDataContent to fail computing
+            // content-length; buffering also lets the body be rebuilt if the send is retried.
             using var memoryStream = new MemoryStream();
             await fileStream.CopyToAsync(memoryStream);
-            memoryStream.Position = 0;
+            var fileBytes = memoryStream.ToArray();
 
-            using var content = new MultipartFormDataContent();
-            var streamContent = new StreamContent(memoryStream);
-            streamContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
-            content.Add(streamContent, "file", fileName);
+            // Reused across a retry: a 401 is raised by the authorization middleware, which runs
+            // before the API records the key, so the retry is processed as new work.
+            var idempotencyKey = Guid.NewGuid().ToString("N");
 
-            if (!string.IsNullOrWhiteSpace(description))
+            using var response = await SendAuthenticatedAsync(async () =>
             {
-                content.Add(new StringContent(description), "description");
-            }
+                using var content = new MultipartFormDataContent();
+                var fileContent = new ByteArrayContent(fileBytes);
+                fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+                content.Add(fileContent, "file", fileName);
 
-            if (!string.IsNullOrWhiteSpace(uploadedByUsername))
-            {
-                content.Add(new StringContent(uploadedByUsername), "uploadedByUsername");
-            }
+                if (!string.IsNullOrWhiteSpace(description))
+                {
+                    content.Add(new StringContent(description), "description");
+                }
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/invoice/{docEntry}/pod")
-            {
-                Content = content
-            };
-            request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
-            using var response = await _httpClient.SendAsync(request);
+                if (!string.IsNullOrWhiteSpace(uploadedByUsername))
+                {
+                    content.Add(new StringContent(uploadedByUsername), "uploadedByUsername");
+                }
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"api/invoice/{docEntry}/pod")
+                {
+                    Content = content
+                };
+                request.Headers.Add("Idempotency-Key", idempotencyKey);
+                return await _httpClient.SendAsync(request);
+            });
 
             if (response.IsSuccessStatusCode)
             {
@@ -275,9 +305,8 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.GetAsync(
-                $"api/invoice/{docEntry}/attachments/{attachmentId}/download");
+            using var response = await SendAuthenticatedAsync(
+                () => _httpClient.GetAsync($"api/invoice/{docEntry}/attachments/{attachmentId}/download"));
 
             if (response.IsSuccessStatusCode)
             {
@@ -297,8 +326,8 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.DeleteAsync($"api/document/attachments/{attachmentId}");
+            using var response = await SendAuthenticatedAsync(
+                () => _httpClient.DeleteAsync($"api/document/attachments/{attachmentId}"));
             return response.IsSuccessStatusCode;
         }
         catch (Exception ex)
@@ -316,7 +345,6 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync(cancellationToken);
             var from = fromDate.ToString("yyyy-MM-dd");
             var to = toDate.ToString("yyyy-MM-dd");
             var includeCreditNoteActivityText = includeCreditNoteActivity ? "true" : "false";
@@ -339,7 +367,6 @@ public class PodService : IPodService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             return await GetAuthenticatedJsonAsync<PodDashboardModel>("api/invoice/pod-dashboard");
         }
         catch (Exception ex)

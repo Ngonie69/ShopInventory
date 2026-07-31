@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Blazored.LocalStorage;
@@ -97,7 +98,10 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            var token = await _localStorage.GetItemAsync<string>("authToken");
+            // Goes through the auth state provider so an expired access token is renewed from the
+            // refresh token instead of being sent to the API and coming back as a 401.
+            var token = await _authStateProvider.GetAccessTokenAsync()
+                        ?? await _localStorage.GetItemAsync<string>("authToken");
             var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
 
             if (string.IsNullOrWhiteSpace(token))
@@ -117,12 +121,40 @@ public class TwoFactorWebService : ITwoFactorWebService
         }
     }
 
+    /// <summary>
+    /// Sends an authenticated request, renewing the access token and retrying once if the API
+    /// rejects it. The request factory is invoked per attempt because a request message cannot be
+    /// resent.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAuthenticatedAsync(Func<Task<HttpResponseMessage>> sendAsync)
+    {
+        await EnsureAuthenticationAsync();
+        var response = await sendAsync();
+
+        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        {
+            return response;
+        }
+
+        var rejectedToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
+        var refreshedToken = await _authStateProvider.RefreshAccessTokenAsync(rejectedToken);
+        if (string.IsNullOrWhiteSpace(refreshedToken) ||
+            string.Equals(refreshedToken, rejectedToken, StringComparison.Ordinal))
+        {
+            return response;
+        }
+
+        _logger.LogInformation("Retrying request after refreshing an expired access token");
+        response.Dispose();
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", refreshedToken);
+        return await sendAsync();
+    }
+
     public async Task<TwoFactorStatusModel?> GetStatusAsync()
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.GetAsync("api/twofactor/status");
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/twofactor/status"));
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<TwoFactorStatusModel>();
@@ -143,8 +175,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.PostAsync("api/twofactor/setup", null);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsync("api/twofactor/setup", null));
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<TwoFactorSetupModel>();
@@ -172,9 +203,8 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var request = new { Code = code };
-            var response = await _httpClient.PostAsJsonAsync("api/twofactor/enable", request);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/twofactor/enable", request));
 
             if (response.IsSuccessStatusCode)
             {
@@ -224,9 +254,8 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var request = new { Password = password, Code = code };
-            var response = await _httpClient.PostAsJsonAsync("api/twofactor/disable", request);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/twofactor/disable", request));
 
             if (response.IsSuccessStatusCode)
             {
@@ -260,9 +289,8 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var request = new { Code = code };
-            var response = await _httpClient.PostAsJsonAsync("api/twofactor/backup-codes/regenerate", request);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/twofactor/backup-codes/regenerate", request));
 
             if (response.IsSuccessStatusCode)
             {
@@ -312,9 +340,8 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var request = new { Username = username, CurrentPassword = currentPassword, NewPassword = newPassword, ConfirmPassword = confirmPassword };
-            var response = await _httpClient.PostAsJsonAsync("api/password/change", request);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/password/change", request));
 
             if (response.IsSuccessStatusCode)
             {
@@ -346,8 +373,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.GetAsync($"api/useractivity/me?recentCount={count}");
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync($"api/useractivity/me?recentCount={count}"));
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<UserActivityMeResponse>();
@@ -366,8 +392,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.GetAsync("api/password/credentials");
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/password/credentials"));
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<CredentialsModel>();
@@ -385,9 +410,8 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
             var request = new { Username = username, Email = email, CurrentPassword = currentPassword };
-            var response = await _httpClient.PutAsJsonAsync("api/password/credentials", request);
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PutAsJsonAsync("api/password/credentials", request));
 
             if (response.IsSuccessStatusCode)
             {
@@ -424,8 +448,7 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.GetAsync("api/auth/passkeys");
+            using var response = await SendAuthenticatedAsync(() => _httpClient.GetAsync("api/auth/passkeys"));
             if (response.IsSuccessStatusCode)
             {
                 return await response.Content.ReadFromJsonAsync<List<PasskeyCredentialInfo>>() ?? new List<PasskeyCredentialInfo>();
@@ -447,13 +470,12 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.PostAsJsonAsync("api/auth/passkeys/register/options", new
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/auth/passkeys/register/options", new
             {
                 FriendlyName = friendlyName,
                 Origin = origin,
                 RpId = rpId
-            });
+            }));
 
             if (response.IsSuccessStatusCode)
             {
@@ -490,14 +512,13 @@ public class TwoFactorWebService : ITwoFactorWebService
     {
         try
         {
-            await EnsureAuthenticationAsync();
-            var response = await _httpClient.PostAsJsonAsync("api/auth/passkeys/register/complete", new
+            using var response = await SendAuthenticatedAsync(() => _httpClient.PostAsJsonAsync("api/auth/passkeys/register/complete", new
             {
                 SessionToken = sessionToken,
                 CredentialJson = credentialJson,
                 Origin = origin,
                 RpId = rpId
-            });
+            }));
 
             if (response.IsSuccessStatusCode)
             {
