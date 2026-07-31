@@ -3251,12 +3251,13 @@
 
     /// <summary>
     /// Whether the drawer offers direct conversion. The request may have originated in this app
-    /// or directly in SAP; origin does not change who may convert it.
+    /// or directly in SAP; origin does not change who may convert it. This is role-based on the
+    /// client: the Blazor user profile does not expose the token's user-id claim, while the API
+    /// resolves and validates that id authoritatively when the action is submitted.
     /// </summary>
     private bool ShowsRequestConversionAction(InventoryTransferRequestDto? request)
         => request is not null &&
            IsRequestConvertible(request) &&
-           currentUserId.HasValue &&
            currentUserRole is not null &&
            RequestConverterRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
 
