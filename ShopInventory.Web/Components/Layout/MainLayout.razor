@@ -183,7 +183,10 @@
                 // Connect to SignalR hub for real-time push notifications
                 try
                 {
-                    var token = await LocalStorage.GetItemAsync<string>("authToken");
+                    // Via the auth state provider so the hub is handed a token that is still valid.
+                    var token = AuthStateProvider is CustomAuthStateProvider apiAuthState
+                        ? await apiAuthState.GetAccessTokenAsync()
+                        : await LocalStorage.GetItemAsync<string>("authToken");
                     if (!string.IsNullOrWhiteSpace(token))
                     {
                         NotificationHub.OnNotificationReceived += OnRealTimeNotification;

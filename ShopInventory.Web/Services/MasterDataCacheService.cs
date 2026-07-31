@@ -45,6 +45,7 @@ public class MasterDataCacheService : IMasterDataCacheService
     private readonly ILogger<MasterDataCacheService> _logger;
     private readonly IDbContextFactory<WebAppDbContext> _dbContextFactory;
     private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly IAppSettingsProvider _appSettings;
 
     private const string BusinessPartnersCacheKey = "BusinessPartners";
@@ -96,6 +97,7 @@ public class MasterDataCacheService : IMasterDataCacheService
         ILogger<MasterDataCacheService> logger,
         IDbContextFactory<WebAppDbContext> dbContextFactory,
         ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider,
         IAppSettingsProvider appSettings)
     {
         _httpClient = httpClient;
@@ -103,38 +105,21 @@ public class MasterDataCacheService : IMasterDataCacheService
         _logger = logger;
         _dbContextFactory = dbContextFactory;
         _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _appSettings = appSettings;
     }
 
     /// <summary>
-    /// Ensures the HttpClient has authentication header set from localStorage
+    /// Ensures the HttpClient carries a valid access token, renewing an expired one first.
     /// </summary>
     private async Task EnsureAuthenticationAsync(HttpClient? client = null)
     {
         var targetClient = client ?? _httpClient;
 
-        try
+        var token = await ApiTokenAuthentication.ApplyAsync(targetClient, _authStateProvider, _localStorage, _logger);
+        if (string.IsNullOrWhiteSpace(token))
         {
-            var token = await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = targetClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                targetClient.DefaultRequestHeaders.Authorization = null;
-                _logger.LogWarning("No auth token found in localStorage - API calls may fail");
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                targetClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                _logger.LogDebug("Updated auth header from localStorage for API call");
-            }
-        }
-        catch (Exception ex)
-        {
-            // localStorage not available during prerendering
-            _logger.LogDebug("Could not access localStorage for auth token: {Message}", ex.Message);
+            _logger.LogWarning("No auth token available - API calls may fail");
         }
     }
 

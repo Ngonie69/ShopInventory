@@ -29,43 +29,25 @@ public class SalesOrderService : ISalesOrderService
     private readonly HttpClient _httpClient;
     private readonly ILogger<SalesOrderService> _logger;
     private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
     private readonly WebClientAuditContext _clientAuditContext;
 
     public SalesOrderService(
         HttpClient httpClient,
         ILogger<SalesOrderService> logger,
         ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider,
         WebClientAuditContext clientAuditContext)
     {
         _httpClient = httpClient;
         _logger = logger;
         _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
         _clientAuditContext = clientAuditContext;
     }
 
-    private async Task EnsureAuthenticationAsync()
-    {
-        try
-        {
-            var token = await _localStorage.GetItemAsync<string>("authToken");
-            var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch
-        {
-            // localStorage not available during prerendering
-        }
-    }
+    private Task EnsureAuthenticationAsync()
+        => ApiTokenAuthentication.ApplyAsync(_httpClient, _authStateProvider, _localStorage, _logger);
 
     public async Task<SalesOrderListResponse?> GetSalesOrdersAsync(int page = 1, int pageSize = 20,
         SalesOrderStatus? status = null, string? cardCode = null, DateTime? fromDate = null, DateTime? toDate = null, SalesOrderSource? source = null, string? search = null, bool? vanSalesUsersOnly = null)
