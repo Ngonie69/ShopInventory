@@ -20,32 +20,16 @@ public interface ICrateTrackingService
     Task<(bool Success, string Message, CrateGrvDto? Grv)> CreateCrateGrvAsync(int crateTransactionId, string reason, IBrowserFile file, CancellationToken cancellationToken = default);
 }
 
-public class CrateTrackingService(HttpClient httpClient, ILogger<CrateTrackingService> logger, ILocalStorageService localStorage) : ICrateTrackingService
+public class CrateTrackingService(
+    HttpClient httpClient,
+    ILogger<CrateTrackingService> logger,
+    ILocalStorageService localStorage,
+    CustomAuthStateProvider authStateProvider) : ICrateTrackingService
 {
     private const long MaxUploadSize = 20 * 1024 * 1024;
 
-    private async Task EnsureAuthenticationAsync()
-    {
-        try
-        {
-            var token = await localStorage.GetItemAsync<string>("authToken");
-            var currentToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch
-        {
-        }
-    }
+    private Task EnsureAuthenticationAsync()
+        => ApiTokenAuthentication.ApplyAsync(httpClient, authStateProvider, localStorage, logger);
 
     public async Task<List<CrateTransactionDto>?> GetTransactionsAsync(string? search = null, string? status = null, string? transactionType = null, CancellationToken cancellationToken = default)
     {

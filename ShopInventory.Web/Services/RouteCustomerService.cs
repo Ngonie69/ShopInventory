@@ -16,14 +16,15 @@ public interface IRouteCustomerService
 public class RouteCustomerService(
     HttpClient httpClient,
     ILogger<RouteCustomerService> logger,
-    ILocalStorageService localStorage
+    ILocalStorageService localStorage,
+    CustomAuthStateProvider authStateProvider
 ) : IRouteCustomerService
 {
     public async Task<List<RouteCustomerModel>> GetRouteCustomersAsync(string? assignedBusinessPartnerCode = null, bool activeOnly = true)
     {
         try
         {
-            await EnsureAuthenticationAsync(httpClient, localStorage);
+            await EnsureAuthenticationAsync();
 
             var queryParams = new List<string> { $"activeOnly={activeOnly.ToString().ToLowerInvariant()}" };
             if (!string.IsNullOrWhiteSpace(assignedBusinessPartnerCode))
@@ -45,7 +46,7 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync(httpClient, localStorage);
+            await EnsureAuthenticationAsync();
 
             var response = await httpClient.PutAsJsonAsync($"api/route-customers/{id}", request);
             if (!response.IsSuccessStatusCode)
@@ -73,7 +74,7 @@ public class RouteCustomerService(
     {
         try
         {
-            await EnsureAuthenticationAsync(httpClient, localStorage);
+            await EnsureAuthenticationAsync();
 
             var response = await httpClient.DeleteAsync($"api/route-customers/{id}");
             if (!response.IsSuccessStatusCode)
@@ -94,29 +95,8 @@ public class RouteCustomerService(
         }
     }
 
-    private static async Task EnsureAuthenticationAsync(HttpClient httpClient, ILocalStorageService localStorage)
-    {
-        try
-        {
-            var token = await localStorage.GetItemAsync<string>("authToken");
-            var currentToken = httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = null;
-                return;
-            }
-
-            if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-            {
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            }
-        }
-        catch
-        {
-            httpClient.DefaultRequestHeaders.Authorization = null;
-        }
-    }
+    private Task EnsureAuthenticationAsync()
+        => ApiTokenAuthentication.ApplyAsync(httpClient, authStateProvider, localStorage, logger);
 
     private static async Task<string> ExtractErrorMessageAsync(HttpResponseMessage response, string fallbackMessage)
     {

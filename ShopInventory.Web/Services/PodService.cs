@@ -32,51 +32,39 @@ public class PodService : IPodService
     private readonly HttpClient _httpClient;
     private readonly ILogger<PodService> _logger;
     private readonly ILocalStorageService _localStorage;
+    private readonly CustomAuthStateProvider _authStateProvider;
 
-    public PodService(HttpClient httpClient, ILogger<PodService> logger, ILocalStorageService localStorage)
+    public PodService(
+        HttpClient httpClient,
+        ILogger<PodService> logger,
+        ILocalStorageService localStorage,
+        CustomAuthStateProvider authStateProvider)
     {
         _httpClient = httpClient;
         _logger = logger;
         _localStorage = localStorage;
+        _authStateProvider = authStateProvider;
     }
 
     private async Task EnsureAuthenticationAsync(CancellationToken cancellationToken = default)
     {
+        // The token can still be unreadable for a moment after the circuit starts, so keep polling
+        // for it rather than firing the request unauthenticated.
         for (var attempt = 0; attempt < AuthenticationRetryCount; attempt++)
         {
-            try
+            var token = await ApiTokenAuthentication.ApplyAsync(_httpClient, _authStateProvider, _localStorage);
+            if (!string.IsNullOrWhiteSpace(token))
             {
-                var token = await _localStorage.GetItemAsync<string>("authToken");
-                var currentToken = _httpClient.DefaultRequestHeaders.Authorization?.Parameter;
-
-                if (string.IsNullOrWhiteSpace(token))
-                {
-                    if (attempt == AuthenticationRetryCount - 1)
-                    {
-                        _httpClient.DefaultRequestHeaders.Authorization = null;
-                        _logger.LogWarning("POD auth token was unavailable after {AttemptCount} attempts", AuthenticationRetryCount);
-                        return;
-                    }
-                }
-                else
-                {
-                    if (!string.Equals(currentToken, token, StringComparison.Ordinal))
-                    {
-                        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                    }
-
-                    return;
-                }
-            }
-            catch (Exception ex) when (attempt < AuthenticationRetryCount - 1)
-            {
-                _logger.LogDebug(ex, "POD auth token is not available yet on attempt {Attempt}", attempt + 1);
+                return;
             }
 
-            if (attempt < AuthenticationRetryCount - 1)
+            if (attempt == AuthenticationRetryCount - 1)
             {
-                await Task.Delay(AuthenticationRetryDelay, cancellationToken);
+                _logger.LogWarning("POD auth token was unavailable after {AttemptCount} attempts", AuthenticationRetryCount);
+                return;
             }
+
+            await Task.Delay(AuthenticationRetryDelay, cancellationToken);
         }
     }
 
@@ -108,8 +96,8 @@ public class PodService : IPodService
         }
 
         response.Dispose();
-        _httpClient.DefaultRequestHeaders.Authorization = null;
-        await EnsureAuthenticationAsync(cancellationToken);
+        // Renew the token the API just rejected instead of re-attaching the same one.
+        await ApiTokenAuthentication.RenewAfterUnauthorizedAsync(_httpClient, _authStateProvider, _logger);
         return await _httpClient.GetAsync(url, cancellationToken);
     }
 
