@@ -1210,7 +1210,7 @@
                                     <button type="button" class="itx-btn itx-btn-sm itx-btn-danger"
                                             disabled="@(isConverting || isRejecting)"
                                             @onclick="() => RejectRequest(selectedTransferRequest, stage.StageId)">
-                                        <i class="bi bi-x-circle"></i> Reject
+                                        <i class="bi bi-x-circle"></i> Reject Approval
                                     </button>
                                 </div>
                             }
@@ -3285,10 +3285,11 @@
     private bool CanCurrentUserDecideStage(InventoryTransferRequestDto? request, ApprovalStageProgressModel stage)
     {
         if (!IsRequestConvertible(request) || !string.Equals(stage.Status, "Pending", StringComparison.OrdinalIgnoreCase)) return false;
-        if (!currentUserId.HasValue || string.IsNullOrWhiteSpace(currentUserRole)) return false;
-        if (stage.Decisions.Any(x => x.AuthorizerUserId == currentUserId.Value)) return false;
+        if (string.IsNullOrWhiteSpace(currentUserRole)) return false;
+        if (currentUserId.HasValue &&
+            stage.Decisions.Any(x => x.AuthorizerUserId == currentUserId.Value)) return false;
         if (string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase)) return true;
-        return stage.AuthorizerUserIds.Contains(currentUserId.Value) ||
+        return (currentUserId.HasValue && stage.AuthorizerUserIds.Contains(currentUserId.Value)) ||
                stage.AuthorizerRoles.Contains(currentUserRole, StringComparer.OrdinalIgnoreCase);
     }
 
