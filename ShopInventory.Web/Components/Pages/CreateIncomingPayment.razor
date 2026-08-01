@@ -1714,29 +1714,11 @@ new()
                 activePaymentMethod = avail[0];
             }
 
-            // Load allowed business partners: user-level overrides system-level.
-            // Roles with unrestricted payment access serve any business partner, so neither
-            // list is applied to them.
-            if (hasUnrestrictedPaymentAccess)
-            {
-                allowedPaymentBPs = new();
-            }
-            else if (userAllowedPaymentBPs.Any())
-            {
-                allowedPaymentBPs = new List<string>(userAllowedPaymentBPs);
-            }
-            else
-            {
-                var bpJson = await AppSettingsService.GetValueAsync(SettingKeys.AllowedPaymentBusinessPartners);
-                if (!string.IsNullOrWhiteSpace(bpJson) && bpJson != "[]")
-                {
-                    try
-                    {
-                        allowedPaymentBPs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(bpJson) ?? new();
-                    }
-                    catch { allowedPaymentBPs = new(); }
-                }
-            }
+            // Load allowed business partners. Roles with unrestricted payment access serve
+            // any business partner, so the per-user list is not applied to them.
+            allowedPaymentBPs = hasUnrestrictedPaymentAccess
+                ? new()
+                : new List<string>(userAllowedPaymentBPs);
 
             await InvokeAsync(StateHasChanged);
         }
