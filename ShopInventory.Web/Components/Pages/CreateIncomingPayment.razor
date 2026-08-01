@@ -1714,8 +1714,14 @@ new()
                 activePaymentMethod = avail[0];
             }
 
-            // Load allowed business partners: user-level overrides system-level
-            if (userAllowedPaymentBPs.Any())
+            // Load allowed business partners: user-level overrides system-level.
+            // Roles with unrestricted payment access serve any business partner, so neither
+            // list is applied to them.
+            if (hasUnrestrictedPaymentAccess)
+            {
+                allowedPaymentBPs = new();
+            }
+            else if (userAllowedPaymentBPs.Any())
             {
                 allowedPaymentBPs = new List<string>(userAllowedPaymentBPs);
             }
