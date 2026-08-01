@@ -27,7 +27,21 @@ public class StatementCustomerDto
     public string? Currency { get; set; }
     public string AccountStructure { get; set; } = "Single";
     public string? PaymentTermsName { get; set; }
-    public int? PaymentTermsDays { get; set; }
+
+    /// <summary>
+    /// Payment terms expressed in days, or 0 when the customer has no terms group or SAP could not
+    /// resolve it.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not nullable. Every consumer already treats "no terms" and "zero days"
+    /// identically, and emitting <c>null</c> here is what broke the portal: the web model mirrors
+    /// this DTO with a plain <c>int</c>, and <c>System.Text.Json</c> refuses to read <c>null</c>
+    /// into a non-nullable value type. That threw inside the statement page's deserialisation for
+    /// every customer whose terms group SAP could not resolve — leads, and anything pointing at a
+    /// group that no longer exists — leaving the page with an error and the Download PDF button
+    /// permanently disabled.
+    /// </remarks>
+    public int PaymentTermsDays { get; set; }
 }
 
 public class StatementLineDto

@@ -11,6 +11,11 @@ public interface IInvoiceService
     Task<InvoiceDto?> GetInvoiceByDocNumAsync(int docNum);
     Task<FiscalizationResult> FiscalizeInvoiceAsync(int docEntry);
     Task<InvoiceDateResponse?> GetInvoicesByCustomerAsync(string cardCode, DateTime? fromDate = null, DateTime? toDate = null, int? page = null, int? pageSize = null);
+
+    /// <summary>
+    /// Invoices still carrying a balance across a set of accounts, filtered by SAP.
+    /// </summary>
+    Task<InvoiceDateResponse?> GetOpenInvoicesByCustomersAsync(IEnumerable<string> cardCodes);
     Task<InvoiceDateResponse?> GetInvoicesByDateAsync(DateTime date);
     Task<InvoiceDateResponse?> GetInvoicesByDateRangeAsync(DateTime fromDate, DateTime toDate, int? page = null, int? pageSize = null);
     Task<(bool Success, string Message, InvoiceDto? Invoice, FiscalizationResult? Fiscalization)> CreateInvoiceAsync(CreateInvoiceRequest request);
@@ -151,6 +156,30 @@ public class InvoiceService : IInvoiceService
         }
         catch
         {
+            return null;
+        }
+    }
+
+    public async Task<InvoiceDateResponse?> GetOpenInvoicesByCustomersAsync(IEnumerable<string> cardCodes)
+    {
+        var codes = cardCodes
+            .Where(cardCode => !string.IsNullOrWhiteSpace(cardCode))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (codes.Count == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var query = string.Join("&", codes.Select(code => $"cardCodes={Uri.EscapeDataString(code)}"));
+            return await _httpClient.GetFromJsonAsync<InvoiceDateResponse>($"api/invoice/open?{query}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching open invoices for {CardCodes}", string.Join(",", codes));
             return null;
         }
     }

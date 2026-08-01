@@ -11,24 +11,29 @@
 <MudDialogProvider />
 <MudSnackbarProvider />
 
-<MudLayout Class="customer-shell">
-    <MudAppBar Elevation="1" Dense="true" Class="customer-appbar" Style="background: #000000;">
+@* `cpx` is the customer-portal.css scope. It sits on the shell so the whole
+   portal — chrome, and every page rendered into @Body — resolves the Nocturne
+   tokens, which is what lets that stylesheet restyle the shared class
+   vocabulary (dashboard-panel, stat-card, dashboard-table …) for the portal
+   without touching how the same classes render on the staff pages. *@
+<MudLayout Class="customer-shell cpx">
+    <MudAppBar Elevation="0" Dense="true" Class="customer-appbar">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
-                       OnClick="@ToggleDrawer" Class="customer-menu-button" />
+                       OnClick="@ToggleDrawer" Class="customer-menu-button" aria-label="Toggle navigation" />
         <img src="images/kefalos-logo.jpg" alt="Kefalos" class="customer-brand-logo"
-             style="height: 36px; margin-left: 12px; filter: invert(1);" onerror="this.style.display='none'" />
+             style="height: 32px; margin-left: 12px;" onerror="this.style.display='none'" />
         <MudText Typo="Typo.h6" Class="ml-4 customer-brand-title">Customer Portal</MudText>
         <MudSpacer />
 
         @if (!string.IsNullOrEmpty(customerName))
         {
-            <MudChip T="string" Color="Color.Default" Variant="Variant.Text" Style="color: white;"
-                     Class="customer-account-chip">
-                <MudAvatar Color="Color.Secondary" Size="Size.Small" Class="mr-2">@(customerName.Length > 0 ?
-                                                                                                                                                                                customerName[0].ToString().ToUpper() : "C")</MudAvatar>
-                    @customerName
-                </MudChip>
-            }
+            <MudChip T="string" Color="Color.Default" Variant="Variant.Text" Class="customer-account-chip">
+                <MudAvatar Color="Color.Secondary" Size="Size.Small" Class="mr-2">
+                    @(customerName.Length > 0 ? customerName[0].ToString().ToUpper() : "C")
+                </MudAvatar>
+                @customerName
+            </MudChip>
+        }
 
             <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                            Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")"
@@ -52,19 +57,14 @@
 
         <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Responsive"
                    ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Md" Class="customer-drawer">
-            <MudDrawerHeader Dense="true" Class="customer-drawer-header" Style="background: #000000;">
-                <div class="d-flex align-center gap-2 customer-drawer-brand" style="color: white;">
+            <MudDrawerHeader Dense="true" Class="customer-drawer-header">
+                <div class="d-flex align-center gap-2 customer-drawer-brand">
+                    <MudIcon Icon="@Icons.Material.Filled.Person" />
                     @if (_drawerOpen)
                     {
-                        <MudIcon Icon="@Icons.Material.Filled.Person" />
-                        <MudText Typo="Typo.subtitle2" Class="customer-drawer-title"
-                                 Style="font-weight: 600; letter-spacing: 0.03em;">
+                        <MudText Typo="Typo.subtitle2" Class="customer-drawer-title">
                             @(customerName ?? "Customer Portal")
                         </MudText>
-                    }
-                    else
-                    {
-                        <MudIcon Icon="@Icons.Material.Filled.Person" Style="color: white;" />
                     }
                 </div>
             </MudDrawerHeader>
@@ -134,30 +134,48 @@
     private bool _drawerOpen = true;
     private bool _isDarkMode = false;
 
+    /// <remarks>
+    /// The portal's whole first-load story lives here, because every page repeats the shape.
+    ///
+    /// The load used to sit in OnAfterRenderAsync(firstRender). Nothing about it needed a rendered
+    /// DOM — it reads the session and then fetches — so all that bought was delay: the component
+    /// had to complete a full render and ship that markup to the browser before any data work
+    /// started. On a page the size of the dashboard that is a wasted render of the entire body,
+    /// and it is pure latency in front of the first SAP call. OnInitializedAsync starts the same
+    /// work before that render instead of after it, and needs no StateHasChanged, because
+    /// OnInitializedAsync already re-renders when it completes.
+    ///
+    /// The IsInteractive guard is not load-bearing today: App.razor renders Routes with
+    /// prerender:false, so portal components only ever initialise on a circuit and the guard never
+    /// fires. It is here because that is the one setting that would break this — the session lives
+    /// behind JS interop, prerendering runs without a circuit, and any pass that cannot call into
+    /// the browser must not try to resolve a customer. Enabling prerendering should paint the
+    /// chrome sooner, not start showing signed-in visitors the signed-out page.
+    ///
+    /// Loading data during prerender is a different problem again, and not a lifecycle one: the
+    /// token is in local storage, so the server cannot see it on the initial request. That would
+    /// need the token moved into a cookie.
+    /// </remarks>
     protected override async Task OnInitializedAsync()
     {
-        var theme = await ThemeService.GetThemeAsync();
-        _isDarkMode = ThemeService.IsDarkMode;
         ThemeService.OnThemeChanged += OnThemeChanged;
         NavigationManager.LocationChanged += OnLocationChanged;
-    }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
+        var theme = await ThemeService.GetThemeAsync();
+        _isDarkMode = ThemeService.IsDarkMode;
+
+        if (!RendererInfo.IsInteractive)
         {
-            var theme = await ThemeService.GetThemeAsync();
-            _isDarkMode = ThemeService.IsDarkMode;
-            try { await JSRuntime.InvokeVoidAsync("themeManager.setTheme", theme, false); } catch { }
-            await LoadCustomerInfo();
+            return;
+        }
 
-            if (string.IsNullOrEmpty(customerCode) && RequiresAuthenticatedSession())
-            {
-                NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true, replace: true);
-                return;
-            }
+        try { await JSRuntime.InvokeVoidAsync("themeManager.setTheme", theme, false); } catch { }
 
-            StateHasChanged();
+        await LoadCustomerInfo();
+
+        if (string.IsNullOrEmpty(customerCode) && RequiresAuthenticatedSession())
+        {
+            NavigationManager.NavigateTo("/customer-portal/login", forceLoad: true, replace: true);
         }
     }
 

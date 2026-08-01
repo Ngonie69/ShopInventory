@@ -56,9 +56,7 @@ public sealed class GetCustomerStatementHandler(
                     Currency = customer.Currency,
                     AccountStructure = statementCardCodes.Count > 1 ? "Multi" : "Single",
                     PaymentTermsName = paymentTerms?.PaymentTermsGroupName,
-                    PaymentTermsDays = paymentTerms is null
-                        ? null
-                        : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays
+                    PaymentTermsDays = ToPaymentTermsDays(paymentTerms)
                 },
                 FromDate = fromDate,
                 ToDate = toDate,
@@ -191,9 +189,7 @@ WHERE T1.""ShortName"" IN ({inClause})
         PaymentTermsDto? paymentTerms,
         CancellationToken cancellationToken)
     {
-        var paymentTermsDays = paymentTerms is null
-            ? 0
-            : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
+        var paymentTermsDays = ToPaymentTermsDays(paymentTerms);
         var bucketSize = paymentTermsDays > 0 ? paymentTermsDays : 30;
 
         // Aging only ever uses invoices that are still open, so SAP filters them rather than this
@@ -249,6 +245,16 @@ WHERE T1.""ShortName"" IN ({inClause})
         aging.Total = aging.Current + aging.Days1To30 + aging.Days31To60 + aging.Days61To90 + aging.Over90Days;
         return aging;
     }
+
+    /// <summary>
+    /// Payment terms in days, or 0 when SAP has none to give. A customer with no terms group, or one
+    /// pointing at a group the Service Layer will not return, is ordinary rather than exceptional —
+    /// leads in particular — so this reports "no terms" rather than "unknown".
+    /// </summary>
+    private static int ToPaymentTermsDays(PaymentTermsDto? paymentTerms) =>
+        paymentTerms is null
+            ? 0
+            : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
 
     private static List<string> BuildStatementCardCodes(string primaryCardCode, IReadOnlyList<string>? requestedCardCodes)
     {

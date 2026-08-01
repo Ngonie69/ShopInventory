@@ -16,6 +16,7 @@ using ShopInventory.Features.Invoices.Queries.GetInvoiceByDocEntry;
 using ShopInventory.Features.Invoices.Queries.GetInvoiceByDocNum;
 using ShopInventory.Features.Invoices.Queries.GetInvoicesByCustomer;
 using ShopInventory.Features.Invoices.Queries.GetInvoicesByDateRange;
+using ShopInventory.Features.Invoices.Queries.GetOpenInvoicesByCustomers;
 using ShopInventory.Features.Invoices.Queries.GetPagedInvoices;
 using ShopInventory.Features.Invoices.Queries.GetPodDashboard;
 using ShopInventory.Features.Invoices.Queries.GetPodUploadStatus;
@@ -189,6 +190,29 @@ public class InvoiceController(ISender mediator) : ApiControllerBase
                 pageSize,
                 restrictToAssignedCustomers ? GetUserId() : null,
                 restrictToAssignedCustomers),
+            cancellationToken);
+
+        return result.Match(Ok, Problem);
+    }
+
+    /// <summary>
+    /// Open invoices for one or more accounts, filtered by SAP rather than by the caller.
+    /// </summary>
+    /// <remarks>
+    /// The customer portal asks "what does this customer still owe" for every linked account at
+    /// once. Answering it through <c>customer/{cardCode}</c> with no dates meant one unbounded walk
+    /// of each account's entire invoice history per account; this is one bounded walk for the set.
+    /// </remarks>
+    [HttpGet("open")]
+    [Authorize(Roles = "Admin,Cashier,StockController,Manager,PodOperator")]
+    [ProducesResponseType(typeof(InvoiceDateResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetOpenInvoicesByCustomers(
+        [FromQuery] List<string> cardCodes,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetOpenInvoicesByCustomersQuery(cardCodes ?? []),
             cancellationToken);
 
         return result.Match(Ok, Problem);

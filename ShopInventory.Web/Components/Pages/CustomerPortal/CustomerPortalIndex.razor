@@ -17,9 +17,11 @@
 </div>
 
 @code {
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (!firstRender)
+        // This page exists only to decide where to send the visitor, and that decision needs the
+        // session; see CustomerPortalLayout for why the non-interactive pass is skipped.
+        if (!RendererInfo.IsInteractive)
         {
             return;
         }

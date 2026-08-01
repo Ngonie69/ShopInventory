@@ -42,6 +42,9 @@ public static partial class Errors
         public static Error CreationFailed(string message) =>
             Error.Failure("Invoice.CreationFailed", message);
 
+        public static Error RetrievalFailed(string message) =>
+            Error.Failure("Invoice.RetrievalFailed", message);
+
         public static Error NoBatchesFound(string itemCode, string warehouseCode) =>
             Error.NotFound("Invoice.NoBatchesFound", $"No batches found for item '{itemCode}' in warehouse '{warehouseCode}'.");
 

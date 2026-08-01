@@ -178,29 +178,33 @@
     private const int PageSize = 20;
     private bool hasMorePages = true;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (firstRender)
+        // Loading here rather than in OnAfterRender starts the fetch before the first render
+        // instead of after it. The guard keeps the session read off any non-interactive pass;
+        // see CustomerPortalLayout for why it is here even though prerendering is off.
+        if (!RendererInfo.IsInteractive)
         {
-            try
-            {
-                portalSession = await CustomerSession.GetCurrentSessionAsync();
-                customerInfo = portalSession?.Customer;
+            return;
+        }
 
-                if (customerInfo != null)
-                {
-                    await LoadLogs();
-                }
-            }
-            catch (Exception ex)
+        try
+        {
+            portalSession = await CustomerSession.GetCurrentSessionAsync();
+            customerInfo = portalSession?.Customer;
+
+            if (customerInfo != null)
             {
-                Logger.LogError(ex, "Error loading activity log");
+                await LoadLogs();
             }
-            finally
-            {
-                isLoading = false;
-                StateHasChanged();
-            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading activity log");
+        }
+        finally
+        {
+            isLoading = false;
         }
     }
 

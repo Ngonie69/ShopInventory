@@ -275,13 +275,17 @@
     private IEnumerable<ItemCodeSummary> filteredItems =>
         ApplySort(ApplyFilter(items ?? Enumerable.Empty<ItemCodeSummary>()));
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (firstRender)
+        // Loading here rather than in OnAfterRender starts the fetch before the first render
+        // instead of after it. The guard keeps the session read off any non-interactive pass;
+        // see CustomerPortalLayout for why it is here even though prerendering is off.
+        if (!RendererInfo.IsInteractive)
         {
-            await LoadCustomerInfo();
-            StateHasChanged();
+            return;
         }
+
+        await LoadCustomerInfo();
     }
 
     private async Task LoadCustomerInfo()

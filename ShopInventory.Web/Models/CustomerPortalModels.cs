@@ -78,9 +78,15 @@ public class CustomerInfo
     public string? PaymentTermsName { get; set; }
 
     /// <summary>
-    /// Total payment terms days (months*30 + days) for aging calculation
+    /// Total payment terms days (months*30 + days) for aging calculation, or null when unknown.
     /// </summary>
-    public int PaymentTermsDays { get; set; }
+    /// <remarks>
+    /// Nullable so that an API still emitting the old <c>null</c> for this field cannot fail the
+    /// whole statement read. <c>System.Text.Json</c> throws rather than defaulting when it meets a
+    /// <c>null</c> for a non-nullable value type, and because the statement page reports that
+    /// failure as "no statement", one absent payment-terms group took the entire page down.
+    /// </remarks>
+    public int? PaymentTermsDays { get; set; }
 }
 
 /// <summary>
