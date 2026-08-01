@@ -630,7 +630,7 @@
                         <div class="stg-row">
                             <div class="stg-row-info">
                                 <div class="stg-row-label"><span>Default Payment Method</span></div>
-                                <span class="stg-row-desc">The method used for every incoming payment; cashiers cannot change it. Saved as soon as you pick it.</span>
+                                <span class="stg-row-desc">The method pre-selected on a new incoming payment; cashiers can switch to another. Saved as soon as you pick it.</span>
                             </div>
                             <div class="stg-row-control">
                                 <div class="stg-select-wrap">
@@ -643,103 +643,6 @@
                                     </select>
                                     <i class="ph ph-caret-down stg-select-caret"></i>
                                 </div>
-                            </div>
-                        </div>
-
-                        <!-- Allowed business partners -->
-                        <div class="stg-row stg-row-stack">
-                            <div class="stg-row-info">
-                                <div class="stg-row-label">
-                                    <span>Allowed Business Partners</span>
-                                    <span class="stg-tag stg-tag-neutral">@allowedPaymentBPs.Count of @cachedBusinessPartners.Count</span>
-                                </div>
-                                <span class="stg-row-desc">
-                                    Which customers may be chosen when creating an incoming payment. With none selected,
-                                    <strong>all</strong> customers are available. Saved as soon as you tick one.
-                                </span>
-                            </div>
-
-                            <div class="stg-row-control stg-row-control-stack" style="gap: var(--stg-space-3)">
-                                <div class="stg-combo">
-                                    <i class="ph ph-magnifying-glass stg-combo-icon"></i>
-                                    <input type="text" class="stg-input" placeholder="Search business partners"
-                                           value="@paymentBPSearchTerm" @oninput="OnPaymentBPSearchInput" />
-                                    @if (!string.IsNullOrEmpty(paymentBPSearchTerm))
-                                    {
-                                        <button type="button" class="stg-combo-clear" title="Clear search"
-                                                @onclick="() => paymentBPSearchTerm = string.Empty">
-                                            <i class="ph ph-x"></i>
-                                        </button>
-                                    }
-                                </div>
-
-                                @if (allowedPaymentBPs.Any())
-                                {
-                                    <div class="stg-chips">
-                                        @foreach (var bpCode in allowedPaymentBPs)
-                                        {
-                                            var bp = cachedBusinessPartners.FirstOrDefault(b => b.CardCode == bpCode);
-                                            <span class="stg-chip stg-chip-on">
-                                                <span>@bpCode@(bp is null ? "" : $" · {bp.CardName}")</span>
-                                                <button type="button" class="stg-chip-btn stg-chip-btn-danger" title="Remove"
-                                                        @onclick="() => TogglePaymentBP(bpCode)">
-                                                    <i class="ph ph-x"></i>
-                                                </button>
-                                            </span>
-                                        }
-                                    </div>
-                                }
-
-                                @{
-                                    var filteredBPs = string.IsNullOrWhiteSpace(paymentBPSearchTerm)
-                                        ? cachedBusinessPartners
-                                        : cachedBusinessPartners.Where(bp =>
-                                            (bp.CardCode?.Contains(paymentBPSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                                            (bp.CardName?.Contains(paymentBPSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
-                                }
-                                <div class="stg-list">
-                                    @if (!filteredBPs.Any())
-                                    {
-                                        <div class="stg-empty">
-                                            <i class="ph ph-magnifying-glass"></i>
-                                            <span>
-                                                @(cachedBusinessPartners.Any()
-                                                    ? "No business partners match your search."
-                                                    : "No business partners cached — sync them from Data Sync first.")
-                                            </span>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        @foreach (var bp in filteredBPs)
-                                        {
-                                            var isSelected = allowedPaymentBPs.Contains(bp.CardCode);
-                                            <label class="stg-list-row @(isSelected ? "selected" : "")">
-                                                <span class="stg-check">
-                                                    <input type="checkbox" checked="@isSelected"
-                                                           @onchange="() => TogglePaymentBP(bp.CardCode)" />
-                                                </span>
-                                                <span class="stg-list-row-body">
-                                                    <span class="stg-list-code">@bp.CardCode</span>
-                                                    <span class="stg-list-name">@bp.CardName</span>
-                                                </span>
-                                                @if (bp.Balance > 0)
-                                                {
-                                                    <span class="stg-list-aside">@bp.Balance?.ToString("N2")</span>
-                                                }
-                                            </label>
-                                        }
-                                    }
-                                </div>
-
-                                @if (allowedPaymentBPs.Any())
-                                {
-                                    <div style="display:flex; justify-content:flex-end">
-                                        <button type="button" class="stg-btn stg-btn-secondary stg-btn-sm" @onclick="ClearAllPaymentBPs">
-                                            <i class="ph ph-x-circle"></i>Clear all
-                                        </button>
-                                    </div>
-                                }
                             </div>
                         </div>
                     </section>
@@ -1615,10 +1518,7 @@
     // Payment settings fields
     private string paymentGLAccount = "";
     private string defaultPaymentMethod = "cash";
-    private List<string> allowedPaymentBPs = new();
-    private string paymentBPSearchTerm = "";
     private List<CachedGLAccount> cachedGLAccounts = new();
-    private List<CachedBusinessPartner> cachedBusinessPartners = new();
     private bool glOpen;
     private string? glQuery;
 
@@ -2817,11 +2717,6 @@
                 .Where(g => g.IsActive)
                 .OrderBy(g => g.Code)
                 .ToListAsync();
-            cachedBusinessPartners = await db.CachedBusinessPartners
-                .Where(bp => bp.IsActive && (bp.CardType == "cCustomer" || bp.CardType == "C"))
-                .OrderBy(bp => bp.CardCode)
-                .ToListAsync();
-
             cachedWarehouses = await db.CachedWarehouses
                 .Where(w => w.IsActive)
                 .OrderBy(w => w.WarehouseCode)
@@ -2833,16 +2728,6 @@
 
             var methodSetting = await SettingsService.GetValueAsync(SettingKeys.DefaultPaymentMethod);
             defaultPaymentMethod = methodSetting ?? "cash";
-
-            var bpJson = await SettingsService.GetValueAsync(SettingKeys.AllowedPaymentBusinessPartners);
-            if (!string.IsNullOrWhiteSpace(bpJson) && bpJson != "[]")
-            {
-                try
-                {
-                    allowedPaymentBPs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(bpJson) ?? new();
-                }
-                catch { allowedPaymentBPs = new(); }
-            }
         }
         catch (Exception ex)
         {
@@ -2905,30 +2790,6 @@
         };
         successMessage = $"Default payment method updated to {label}";
         await LogAudit(AuditActions.UpdateSettings, $"Updated default payment method to: {label}");
-    }
-
-    private async Task TogglePaymentBP(string cardCode)
-    {
-        if (allowedPaymentBPs.Contains(cardCode))
-            allowedPaymentBPs.Remove(cardCode);
-        else
-            allowedPaymentBPs.Add(cardCode);
-
-        var json = System.Text.Json.JsonSerializer.Serialize(allowedPaymentBPs);
-        await SettingsService.SaveSettingAsync(SettingKeys.AllowedPaymentBusinessPartners, json, currentUsername);
-        await LogAudit(AuditActions.UpdateSettings, $"Updated allowed payment business partners ({allowedPaymentBPs.Count} selected)");
-    }
-
-    private async Task ClearAllPaymentBPs()
-    {
-        allowedPaymentBPs.Clear();
-        await SettingsService.SaveSettingAsync(SettingKeys.AllowedPaymentBusinessPartners, "[]", currentUsername);
-        await LogAudit(AuditActions.UpdateSettings, "Cleared all allowed payment business partners");
-    }
-
-    private void OnPaymentBPSearchInput(ChangeEventArgs e)
-    {
-        paymentBPSearchTerm = e.Value?.ToString() ?? "";
     }
 
     // ── Database reset ──────────────────────────────────────────────────

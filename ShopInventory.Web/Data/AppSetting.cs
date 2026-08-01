@@ -92,7 +92,6 @@ public static class SettingKeys
 
     // Payment settings
     public const string IncomingPaymentGLAccount = "IncomingPaymentGLAccount";
-    public const string AllowedPaymentBusinessPartners = "AllowedPaymentBusinessPartners";
     public const string DefaultPaymentMethod = "DefaultPaymentMethod";
 
     // Driver settings
@@ -131,6 +130,10 @@ public static class RetiredSettingKeys
     public const string PrinterName = "PrinterName";
     public const string SavedPrinters = "SavedPrinters";
 
+    // Only Admin and Cashier reach the incoming payment screen, and both now serve every
+    // business partner, so this list filtered nobody.
+    public const string AllowedPaymentBusinessPartners = "AllowedPaymentBusinessPartners";
+
     // Superseded by the PodReportEmailSchedules table, which carries recipients and cadence
     // per schedule.
     public const string PodReportEmailsTo = "PodReportEmails.To";
@@ -153,6 +156,7 @@ public static class RetiredSettingKeys
         TimeFormat,
         PrinterName,
         SavedPrinters,
+        AllowedPaymentBusinessPartners,
         PodReportEmailsTo,
         PodReportEmailsCc,
         PodReportEmailsWeeklyDayOfWeek,

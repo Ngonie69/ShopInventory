@@ -36,7 +36,6 @@ public sealed class GetCurrentUserHandler(
             AssignedWarehouseCode = user.AssignedWarehouseCode,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AssignedSection = user.AssignedSection,
-            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             AssignedCustomerCodes = user.GetCustomerCodes()
         };
     }

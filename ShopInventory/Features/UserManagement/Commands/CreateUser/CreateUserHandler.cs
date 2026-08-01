@@ -169,21 +169,6 @@ public sealed class CreateUserHandler(
             user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
         }
 
-        if (request.AllowedPaymentMethods is { Count: > 0 })
-        {
-            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
-        {
-            user.DefaultGLAccount = request.DefaultGLAccount;
-        }
-
-        if (request.AllowedPaymentBusinessPartners is { Count: > 0 })
-        {
-            user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
-        }
-
         context.Users.Add(user);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -237,9 +222,6 @@ public sealed class CreateUserHandler(
             LockoutEnd = user.LockoutEnd,
             Permissions = permissions,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
-            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-            DefaultGLAccount = user.DefaultGLAccount,
-            AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

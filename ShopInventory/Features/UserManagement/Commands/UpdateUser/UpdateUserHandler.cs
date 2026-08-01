@@ -177,23 +177,6 @@ public sealed class UpdateUserHandler(
             user.AssignedCostCentreCode = null;
         }
 
-        if (command.Request.AllowedPaymentMethods != null)
-        {
-            user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
-        }
-
-        if (command.Request.DefaultGLAccount != null)
-        {
-            user.DefaultGLAccount = string.IsNullOrWhiteSpace(command.Request.DefaultGLAccount)
-                ? null
-                : command.Request.DefaultGLAccount;
-        }
-
-        if (command.Request.AllowedPaymentBusinessPartners != null)
-        {
-            user.SetAllowedPaymentBusinessPartners(command.Request.AllowedPaymentBusinessPartners);
-        }
-
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
@@ -284,9 +267,6 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.Permissions, user.Permissions)
-                .SetProperty(x => x.AllowedPaymentMethods, user.AllowedPaymentMethods)
-                .SetProperty(x => x.DefaultGLAccount, user.DefaultGLAccount)
-                .SetProperty(x => x.AllowedPaymentBusinessPartners, user.AllowedPaymentBusinessPartners)
                 .SetProperty(x => x.UpdatedAt, user.UpdatedAt),
                 cancellationToken);
 

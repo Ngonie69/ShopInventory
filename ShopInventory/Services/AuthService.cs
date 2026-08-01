@@ -284,9 +284,6 @@ public class AuthService : IAuthService
                 AssignedSection = user.AssignedSection,
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-                DefaultGLAccount = user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
@@ -650,9 +647,6 @@ public class AuthService : IAuthService
                 AssignedSection = user.AssignedSection,
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
-                AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-                DefaultGLAccount = user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
