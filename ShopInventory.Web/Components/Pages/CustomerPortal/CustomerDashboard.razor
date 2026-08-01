@@ -726,14 +726,18 @@
     private bool _hasLoadedData;
 #pragma warning restore CS0414
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (firstRender)
+        // Loading here rather than in OnAfterRender starts the fetch before the first render
+        // instead of after it. The guard keeps the session read off any non-interactive pass;
+        // see CustomerPortalLayout for why it is here even though prerendering is off.
+        if (!RendererInfo.IsInteractive)
         {
-            await LoadCustomerData();
-            _hasLoadedData = true;
-            StateHasChanged();
+            return;
         }
+
+        await LoadCustomerData();
+        _hasLoadedData = true;
     }
 
     private async Task LoadCustomerData()

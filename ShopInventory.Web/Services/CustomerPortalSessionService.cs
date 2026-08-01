@@ -15,7 +15,83 @@ public sealed class CustomerPortalSessionService(
     private const string CustomerInfoKey = "customerInfo";
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
+    /// <summary>
+    /// How long a resolved session is reused before it is proved again.
+    /// </summary>
+    /// <remarks>
+    /// Short on purpose. This memo is what stands between a deactivated or locked-out customer and
+    /// the rest of their visit, so it is sized to cover one page load and an immediate navigation,
+    /// not a browsing session.
+    /// </remarks>
+    private static readonly TimeSpan SessionLifetime = TimeSpan.FromSeconds(30);
+
+    private readonly SemaphoreSlim _sessionGate = new(1, 1);
+    private CustomerPortalSession? _cachedSession;
+    private DateTimeOffset _cachedSessionExpiresAt;
+
+    /// <summary>
+    /// Resolves the signed-in customer, reusing a recent resolution rather than proving the session
+    /// from scratch for every caller.
+    /// </summary>
+    /// <remarks>
+    /// Resolving a session is not cheap: it reads local storage over JS interop, loads the portal
+    /// user from the web database, and then reads the business partner from SAP through the API.
+    /// Every portal page asks for it, and the layout asks for it too — the layout and the page body
+    /// initialise concurrently — so a single page view paid for that whole chain twice, and paid it
+    /// again on every navigation. This service is scoped, which in Blazor Server means one instance
+    /// per circuit, so memoising here collapses the layout/page pair into one resolution and makes
+    /// moving between portal pages free for the length of <see cref="SessionLifetime"/>.
+    ///
+    /// The gate matters as much as the memo: without it the concurrent layout and page callers both
+    /// miss the empty cache and both do the full resolution, which is the exact case being removed.
+    ///
+    /// Only a resolved session is cached. Caching "no session" would mean a customer who has just
+    /// signed in keeps being told they are signed out for the rest of the window, and the null path
+    /// costs nothing anyway — no token means no database read and no SAP call.
+    /// </remarks>
     public async Task<CustomerPortalSession?> GetCurrentSessionAsync()
+    {
+        if (TryGetCachedSession(out var cached))
+        {
+            return cached;
+        }
+
+        await _sessionGate.WaitAsync();
+        try
+        {
+            if (TryGetCachedSession(out cached))
+            {
+                return cached;
+            }
+
+            var session = await ResolveSessionAsync();
+            if (session is not null)
+            {
+                _cachedSession = session;
+                _cachedSessionExpiresAt = DateTimeOffset.UtcNow.Add(SessionLifetime);
+            }
+
+            return session;
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
+    }
+
+    private bool TryGetCachedSession(out CustomerPortalSession? session)
+    {
+        session = _cachedSession;
+        return session is not null && DateTimeOffset.UtcNow < _cachedSessionExpiresAt;
+    }
+
+    private void InvalidateCachedSession()
+    {
+        _cachedSession = null;
+        _cachedSessionExpiresAt = DateTimeOffset.MinValue;
+    }
+
+    private async Task<CustomerPortalSession?> ResolveSessionAsync()
     {
         try
         {
@@ -133,6 +209,9 @@ public sealed class CustomerPortalSessionService(
 
     public async Task ClearSessionAsync()
     {
+        // Before the tokens go, so a caller racing this cannot re-cache the session being cleared.
+        InvalidateCachedSession();
+
         try
         {
             await jsRuntime.InvokeVoidAsync("localStorage.removeItem", AccessTokenKey);

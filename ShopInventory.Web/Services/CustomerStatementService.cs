@@ -2,6 +2,7 @@ using ShopInventory.Web.Models;
 using ShopInventory.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace ShopInventory.Web.Services;
 
@@ -65,7 +66,22 @@ public class CustomerStatementService : ICustomerStatementService
 
             if (response.IsSuccessStatusCode)
             {
-                var statement = await response.Content.ReadFromJsonAsync<CustomerStatementResponse>();
+                CustomerStatementResponse? statement;
+                try
+                {
+                    statement = await response.Content.ReadFromJsonAsync<CustomerStatementResponse>();
+                }
+                catch (JsonException ex)
+                {
+                    // A shape mismatch between this model and the API's DTO used to reach the
+                    // customer verbatim — "The JSON value could not be converted to System.Int32.
+                    // Path: $.customer.paymentTermsDays" — which told them nothing and hid the
+                    // cause. Log the detail, show a sentence.
+                    _logger.LogError(ex, "Statement response for {CardCode} did not match the expected shape", cardCode);
+                    throw new InvalidOperationException(
+                        "We couldn't read the statement the server sent back. Please contact support if this continues.");
+                }
+
                 if (statement == null)
                 {
                     throw new InvalidOperationException("The server returned an empty statement response.");
@@ -188,11 +204,7 @@ public class CustomerStatementService : ICustomerStatementService
             // Phase 2: Fetch invoices, payments, payment terms, and account breakdown in parallel
             var now = IAuditService.ToCAT(DateTime.UtcNow);
             var dashboardFrom = now.AddDays(-31);
-            var invoiceTasksByCardCode = allCardCodes.ToDictionary(
-                accountCardCode => accountCardCode,
-                GetOpenInvoicesForSingleAccountAsync,
-                StringComparer.OrdinalIgnoreCase);
-            var invoiceTasks = invoiceTasksByCardCode.Values.Cast<Task>().ToArray();
+            var invoicesByAccountTask = GetOpenInvoicesByAccountAsync(allCardCodes);
             var paymentsTask = GetPaymentHistoryForCardCodesAsync(allCardCodes, dashboardFrom, now);
 
             // Fetch payment terms for aging calculation
@@ -200,11 +212,15 @@ public class CustomerStatementService : ICustomerStatementService
                 ? _businessPartnerService.GetPaymentTermsAsync(customer.PayTermGrpCode.Value)
                 : Task.FromResult<PaymentTermsDto?>(null);
 
-            var breakdownTask = (accountStructure == "Multi" && linkedAccounts.Any())
-                ? BuildAccountBreakdownAsync(linkedAccounts, invoiceTasksByCardCode)
-                : Task.FromResult(new List<AccountSummary>());
+            await Task.WhenAll(invoicesByAccountTask, paymentsTask, paymentTermsTask);
 
-            await Task.WhenAll(invoiceTasks.Append(paymentsTask).Append(paymentTermsTask).Append(breakdownTask));
+            var invoicesByAccount = invoicesByAccountTask.Result;
+
+            // The breakdown reads per-account balances and order counts from SAP, so it can only
+            // start once the invoices it annotates are in hand.
+            var accountBreakdown = (accountStructure == "Multi" && linkedAccounts.Any())
+                ? await BuildAccountBreakdownAsync(linkedAccounts, invoicesByAccount)
+                : new List<AccountSummary>();
 
             // Apply payment terms to aging calculation
             var paymentTerms = paymentTermsTask.Result;
@@ -218,7 +234,7 @@ public class CustomerStatementService : ICustomerStatementService
 
             // Process invoices — recalculate DaysOverdue using payment terms (DocDate + terms)
             var openInvoices = FilterInvoices(
-                invoiceTasksByCardCode.Values.SelectMany(task => task.Result),
+                invoicesByAccount.Values.SelectMany(invoices => invoices),
                 dashboardFrom,
                 now);
 
@@ -262,7 +278,7 @@ public class CustomerStatementService : ICustomerStatementService
             // Account breakdown for multi-account customers
             if (accountStructure == "Multi" && linkedAccounts.Any())
             {
-                summary.AccountBreakdown = breakdownTask.Result;
+                summary.AccountBreakdown = accountBreakdown;
 
                 var mainAccountBalances = summary.AccountBreakdown
                     .Where(a => a.AccountType == "Main")
@@ -321,9 +337,13 @@ public class CustomerStatementService : ICustomerStatementService
     /// Build per-account breakdown showing individual balances and transaction counts.
     /// Fetches all linked accounts in parallel.
     /// </summary>
+    /// <param name="invoicesByAccount">
+    /// Open invoices already read for the whole account set, keyed by card code. Passed in rather
+    /// than fetched here so the breakdown costs no extra SAP reads.
+    /// </param>
     private async Task<List<AccountSummary>> BuildAccountBreakdownAsync(
         List<LinkedAccountInfo> linkedAccounts,
-        IReadOnlyDictionary<string, Task<List<CustomerInvoiceSummary>>> invoiceTasksByCardCode)
+        IReadOnlyDictionary<string, List<CustomerInvoiceSummary>> invoicesByAccount)
     {
         var tasks = linkedAccounts.Select(async account =>
         {
@@ -339,22 +359,20 @@ public class CustomerStatementService : ICustomerStatementService
 
             try
             {
-                if (!invoiceTasksByCardCode.TryGetValue(account.CardCode, out var invoiceTask))
-                {
-                    invoiceTask = GetOpenInvoicesForSingleAccountAsync(account.CardCode);
-                }
-
-                // Fetch BP, invoices, and sales orders in parallel within each account
+                // Fetch BP and sales orders in parallel within each account. The invoices are
+                // already in hand.
                 var partnerTask = _businessPartnerService.GetBusinessPartnerByCodeAsync(account.CardCode);
                 var ordersTask = account.AccountType == "Sub"
                     ? _salesOrderService.GetSalesOrdersAsync(cardCode: account.CardCode, status: SalesOrderStatus.Pending)
                     : Task.FromResult<SalesOrderListResponse?>(null);
 
-                await Task.WhenAll(partnerTask, invoiceTask, ordersTask);
+                await Task.WhenAll(partnerTask, ordersTask);
 
                 acctSummary.Balance = partnerTask.Result?.Balance ?? 0;
 
-                var invoices = invoiceTask.Result;
+                var invoices = invoicesByAccount.TryGetValue(account.CardCode, out var accountInvoices)
+                    ? accountInvoices
+                    : new List<CustomerInvoiceSummary>();
                 acctSummary.OpenInvoicesCount = invoices.Count;
                 acctSummary.TotalOutstanding = invoices.Sum(i => i.Balance);
 
@@ -562,52 +580,89 @@ public class CustomerStatementService : ICustomerStatementService
         DateTime? fromDate = null,
         DateTime? toDate = null)
     {
-        var invoiceTasksByCardCode = cardCodes
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(code => code, GetOpenInvoicesForSingleAccountAsync, StringComparer.OrdinalIgnoreCase);
+        var byAccount = await GetOpenInvoicesByAccountAsync(cardCodes);
 
-        await Task.WhenAll(invoiceTasksByCardCode.Values);
-
-        return FilterInvoices(invoiceTasksByCardCode.Values.SelectMany(task => task.Result), fromDate, toDate);
+        return FilterInvoices(byAccount.Values.SelectMany(invoices => invoices), fromDate, toDate);
     }
 
     /// <summary>
-    /// Get open invoices for a single specific account CardCode (not aggregated)
+    /// Open invoices for a set of accounts, keyed by the account they belong to. Every requested
+    /// card code is present in the result, with an empty list when it owes nothing.
     /// </summary>
-    private async Task<List<CustomerInvoiceSummary>> GetOpenInvoicesForSingleAccountAsync(string singleCardCode)
+    /// <remarks>
+    /// One bounded SAP read for the whole set. This used to be a fan-out — a task per account, each
+    /// calling the by-customer endpoint with no dates, which on the API side falls through to
+    /// "every invoice this account has ever had" and pages until exhausted. The portal then kept
+    /// only the few still carrying a balance. For an account trading daily since the system went in,
+    /// that is its entire history pulled across to answer "what is outstanding", once per linked
+    /// account, on the dashboard, the invoices page and the aging summary.
+    ///
+    /// SAP filters on document status now, and the card codes go into one request, so the cost is
+    /// proportional to what is actually owed rather than to how long the customer has been trading.
+    /// </remarks>
+    private async Task<Dictionary<string, List<CustomerInvoiceSummary>>> GetOpenInvoicesByAccountAsync(
+        IEnumerable<string> cardCodes)
     {
+        var codes = cardCodes
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var byAccount = codes.ToDictionary(
+            code => code,
+            _ => new List<CustomerInvoiceSummary>(),
+            StringComparer.OrdinalIgnoreCase);
+
+        if (codes.Count == 0)
+        {
+            return byAccount;
+        }
+
         try
         {
-            var invoiceResponse = await _invoiceService.GetInvoicesByCustomerAsync(singleCardCode);
-            var invoices = invoiceResponse?.Invoices ?? new List<InvoiceDto>();
+            var response = await _invoiceService.GetOpenInvoicesByCustomersAsync(codes);
 
-            return invoices
-                .Where(i => i.DocStatus != "C" && i.DocStatus != "X")
-                .Select(i => new CustomerInvoiceSummary
+            foreach (var invoice in response?.Invoices ?? new List<InvoiceDto>())
+            {
+                var cardCode = invoice.CardCode;
+                if (string.IsNullOrWhiteSpace(cardCode) || !byAccount.TryGetValue(cardCode, out var accountInvoices))
                 {
-                    DocEntry = i.DocEntry,
-                    DocNum = i.DocNum,
-                    CardCode = singleCardCode,
-                    CardName = i.CardName,
-                    DocDate = ParseDate(i.DocDate),
-                    DueDate = ParseNullableDate(i.DocDueDate),
-                    DocTotal = i.DocTotal,
-                    PaidToDate = i.PaidToDate,
-                    Balance = i.DocTotal - i.PaidToDate,
-                    Currency = i.DocCurrency,
-                    Status = GetInvoiceStatus(i.DocStatus),
-                    DaysOverdue = CalculateDaysOverdue(i.DocDueDate)
-                })
-                .Where(i => i.Balance > 0)
-                .OrderBy(i => i.DueDate)
-                .ToList();
+                    continue;
+                }
+
+                var summary = new CustomerInvoiceSummary
+                {
+                    DocEntry = invoice.DocEntry,
+                    DocNum = invoice.DocNum,
+                    CardCode = cardCode,
+                    CardName = invoice.CardName,
+                    DocDate = ParseDate(invoice.DocDate),
+                    DueDate = ParseNullableDate(invoice.DocDueDate),
+                    DocTotal = invoice.DocTotal,
+                    PaidToDate = invoice.PaidToDate,
+                    Balance = invoice.DocTotal - invoice.PaidToDate,
+                    Currency = invoice.DocCurrency,
+                    Status = GetInvoiceStatus(invoice.DocStatus),
+                    DaysOverdue = CalculateDaysOverdue(invoice.DocDueDate)
+                };
+
+                if (summary.Balance > 0)
+                {
+                    accountInvoices.Add(summary);
+                }
+            }
+
+            foreach (var accountInvoices in byAccount.Values)
+            {
+                accountInvoices.Sort((left, right) => Nullable.Compare(left.DueDate, right.DueDate));
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting open invoices for single account {CardCode}", singleCardCode);
-            return new List<CustomerInvoiceSummary>();
+            _logger.LogError(ex, "Error getting open invoices for {CardCodes}", string.Join(",", codes));
         }
+
+        return byAccount;
     }
 
     /// <summary>

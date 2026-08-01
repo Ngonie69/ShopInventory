@@ -290,7 +290,7 @@ namespace ShopInventory.Services
 
             var paymentTerms = string.IsNullOrWhiteSpace(customer.PaymentTermsName)
                 ? "Not specified"
-                : customer.PaymentTermsDays.HasValue && customer.PaymentTermsDays.Value > 0
+                : customer.PaymentTermsDays > 0
                     ? $"{customer.PaymentTermsName} ({customer.PaymentTermsDays} days)"
                     : customer.PaymentTermsName;
             customerCell.Add(new Paragraph($"Payment Terms: {paymentTerms}")

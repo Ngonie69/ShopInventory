@@ -1,0 +1,1120 @@
+/* ==========================================================================
+   Customer Portal — Nocturne
+
+   The portal's own scheme on the Nocturne design system: Inter at 500, 8px
+   radii, quiet outlined chrome, rules that fade rather than stop. It keeps the
+   portal's existing teal accent (#0f766e) instead of the staff blurple — the
+   two audiences are different people on different sites, and the teal is
+   already what customers have been looking at.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Everything is scoped under `.cpx`, which CustomerPortalLayout puts on the
+   shell. That scope is what lets this file restyle the *shared* class
+   vocabulary the portal pages already use — `dashboard-panel`, `stat-card`,
+   `dashboard-table`, `page-header` and the rest — without touching how those
+   same classes render on the staff pages. Sixteen portal pages pick up the
+   redesign from their existing markup; only the shell and the statement page
+   needed rewriting.
+
+   Rules live here rather than in a scoped Razor <style> block for the reasons
+   credit-notes.css sets out: a scoped block cannot reach MudBlazor's rendered
+   internals or native controls, and app.css carries global `.dark-theme`
+   control rules that have to be out-specified — so portal selectors are two
+   classes deep and win regardless of load order.
+
+   Fluid, not merely responsive: type, gutters and panel padding interpolate
+   with clamp() across the whole range rather than stepping at breakpoints.
+   Breakpoints are kept for the things that genuinely have to change shape —
+   the drawer, the grid tracks, and the wide ledger tables that become stacked
+   cards below 992px.
+   ========================================================================== */
+
+.cpx {
+    --cpx-bg: #f6f8f9;
+    --cpx-surface: #ffffff;
+    --cpx-surface-2: #f8fafb;
+    --cpx-field: #ffffff;
+    --cpx-ink: #0d1b1a;
+    --cpx-ink-2: #26403d;
+    --cpx-mute: #4a635f;
+    --cpx-mute-2: #64807b;
+    --cpx-faint: #93a8a4;
+    --cpx-placeholder: #8ba09c;
+    --cpx-divider: rgba(13, 27, 26, .13);
+    --cpx-rowline: rgba(13, 27, 26, .08);
+    --cpx-hover: rgba(13, 27, 26, .035);
+    --cpx-press: rgba(13, 27, 26, .08);
+    --cpx-edge: #d7e0de;
+    --cpx-edge-hi: #a8bab7;
+    --cpx-accent: #0f766e;
+    --cpx-accent-rgb: 15, 118, 110;
+    /* The accent's text-carrying step. #0f766e is 4.8:1 on white and can carry
+       text; on the dark ground the same role has to be the pale end instead. */
+    --cpx-accent-text: #0b5c55;
+    --cpx-accent-soft: #e2f1ef;
+    --cpx-on-accent: #ffffff;
+    --cpx-tag-bg: #e7eeed;
+    --cpx-tag-ink: #33504c;
+    --cpx-ok: #0b6b4f;
+    --cpx-ok-bg: #e7f4ef;
+    --cpx-ok-edge: #bfe0d3;
+    --cpx-warn: #8a5a00;
+    --cpx-warn-bg: #fdf3e1;
+    --cpx-warn-edge: #f0dcb4;
+    --cpx-bad: #b3273c;
+    --cpx-bad-bg: #fdf0f2;
+    --cpx-bad-edge: #f0ccd3;
+    --cpx-shadow-sm: 0 0 0 1px #e4eae9, 0 1px 2px rgba(13, 27, 26, .05);
+    --cpx-shadow-md: 0 0 0 1px #dfe6e5, 0 6px 18px rgba(13, 27, 26, .07);
+    --cpx-shadow-lg: 0 0 0 1px #d7e0de, 0 16px 40px rgba(13, 27, 26, .15);
+    --cpx-scrim: rgba(13, 27, 26, .38);
+    --cpx-scheme: light;
+
+    /* Nocturne's compact scale. */
+    --cpx-s1: 3px;
+    --cpx-s2: 6px;
+    --cpx-s3: 9px;
+    --cpx-s4: 12px;
+    --cpx-s6: 18px;
+    --cpx-s8: 24px;
+    --cpx-r-sm: 4px;
+    --cpx-r-md: 8px;
+    --cpx-r-lg: 14px;
+
+    /* The fluid pair every measurement below is built from: one gutter and one
+       type step, both interpolating on viewport width. Panels, headers and
+       tables all reference these, so the whole portal breathes together
+       instead of each component picking its own breakpoints. */
+    --cpx-gutter: clamp(12px, 3.2vw, 28px);
+    --cpx-pad: clamp(14px, 2.4vw, 22px);
+    --cpx-text: clamp(.875rem, .84rem + .18vw, .95rem);
+    --cpx-text-sm: clamp(.78rem, .755rem + .12vw, .84rem);
+    --cpx-h1: clamp(1.25rem, 1.03rem + 1.05vw, 1.85rem);
+    --cpx-h2: clamp(1rem, .93rem + .34vw, 1.2rem);
+    --cpx-num: clamp(1.15rem, .98rem + .82vw, 1.6rem);
+
+    color-scheme: var(--cpx-scheme);
+    font-family: "Inter", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: var(--cpx-text);
+    font-weight: 500;
+    color: var(--cpx-ink);
+    background: var(--cpx-bg);
+    /* Tabular figures everywhere: this is a portal of money columns, and
+       proportional digits make a balance column visibly ragged. */
+    font-variant-numeric: tabular-nums;
+}
+
+.dark-theme .cpx {
+    --cpx-bg: #101817;
+    --cpx-surface: #1a2524;
+    --cpx-surface-2: #16201f;
+    --cpx-field: #1a2524;
+    --cpx-ink: #e6eceb;
+    --cpx-ink-2: #b3c2bf;
+    --cpx-mute: #94a7a3;
+    --cpx-mute-2: #7e918d;
+    --cpx-faint: #5d706c;
+    --cpx-placeholder: #6b7e7a;
+    --cpx-divider: rgba(230, 236, 235, .16);
+    --cpx-rowline: rgba(230, 236, 235, .08);
+    --cpx-hover: rgba(230, 236, 235, .04);
+    --cpx-press: rgba(230, 236, 235, .1);
+    --cpx-edge: rgba(230, 236, 235, .16);
+    --cpx-edge-hi: rgba(230, 236, 235, .42);
+    --cpx-accent: #3fb8a6;
+    --cpx-accent-rgb: 63, 184, 166;
+    --cpx-accent-text: #9fe5d8;
+    --cpx-accent-soft: #17322e;
+    --cpx-on-accent: #06211d;
+    --cpx-tag-bg: #2a3937;
+    --cpx-tag-ink: #dbe7e5;
+    --cpx-ok: #8fe0c2;
+    --cpx-ok-bg: #16302a;
+    --cpx-ok-edge: #24493f;
+    --cpx-warn: #f0c987;
+    --cpx-warn-bg: #2e2517;
+    --cpx-warn-edge: #4a3c22;
+    --cpx-bad: #ef8296;
+    --cpx-bad-bg: #2f1f24;
+    --cpx-bad-edge: #4a2c34;
+    --cpx-shadow-sm: 0 0 0 1px #2a3937;
+    --cpx-shadow-md: 0 0 0 1px #2a3937, 0 6px 18px rgba(0, 0, 0, .3);
+    --cpx-shadow-lg: 0 0 0 1px #33413f, 0 16px 40px rgba(0, 0, 0, .5);
+    --cpx-scrim: rgba(4, 10, 9, .6);
+    --cpx-scheme: dark;
+}
+
+/* ==========================================================================
+   Shell
+   ========================================================================== */
+
+.cpx.customer-shell {
+    background: var(--cpx-bg);
+    min-height: 100dvh;
+}
+
+.cpx .customer-main {
+    background: var(--cpx-bg);
+    /* The PWA runs full-bleed on iOS with viewport-fit=cover, so the bottom of
+       the last panel would otherwise sit under the home indicator. */
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.cpx .customer-content {
+    padding-inline: var(--cpx-gutter) !important;
+    padding-block: clamp(14px, 2.6vw, 28px) !important;
+    max-width: 1400px;
+}
+
+/* Top bar --------------------------------------------------------------- */
+
+.cpx .customer-appbar {
+    background: var(--cpx-surface) !important;
+    color: var(--cpx-ink);
+    border-bottom: 1px solid var(--cpx-divider);
+    box-shadow: none;
+    padding-inline: var(--cpx-gutter);
+    padding-top: env(safe-area-inset-top);
+}
+
+.cpx .customer-appbar .mud-icon-button,
+.cpx .customer-appbar .mud-button-root {
+    color: var(--cpx-ink-2);
+}
+
+.cpx .customer-brand-logo {
+    /* The mark is a dark-on-light JPEG. On the light shell it needs no help;
+       inverting it only makes sense once the ground goes dark. */
+    filter: none !important;
+    border-radius: var(--cpx-r-sm);
+}
+
+.dark-theme .cpx .customer-brand-logo {
+    filter: invert(1) !important;
+}
+
+.cpx .customer-brand-title.mud-typography {
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: clamp(.82rem, .76rem + .28vw, 1rem);
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--cpx-ink);
+}
+
+.cpx .customer-account-chip {
+    color: var(--cpx-ink-2) !important;
+    background: var(--cpx-tag-bg);
+    border-radius: 999px;
+    font-weight: 500;
+    max-width: min(42vw, 260px);
+}
+
+.cpx .customer-account-chip .mud-chip-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cpx .customer-auth-button {
+    border-color: var(--cpx-edge);
+    color: var(--cpx-ink-2);
+    border-radius: var(--cpx-r-md);
+    min-height: 36px;
+}
+
+/* Below the drawer breakpoint the bar has to hold a menu button, the brand,
+   the theme toggle and auth without wrapping, so the two widest optional
+   pieces stand down. */
+@media (max-width: 599.98px) {
+
+    .cpx .customer-account-chip,
+    .cpx .customer-auth-label {
+        display: none;
+    }
+
+    .cpx .customer-auth-button {
+        min-width: 40px;
+        padding-inline: 10px;
+    }
+
+    .cpx .customer-auth-button .mud-button-icon-start {
+        margin: 0;
+    }
+}
+
+/* Drawer ----------------------------------------------------------------- */
+
+.cpx .customer-drawer {
+    background: var(--cpx-surface);
+    color: var(--cpx-ink);
+    border-right: 1px solid var(--cpx-divider);
+}
+
+.cpx .customer-drawer-header {
+    background: var(--cpx-surface) !important;
+    border-bottom: 1px solid var(--cpx-divider);
+}
+
+.cpx .customer-drawer-brand,
+.cpx .customer-drawer-brand .mud-icon-root {
+    color: var(--cpx-ink) !important;
+}
+
+.cpx .customer-drawer-title {
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cpx .customer-nav .mud-nav-link {
+    margin: 2px var(--cpx-s2);
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border-radius: var(--cpx-r-md);
+    color: var(--cpx-mute);
+    font-size: var(--cpx-text);
+    font-weight: 500;
+    /* Comfortably past the 44px touch target on a phone. */
+    min-height: 46px;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.cpx .customer-nav .mud-nav-link .mud-icon-root {
+    color: var(--cpx-faint);
+    transition: color .15s ease;
+}
+
+.cpx .customer-nav .mud-nav-link:hover {
+    background: var(--cpx-hover);
+    color: var(--cpx-ink);
+}
+
+.cpx .customer-nav .mud-nav-link.active {
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+    font-weight: 600;
+}
+
+.cpx .customer-nav .mud-nav-link.active .mud-icon-root {
+    color: var(--cpx-accent);
+}
+
+.cpx .customer-drawer .mud-divider {
+    background-color: var(--cpx-divider);
+}
+
+.cpx .customer-drawer-footer {
+    padding: var(--cpx-s4);
+    padding-bottom: max(var(--cpx-s4), env(safe-area-inset-bottom));
+}
+
+.cpx .customer-code-card {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+}
+
+.cpx .customer-code-icon {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--cpx-r-sm);
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent);
+    flex: none;
+}
+
+.cpx .customer-code-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.cpx .customer-code-label {
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--cpx-faint);
+}
+
+.cpx .customer-code-value {
+    font-weight: 600;
+    color: var(--cpx-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Footer ------------------------------------------------------------------ */
+
+.cpx .customer-footer {
+    border-top: 1px solid var(--cpx-divider);
+    background: var(--cpx-surface);
+    margin-top: var(--cpx-s8);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.cpx .customer-footer-content {
+    color: var(--cpx-mute-2);
+    font-size: var(--cpx-text-sm);
+    padding-inline: var(--cpx-gutter);
+}
+
+.cpx .customer-footer-content a {
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .customer-footer-content a:hover {
+    text-decoration: underline;
+}
+
+/* ==========================================================================
+   Page header
+
+   The portal pages all open with the same `page-header` / `dashboard-title` /
+   `dashboard-meta` trio. Restyled here rather than per page.
+   ========================================================================== */
+
+.cpx .dashboard-hero {
+    margin-bottom: var(--cpx-s6);
+}
+
+.cpx .page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--cpx-s4);
+    padding: var(--cpx-pad);
+    border: 1px solid var(--cpx-divider);
+    border-radius: var(--cpx-r-lg);
+    background: var(--cpx-surface);
+    box-shadow: var(--cpx-shadow-sm);
+}
+
+.cpx .dashboard-title {
+    min-width: 0;
+    /* Takes the slack so the meta block keeps its intrinsic width and the two
+       only stack once there is genuinely no room. */
+    flex: 1 1 min(100%, 22rem);
+}
+
+.cpx .dashboard-title h2 {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s3);
+    margin: 0 0 2px;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: var(--cpx-h1);
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--cpx-ink);
+}
+
+.cpx .dashboard-title h2 svg {
+    color: var(--cpx-accent);
+    flex: none;
+}
+
+.cpx .dashboard-title .text-muted {
+    color: var(--cpx-mute) !important;
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .dashboard-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--cpx-s2);
+    min-width: 0;
+}
+
+.cpx .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    padding: 3px 10px;
+    border: 1px solid var(--cpx-edge);
+    border-radius: 999px;
+    background: var(--cpx-surface-2);
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--cpx-mute);
+}
+
+.cpx .meta-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cpx-accent);
+}
+
+.cpx .meta-subtitle {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+/* ==========================================================================
+   Panels
+   ========================================================================== */
+
+.cpx .card,
+.cpx .dashboard-panel {
+    border: 1px solid var(--cpx-divider);
+    border-radius: var(--cpx-r-lg);
+    background: var(--cpx-surface);
+    box-shadow: var(--cpx-shadow-sm);
+    color: var(--cpx-ink);
+}
+
+.cpx .card-header,
+.cpx .dashboard-panel-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-s4) var(--cpx-pad);
+    border-bottom: 1px solid var(--cpx-divider);
+    border-radius: var(--cpx-r-lg) var(--cpx-r-lg) 0 0;
+    background: transparent;
+}
+
+.cpx .card-header h5,
+.cpx .dashboard-panel-header h5 {
+    font-size: var(--cpx-h2);
+    font-weight: 600;
+    letter-spacing: -.005em;
+    color: var(--cpx-ink);
+}
+
+.cpx .panel-icon {
+    color: var(--cpx-accent);
+    flex: none;
+}
+
+.cpx .card-body {
+    padding: var(--cpx-pad);
+}
+
+.cpx .card-body.p-0 {
+    padding: 0;
+}
+
+.cpx .dashboard-empty {
+    color: var(--cpx-mute-2);
+}
+
+/* ==========================================================================
+   Stat tiles
+
+   The pages ship these on Bootstrap contextual backgrounds (bg-primary,
+   bg-dark …), which under Nocturne read as four unrelated slabs of colour.
+   Neutralised to one surface, with the accent carried by a top rule instead —
+   so the numbers, not the tiles, are what the eye lands on.
+   ========================================================================== */
+
+.cpx .stat-card,
+.cpx .staff-stat-card {
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+    border: 1px solid var(--cpx-divider);
+    border-radius: var(--cpx-r-lg);
+    background: var(--cpx-surface) !important;
+    box-shadow: var(--cpx-shadow-sm);
+    color: var(--cpx-ink) !important;
+}
+
+.cpx .stat-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: var(--cpx-stat-accent, var(--cpx-accent));
+}
+
+.cpx .stat-card .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--cpx-pad);
+}
+
+.cpx .stat-card .stat-title {
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2) !important;
+}
+
+.cpx .stat-card .stat-value {
+    font-size: var(--cpx-num);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+    color: var(--cpx-ink) !important;
+    /* Long balances must shrink the box, not overflow it. */
+    overflow-wrap: anywhere;
+}
+
+.cpx .stat-card .stat-sub {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2) !important;
+}
+
+/* The contextual class survives only as the accent hue. */
+.cpx .stat-card.bg-secondary {
+    --cpx-stat-accent: var(--cpx-faint);
+}
+
+.cpx .stat-card.bg-primary {
+    --cpx-stat-accent: var(--cpx-accent);
+}
+
+.cpx .stat-card.bg-success {
+    --cpx-stat-accent: var(--cpx-ok);
+}
+
+.cpx .stat-card.bg-danger {
+    --cpx-stat-accent: var(--cpx-bad);
+}
+
+.cpx .stat-card.bg-warning {
+    --cpx-stat-accent: var(--cpx-warn);
+}
+
+.cpx .stat-card.bg-info {
+    --cpx-stat-accent: var(--cpx-accent);
+}
+
+.cpx .stat-card.bg-dark {
+    --cpx-stat-accent: var(--cpx-ink-2);
+}
+
+/* ==========================================================================
+   Tables
+
+   Two shapes for one markup. At >=992px a dense ledger with a sticky head and
+   a scroll container that never lets the page itself scroll sideways. Below
+   that the rows become cards, driven by the data-label attributes the pages
+   already carry.
+   ========================================================================== */
+
+.cpx .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    border-radius: 0 0 var(--cpx-r-lg) var(--cpx-r-lg);
+}
+
+.cpx .dashboard-table {
+    width: 100%;
+    margin: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-ink);
+}
+
+.cpx .dashboard-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border: none;
+    border-bottom: 1px solid var(--cpx-divider);
+    background: var(--cpx-surface-2);
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+    white-space: nowrap;
+}
+
+.cpx .dashboard-table tbody td {
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border: none;
+    border-bottom: 1px solid var(--cpx-rowline);
+    vertical-align: middle;
+    background: transparent;
+    color: var(--cpx-ink);
+}
+
+.cpx .dashboard-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.cpx .dashboard-table.table-hover tbody tr:hover td {
+    background: var(--cpx-hover);
+}
+
+/* The opening and closing rows are structure, not data. Bootstrap's
+   table-light / table-dark would paint them as blocks of unrelated colour, so
+   they are re-cast as a tinted band and a rule. */
+.cpx .dashboard-table tbody tr.table-light td {
+    background: var(--cpx-surface-2);
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .dashboard-table tbody tr.table-dark td {
+    background: var(--cpx-accent-soft);
+    border-top: 2px solid var(--cpx-accent);
+    border-bottom: none;
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+}
+
+.cpx .dashboard-table .text-success {
+    color: var(--cpx-ok) !important;
+}
+
+.cpx .dashboard-table .text-dark {
+    color: var(--cpx-ink) !important;
+}
+
+.cpx .dashboard-table small.text-muted {
+    color: var(--cpx-mute-2) !important;
+    font-size: .72rem;
+}
+
+@media (max-width: 991.98px) {
+
+    .cpx .mobile-card-table thead {
+        display: none;
+    }
+
+    .cpx .mobile-card-table tbody,
+    .cpx .mobile-card-table tfoot {
+        display: block;
+        padding: var(--cpx-s3);
+    }
+
+    .cpx .mobile-card-table tfoot {
+        padding-top: 0;
+    }
+
+    .cpx .mobile-card-table tbody tr,
+    .cpx .mobile-card-table tfoot tr {
+        display: grid;
+        /* Label and value share a row on anything but the narrowest phone, and
+           the value keeps the right edge where the eye already reads totals. */
+        grid-template-columns: minmax(6.5rem, auto) 1fr;
+        gap: 2px var(--cpx-s3);
+        margin-bottom: var(--cpx-s3);
+        padding: var(--cpx-s3) var(--cpx-s4);
+        border: 1px solid var(--cpx-divider);
+        border-radius: var(--cpx-r-md);
+        background: var(--cpx-surface);
+        box-shadow: var(--cpx-shadow-sm);
+    }
+
+    .cpx .mobile-card-table tbody tr:last-child,
+    .cpx .mobile-card-table tfoot tr:last-child {
+        margin-bottom: 0;
+    }
+
+    .cpx .mobile-card-table tbody td,
+    .cpx .mobile-card-table tfoot td {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        align-items: baseline;
+        width: auto;
+        padding: 3px 0 !important;
+        border: none !important;
+        text-align: left !important;
+        white-space: normal;
+    }
+
+    .cpx .mobile-card-table tbody td::before,
+    .cpx .mobile-card-table tfoot td::before {
+        content: attr(data-label);
+        font-size: .66rem;
+        font-weight: 600;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--cpx-faint);
+    }
+
+    /* A cell with no label spans both tracks rather than leaving a gutter. */
+    .cpx .mobile-card-table tbody td:not([data-label])::before,
+    .cpx .mobile-card-table tfoot td:not([data-label])::before {
+        content: none;
+    }
+
+    .cpx .mobile-card-table tbody td:not([data-label]),
+    .cpx .mobile-card-table tfoot td:not([data-label]) {
+        display: block;
+    }
+
+    .cpx .mobile-card-table tbody tr.table-light td,
+    .cpx .mobile-card-table tbody tr.table-dark td {
+        background: transparent;
+        border: none;
+    }
+
+    .cpx .mobile-card-table tbody tr.table-light {
+        background: var(--cpx-surface-2);
+    }
+
+    .cpx .mobile-card-table tbody tr.table-dark {
+        background: var(--cpx-accent-soft);
+        border-color: var(--cpx-accent);
+    }
+
+    .cpx .mobile-card-table tbody tr.table-dark td {
+        color: var(--cpx-accent-text);
+    }
+
+    /* Subgrid is well supported now, but a browser without it would collapse
+       both tracks onto one another. Stacked is the safe shape. */
+    @supports not (grid-template-columns: subgrid) {
+
+        .cpx .mobile-card-table tbody tr,
+        .cpx .mobile-card-table tfoot tr {
+            display: block;
+        }
+
+        .cpx .mobile-card-table tbody td,
+        .cpx .mobile-card-table tfoot td {
+            display: block;
+        }
+    }
+}
+
+/* ==========================================================================
+   Badges, buttons, alerts, controls
+   ========================================================================== */
+
+.cpx .badge {
+    padding: 3px 8px;
+    border-radius: var(--cpx-r-sm);
+    background: var(--cpx-tag-bg) !important;
+    color: var(--cpx-tag-ink) !important;
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+}
+
+.cpx .badge.bg-success {
+    background: var(--cpx-ok-bg) !important;
+    color: var(--cpx-ok) !important;
+    box-shadow: inset 0 0 0 1px var(--cpx-ok-edge);
+}
+
+.cpx .badge.bg-warning {
+    background: var(--cpx-warn-bg) !important;
+    color: var(--cpx-warn) !important;
+    box-shadow: inset 0 0 0 1px var(--cpx-warn-edge);
+}
+
+.cpx .badge.bg-danger {
+    background: var(--cpx-bad-bg) !important;
+    color: var(--cpx-bad) !important;
+    box-shadow: inset 0 0 0 1px var(--cpx-bad-edge);
+}
+
+.cpx .badge.bg-primary,
+.cpx .badge.bg-info {
+    background: var(--cpx-accent-soft) !important;
+    color: var(--cpx-accent-text) !important;
+}
+
+.cpx .btn {
+    border-radius: var(--cpx-r-md);
+    padding: var(--cpx-s2) var(--cpx-s4);
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    /* Every tap target clears 44px, including the -sm variants the pages use
+       for the header actions. */
+    min-height: 40px;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.cpx .btn-primary {
+    background: var(--cpx-accent);
+    border-color: var(--cpx-accent);
+    color: var(--cpx-on-accent);
+}
+
+.cpx .btn-primary:hover,
+.cpx .btn-primary:focus {
+    background: var(--cpx-accent-text);
+    border-color: var(--cpx-accent-text);
+    color: var(--cpx-on-accent);
+}
+
+.cpx .btn-outline-primary {
+    background: transparent;
+    border-color: var(--cpx-edge);
+    color: var(--cpx-accent-text);
+}
+
+.cpx .btn-outline-primary:hover,
+.cpx .btn-outline-primary:focus {
+    background: var(--cpx-accent-soft);
+    border-color: var(--cpx-accent);
+    color: var(--cpx-accent-text);
+}
+
+.cpx .alert {
+    border-radius: var(--cpx-r-md);
+    border: 1px solid transparent;
+    padding: var(--cpx-s3) var(--cpx-s4);
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .alert-danger {
+    background: var(--cpx-bad-bg);
+    border-color: var(--cpx-bad-edge);
+    color: var(--cpx-bad);
+}
+
+.cpx .alert-success {
+    background: var(--cpx-ok-bg);
+    border-color: var(--cpx-ok-edge);
+    color: var(--cpx-ok);
+}
+
+.cpx .alert-warning {
+    background: var(--cpx-warn-bg);
+    border-color: var(--cpx-warn-edge);
+    color: var(--cpx-warn);
+}
+
+.cpx .alert-info {
+    background: var(--cpx-accent-soft);
+    border-color: var(--cpx-edge);
+    color: var(--cpx-accent-text);
+}
+
+.cpx .text-muted {
+    color: var(--cpx-mute) !important;
+}
+
+.cpx .spinner-border {
+    color: var(--cpx-accent);
+}
+
+/* MudBlazor controls ------------------------------------------------------
+   Two classes deep so these out-specify app.css's global `.dark-theme`
+   control rules regardless of stylesheet order. */
+
+.cpx .mud-input-outlined-border {
+    border-color: var(--cpx-edge) !important;
+    border-radius: var(--cpx-r-md) !important;
+}
+
+.cpx .mud-input-outlined:hover .mud-input-outlined-border {
+    border-color: var(--cpx-edge-hi) !important;
+}
+
+.cpx .mud-input.mud-input-outlined {
+    background: var(--cpx-field);
+    border-radius: var(--cpx-r-md);
+    color: var(--cpx-ink);
+}
+
+.cpx .mud-input-root,
+.cpx .mud-select-input .mud-input-slot {
+    color: var(--cpx-ink) !important;
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .mud-input-label {
+    color: var(--cpx-mute-2) !important;
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .mud-input-control:focus-within .mud-input-outlined-border {
+    border-color: var(--cpx-accent) !important;
+    border-width: 1px !important;
+}
+
+.cpx .mud-button-root {
+    border-radius: var(--cpx-r-md);
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    min-height: 40px;
+}
+
+.cpx .mud-button-filled.mud-button-filled-primary {
+    background-color: var(--cpx-accent);
+    color: var(--cpx-on-accent);
+}
+
+.cpx .mud-button-filled.mud-button-filled-dark {
+    background-color: var(--cpx-ink);
+    color: var(--cpx-bg);
+}
+
+/* Pagination -------------------------------------------------------------- */
+
+.cpx .page-link {
+    min-width: 40px;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-color: var(--cpx-edge);
+    background: var(--cpx-surface);
+    color: var(--cpx-ink-2);
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .page-item.active .page-link {
+    background: var(--cpx-accent);
+    border-color: var(--cpx-accent);
+    color: var(--cpx-on-accent);
+}
+
+.cpx .page-item.disabled .page-link {
+    background: var(--cpx-surface-2);
+    color: var(--cpx-faint);
+}
+
+/* ==========================================================================
+   Statement page
+   ========================================================================== */
+
+.cpx .aging-grid {
+    display: grid;
+    /* auto-fit rather than fixed columns: six buckets sit on one row on a
+       laptop, three on a tablet and two on a phone with no breakpoints. */
+    grid-template-columns: repeat(auto-fit, minmax(clamp(8rem, 26vw, 11rem), 1fr));
+    gap: var(--cpx-s3);
+}
+
+.cpx .aging-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--cpx-s4);
+    border: 1px solid var(--cpx-divider);
+    border-left: 3px solid var(--cpx-aging-accent, var(--cpx-faint));
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+}
+
+.cpx .aging-card .aging-lbl {
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+}
+
+.cpx .aging-card .aging-val {
+    font-size: clamp(.95rem, .88rem + .32vw, 1.15rem);
+    font-weight: 600;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+/* The buckets read as one ramp from settled to seriously overdue. */
+.cpx .aging-current {
+    --cpx-aging-accent: var(--cpx-ok);
+}
+
+.cpx .aging-b1 {
+    --cpx-aging-accent: #6aa9a0;
+}
+
+.cpx .aging-b2 {
+    --cpx-aging-accent: var(--cpx-warn);
+}
+
+.cpx .aging-b3 {
+    --cpx-aging-accent: #d4761f;
+}
+
+.cpx .aging-b4 {
+    --cpx-aging-accent: var(--cpx-bad);
+}
+
+.cpx .aging-total {
+    --cpx-aging-accent: var(--cpx-accent);
+    background: var(--cpx-accent-soft);
+    border-color: var(--cpx-accent);
+}
+
+.cpx .aging-total .aging-lbl,
+.cpx .aging-total .aging-val {
+    color: var(--cpx-accent-text);
+}
+
+/* The filter bar: fields size themselves and the action keeps its own width
+   rather than every control being pinned to a col-md-3. */
+.cpx .statement-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    align-items: end;
+    gap: var(--cpx-s4);
+}
+
+.cpx .statement-filters .statement-filter-action {
+    display: flex;
+}
+
+.cpx .statement-filters .statement-filter-action .mud-button-root {
+    width: 100%;
+}
+
+.cpx .statement-note {
+    padding: var(--cpx-s6) var(--cpx-s4);
+    text-align: center;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+}
+
+.cpx .statement-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cpx-s2);
+}
+
+/* ==========================================================================
+   Motion
+   ========================================================================== */
+
+.cpx .fade-in {
+    animation: cpx-fade-in .22s ease-out both;
+}
+
+@keyframes cpx-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .cpx *,
+    .cpx *::before,
+    .cpx *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+    }
+}

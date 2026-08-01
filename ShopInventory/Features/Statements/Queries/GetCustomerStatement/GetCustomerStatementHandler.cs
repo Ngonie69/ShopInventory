@@ -13,6 +13,53 @@ public sealed class GetCustomerStatementHandler(
     ILogger<GetCustomerStatementHandler> logger
 ) : IRequestHandler<GetCustomerStatementQuery, ErrorOr<CustomerStatementResponseDto>>
 {
+    // Fixed codes, not content-addressed ones. Both statements below are constant — the card code
+    // and the dates arrive as bound parameters — so two SAP query objects serve every statement
+    // ever viewed. Interpolating those values instead gave every request its own SQL text and so
+    // its own permanent OUQR row: the date range moves daily and each customer has a different
+    // code, so nothing was ever reused. That is the leak commit 8235dcb removed elsewhere, and it
+    // compounds, because a large OUQR is what makes creating the next query slow.
+    internal const string OpeningBalanceQueryCode = "STMT_OPENING_BALANCE";
+    internal const string LedgerQueryCode = "STMT_LEDGER_ROWS";
+
+    internal const string OpeningBalanceSql = """
+SELECT
+    SUM(T1."Debit") AS "TotalDebit",
+    SUM(T1."Credit") AS "TotalCredit"
+FROM OJDT T0
+INNER JOIN JDT1 T1
+    ON T0."TransId" = T1."TransId"
+WHERE T1."ShortName" = :cardCode
+  AND T0."RefDate" < :fromDate
+""";
+
+    // One card code per execution: SAP binds a parameter as a single literal, so `IN (:codes)` with
+    // a comma-separated value matches nothing and reports it as zero rows rather than an error.
+    internal const string LedgerSql = """
+SELECT
+    T0."RefDate" AS "PostingDate",
+    T0."Number" AS "TransactionNumber",
+    T0."TransType" AS "TransType",
+    T0."BaseRef" AS "OriginNumber",
+    T0."Memo" AS "JournalMemo",
+    T0."CreatedBy" AS "CreatedBy",
+    T1."Line_ID" AS "LineId",
+    T1."ContraAct" AS "OffsetAccount",
+    T1."LineMemo" AS "Details",
+    T1."Debit" AS "Debit",
+    T1."Credit" AS "Credit",
+    T1."FCDebit" AS "DebitFC",
+    T1."FCCredit" AS "CreditFC",
+    T1."FCCurrency" AS "Currency"
+FROM OJDT T0
+INNER JOIN JDT1 T1
+    ON T0."TransId" = T1."TransId"
+WHERE T1."ShortName" = :cardCode
+  AND T0."RefDate" >= :fromDate
+  AND T0."RefDate" <= :toDate
+ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
+""";
+
     public async Task<ErrorOr<CustomerStatementResponseDto>> Handle(
         GetCustomerStatementQuery request,
         CancellationToken cancellationToken)
@@ -56,9 +103,7 @@ public sealed class GetCustomerStatementHandler(
                     Currency = customer.Currency,
                     AccountStructure = statementCardCodes.Count > 1 ? "Multi" : "Single",
                     PaymentTermsName = paymentTerms?.PaymentTermsGroupName,
-                    PaymentTermsDays = paymentTerms is null
-                        ? null
-                        : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays
+                    PaymentTermsDays = ToPaymentTermsDays(paymentTerms)
                 },
                 FromDate = fromDate,
                 ToDate = toDate,
@@ -104,30 +149,30 @@ public sealed class GetCustomerStatementHandler(
         DateTime fromDate,
         CancellationToken cancellationToken)
     {
-        var inClause = BuildInClause(cardCodes);
-        var sqlText = $@"
-SELECT
-    SUM(T1.""Debit"") AS ""TotalDebit"",
-    SUM(T1.""Credit"") AS ""TotalCredit""
-FROM OJDT T0
-INNER JOIN JDT1 T1
-    ON T0.""TransId"" = T1.""TransId""
-WHERE T1.""ShortName"" IN ({inClause})
-  AND T0.""RefDate"" < '{fromDate:yyyy-MM-dd}'";
+        var balance = 0m;
 
-        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-            "StmtOpen",
-            "Statement Opening Balance",
-            sqlText,
-            cancellationToken);
-
-        if (rows.Count == 0)
+        foreach (var cardCode in cardCodes)
         {
-            return 0m;
+            var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+                OpeningBalanceQueryCode,
+                "Statement Opening Balance",
+                OpeningBalanceSql,
+                new Dictionary<string, string>
+                {
+                    ["cardCode"] = cardCode,
+                    ["fromDate"] = FormatSqlDate(fromDate)
+                },
+                cancellationToken);
+
+            if (rows.Count == 0)
+            {
+                continue;
+            }
+
+            balance += GetDecimal(rows[0], "TotalDebit") - GetDecimal(rows[0], "TotalCredit");
         }
 
-        var row = rows[0];
-        return GetDecimal(row, "TotalDebit") - GetDecimal(row, "TotalCredit");
+        return balance;
     }
 
     private async Task<List<StatementLedgerRow>> GetLedgerRowsAsync(
@@ -136,36 +181,22 @@ WHERE T1.""ShortName"" IN ({inClause})
         DateTime toDate,
         CancellationToken cancellationToken)
     {
-        var inClause = BuildInClause(cardCodes);
-        var sqlText = $@"
-SELECT
-    T0.""RefDate"" AS ""PostingDate"",
-        T0.""Number"" AS ""TransactionNumber"",
-    T0.""TransType"" AS ""TransType"",
-    T0.""BaseRef"" AS ""OriginNumber"",
-    T0.""Memo"" AS ""JournalMemo"",
-    T0.""CreatedBy"" AS ""CreatedBy"",
-    T1.""Line_ID"" AS ""LineId"",
-    T1.""ContraAct"" AS ""OffsetAccount"",
-    T1.""LineMemo"" AS ""Details"",
-    T1.""Debit"" AS ""Debit"",
-    T1.""Credit"" AS ""Credit"",
-    T1.""FCDebit"" AS ""DebitFC"",
-    T1.""FCCredit"" AS ""CreditFC"",
-    T1.""FCCurrency"" AS ""Currency""
-FROM OJDT T0
-INNER JOIN JDT1 T1
-    ON T0.""TransId"" = T1.""TransId""
-WHERE T1.""ShortName"" IN ({inClause})
-  AND T0.""RefDate"" >= '{fromDate:yyyy-MM-dd}'
-  AND T0.""RefDate"" <= '{toDate:yyyy-MM-dd}'
-    ORDER BY T0.""RefDate"", T0.""Number"", T1.""Line_ID""";
+        var rows = new List<Dictionary<string, object?>>();
 
-        var rows = await sapClient.ExecuteScopedRawSqlQueryAsync(
-            "StmtRows",
-            "Statement Ledger Rows",
-            sqlText,
-            cancellationToken);
+        foreach (var cardCode in cardCodes)
+        {
+            rows.AddRange(await sapClient.ExecuteParameterisedSqlQueryAsync(
+                LedgerQueryCode,
+                "Statement Ledger Rows",
+                LedgerSql,
+                new Dictionary<string, string>
+                {
+                    ["cardCode"] = cardCode,
+                    ["fromDate"] = FormatSqlDate(fromDate),
+                    ["toDate"] = FormatSqlDate(toDate)
+                },
+                cancellationToken));
+        }
 
         return rows.Select(row => new StatementLedgerRow(
                 PostingDate: GetDateTime(row, "PostingDate"),
@@ -191,9 +222,7 @@ WHERE T1.""ShortName"" IN ({inClause})
         PaymentTermsDto? paymentTerms,
         CancellationToken cancellationToken)
     {
-        var paymentTermsDays = paymentTerms is null
-            ? 0
-            : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
+        var paymentTermsDays = ToPaymentTermsDays(paymentTerms);
         var bucketSize = paymentTermsDays > 0 ? paymentTermsDays : 30;
 
         // Aging only ever uses invoices that are still open, so SAP filters them rather than this
@@ -249,6 +278,16 @@ WHERE T1.""ShortName"" IN ({inClause})
         aging.Total = aging.Current + aging.Days1To30 + aging.Days31To60 + aging.Days61To90 + aging.Over90Days;
         return aging;
     }
+
+    /// <summary>
+    /// Payment terms in days, or 0 when SAP has none to give. A customer with no terms group, or one
+    /// pointing at a group the Service Layer will not return, is ordinary rather than exceptional —
+    /// leads in particular — so this reports "no terms" rather than "unknown".
+    /// </summary>
+    private static int ToPaymentTermsDays(PaymentTermsDto? paymentTerms) =>
+        paymentTerms is null
+            ? 0
+            : (paymentTerms.NumberOfAdditionalMonths * 30) + paymentTerms.NumberOfAdditionalDays;
 
     private static List<string> BuildStatementCardCodes(string primaryCardCode, IReadOnlyList<string>? requestedCardCodes)
     {
@@ -308,8 +347,12 @@ WHERE T1.""ShortName"" IN ({inClause})
         };
     }
 
-    private static string BuildInClause(IEnumerable<string> cardCodes) =>
-        string.Join(", ", cardCodes.Select(cardCode => $"'{cardCode.Replace("'", "''")}'"));
+    /// <summary>
+    /// SAP accepts a bound date as <c>yyyy-MM-dd</c>. Its own <c>TO_DATE</c> is rejected by the
+    /// SQLQueries validator, so the column is compared against the bare parameter instead.
+    /// </summary>
+    private static string FormatSqlDate(DateTime date) =>
+        date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     private static string? GetString(IReadOnlyDictionary<string, object?> row, string key) =>
         row.TryGetValue(key, out var value) ? value?.ToString() : null;
@@ -362,7 +405,17 @@ WHERE T1.""ShortName"" IN ({inClause})
             return dateTime;
         }
 
-        return DateTime.TryParse(value.ToString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
+        var text = value.ToString();
+
+        // SAP returns dates from SQLQueries as yyyyMMdd — "20200821", not "2020-08-21". General
+        // parsing rejects that outright, so every statement line came back as DateTime.MinValue and
+        // rendered as 01/01/0001, with the posting-date sort silently degrading to a no-op.
+        if (DateTime.TryParseExact(text, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var compact))
+        {
+            return compact.Date;
+        }
+
+        return DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
             ? parsed.Date
             : DateTime.MinValue;
     }
