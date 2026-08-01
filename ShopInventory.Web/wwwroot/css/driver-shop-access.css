@@ -1,0 +1,913 @@
+/* ==========================================================================
+   Driver Shop Access — Nocturne
+
+   Replicates the imported design (Driver Shop Access.dc.html) on the Nocturne
+   design system: a two-column allowlist builder on a near-neutral blue-grey
+   ground, Inter at 500, 8px/14px radii, outlined buttons, and an accent used
+   as a line, a tint and a mark rather than a flood.
+
+   The import is drawn as a single dark scheme, so the dark palette below is
+   the design's own — #161826 ground, #232532 surface, the #9184d9 blurple
+   accent and its OKLCH ramps, unchanged. The light palette is its daylight
+   counterpart: same structure and same hue, re-anchored on paper, with the
+   accent taken down from #9184d9 to #5f52c4 so it can carry the kicker, the
+   in-scope count and the chip codes it colours (#9184d9 is 3.0:1 on white —
+   enough for chrome, not for text).
+
+   Light is the base and `.dark-theme` the override, matching the rest of the
+   app and the order App.razor's pre-paint script stamps the class in, so
+   neither scheme flashes.
+
+   The design writes its muted text as `var(--color-neutral-400…700)`, which
+   are steps off a dark ramp. Those are collapsed into four opaque ink steps
+   here so the light theme can keep the same visual hierarchy at contrasts
+   that hold up on paper.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same reasons as credit-notes.css: a scoped style block cannot reach native
+   controls the way these selectors need to, and app.css carries global
+   `.dark-theme input/select/textarea` rules that have to be out-specified —
+   so every control carries a class and every control selector is two classes
+   deep, winning regardless of load order. Headings are pinned to Nocturne's
+   500 for the same reason: Bootstrap's global `h1-h6 { font-weight: 600 }`
+   would otherwise bolden them past the weight this system allows.
+   ========================================================================== */
+
+.dsa {
+    --dsa-bg: #f4f4f8;
+    --dsa-surface: #ffffff;
+    --dsa-field: #ffffff;
+    /* The catalogue panel is a wash that fades into the ground over its first
+       200px rather than a filled card — the design's one gradient. */
+    --dsa-wash: #ffffff;
+    --dsa-ink: #1b1c26;
+    --dsa-ink-2: #35374a;
+    --dsa-mute: #4e5164;
+    --dsa-mute-2: #656879;
+    --dsa-mute-3: #7b7e8e;
+    --dsa-faint: #a0a2ae;
+    --dsa-placeholder: #9498a8;
+    --dsa-divider: rgba(27, 28, 38, .14);
+    --dsa-hover: rgba(27, 28, 38, .04);
+    --dsa-press: rgba(27, 28, 38, .09);
+    --dsa-field-bg: rgba(27, 28, 38, .04);
+    --dsa-field-edge: #d4d6e2;
+    --dsa-field-edge-hi: #a9adc0;
+    --dsa-accent: #5f52c4;
+    --dsa-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-200/300 (a pale lavender); on paper the same role has to
+       be the deep end of the ramp instead. */
+    --dsa-accent-text: #473d99;
+    --dsa-accent-ink: #ffffff;
+    --dsa-box-on: #5f52c4;
+    --dsa-bar: linear-gradient(90deg, #8579d6, #5f52c4);
+    --dsa-track: rgba(27, 28, 38, .09);
+    --dsa-dot-on: #6d5fc4;
+    --dsa-dot-off: #c3c6d2;
+    --dsa-thumb: #c8cad6;
+    --dsa-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --dsa-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --dsa-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    --dsa-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --dsa-s1: 2.8px;
+    --dsa-s2: 5.6px;
+    --dsa-s3: 8.4px;
+    --dsa-s4: 11.2px;
+    --dsa-s6: 16.8px;
+    --dsa-s8: 22.4px;
+    --dsa-r-sm: 4px;
+    --dsa-r-md: 8px;
+    --dsa-r-lg: 14px;
+
+    color-scheme: var(--dsa-scheme);
+}
+
+.dark-theme .dsa {
+    --dsa-bg: #161826;
+    --dsa-surface: #232532;
+    --dsa-field: rgba(243, 245, 254, .05);
+    --dsa-wash: rgba(35, 37, 50, .6);
+    --dsa-ink: #e9e9ed;
+    --dsa-ink-2: #e4e7f5;
+    --dsa-mute: #cfd3e5;
+    --dsa-mute-2: #b2b6ca;
+    --dsa-mute-3: #9397ab;
+    --dsa-faint: #75798c;
+    --dsa-placeholder: #75798c;
+    --dsa-divider: rgba(233, 233, 237, .16);
+    --dsa-hover: rgba(243, 245, 254, .05);
+    --dsa-press: rgba(243, 245, 254, .1);
+    --dsa-field-bg: rgba(243, 245, 254, .05);
+    --dsa-field-edge: rgba(233, 233, 237, .16);
+    --dsa-field-edge-hi: rgba(233, 233, 237, .45);
+    --dsa-accent: #9184d9;
+    --dsa-accent-rgb: 145, 132, 217;
+    --dsa-accent-text: #d2cefd;
+    --dsa-accent-ink: #f5f4ff;
+    --dsa-box-on: #796cbf;
+    --dsa-bar: linear-gradient(90deg, #796cbf, #9184d9);
+    --dsa-track: rgba(243, 245, 254, .08);
+    --dsa-dot-on: #968ae0;
+    --dsa-dot-off: #595d6c;
+    --dsa-thumb: #3f424d;
+    --dsa-shadow-sm: 0 0 0 1px #3f424d;
+    --dsa-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --dsa-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    --dsa-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.dsa {
+    min-height: 100vh;
+    background: var(--dsa-bg);
+    color: var(--dsa-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dsa * {
+    box-sizing: border-box;
+}
+
+.dsa :focus-visible {
+    outline: 2px solid var(--dsa-accent);
+    outline-offset: 2px;
+}
+
+.dsa ::selection {
+    background: rgba(var(--dsa-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.dsa h1,
+.dsa h2 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the breadcrumb and
+   the two page actions stay reachable while the catalogue scrolls. */
+
+.dsa-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: color-mix(in srgb, var(--dsa-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--dsa-divider);
+}
+
+.dsa-head-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--dsa-s6);
+}
+
+.dsa-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--dsa-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--dsa-mute-3);
+}
+
+.dsa-crumb-sep {
+    color: var(--dsa-faint);
+}
+
+.dsa-crumb-now {
+    color: var(--dsa-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dsa-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--dsa-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.dsa .dsa-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--dsa-s2) calc(var(--dsa-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--dsa-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--dsa-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dsa .dsa-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dsa .dsa-btn svg {
+    display: block;
+    flex: none;
+}
+
+.dsa .dsa-btn-primary {
+    color: var(--dsa-accent);
+    border-color: var(--dsa-accent);
+    letter-spacing: .02em;
+}
+
+.dsa .dsa-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--dsa-accent-rgb), .12);
+}
+
+.dsa .dsa-btn-primary:active:not(:disabled) {
+    background: rgba(var(--dsa-accent-rgb), .22);
+}
+
+.dsa .dsa-btn-ghost {
+    color: var(--dsa-accent);
+}
+
+.dsa .dsa-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--dsa-accent-rgb), .1);
+}
+
+.dsa .dsa-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--dsa-accent-rgb), .18);
+}
+
+.dsa .dsa-btn-lg {
+    height: 36px;
+    font-size: 13px;
+    padding-inline: var(--dsa-s6);
+}
+
+/* The bulk toggle: an accent outline rounded to a pill, the one control on
+   the page that acts on everything the filters currently show. */
+.dsa .dsa-pill {
+    margin-left: auto;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--dsa-accent-text);
+    background: transparent;
+    border: 1px solid rgba(var(--dsa-accent-rgb), .32);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dsa .dsa-pill:hover:not(:disabled) {
+    background: rgba(var(--dsa-accent-rgb), .12);
+    border-color: rgba(var(--dsa-accent-rgb), .5);
+}
+
+.dsa .dsa-pill:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dsa .dsa-link {
+    margin-left: auto;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--dsa-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--dsa-r-sm);
+    cursor: pointer;
+    transition: color .15s, background-color .15s;
+}
+
+.dsa .dsa-link:hover {
+    color: var(--dsa-ink);
+    background: var(--dsa-hover);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.dsa-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsa-s8);
+}
+
+/* ── Hero: the ask on the left, the coverage it produces on the right ──── */
+
+.dsa-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 32px;
+    flex-wrap: wrap;
+}
+
+.dsa-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dsa-accent-text);
+    margin-bottom: 9px;
+}
+
+.dsa-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.dsa-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--dsa-mute-2);
+    max-width: 62ch;
+    text-wrap: pretty;
+}
+
+.dsa-stat {
+    min-width: 250px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.dsa-stat-line {
+    display: flex;
+    align-items: baseline;
+    gap: var(--dsa-s3);
+}
+
+.dsa-stat-num {
+    font-size: 27px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+
+.dsa-stat-of {
+    font-size: 13px;
+    color: var(--dsa-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.dsa-bar {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--dsa-track);
+    overflow: hidden;
+}
+
+.dsa-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--dsa-bar);
+    transition: width 220ms ease;
+}
+
+.dsa-stat-foot {
+    font-size: 11.5px;
+    color: var(--dsa-mute-3);
+}
+
+/* ── The two panels ────────────────────────────────────────────────────── */
+
+.dsa-grid {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: var(--dsa-s6);
+    align-items: start;
+}
+
+.dsa-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--dsa-divider);
+    border-radius: var(--dsa-r-lg);
+}
+
+/* The catalogue is a wash that falls away into the ground; the scope panel,
+   which stays put while the catalogue scrolls past it, is a filled surface. */
+.dsa-panel-catalogue {
+    background: linear-gradient(to bottom, var(--dsa-wash), transparent 200px);
+}
+
+.dsa-panel-scope {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 74px);
+    background: var(--dsa-surface);
+}
+
+.dsa-panel-head {
+    padding: var(--dsa-s6) 18px var(--dsa-s4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsa-s4);
+}
+
+.dsa-panel-title {
+    display: flex;
+    align-items: center;
+    gap: var(--dsa-s3);
+}
+
+.dsa-panel-title h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.dsa-count {
+    font-size: 11.5px;
+    color: var(--dsa-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dsa-tally {
+    font-size: 11.5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(var(--dsa-accent-rgb), .14);
+    color: var(--dsa-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.dsa-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.dsa-search svg {
+    position: absolute;
+    left: 11px;
+    pointer-events: none;
+    color: var(--dsa-mute-3);
+}
+
+.dsa .dsa-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 9px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--dsa-ink);
+    caret-color: var(--dsa-accent);
+    background: var(--dsa-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--dsa-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.dsa .dsa-input-search {
+    padding-left: 33px;
+}
+
+.dsa .dsa-input:hover {
+    border-color: var(--dsa-field-edge);
+}
+
+.dsa .dsa-input:focus-visible {
+    border-color: rgba(var(--dsa-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.dsa .dsa-input::placeholder {
+    color: var(--dsa-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--dsa-placeholder);
+}
+
+/* The design draws no clear button, but a search input is the one control on
+   the page that has to be undone often. Chrome's own cancel button does that
+   job — it just has to be dressed to the theme rather than left as the
+   browser's grey circle. */
+.dsa .dsa-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--dsa-s2);
+    background: var(--dsa-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.dsa .dsa-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+.dsa-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--dsa-s4);
+}
+
+.dsa-select {
+    position: relative;
+}
+
+.dsa .dsa-select select.dsa-input {
+    padding: 8px 26px 8px 11px;
+    cursor: pointer;
+}
+
+.dsa-select .dsa-caret {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--dsa-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── The catalogue list ────────────────────────────────────────────────── */
+
+.dsa-list {
+    max-height: 520px;
+    overflow-y: auto;
+    padding: var(--dsa-s1) var(--dsa-s4) var(--dsa-s4);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+/* A row is a native checkbox wearing the design's box — the control keeps its
+   keyboard and screen-reader behaviour while the drawn square carries the
+   state. */
+.dsa-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--dsa-s4);
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--dsa-r-md);
+    background: transparent;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color .13s, border-color .13s;
+}
+
+.dsa-row:hover {
+    background: var(--dsa-hover);
+}
+
+.dsa-row-on {
+    border-color: rgba(var(--dsa-accent-rgb), .38);
+    background: rgba(var(--dsa-accent-rgb), .09);
+}
+
+.dsa-row-on:hover {
+    background: rgba(var(--dsa-accent-rgb), .14);
+}
+
+.dsa-row:has(input:focus-visible) {
+    outline: 2px solid var(--dsa-accent);
+    outline-offset: 2px;
+}
+
+.dsa .dsa-row-check {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.dsa-box {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    border-radius: 5px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--dsa-field-edge-hi);
+    background: transparent;
+    color: transparent;
+    transition: background-color .13s, border-color .13s, color .13s;
+}
+
+.dsa-box-on {
+    border-color: transparent;
+    background: var(--dsa-box-on);
+    color: var(--dsa-accent-ink);
+}
+
+.dsa-code {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .01em;
+    color: var(--dsa-ink-2);
+    min-width: 66px;
+    flex: none;
+}
+
+.dsa-name {
+    font-size: 13px;
+    color: var(--dsa-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsa-row-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: none;
+}
+
+.dsa-channel {
+    font-size: 11px;
+    color: var(--dsa-mute-3);
+}
+
+.dsa-ccy {
+    font-size: 11px;
+    color: var(--dsa-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 26px;
+}
+
+/* Status as a dot rather than a filled pill — Nocturne keeps saturation off
+   large fields. */
+.dsa-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    flex: none;
+    background: var(--dsa-dot-off);
+}
+
+.dsa-dot-on {
+    background: var(--dsa-dot-on);
+}
+
+/* ── The scope panel ───────────────────────────────────────────────────── */
+
+.dsa-chips {
+    max-height: 470px;
+    overflow-y: auto;
+    padding: var(--dsa-s1) var(--dsa-s4) var(--dsa-s4);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-content: flex-start;
+}
+
+.dsa-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 6px 5px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: rgba(var(--dsa-accent-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--dsa-accent-rgb), .26);
+    max-width: 100%;
+}
+
+.dsa-chip-code {
+    font-variant-numeric: tabular-nums;
+    color: var(--dsa-accent-text);
+    flex: none;
+}
+
+.dsa-chip-name {
+    color: var(--dsa-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsa .dsa-chip-x {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--dsa-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.dsa .dsa-chip-x:hover {
+    background: var(--dsa-press);
+    color: var(--dsa-ink);
+}
+
+.dsa-note {
+    margin: var(--dsa-s4) var(--dsa-s1);
+    font-size: 12.5px;
+    color: var(--dsa-mute-3);
+    text-wrap: pretty;
+}
+
+.dsa-panel-foot {
+    padding: 13px 18px;
+    border-top: 1px solid var(--dsa-divider);
+    display: flex;
+    align-items: center;
+    gap: var(--dsa-s4);
+}
+
+.dsa-panel-foot .dsa-btn {
+    margin-left: auto;
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.dsa-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--dsa-s3);
+    padding: 48px var(--dsa-s6);
+    font-size: 13px;
+    color: var(--dsa-mute-3);
+    text-align: center;
+}
+
+.dsa-empty svg {
+    color: var(--dsa-accent);
+    opacity: .7;
+}
+
+.dsa-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dsa-s4);
+    padding: 72px var(--dsa-s6);
+    border: 1px solid var(--dsa-divider);
+    border-radius: var(--dsa-r-lg);
+    background: var(--dsa-surface);
+    font-size: 13px;
+    color: var(--dsa-mute-2);
+}
+
+.dsa-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: dsa-spin .7s linear infinite;
+}
+
+@keyframes dsa-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.dsa-list::-webkit-scrollbar,
+.dsa-chips::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dsa-list::-webkit-scrollbar-thumb,
+.dsa-chips::-webkit-scrollbar-thumb {
+    background: var(--dsa-thumb);
+    border-radius: 8px;
+}
+
+.dsa-list::-webkit-scrollbar-track,
+.dsa-chips::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1080px) {
+    .dsa-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Stacked, the scope panel is below the catalogue rather than beside it,
+       so pinning it would park it over the list it belongs to. */
+    .dsa-panel-scope {
+        position: static;
+    }
+}
+
+@media (max-width: 700px) {
+    .dsa-head-inner {
+        padding: var(--dsa-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--dsa-s3);
+    }
+
+    .dsa-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .dsa-head-actions .dsa-btn {
+        flex: 1;
+    }
+
+    .dsa-body {
+        padding: var(--dsa-s8) 18px 56px;
+    }
+
+    .dsa-hero h1 {
+        font-size: 24px;
+    }
+
+    .dsa-stat {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .dsa-filters {
+        grid-template-columns: 1fr;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .dsa .dsa-input {
+        font-size: 16px;
+    }
+
+    .dsa-list {
+        max-height: 60vh;
+    }
+
+    /* Let the bulk toggle drop to its own line rather than squeezing the
+       panel heading into two. */
+    .dsa-panel-title {
+        flex-wrap: wrap;
+    }
+
+    .dsa-panel-title h2 {
+        white-space: nowrap;
+    }
+
+    /* The name is the row's flexible column; below this width there is no room
+       for it beside the channel and currency, so those drop away and the name
+       takes the space. */
+    .dsa-row-meta .dsa-channel,
+    .dsa-row-meta .dsa-ccy {
+        display: none;
+    }
+}
