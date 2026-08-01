@@ -1,0 +1,51 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Scoped to the test project and what it references. The whole solution is already compiled
+      # by the CodeQL workflow, so building it again here would only slow the run down.
+      - name: Restore test project
+        run: dotnet restore ShopInventory.Tests/ShopInventory.Tests.csproj
+
+      # ShopInventory.IntegrationTests is deliberately left out: every test in it is gated on a
+      # reachable SAP Service Layer, so on a runner the whole project reports green by skipping.
+      - name: Run tests
+        run: >-
+          dotnet test ShopInventory.Tests/ShopInventory.Tests.csproj
+          --configuration Release
+          --no-restore
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory ${{ runner.temp }}/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/test-results
+          if-no-files-found: warn

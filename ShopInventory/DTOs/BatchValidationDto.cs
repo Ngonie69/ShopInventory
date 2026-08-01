@@ -236,9 +236,37 @@ public class AllocatedBatchLine
     public decimal UoMConversionFactor { get; set; } = 1.0m;
 
     /// <summary>
+    /// Whether the item is serial-managed. Such a line is allocated by unit, so it carries
+    /// <see cref="Serials"/> instead of <see cref="Batches"/>.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsSerialManaged { get; set; }
+
+    /// <summary>
     /// Individual batch allocations
     /// </summary>
     public List<AllocatedBatch> Batches { get; set; } = new();
+
+    /// <summary>
+    /// Individual serial number allocations, one per unit.
+    /// </summary>
+    public List<AllocatedSerial> Serials { get; set; } = new();
+}
+
+/// <summary>
+/// Individual serial number allocation. One entry stands for one unit.
+/// </summary>
+public class AllocatedSerial
+{
+    /// <summary>
+    /// Serial number as SAP knows it (OSRN.IntrSerial, falling back to DistNumber).
+    /// </summary>
+    public string InternalSerialNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// SAP system serial number (OSRN.AbsEntry), when known.
+    /// </summary>
+    public int? SystemSerialNumber { get; set; }
 }
 
 /// <summary>

@@ -511,6 +511,21 @@ public sealed class CreateInvoiceHandler(
                         allocatedLine.Batches.Count, allocatedLine.LineNumber, allocatedLine.ItemCode);
                 }
             }
+
+            if (requestLine.SerialNumbers == null || requestLine.SerialNumbers.Count == 0)
+            {
+                if (allocatedLine.Serials.Count > 0)
+                {
+                    requestLine.SerialNumbers = allocatedLine.Serials
+                        .Select(s => new SerialNumberRequest
+                        {
+                            InternalSerialNumber = s.InternalSerialNumber,
+                            SystemSerialNumber = s.SystemSerialNumber
+                        }).ToList();
+                    logger.LogDebug("Applied {SerialCount} serial numbers to line {LineNumber} for item {ItemCode}",
+                        allocatedLine.Serials.Count, allocatedLine.LineNumber, allocatedLine.ItemCode);
+                }
+            }
         }
     }
 }

@@ -84,9 +84,17 @@ public interface IBatchInventoryValidationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Checks if an item is batch-managed.
+    /// Checks if an item is batch-managed. Throws when SAP cannot answer, rather than reporting
+    /// an unmanaged item that would be posted without its batches.
     /// </summary>
     Task<bool> IsBatchManagedItemAsync(
+        string itemCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks if an item is serial-managed, on the same terms as <see cref="IsBatchManagedItemAsync"/>.
+    /// </summary>
+    Task<bool> IsSerialManagedItemAsync(
         string itemCode,
         CancellationToken cancellationToken = default);
 }
@@ -103,9 +111,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private IReservedQuantityProvider? _reservedQuantityProvider;
     private const decimal QuantityTolerance = 0.0001m;
 
-    // Cache for batch-managed status
-    private static readonly Dictionary<string, bool> _batchManagedCache = new();
-    private static readonly object _cacheLock = new();
+    // Management flags are not cached here: the item read they come from is cached with a
+    // lifetime, where a process-wide dictionary held its first answer — right or wrong — until
+    // the application restarted.
 
     public BatchInventoryValidationService(
         ApplicationDbContext dbContext,
@@ -192,11 +200,16 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         // DbContext is not thread-safe, so concurrent async operations on the same
         // instance (via Task.WhenAll) cause "A second operation was started on this
         // context instance" errors.
+        // A serial number is one physical unit, so no two lines of the document may claim the
+        // same one. Batch quantities are reconciled across lines further down, in the aggregate
+        // pass; serials have no quantity to aggregate and are tracked here instead.
+        var claimedSerials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         var lineResults = new List<LineValidationResult>();
         for (int i = 0; i < request.Lines.Count; i++)
         {
             var lineResult = await ValidateLineAsync(
-                request.Lines[i], i + 1, autoAllocate, strategy, cancellationToken);
+                request.Lines[i], i + 1, autoAllocate, strategy, claimedSerials, cancellationToken);
             lineResults.Add(lineResult);
         }
 
@@ -251,6 +264,7 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         int lineNumber,
         bool autoAllocate,
         BatchAllocationStrategy strategy,
+        HashSet<string> claimedSerials,
         CancellationToken cancellationToken)
     {
         var result = new LineValidationResult { LineNumber = lineNumber };
@@ -269,6 +283,14 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
                 "Warehouse code is required for each invoice line",
                 "Specify a warehouse code for this line"));
             return result;
+        }
+
+        // A serial-managed item is allocated by unit, not by quantity, and SAP rejects the
+        // document unless every unit is named.
+        if (await IsSerialManagedItemAsync(line.ItemCode ?? "", cancellationToken))
+        {
+            return await ValidateSerialLineAsync(
+                line, lineNumber, autoAllocate, claimedSerials, cancellationToken);
         }
 
         // Check if item is batch-managed
@@ -366,6 +388,191 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     /// <summary>
     /// Helper class to hold individual line validation results for parallel processing
     /// </summary>
+    /// <summary>
+    /// Validates and, when asked, allocates the serial numbers of one line. SAP counts a serial
+    /// number as one unit, so the line needs exactly as many of them as it has units, and no two
+    /// lines of the document may name the same one.
+    /// </summary>
+    /// <remarks>
+    /// Unlike batches, serial numbers are not reserved: <see cref="StockReservationEntity"/> holds
+    /// batch quantities only. Two documents built at the same time can therefore choose the same
+    /// serial number, and the second one to post is the one SAP rejects.
+    /// </remarks>
+    private async Task<LineValidationResult> ValidateSerialLineAsync(
+        CreateInvoiceLineRequest line,
+        int lineNumber,
+        bool autoAllocate,
+        HashSet<string> claimedSerials,
+        CancellationToken cancellationToken)
+    {
+        var result = new LineValidationResult { LineNumber = lineNumber };
+        var itemCode = line.ItemCode ?? "";
+        var warehouseCode = line.WarehouseCode!;
+
+        var uomInfo = await GetUoMConversionAsync(itemCode, line.UoMCode, null, cancellationToken);
+        var conversionFactor = uomInfo?.ConversionFactor ?? 1.0m;
+        var unitsNeeded = line.Quantity * conversionFactor;
+
+        if (unitsNeeded != Math.Truncate(unitsNeeded) || unitsNeeded <= 0)
+        {
+            result.Errors.Add(CreateError(
+                BatchValidationErrorCode.InvalidQuantity,
+                lineNumber,
+                itemCode,
+                null,
+                warehouseCode,
+                unitsNeeded,
+                0,
+                $"Item {itemCode} is serial-managed, so its quantity must be a whole number of units " +
+                $"(got {unitsNeeded})",
+                "Order a whole number of units of this item"));
+            return result;
+        }
+
+        var requiredUnits = (int)unitsNeeded;
+        string SerialKey(string serialNumber) => $"{itemCode}|{warehouseCode}|{serialNumber}";
+
+        List<AllocatedSerial> allocated;
+
+        if (line.SerialNumbers is { Count: > 0 })
+        {
+            allocated = [];
+            foreach (var requested in line.SerialNumbers)
+            {
+                var serialNumber = requested.InternalSerialNumber?.Trim();
+                if (string.IsNullOrWhiteSpace(serialNumber))
+                {
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.BatchAllocationRequired,
+                        lineNumber, itemCode, null, warehouseCode, requiredUnits, allocated.Count,
+                        $"A serial number is required for every unit of item {itemCode}",
+                        "Name each unit being sold"));
+                    return result;
+                }
+
+                if (!claimedSerials.Add(SerialKey(serialNumber)))
+                {
+                    result.Errors.Add(CreateError(
+                        BatchValidationErrorCode.InsufficientBatchQuantity,
+                        lineNumber, itemCode, serialNumber, warehouseCode, requiredUnits, allocated.Count,
+                        $"Serial number '{serialNumber}' for item {itemCode} is already allocated to " +
+                        $"another line of this document",
+                        "A serial number stands for one unit and can be sold once"));
+                    return result;
+                }
+
+                allocated.Add(new AllocatedSerial
+                {
+                    InternalSerialNumber = serialNumber,
+                    SystemSerialNumber = requested.SystemSerialNumber
+                });
+            }
+
+            if (allocated.Count != requiredUnits)
+            {
+                result.Errors.Add(CreateError(
+                    BatchValidationErrorCode.BatchQuantityMismatch,
+                    lineNumber, itemCode, null, warehouseCode, requiredUnits, allocated.Count,
+                    $"The serial selection for item {itemCode} covers {allocated.Count} of {requiredUnits} " +
+                    $"units. SAP requires one serial number per unit",
+                    $"Name {requiredUnits} serial numbers, or reduce the quantity to {allocated.Count}"));
+                return result;
+            }
+        }
+        else if (!autoAllocate)
+        {
+            result.Errors.Add(CreateError(
+                BatchValidationErrorCode.BatchAllocationRequired,
+                lineNumber, itemCode, null, warehouseCode, requiredUnits, 0,
+                $"Item {itemCode} is serial-managed and requires {requiredUnits} serial number(s)",
+                "Name the units being sold, or enable automatic allocation"));
+            return result;
+        }
+        else
+        {
+            var available = await GetAvailableSerialsAsync(itemCode, warehouseCode, cancellationToken);
+            allocated = available
+                .Where(serial => claimedSerials.Add(SerialKey(serial.InternalSerialNumber)))
+                .Take(requiredUnits)
+                .ToList();
+
+            if (allocated.Count < requiredUnits)
+            {
+                // Put back what this line could not use, so a later line for the same item still
+                // sees the serials this one only looked at.
+                foreach (var serial in allocated)
+                {
+                    claimedSerials.Remove(SerialKey(serial.InternalSerialNumber));
+                }
+
+                result.Errors.Add(CreateError(
+                    BatchValidationErrorCode.InsufficientTotalStock,
+                    lineNumber, itemCode, null, warehouseCode, requiredUnits, allocated.Count,
+                    $"Insufficient serial numbers for item {itemCode} in warehouse {warehouseCode}. " +
+                    $"Need {requiredUnits}, available {allocated.Count}",
+                    $"Reduce the quantity to {allocated.Count} or receive more stock"));
+                return result;
+            }
+        }
+
+        result.AllocatedLine = new AllocatedBatchLine
+        {
+            LineNumber = lineNumber,
+            ItemCode = itemCode,
+            WarehouseCode = warehouseCode,
+            IsBatchManaged = false,
+            IsSerialManaged = true,
+            OriginalRequestedQuantity = line.Quantity,
+            TotalQuantityAllocated = allocated.Count,
+            UoMConversionFactor = conversionFactor,
+            Serials = allocated
+        };
+        return result;
+    }
+
+    /// <summary>
+    /// The serial numbers SAP holds for an item in a warehouse, in a stable order so that two runs
+    /// over the same stock allocate the same units.
+    /// </summary>
+    private async Task<List<AllocatedSerial>> GetAvailableSerialsAsync(
+        string itemCode,
+        string warehouseCode,
+        CancellationToken cancellationToken)
+    {
+        List<SerialNumber> serials;
+        try
+        {
+            serials = await _sapClient.GetSerialNumbersForItemInWarehouseAsync(
+                itemCode, warehouseCode, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not read the serial numbers of item {itemCode} in warehouse {warehouseCode}, " +
+                $"so the line cannot be allocated.", ex);
+        }
+
+        return serials
+            .Where(serial => serial.Quantity > 0)
+            .Select(serial => new
+            {
+                Number = serial.InternalSerialNumber ?? serial.DistNumber,
+                serial.SystemNumber
+            })
+            .Where(serial => !string.IsNullOrWhiteSpace(serial.Number))
+            .OrderBy(serial => serial.Number, StringComparer.OrdinalIgnoreCase)
+            .Select(serial => new AllocatedSerial
+            {
+                InternalSerialNumber = serial.Number!,
+                SystemSerialNumber = serial.SystemNumber > 0 ? serial.SystemNumber : null
+            })
+            .ToList();
+    }
+
     private class LineValidationResult
     {
         public int LineNumber { get; set; }
@@ -422,8 +629,10 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         AggregateAllocationResult result,
         CancellationToken cancellationToken)
     {
+        // Serial-managed lines are left out: every unit they carry is a serial number claimed once
+        // across the whole document, which says more than a quantity comparison could.
         var nonBatchGroups = result.AllocatedLines
-            .Where(line => !line.IsBatchManaged)
+            .Where(line => !line.IsBatchManaged && !line.IsSerialManaged)
             .GroupBy(line => BuildStockKey(line.ItemCode, line.WarehouseCode));
 
         foreach (var nonBatchGroup in nonBatchGroups)
@@ -1062,51 +1271,67 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         string itemCode,
         CancellationToken cancellationToken = default)
     {
-        // Check cache first
-        lock (_cacheLock)
-        {
-            if (_batchManagedCache.TryGetValue(itemCode, out var cached))
-            {
-                return cached;
-            }
-        }
-
-        // Check local database
-        var product = await _dbContext.Products
-            .FirstOrDefaultAsync(p => p.ItemCode == itemCode, cancellationToken);
-
-        if (product != null)
-        {
-            lock (_cacheLock)
-            {
-                _batchManagedCache[itemCode] = product.ManageBatchNumbers;
-            }
-            return product.ManageBatchNumbers;
-        }
-
-        // Check SAP
+        // SAP is the only authority on this. The local Products row used to be consulted first,
+        // but nothing in the application ever writes ProductEntity.ManageBatchNumbers, so every
+        // stored item read as "not batch-managed" whatever SAP said — the batches were then never
+        // allocated and SAP rejected the invoice with "Cannot add row without complete selection
+        // of batch/serial numbers". The item read behind this is itself cached, so asking SAP
+        // costs a request per item per cache lifetime.
+        Item? item;
         try
         {
-            var item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
-            if (item != null)
-            {
-                var isBatchManaged = item.ManageBatchNumbers == "tYES" ||
-                                     item.ManageBatchNumbers == "Y" ||
-                                     item.ManageBatchNumbers == "true";
-
-                lock (_cacheLock)
-                {
-                    _batchManagedCache[itemCode] = isBatchManaged;
-                }
-                return isBatchManaged;
-            }
+            item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to check if {ItemCode} is batch-managed", itemCode);
+            // Guessing here is what produced an unallocated document. The caller is on its way to
+            // SAP anyway, so a failure now is better than one it cannot read afterwards.
+            throw new InvalidOperationException(
+                $"Could not read the batch management setting for item {itemCode} from SAP, so its " +
+                $"batch allocation cannot be determined.", ex);
         }
 
-        return false; // Assume not batch-managed if we can't determine
+        if (item is null)
+        {
+            throw new InvalidOperationException(
+                $"Item {itemCode} was not found in SAP, so its batch allocation cannot be determined.");
+        }
+
+        return item.ManageBatchNumbers is "tYES" or "Y" or "true";
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> IsSerialManagedItemAsync(
+        string itemCode,
+        CancellationToken cancellationToken = default)
+    {
+        Item? item;
+        try
+        {
+            item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not read the serial management setting for item {itemCode} from SAP, so its " +
+                $"serial allocation cannot be determined.", ex);
+        }
+
+        if (item is null)
+        {
+            throw new InvalidOperationException(
+                $"Item {itemCode} was not found in SAP, so its serial allocation cannot be determined.");
+        }
+
+        return item.ManageSerialNumbers is "tYES" or "Y" or "true";
     }
 
     #region Private Helper Methods
