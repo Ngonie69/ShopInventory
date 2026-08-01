@@ -72,7 +72,6 @@ public class UserInfo
     public string? AssignedSection { get; set; }
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
-    public List<string> AllowedPaymentMethods { get; set; } = new();
     public List<string> AssignedCustomerCodes { get; set; } = new();
 }
 

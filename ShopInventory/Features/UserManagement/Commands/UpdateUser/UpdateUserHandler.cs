@@ -177,17 +177,6 @@ public sealed class UpdateUserHandler(
             user.AssignedCostCentreCode = null;
         }
 
-        if (ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role))
-        {
-            // These roles use every payment method. Clear anything a previous role left
-            // behind so the restriction cannot outlive the role change.
-            user.SetAllowedPaymentMethods(null);
-        }
-        else if (command.Request.AllowedPaymentMethods != null)
-        {
-            user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
-        }
-
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
         {
             return Errors.UserManagement.UpdateFailed($"At least one assigned warehouse code is required for {user.Role} role");
@@ -278,7 +267,6 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedBusinessPartnerCode, user.AssignedBusinessPartnerCode)
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.Permissions, user.Permissions)
-                .SetProperty(x => x.AllowedPaymentMethods, user.AllowedPaymentMethods)
                 .SetProperty(x => x.UpdatedAt, user.UpdatedAt),
                 cancellationToken);
 

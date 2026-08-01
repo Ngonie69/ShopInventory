@@ -492,7 +492,6 @@ public class UserModel
     public List<string>? Permissions { get; set; }
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
-    public List<string> AllowedPaymentMethods { get; set; } = new();
     public string? AssignedSection { get; set; }
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedBusinessPartnerCode { get; set; }

@@ -636,55 +636,6 @@
                                                             </div>
                                                         }
 
-                                                        <!-- Allowed Payment Methods (hidden for Admin, Cashier, DepotController, SalesRep, Merchandiser, PodOperator, Driver, MerchandiserPurchaseOrderViewer, Lab) -->
-                                                        @if (!UserRoles.HasUnrestrictedPaymentAccess(userModel.Role) && userModel.Role != "DepotController" && userModel.Role != "SalesRep" && userModel.Role != "Merchandiser" && userModel.Role != "PodOperator" && userModel.Role != "Driver" && userModel.Role != "MerchandiserPurchaseOrderViewer" && userModel.Role != "Lab")
-                                                        {
-                                                            <div class="um-form-field um-form-full">
-                                                                <label>Allowed Payment Methods</label>
-                                                                <div class="um-pm-wrap">
-                                                                    @foreach (var pm in allPaymentMethods)
-                                                                    {
-                                                                        var isChecked = userModel.AllowedPaymentMethods.Contains(pm.Key);
-                                                                        <label class="um-pm-item @(isChecked ? "checked" : "")">
-                                                                            <input type="checkbox" checked="@isChecked"
-                                                                                   @onchange="(e) => TogglePaymentMethod(pm.Key, (bool)(e.Value ?? false))" />
-                                                                            <span class="um-pm-label">@pm.Value</span>
-                                                                        </label>
-                                                                    }
-                                                                </div>
-                                                                @if (userModel.AllowedPaymentMethods.Count > 0)
-                                                                {
-                                                                    <div class="um-chip-wrap">
-                                                                        @foreach (var pm in userModel.AllowedPaymentMethods)
-                                                                        {
-                                                                            var label = allPaymentMethods.GetValueOrDefault(pm, pm);
-                                                                            <span class="um-chip um-chip-amber">
-                                                                                @label
-                                                                                <button type="button" class="um-chip-remove"
-                                                                                        @onclick="() => TogglePaymentMethod(pm, false)">x</button>
-                                                                            </span>
-                                                                        }
-                                                                    </div>
-                                                                }
-                                                                <small class="um-form-hint">
-                                                                    Select which payment methods this user can use. If none are selected, only the system
-                                                                    default will be available.
-                                                                    (@userModel.AllowedPaymentMethods.Count selected)
-                                                                </small>
-                                                            </div>
-                                                        }
-                                                        else if (UserRoles.HasUnrestrictedPaymentAccess(userModel.Role))
-                                                        {
-                                                            <div class="um-form-field um-form-full">
-                                                                <label>Allowed Payment Methods</label>
-                                                                <small style="color:#059669; font-size:.82rem;">
-                                                                    <i class="bi bi-shield-check me-1"></i>@(userModel.Role == "Cashier" ? "Cashiers" : "Admin users")
-                                                                    automatically have access to all payment methods and can take payment from any business
-                                                                    partner.
-                                                                </small>
-                                                            </div>
-                                                        }
-
                                                     </div>
                                                 </div>
                                                 <div class="um-modal-footer">
@@ -3203,13 +3154,6 @@
     private string customerSearchTerm = string.Empty;
     private List<CostCentreDto> availableCostCentres = new();
     private bool isLoadingCostCentres = false;
-    private static readonly Dictionary<string, string> allPaymentMethods = new()
-    {
-        { "cash", "Cash" },
-        { "transfer", "Transfer" },
-        { "check", "Check" },
-        { "credit", "Credit Card" }
-    };
     private Dictionary<string, List<PermissionModel>>? permissionCategories;
 
     private bool showUserModal = false;
@@ -3464,19 +3408,6 @@ StringComparison.OrdinalIgnoreCase)))
         }
     }
 
-    private void TogglePaymentMethod(string method, bool isChecked)
-    {
-        if (isChecked)
-        {
-            if (!userModel.AllowedPaymentMethods.Contains(method))
-                userModel.AllowedPaymentMethods.Add(method);
-        }
-        else
-        {
-            userModel.AllowedPaymentMethods.Remove(method);
-        }
-    }
-
     private async Task LoadUsers()
     {
         isLoading = true;
@@ -3497,7 +3428,6 @@ StringComparison.OrdinalIgnoreCase)))
                 LastLoginAt = u.LastLoginAt,
                 Permissions = u.Permissions,
                 AssignedWarehouseCodes = u.AssignedWarehouseCodes,
-                AllowedPaymentMethods = u.AllowedPaymentMethods ?? new(),
                 AssignedSection = u.AssignedSection,
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new(),
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
@@ -3604,7 +3534,6 @@ StringComparison.OrdinalIgnoreCase)))
             Role = user.Role,
             IsActive = user.IsActive,
             AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
-            AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
@@ -3897,8 +3826,7 @@ StringComparison.OrdinalIgnoreCase)))
                 Role = user.Role,
                 IsActive = true,
                 AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
-                AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
-                        AssignedSection = user.AssignedSection,
+                            AssignedSection = user.AssignedSection,
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode
@@ -3952,12 +3880,6 @@ StringComparison.OrdinalIgnoreCase)))
         else
         {
             model.AssignedCustomerCodes = new();
-        }
-
-        if (UserRoles.HasUnrestrictedPaymentAccess(model.Role))
-        {
-            // Cashiers and admins use every payment method, so no restriction is sent for them.
-            model.AllowedPaymentMethods = new();
         }
     }
 
@@ -4035,7 +3957,6 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string>? Permissions { get; set; }
         public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
         public List<string> AssignedWarehouseCodes { get; set; } = new();
-        public List<string> AllowedPaymentMethods { get; set; } = new();
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
@@ -4068,7 +3989,6 @@ StringComparison.OrdinalIgnoreCase)))
 
         public bool IsActive { get; set; } = true;
         public List<string> AssignedWarehouseCodes { get; set; } = new();
-        public List<string> AllowedPaymentMethods { get; set; } = new();
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }

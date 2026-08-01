@@ -207,30 +207,6 @@ public class User
     public string? AssignedCostCentreCode { get; set; }
 
     /// <summary>
-    /// JSON array of allowed payment methods (e.g. ["cash","transfer","check","credit"]).
-    /// If null/empty, the user inherits the system default. Admin users always have all methods.
-    /// </summary>
-    public string? AllowedPaymentMethods { get; set; }
-
-    /// <summary>
-    /// Deserialize allowed payment methods from JSON.
-    /// </summary>
-    public List<string> GetAllowedPaymentMethods()
-    {
-        if (string.IsNullOrEmpty(AllowedPaymentMethods)) return new();
-        try { return JsonSerializer.Deserialize<List<string>>(AllowedPaymentMethods) ?? new(); }
-        catch { return new(); }
-    }
-
-    /// <summary>
-    /// Serialize allowed payment methods to JSON.
-    /// </summary>
-    public void SetAllowedPaymentMethods(List<string>? methods)
-    {
-        AllowedPaymentMethods = methods == null || methods.Count == 0 ? null : JsonSerializer.Serialize(methods);
-    }
-
-    /// <summary>
     /// Navigation property for refresh tokens
     /// </summary>
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();

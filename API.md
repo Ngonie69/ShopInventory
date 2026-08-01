@@ -302,8 +302,7 @@ Login with username and password.
     "role": "Admin",
     "email": "admin@example.com",
     "assignedWarehouseCode": "WH01",
-    "assignedWarehouseCodes": ["WH01", "WH02"],
-    "allowedPaymentMethods": ["Cash", "Transfer"]
+    "assignedWarehouseCodes": ["WH01", "WH02"]
   }
 }
 ```
@@ -513,7 +512,6 @@ Change the current user's password.
   "role": "Cashier",
   "permissions": ["invoices.view", "invoices.create", "payments.view"],
   "assignedWarehouseCodes": ["WH01", "WH02"],
-  "allowedPaymentMethods": ["Cash", "Transfer", "EcoCash"],
   "sendWelcomeEmail": true
 }
 ```
@@ -535,7 +533,6 @@ Change the current user's password.
   "lockoutEnd": null,
   "permissions": ["invoices.view", "invoices.create"],
   "assignedWarehouseCodes": ["WH01"],
-  "allowedPaymentMethods": ["Cash", "Transfer"],
   "createdAt": "2026-01-01T00:00:00Z",
   "updatedAt": "2026-03-15T10:00:00Z",
   "lastLoginAt": "2026-04-01T08:30:00Z"

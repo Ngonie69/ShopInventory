@@ -117,7 +117,6 @@ public sealed class GetUsersHandler(
             LockoutEnd = user.LockoutEnd,
             Permissions = DeserializeStringList(user.Permissions),
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
-            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

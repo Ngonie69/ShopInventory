@@ -169,12 +169,6 @@ public sealed class CreateUserHandler(
             user.AssignedCostCentreCode = request.AssignedCostCentreCode?.Trim();
         }
 
-        if (!ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role) &&
-            request.AllowedPaymentMethods is { Count: > 0 })
-        {
-            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
-        }
-
         context.Users.Add(user);
         await context.SaveChangesAsync(cancellationToken);
 
@@ -228,7 +222,6 @@ public sealed class CreateUserHandler(
             LockoutEnd = user.LockoutEnd,
             Permissions = permissions,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
-            AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

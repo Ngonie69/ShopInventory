@@ -255,11 +255,6 @@ public class UserDetailDto
     public List<string> AssignedWarehouseCodes { get; set; } = new();
     /// <summary>Backward compat — first warehouse code</summary>
     public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
-    /// <summary>
-    /// Allowed payment methods for this user (e.g. ["cash","transfer","check","credit"]).
-    /// Empty means system default. Admin users always get all methods.
-    /// </summary>
-    public List<string> AllowedPaymentMethods { get; set; } = new();
     public List<string> AssignedCustomerCodes { get; set; } = new();
     public string? AssignedSection { get; set; }
     public string? AssignedBusinessPartnerCode { get; set; }
@@ -304,11 +299,6 @@ public class CreateUserDetailRequest
     /// Assigned warehouse codes (required for StockController/DepotController roles)
     /// </summary>
     public List<string>? AssignedWarehouseCodes { get; set; }
-
-    /// <summary>
-    /// Allowed payment methods (e.g. ["cash","transfer","check","credit"])
-    /// </summary>
-    public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
     /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)
@@ -366,11 +356,6 @@ public class UpdateUserDetailRequest
     /// Assigned warehouse codes (for StockController/DepotController roles)
     /// </summary>
     public List<string>? AssignedWarehouseCodes { get; set; }
-
-    /// <summary>
-    /// Allowed payment methods (e.g. ["cash","transfer","check","credit"])
-    /// </summary>
-    public List<string>? AllowedPaymentMethods { get; set; }
 
     /// <summary>
     /// Assigned section for Driver role (e.g. Cheeseman, Factory, Graniteside, Machipisa, Bulawayo)

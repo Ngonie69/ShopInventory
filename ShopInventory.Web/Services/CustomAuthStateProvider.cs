@@ -387,14 +387,6 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             claims.Add(new Claim("warehouse", userInfo.AssignedWarehouseCode));
         }
 
-        if (userInfo?.AllowedPaymentMethods != null)
-        {
-            foreach (var pm in userInfo.AllowedPaymentMethods)
-            {
-                claims.Add(new Claim("paymentmethod", pm));
-            }
-        }
-
         var identity = new ClaimsIdentity(claims, "jwt");
         var user = new ClaimsPrincipal(identity);
 

@@ -110,16 +110,6 @@ public static class UserRoles
         string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Check if a role takes payments across the whole ledger. These roles post against many
-    /// G/L accounts and any business partner, so the per-user payment restrictions (default
-    /// G/L account, allowed business partners, allowed payment methods) never apply to them
-    /// and every payment method is available.
-    /// </summary>
-    public static bool HasUnrestrictedPaymentAccess(string? role) =>
-        string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(role, Cashier, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
     /// Check if a role can view/create sales orders
     /// </summary>
     public static bool CanViewSalesOrders(string role) =>
