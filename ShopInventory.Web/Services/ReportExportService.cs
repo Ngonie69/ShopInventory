@@ -36,6 +36,7 @@ public interface IReportExportService
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
+    byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
 }
 
@@ -5170,6 +5171,129 @@ public class ReportExportService : IReportExportService
                     row++;
                 }
             }
+        }
+
+        ws.Columns().AdjustToContents();
+        return WorkbookToBytes(workbook);
+    }
+
+    /// <summary>
+    /// The Mobile Orders review queue as a workbook: the columns the page's
+    /// table shows, plus the submission detail — device, sync state, capture
+    /// coordinates — that a row can only carry as a tooltip.
+    /// </summary>
+    public byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title)
+    {
+        using var workbook = new XLWorkbook();
+        // Excel rejects a sheet name past 31 characters.
+        var sheetName = title.Length > 31 ? title[..31] : title;
+        var ws = workbook.Worksheets.Add(sheetName);
+        const int cols = 15;
+
+        var row = WriteReportHeader(ws, title, cols, subtitle: $"Orders listed: {orders.Count:N0}");
+
+        WriteKpiCard(ws, row, 1, "Orders", orders.Count.ToString("N0"));
+        WriteKpiCard(ws, row, 3, "Draft", orders.Count(order => order.Status == SalesOrderStatus.Draft).ToString("N0"));
+        WriteKpiCard(ws, row, 5, "Pending", orders.Count(order => order.Status == SalesOrderStatus.Pending).ToString("N0"), WarningOrange);
+        WriteKpiCard(ws, row, 7, "Approved", orders.Count(order => order.Status == SalesOrderStatus.Approved).ToString("N0"), SuccessGreen);
+        WriteKpiCard(ws, row, 9, "Not In SAP", orders.Count(order => !order.IsSynced).ToString("N0"));
+        row += 3;
+
+        var headers = new[]
+        {
+            "Order #", "Customer", "Customer Code", "Lines", "Submitted By", "Device", "Sync",
+            "Ordered", "Received (CAT)", "Delivery", "Status", "Currency", "Total", "SAP Doc #", "Captured At"
+        };
+
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+            ws.Cell(row, i + 1).Style.Font.Bold = true;
+            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
+            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
+            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+        row++;
+
+        var isAlt = false;
+        foreach (var order in orders)
+        {
+            ws.Cell(row, 1).Value = order.OrderNumber;
+            ws.Cell(row, 1).Style.Font.Bold = true;
+            ws.Cell(row, 2).Value = order.CardName ?? string.Empty;
+            ws.Cell(row, 3).Value = order.CardCode ?? string.Empty;
+            ws.Cell(row, 4).Value = order.Lines?.Count ?? 0;
+            ws.Cell(row, 5).Value = order.CreatedByUserName ?? order.SalesPersonName ?? "Unknown";
+            ws.Cell(row, 6).Value = string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Not captured" : order.DeviceInfo.Trim();
+            ws.Cell(row, 7).Value = order.IsSynced ? "Synced" : "Queued";
+            if (!order.IsSynced)
+                ws.Cell(row, 7).Style.Font.FontColor = WarningOrange;
+
+            ws.Cell(row, 8).Value = order.OrderDate;
+            ws.Cell(row, 8).Style.NumberFormat.Format = "dd MMM yyyy";
+            ws.Cell(row, 9).Value = FormatCatDateTime(order.CreatedAt);
+
+            if (order.DeliveryDate.HasValue)
+            {
+                ws.Cell(row, 10).Value = order.DeliveryDate.Value;
+                ws.Cell(row, 10).Style.NumberFormat.Format = "dd MMM yyyy";
+            }
+            else
+            {
+                ws.Cell(row, 10).Value = "-";
+            }
+
+            ws.Cell(row, 11).Value = order.Status.ToString();
+            ws.Cell(row, 11).Style.Font.FontColor = order.Status switch
+            {
+                SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => SuccessGreen,
+                SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => WarningOrange,
+                SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected => DangerRed,
+                _ => XLColor.FromHtml("#616161")
+            };
+
+            ws.Cell(row, 12).Value = order.Currency ?? string.Empty;
+            ws.Cell(row, 13).Value = order.DocTotal;
+            ws.Cell(row, 13).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 14).Value = order.SAPDocNum.HasValue
+                ? order.SAPDocNum.Value.ToString(CultureInfo.InvariantCulture)
+                : order.Status == SalesOrderStatus.Approved ? "Pending" : "-";
+            ws.Cell(row, 15).Value = order.Latitude.HasValue && order.Longitude.HasValue
+                ? $"{order.Latitude.Value.ToString("F6", CultureInfo.InvariantCulture)}, {order.Longitude.Value.ToString("F6", CultureInfo.InvariantCulture)}"
+                : "-";
+
+            if (isAlt)
+                ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
+
+            for (var c = 1; c <= cols; c++)
+                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            isAlt = !isAlt;
+            row++;
+        }
+
+        // One totals row per currency. Mobile orders come in USD and ZWG, so a
+        // single sum down the Total column would add two currencies together.
+        var currencyTotals = orders
+            .GroupBy(order => string.IsNullOrWhiteSpace(order.Currency) ? "-" : order.Currency!.Trim())
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var currencyTotal in currencyTotals)
+        {
+            ws.Cell(row, 11).Value = $"Total ({currencyTotal.Count():N0})";
+            ws.Cell(row, 11).Style.Font.Bold = true;
+            ws.Cell(row, 12).Value = currencyTotal.Key;
+            ws.Cell(row, 12).Style.Font.Bold = true;
+            ws.Cell(row, 13).Value = currencyTotal.Sum(order => order.DocTotal);
+            ws.Cell(row, 13).Style.Font.Bold = true;
+            ws.Cell(row, 13).Style.NumberFormat.Format = "#,##0.00";
+            ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = TotalsBackground;
+
+            for (var c = 1; c <= cols; c++)
+                ws.Cell(row, c).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+
+            row++;
         }
 
         ws.Columns().AdjustToContents();
