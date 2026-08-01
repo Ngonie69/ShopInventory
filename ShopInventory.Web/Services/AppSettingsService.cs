@@ -126,7 +126,7 @@ public class AppSettingsService : IAppSettingsService
                 Key = SettingKeys.CompanyName,
                 Value = "Shop Inventory",
                 DataType = "string",
-                Description = "The name of your company",
+                Description = "Company heading on printed inventory transfer notes (PDFs, reports and email are branded independently)",
                 DisplayOrder = 1
             },
             new()
@@ -135,7 +135,7 @@ public class AppSettingsService : IAppSettingsService
                 Key = SettingKeys.DefaultWarehouse,
                 Value = "01",
                 DataType = "string",
-                Description = "Default warehouse code for new transactions",
+                Description = "Warehouse pre-selected in the defaults bar on a new invoice",
                 DisplayOrder = 2
             },
             new()
@@ -144,7 +144,7 @@ public class AppSettingsService : IAppSettingsService
                 Key = SettingKeys.DefaultCurrency,
                 Value = "USD",
                 DataType = "string",
-                Description = "Default currency for transactions",
+                Description = "Currency a new invoice or credit note opens on, until a customer with its own currency is picked (USD or ZIG)",
                 DisplayOrder = 3
             },
             new()
@@ -153,7 +153,7 @@ public class AppSettingsService : IAppSettingsService
                 Key = SettingKeys.DateFormat,
                 Value = "dd MMM yyyy",
                 DataType = "string",
-                Description = "Date format for display (e.g., dd/MM/yyyy, MM/dd/yyyy)",
+                Description = "Format used by the date pickers (e.g., dd/MM/yyyy, MM/dd/yyyy); tables and exports are fixed at dd MMM yyyy",
                 DisplayOrder = 4
             },
 
@@ -184,7 +184,7 @@ public class AppSettingsService : IAppSettingsService
                 Key = SettingKeys.ShowPricesWithTax,
                 Value = "false",
                 DataType = "bool",
-                Description = "Show prices with tax included",
+                Description = "Show prices VAT-inclusive on the Create Invoice screen (quotations, sales orders and credit notes always show excluding)",
                 DisplayOrder = 2
             },
 

@@ -572,7 +572,9 @@
     // Print dialog state. There is no printer to track: the browser's print dialog owns that choice.
     private bool showPrintDialog = false;
     private int printCopies = 1;
-    private string? warehouseCode = "01";
+    // Seeded from the configured default warehouse on first render — AppSettings is injected, so it
+    // cannot be read here at field initialisation.
+    private string? warehouseCode;
     private string? defaultCostCentre;
 
     // VAT rate (15.5%)
@@ -661,6 +663,10 @@
                 invoice.DocCurrency = AppSettings.DefaultCurrency;
             }
 
+            // Apply default warehouse from settings. Only on first render, so the manual master-data
+            // refresh never overwrites a warehouse the cashier picked in the defaults bar.
+            warehouseCode = AppSettings.DefaultWarehouse;
+
             try
             {
                 var authState = await AuthStateProvider.GetAuthenticationStateAsync();
@@ -681,6 +687,18 @@
             }
 
             await LoadAllMasterDataAsync();
+
+            // The defaults bar can only show a warehouse the cache knows about. If the configured
+            // one is missing the dropdown reads "Select…" while new lines still carry the code, so
+            // say so in the log rather than letting the two diverge silently.
+            if (!string.IsNullOrWhiteSpace(warehouseCode)
+                && !cachedWarehouses.Any(w => string.Equals(w.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                Logger.LogWarning(
+                "Default warehouse {Warehouse} from settings is not in the cached warehouse list; the defaults bar cannot pre-select it",
+                warehouseCode);
+            }
+
             StateHasChanged();
         }
     }
@@ -1502,7 +1520,7 @@ customerPricing.Count, priceListNum);
         var newLine = new CreateInvoiceLineRequest
         {
             Quantity = 1,
-            WarehouseCode = warehouseCode ?? "01"
+            WarehouseCode = warehouseCode ?? AppSettings.DefaultWarehouse
         };
 
         // Apply default cost centre if set
