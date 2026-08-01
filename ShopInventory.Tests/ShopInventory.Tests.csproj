@@ -45,5 +45,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ShopInventory\ShopInventory.csproj" />
+    <!--
+      The Blazor app, so its non-UI logic can be tested too. Both projects hand-mirror the same
+      DTOs, but the Web ones all sit under ShopInventory.Web.*, so nothing here becomes ambiguous.
+    -->
+    <ProjectReference Include="..\ShopInventory.Web\ShopInventory.Web.csproj" />
   </ItemGroup>
 </Project>

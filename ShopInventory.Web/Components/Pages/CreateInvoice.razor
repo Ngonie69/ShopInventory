@@ -1,4 +1,5 @@
 @page "/invoices/create"
+@using System.Security.Claims
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.JSInterop
 @using ShopInventory.Web.Data
@@ -572,7 +573,9 @@
     // Print dialog state. There is no printer to track: the browser's print dialog owns that choice.
     private bool showPrintDialog = false;
     private int printCopies = 1;
-    private string? warehouseCode = "01";
+    // Seeded from the configured default warehouse on first render — AppSettings is injected, so it
+    // cannot be read here at field initialisation.
+    private string? warehouseCode;
     private string? defaultCostCentre;
 
     // VAT rate (15.5%)
@@ -661,9 +664,11 @@
                 invoice.DocCurrency = AppSettings.DefaultCurrency;
             }
 
+            ClaimsPrincipal? operatorUser = null;
             try
             {
                 var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+                operatorUser = authState.User;
                 Logger.LogInformation("Auth state fetched, user authenticated: {IsAuthenticated}",
                 authState.User?.Identity?.IsAuthenticated ?? false);
             }
@@ -681,6 +686,18 @@
             }
 
             await LoadAllMasterDataAsync();
+
+            // Seed the defaults bar once master data is in, so the resolver can confirm the
+            // warehouse is one the dropdown actually holds. First render only, so the manual
+            // master-data refresh never overwrites a warehouse the cashier picked.
+            warehouseCode = DefaultWarehouseResolver.Resolve(operatorUser, AppSettings.DefaultWarehouse, cachedWarehouses);
+            if (warehouseCode is null)
+            {
+                Logger.LogWarning(
+                "No usable default warehouse for this operator (configured default {Configured}); the defaults bar starts empty",
+                AppSettings.DefaultWarehouse);
+            }
+
             StateHasChanged();
         }
     }
@@ -1174,7 +1191,7 @@
         }
 
         line.WarehouseCode = !string.IsNullOrEmpty(warehouseCode) ? warehouseCode : (product.DefaultWarehouse ??
-AppSettings.DefaultWarehouse);
+string.Empty);
 
         // Apply default cost centre if set
         if (!string.IsNullOrEmpty(defaultCostCentre))
@@ -1502,7 +1519,9 @@ customerPricing.Count, priceListNum);
         var newLine = new CreateInvoiceLineRequest
         {
             Quantity = 1,
-            WarehouseCode = warehouseCode ?? "01"
+            // Empty when the resolver found nothing usable — "Warehouse is required" then asks the
+            // cashier to pick one, rather than the line carrying a warehouse the bar never showed.
+            WarehouseCode = warehouseCode ?? string.Empty
         };
 
         // Apply default cost centre if set
