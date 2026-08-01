@@ -395,11 +395,6 @@ public class CustomAuthStateProvider : AuthenticationStateProvider
             }
         }
 
-        if (!string.IsNullOrEmpty(userInfo?.DefaultGLAccount))
-        {
-            claims.Add(new Claim("defaultglaccount", userInfo.DefaultGLAccount));
-        }
-
         var identity = new ClaimsIdentity(claims, "jwt");
         var user = new ClaimsPrincipal(identity);
 

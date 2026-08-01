@@ -27,7 +27,6 @@ public class UserInfo
     public string? AssignedBusinessPartnerCode { get; set; }
     public string? AssignedCostCentreCode { get; set; }
     public List<string> AllowedPaymentMethods { get; set; } = new();
-    public string? DefaultGLAccount { get; set; }
 }
 
 public class PasskeyOptionsResponse

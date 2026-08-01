@@ -118,7 +118,6 @@ public sealed class GetUsersHandler(
             Permissions = DeserializeStringList(user.Permissions),
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-            DefaultGLAccount = user.DefaultGLAccount,
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

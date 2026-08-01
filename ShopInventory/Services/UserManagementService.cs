@@ -226,13 +226,10 @@ public class UserManagementService : IUserManagementService
         if (ApplicationRoles.RequiresAssignedSection(request.Role))
             user.AssignedSection = request.AssignedSection;
 
-        if (!ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role))
+        if (!ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role) &&
+            request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
         {
-            if (request.AllowedPaymentMethods != null && request.AllowedPaymentMethods.Count > 0)
-                user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
-
-            if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
-                user.DefaultGLAccount = request.DefaultGLAccount;
+            user.SetAllowedPaymentMethods(request.AllowedPaymentMethods);
         }
 
         _context.Users.Add(user);
@@ -529,7 +526,6 @@ public class UserManagementService : IUserManagementService
             Permissions = permissions,
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
-            DefaultGLAccount = user.DefaultGLAccount,
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

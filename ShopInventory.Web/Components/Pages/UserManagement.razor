@@ -679,8 +679,8 @@
                                                                 <label>Allowed Payment Methods</label>
                                                                 <small style="color:#059669; font-size:.82rem;">
                                                                     <i class="bi bi-shield-check me-1"></i>@(userModel.Role == "Cashier" ? "Cashiers" : "Admin users")
-                                                                    automatically have access to all payment methods, every G/L account and all business
-                                                                    partners.
+                                                                    automatically have access to all payment methods and can take payment from any business
+                                                                    partner.
                                                                 </small>
                                                             </div>
                                                         }
@@ -3498,7 +3498,6 @@ StringComparison.OrdinalIgnoreCase)))
                 Permissions = u.Permissions,
                 AssignedWarehouseCodes = u.AssignedWarehouseCodes,
                 AllowedPaymentMethods = u.AllowedPaymentMethods ?? new(),
-                DefaultGLAccount = u.DefaultGLAccount,
                 AssignedSection = u.AssignedSection,
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new(),
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
@@ -3606,7 +3605,6 @@ StringComparison.OrdinalIgnoreCase)))
             IsActive = user.IsActive,
             AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
             AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
-            DefaultGLAccount = user.DefaultGLAccount,
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
@@ -3900,8 +3898,7 @@ StringComparison.OrdinalIgnoreCase)))
                 IsActive = true,
                 AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
                 AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
-                DefaultGLAccount = user.DefaultGLAccount,
-                    AssignedSection = user.AssignedSection,
+                        AssignedSection = user.AssignedSection,
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode
@@ -3959,10 +3956,8 @@ StringComparison.OrdinalIgnoreCase)))
 
         if (UserRoles.HasUnrestrictedPaymentAccess(model.Role))
         {
-            // Cashiers and admins post against every G/L account and payment method, so no
-            // per-user payment restriction is sent for them.
+            // Cashiers and admins use every payment method, so no restriction is sent for them.
             model.AllowedPaymentMethods = new();
-            model.DefaultGLAccount = null;
         }
     }
 
@@ -4041,7 +4036,6 @@ StringComparison.OrdinalIgnoreCase)))
         public string? AssignedWarehouseCode => AssignedWarehouseCodes.FirstOrDefault();
         public List<string> AssignedWarehouseCodes { get; set; } = new();
         public List<string> AllowedPaymentMethods { get; set; } = new();
-        public string? DefaultGLAccount { get; set; }
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
@@ -4075,7 +4069,6 @@ StringComparison.OrdinalIgnoreCase)))
         public bool IsActive { get; set; } = true;
         public List<string> AssignedWarehouseCodes { get; set; } = new();
         public List<string> AllowedPaymentMethods { get; set; } = new();
-        public string? DefaultGLAccount { get; set; }
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }

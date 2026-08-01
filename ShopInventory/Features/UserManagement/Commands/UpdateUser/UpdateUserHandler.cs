@@ -179,24 +179,13 @@ public sealed class UpdateUserHandler(
 
         if (ApplicationRoles.HasUnrestrictedPaymentAccess(user.Role))
         {
-            // These roles work across every G/L account and payment method. Clear anything a
-            // previous role left behind so the restrictions cannot outlive the role change.
+            // These roles use every payment method. Clear anything a previous role left
+            // behind so the restriction cannot outlive the role change.
             user.SetAllowedPaymentMethods(null);
-            user.DefaultGLAccount = null;
         }
-        else
+        else if (command.Request.AllowedPaymentMethods != null)
         {
-            if (command.Request.AllowedPaymentMethods != null)
-            {
-                user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
-            }
-
-            if (command.Request.DefaultGLAccount != null)
-            {
-                user.DefaultGLAccount = string.IsNullOrWhiteSpace(command.Request.DefaultGLAccount)
-                    ? null
-                    : command.Request.DefaultGLAccount;
-            }
+            user.SetAllowedPaymentMethods(command.Request.AllowedPaymentMethods);
         }
 
         if (ApplicationRoles.RequiresWarehouseAssignments(user.Role) && user.GetWarehouseCodes().Count == 0)
@@ -290,7 +279,6 @@ public sealed class UpdateUserHandler(
                 .SetProperty(x => x.AssignedCostCentreCode, user.AssignedCostCentreCode)
                 .SetProperty(x => x.Permissions, user.Permissions)
                 .SetProperty(x => x.AllowedPaymentMethods, user.AllowedPaymentMethods)
-                .SetProperty(x => x.DefaultGLAccount, user.DefaultGLAccount)
                 .SetProperty(x => x.UpdatedAt, user.UpdatedAt),
                 cancellationToken);
 

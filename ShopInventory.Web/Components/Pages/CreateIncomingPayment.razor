@@ -1568,7 +1568,6 @@
     // Current user info
     private bool hasUnrestrictedPaymentAccess = false;
     private List<string> userAllowedPaymentMethods = new();
-    private string? userDefaultGLAccount;
 
     private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods =
 new()
@@ -1668,7 +1667,6 @@ new()
             var role = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
             hasUnrestrictedPaymentAccess = UserRoles.HasUnrestrictedPaymentAccess(role);
             userAllowedPaymentMethods = authState.User.FindAll("paymentmethod").Select(c => c.Value).ToList();
-            userDefaultGLAccount = authState.User.FindFirst("defaultglaccount")?.Value;
         }
         catch (Exception ex)
         {
@@ -1680,15 +1678,9 @@ new()
     {
         try
         {
-            // Start with system-wide defaults
+            // The G/L account to post against comes from Settings and is the same for everyone
             var glAccount = await AppSettingsService.GetValueAsync(SettingKeys.IncomingPaymentGLAccount);
             defaultGLAccount = glAccount ?? "";
-
-            // Override with user-level G/L account if set
-            if (!string.IsNullOrEmpty(userDefaultGLAccount))
-            {
-                defaultGLAccount = userDefaultGLAccount;
-            }
 
             // Pre-fill GL account fields
             if (!string.IsNullOrEmpty(defaultGLAccount))

@@ -231,13 +231,6 @@ public class User
     }
 
     /// <summary>
-    /// Default G/L account code for incoming payments (e.g. "11000").
-    /// If null/empty, the user inherits the system-wide default from AppSettings.
-    /// </summary>
-    [MaxLength(50)]
-    public string? DefaultGLAccount { get; set; }
-
-    /// <summary>
     /// Navigation property for refresh tokens
     /// </summary>
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
