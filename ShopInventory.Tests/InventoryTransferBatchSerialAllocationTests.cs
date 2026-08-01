@@ -246,6 +246,30 @@ public sealed class InventoryTransferBatchSerialAllocationTests
         Assert.Contains("incomplete batch/serial selection", failure.Message);
     }
 
+    [Fact]
+    public async Task Converting_a_request_allocates_its_lines_against_one_shared_pool()
+    {
+        // Converting a transfer request used to allocate the lines itself, giving each line the
+        // full batch pool. It now defers to the same allocation the posted document goes through.
+        var sap = new AllocationServiceLayer
+        {
+            Items = { ["ITEM-A"] = (Batch: true, Serial: false) },
+            WarehouseBatches = { ("ITEM-A", "B-1", 3m), ("ITEM-A", "B-2", 2m) },
+            TransferRequest = """
+                {"DocEntry":55,"DocNum":900,"FromWarehouse":"WH-1","ToWarehouse":"WH-2","DocumentStatus":"bost_Open",
+                 "StockTransferLines":[
+                   {"LineNum":0,"ItemCode":"ITEM-A","Quantity":2,"FromWarehouseCode":"WH-1","WarehouseCode":"WH-2"},
+                   {"LineNum":1,"ItemCode":"ITEM-A","Quantity":2,"FromWarehouseCode":"WH-1","WarehouseCode":"WH-2"}]}
+                """
+        };
+        var client = CreateClient(sap);
+
+        await client.ConvertTransferRequestToTransferAsync(55, CancellationToken.None);
+
+        Assert.Equal(new[] { ("B-1", 2m) }, sap.PostedBatchAllocations(lineIndex: 0));
+        Assert.Equal(new[] { ("B-1", 1m), ("B-2", 1m) }, sap.PostedBatchAllocations(lineIndex: 1));
+    }
+
     private static TransferPreFetchedData PreFetched(params (string ItemCode, string BatchNumber, decimal Quantity)[] batches)
     {
         var prefetched = new TransferPreFetchedData();
@@ -288,6 +312,12 @@ public sealed class InventoryTransferBatchSerialAllocationTests
 
         /// <summary>Items the bulk metadata read leaves out, as SAP does when a read partly fails.</summary>
         public HashSet<string> OmitFromBulkMetadata { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Batch stock the warehouse SQL query reports, for flows with no pre-fetched data.</summary>
+        public List<(string ItemCode, string BatchNumber, decimal Quantity)> WarehouseBatches { get; } = [];
+
+        /// <summary>The document GET InventoryTransferRequests(n) answers with.</summary>
+        public string? TransferRequest { get; init; }
 
         public (HttpStatusCode Status, string Body)? TransferError { get; init; }
 
@@ -337,8 +367,20 @@ public sealed class InventoryTransferBatchSerialAllocationTests
                     : new HttpResponseMessage(HttpStatusCode.NotFound);
             }
 
-            // No batches and no serials exist for any item: the tests that reach here are the ones
-            // asserting that a managed line fails locally rather than at SAP.
+            if (target.Contains("/InventoryTransferRequests(", StringComparison.Ordinal))
+            {
+                if (target.EndsWith("/Close", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NoContent);
+                }
+
+                return TransferRequest is null
+                    ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                    : Json(TransferRequest);
+            }
+
+            // The batch stock query. Tests that leave WarehouseBatches empty are the ones asserting
+            // that a managed line fails locally rather than at SAP.
             if (target.Contains("/SQLQueries", StringComparison.Ordinal))
             {
                 if (request.Method == HttpMethod.Post)
@@ -346,9 +388,17 @@ public sealed class InventoryTransferBatchSerialAllocationTests
                     return Json("{}", HttpStatusCode.Created);
                 }
 
-                return target.EndsWith("/List", StringComparison.Ordinal)
-                    ? Json("{\"value\":[]}")
-                    : new HttpResponseMessage(HttpStatusCode.NotFound);
+                if (!target.Contains("/List", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.NotFound);
+                }
+
+                // The reader pages until a page comes back short, so only the first page has rows.
+                var rows = target.Contains("$skip=0", StringComparison.Ordinal) || !target.Contains("$skip=", StringComparison.Ordinal)
+                    ? WarehouseBatches.Select(b =>
+                        $$"""{"ItemCode":"{{b.ItemCode}}","BatchNum":"{{b.BatchNumber}}","InStock":{{b.Quantity}},"WhsCode":"WH-1"}""")
+                    : [];
+                return Json($"{{\"value\":[{string.Join(",", rows)}]}}");
             }
 
             if (target.Contains("/BatchNumberDetails", StringComparison.Ordinal))
