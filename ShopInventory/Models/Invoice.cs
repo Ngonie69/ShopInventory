@@ -250,6 +250,13 @@ public class CreateInvoiceLineRequest
     public List<BatchNumberRequest>? BatchNumbers { get; set; }
 
     /// <summary>
+    /// Serial numbers for serial-managed items.
+    /// REQUIRED for serial-managed items: SAP counts one unit per serial number, so exactly one
+    /// entry per unit of the line quantity must be supplied.
+    /// </summary>
+    public List<SerialNumberRequest>? SerialNumbers { get; set; }
+
+    /// <summary>
     /// Whether to auto-allocate batches using FIFO/FEFO if BatchNumbers is not specified.
     /// Defaults to true. Set to false to require explicit batch allocation.
     /// </summary>
@@ -278,4 +285,21 @@ public class BatchNumberRequest
     /// Expiry date of the batch (for information/validation)
     /// </summary>
     public DateTime? ExpiryDate { get; set; }
+}
+
+/// <summary>
+/// Serial number details for a document line. One entry stands for one unit.
+/// </summary>
+public class SerialNumberRequest
+{
+    /// <summary>
+    /// The serial number as SAP knows it (IntrSerial), which must exist in the line's warehouse.
+    /// </summary>
+    [Required(ErrorMessage = "Serial number is required")]
+    public string? InternalSerialNumber { get; set; }
+
+    /// <summary>
+    /// SAP system serial number (OSRN.AbsEntry). Optional — SAP resolves the serial without it.
+    /// </summary>
+    public int? SystemSerialNumber { get; set; }
 }

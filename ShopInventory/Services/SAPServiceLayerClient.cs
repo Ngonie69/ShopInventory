@@ -1013,6 +1013,13 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                     BatchNumber = b.BatchNumber,
                     Quantity = b.Quantity,
                     BaseLineNumber = index
+                }).ToList(),
+                SerialNumbers = line.SerialNumbers?.Select(s => new
+                {
+                    InternalSerialNumber = s.InternalSerialNumber,
+                    SystemSerialNumber = s.SystemSerialNumber,
+                    Quantity = 1,
+                    BaseLineNumber = index
                 }).ToList()
             }).ToList()
         };
@@ -1142,12 +1149,86 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
                 {
                     errors.Add($"Line {i + 1}: Discount percent must be between 0 and 100 (current: {line.DiscountPercent})");
                 }
+
+                errors.AddRange(DescribeIncompleteLineSelection(
+                    i,
+                    line.ItemCode,
+                    line.Quantity,
+                    line.BatchNumbers?.Select(b => (b.BatchNumber, b.Quantity)),
+                    line.SerialNumbers?.Select(s => s.InternalSerialNumber)));
             }
         }
 
         if (errors.Count > 0)
         {
             throw new ArgumentException(string.Join("; ", errors));
+        }
+    }
+
+    /// <summary>
+    /// Reports a batch or serial selection that does not account for the whole line quantity.
+    /// SAP answers such a line with -4014, which names neither the line nor the item, so the
+    /// documents that carry their own selection are checked before they are sent.
+    /// </summary>
+    private static IEnumerable<string> DescribeIncompleteLineSelection(
+        int lineIndex,
+        string? itemCode,
+        decimal quantity,
+        IEnumerable<(string? BatchNumber, decimal Quantity)>? batches,
+        IEnumerable<string?>? serialNumbers)
+    {
+        var batchList = batches?.ToList();
+        if (batchList is { Count: > 0 })
+        {
+            if (batchList.Any(batch => string.IsNullOrWhiteSpace(batch.BatchNumber)))
+            {
+                yield return $"Line {lineIndex + 1}: Batch number is required for item {itemCode}";
+            }
+
+            if (batchList.Any(batch => batch.Quantity <= 0))
+            {
+                yield return $"Line {lineIndex + 1}: Batch quantities must be greater than zero";
+            }
+
+            var selected = batchList.Sum(batch => batch.Quantity);
+            if (Math.Abs(selected - quantity) > AllocationQuantityTolerance)
+            {
+                yield return
+                    $"Line {lineIndex + 1}: the batch selection for item {itemCode} covers {selected} of {quantity}. " +
+                    $"SAP requires the batch quantities on a line to add up to the line quantity.";
+            }
+        }
+
+        var serialList = serialNumbers?.ToList();
+        if (serialList is { Count: > 0 })
+        {
+            if (serialList.Any(string.IsNullOrWhiteSpace))
+            {
+                yield return $"Line {lineIndex + 1}: Serial number is required for item {itemCode}";
+            }
+
+            var duplicate = serialList
+                .Where(serial => !string.IsNullOrWhiteSpace(serial))
+                .GroupBy(serial => serial, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicate is not null)
+            {
+                yield return
+                    $"Line {lineIndex + 1}: serial number '{duplicate.Key}' is listed more than once for item {itemCode}";
+            }
+
+            if (quantity != Math.Truncate(quantity))
+            {
+                yield return
+                    $"Line {lineIndex + 1}: item {itemCode} is serial-managed, so its quantity must be a whole " +
+                    $"number of units. Current value: {quantity}";
+            }
+            else if (serialList.Count != (int)quantity)
+            {
+                yield return
+                    $"Line {lineIndex + 1}: the serial selection for item {itemCode} covers {serialList.Count} of " +
+                    $"{quantity} units. SAP requires one serial number per unit.";
+            }
         }
     }
 
@@ -13428,6 +13509,19 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         _logger.LogInformation("Creating credit note in SAP for customer {CardCode}", request.CardCode);
 
+        var selectionErrors = request.Lines?
+            .SelectMany((line, index) => DescribeIncompleteLineSelection(
+                index,
+                line.ItemCode,
+                line.Quantity,
+                line.BatchNumbers?.Select(b => (b.BatchNumber, b.Quantity)),
+                line.SerialNumbers?.Select(s => s.InternalSerialNumber)))
+            .ToList();
+        if (selectionErrors is { Count: > 0 })
+        {
+            throw new ArgumentException(string.Join("; ", selectionErrors));
+        }
+
         // Determine if we should create based on invoice (with BaseEntry/BaseType)
         var isFromInvoice = request.OriginalInvoiceDocEntry.HasValue && request.OriginalInvoiceDocEntry > 0;
 
@@ -13445,10 +13539,18 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                 DocCurrency = !string.IsNullOrWhiteSpace(request.Currency) && request.Currency != "USD" ? request.Currency : (string?)null,
                 DocumentLines = request.Lines?.Select((line, index) =>
                 {
-                    // Only include BatchNumbers if there are actual entries; 
+                    // Only include BatchNumbers if there are actual entries;
                     // null/empty omitted via WhenWritingNull so SAP auto-allocates from base document
                     var batches = line.BatchNumbers?.Where(b => !string.IsNullOrEmpty(b.BatchNumber)).ToList();
                     var hasBatches = batches != null && batches.Count > 0;
+
+                    // Serial numbers are treated the same way: a return of serial-managed stock
+                    // has to name the units coming back, and an omitted list lets SAP take them
+                    // from the invoice being credited.
+                    var serials = line.SerialNumbers?
+                        .Where(s => !string.IsNullOrWhiteSpace(s.InternalSerialNumber))
+                        .ToList();
+                    var hasSerials = serials != null && serials.Count > 0;
 
                     return new
                     {
@@ -13466,6 +13568,12 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                         {
                             BatchNumber = b.BatchNumber,
                             Quantity = b.Quantity
+                        }).ToList() : null,
+                        SerialNumbers = hasSerials ? serials!.Select(s => new
+                        {
+                            InternalSerialNumber = s.InternalSerialNumber,
+                            SystemSerialNumber = s.SystemSerialNumber,
+                            Quantity = 1
                         }).ToList() : null
                     };
                 }).ToList()
@@ -13494,6 +13602,12 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
                     {
                         BatchNumber = b.BatchNumber,
                         Quantity = b.Quantity
+                    }).ToList(),
+                    SerialNumbers = line.SerialNumbers?.Select(s => new
+                    {
+                        InternalSerialNumber = s.InternalSerialNumber,
+                        SystemSerialNumber = s.SystemSerialNumber,
+                        Quantity = 1
                     }).ToList()
                 }).ToList()
             };

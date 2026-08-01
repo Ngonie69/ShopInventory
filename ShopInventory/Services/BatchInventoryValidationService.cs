@@ -84,9 +84,17 @@ public interface IBatchInventoryValidationService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Checks if an item is batch-managed.
+    /// Checks if an item is batch-managed. Throws when SAP cannot answer, rather than reporting
+    /// an unmanaged item that would be posted without its batches.
     /// </summary>
     Task<bool> IsBatchManagedItemAsync(
+        string itemCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Checks if an item is serial-managed, on the same terms as <see cref="IsBatchManagedItemAsync"/>.
+    /// </summary>
+    Task<bool> IsSerialManagedItemAsync(
         string itemCode,
         CancellationToken cancellationToken = default);
 }
@@ -103,9 +111,9 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
     private IReservedQuantityProvider? _reservedQuantityProvider;
     private const decimal QuantityTolerance = 0.0001m;
 
-    // Cache for batch-managed status
-    private static readonly Dictionary<string, bool> _batchManagedCache = new();
-    private static readonly object _cacheLock = new();
+    // Management flags are not cached here: the item read they come from is cached with a
+    // lifetime, where a process-wide dictionary held its first answer — right or wrong — until
+    // the application restarted.
 
     public BatchInventoryValidationService(
         ApplicationDbContext dbContext,
@@ -1062,51 +1070,67 @@ public class BatchInventoryValidationService : IBatchInventoryValidationService
         string itemCode,
         CancellationToken cancellationToken = default)
     {
-        // Check cache first
-        lock (_cacheLock)
-        {
-            if (_batchManagedCache.TryGetValue(itemCode, out var cached))
-            {
-                return cached;
-            }
-        }
-
-        // Check local database
-        var product = await _dbContext.Products
-            .FirstOrDefaultAsync(p => p.ItemCode == itemCode, cancellationToken);
-
-        if (product != null)
-        {
-            lock (_cacheLock)
-            {
-                _batchManagedCache[itemCode] = product.ManageBatchNumbers;
-            }
-            return product.ManageBatchNumbers;
-        }
-
-        // Check SAP
+        // SAP is the only authority on this. The local Products row used to be consulted first,
+        // but nothing in the application ever writes ProductEntity.ManageBatchNumbers, so every
+        // stored item read as "not batch-managed" whatever SAP said — the batches were then never
+        // allocated and SAP rejected the invoice with "Cannot add row without complete selection
+        // of batch/serial numbers". The item read behind this is itself cached, so asking SAP
+        // costs a request per item per cache lifetime.
+        Item? item;
         try
         {
-            var item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
-            if (item != null)
-            {
-                var isBatchManaged = item.ManageBatchNumbers == "tYES" ||
-                                     item.ManageBatchNumbers == "Y" ||
-                                     item.ManageBatchNumbers == "true";
-
-                lock (_cacheLock)
-                {
-                    _batchManagedCache[itemCode] = isBatchManaged;
-                }
-                return isBatchManaged;
-            }
+            item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to check if {ItemCode} is batch-managed", itemCode);
+            // Guessing here is what produced an unallocated document. The caller is on its way to
+            // SAP anyway, so a failure now is better than one it cannot read afterwards.
+            throw new InvalidOperationException(
+                $"Could not read the batch management setting for item {itemCode} from SAP, so its " +
+                $"batch allocation cannot be determined.", ex);
         }
 
-        return false; // Assume not batch-managed if we can't determine
+        if (item is null)
+        {
+            throw new InvalidOperationException(
+                $"Item {itemCode} was not found in SAP, so its batch allocation cannot be determined.");
+        }
+
+        return item.ManageBatchNumbers is "tYES" or "Y" or "true";
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> IsSerialManagedItemAsync(
+        string itemCode,
+        CancellationToken cancellationToken = default)
+    {
+        Item? item;
+        try
+        {
+            item = await _sapClient.GetItemByCodeAsync(itemCode, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not read the serial management setting for item {itemCode} from SAP, so its " +
+                $"serial allocation cannot be determined.", ex);
+        }
+
+        if (item is null)
+        {
+            throw new InvalidOperationException(
+                $"Item {itemCode} was not found in SAP, so its serial allocation cannot be determined.");
+        }
+
+        return item.ManageSerialNumbers is "tYES" or "Y" or "true";
     }
 
     #region Private Helper Methods

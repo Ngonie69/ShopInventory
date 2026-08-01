@@ -298,6 +298,12 @@ public class CreateCreditNoteLineRequest
     /// Batch numbers for batch-managed items (required for returns)
     /// </summary>
     public List<CreditNoteBatchRequest>? BatchNumbers { get; set; }
+
+    /// <summary>
+    /// Serial numbers for serial-managed items (required for returns). One entry per unit
+    /// returned, since SAP counts a serial number as one unit.
+    /// </summary>
+    public List<CreditNoteSerialRequest>? SerialNumbers { get; set; }
 }
 
 /// <summary>
@@ -307,6 +313,15 @@ public class CreditNoteBatchRequest
 {
     public string? BatchNumber { get; set; }
     public decimal Quantity { get; set; }
+}
+
+/// <summary>
+/// Serial number details for credit note line
+/// </summary>
+public class CreditNoteSerialRequest
+{
+    public string? InternalSerialNumber { get; set; }
+    public int? SystemSerialNumber { get; set; }
 }
 
 /// <summary>
