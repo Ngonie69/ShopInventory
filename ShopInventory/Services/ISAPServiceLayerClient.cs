@@ -390,6 +390,26 @@ public interface ISAPServiceLayerClient
     Task<List<Dictionary<string, object?>>> ExecuteScopedRawSqlQueryAsync(string queryCodePrefix, string queryNamePrefix, string sqlText, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Runs SQL declaring <c>:name</c> parameters under a fixed <paramref name="queryCode"/>,
+    /// binding <paramref name="parameters"/> per call.
+    /// </summary>
+    /// <remarks>
+    /// Prefer this over <see cref="ExecuteScopedRawSqlQueryAsync"/> whenever the values vary but the
+    /// shape does not — a date range, a card code. Content-addressing only reuses the SAP-side object
+    /// when the SQL text is identical, so interpolating those values creates a new OUQR row per
+    /// request that is never reused and cannot practically be deleted. Parameters keep the text
+    /// constant, which keeps the count fixed. See the implementation for the SQL SAP will not accept
+    /// on this path — notably that one parameter cannot carry an <c>IN</c> list.
+    /// </remarks>
+    Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(string queryCode, string queryName, string sqlText, IReadOnlyDictionary<string, string> parameters, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists the SqlCodes SAP currently holds — the only available measure of how large OUQR has
+    /// grown, since the table itself is not readable through SQLQueries.
+    /// </summary>
+    Task<List<string>> GetSqlQueryCodesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Resolves and persists the canonical SAP UoM for the given item / requested-UoM pairs
     /// without posting anything, so an approval does not have to pay for it while a rep waits.
     /// Pairs already resolved cost nothing. Each item code may appear at most once per call.
