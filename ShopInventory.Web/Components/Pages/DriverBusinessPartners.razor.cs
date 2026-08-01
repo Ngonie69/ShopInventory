@@ -38,13 +38,14 @@ public partial class DriverBusinessPartners : ComponentBase
     private bool isRefreshing;
     private bool isSaving;
 
+    // Code order only. Sorting the selected to the top would move a row out
+    // from under the pointer the moment it was ticked.
     private List<BusinessPartnerDto> FilteredCustomers =>
         customers
             .Where(MatchesCustomerSearch)
             .Where(MatchesStatusFilter)
             .Where(MatchesChannelFilter)
-            .OrderByDescending(c => selectedCustomerCodes.Contains(c.CardCode ?? string.Empty))
-            .ThenBy(c => c.CardCode)
+            .OrderBy(c => c.CardCode)
             .ToList();
 
     private List<string> AvailableChannels =>
@@ -59,23 +60,21 @@ public partial class DriverBusinessPartners : ComponentBase
     private bool HasCustomersWithoutChannel =>
         customers.Any(customer => string.IsNullOrWhiteSpace(customer.Channel));
 
-    private bool HasCustomerFilters =>
-        !string.IsNullOrWhiteSpace(customerSearchTerm) ||
-        customerStatusFilter != StatusFilterAll ||
-        customerChannelFilter != ChannelFilterAll;
-
-    private IEnumerable<string> FilteredSelectedCodes =>
-        string.IsNullOrWhiteSpace(selectedSearchTerm)
+    private List<string> FilteredSelectedCodes =>
+        (string.IsNullOrWhiteSpace(selectedSearchTerm)
             ? selectedCustomerCodes.OrderBy(GetCustomerDisplayName, _codeComparer)
             : selectedCustomerCodes
                 .Where(code =>
                     code.Contains(selectedSearchTerm, StringComparison.OrdinalIgnoreCase) ||
                     GetCustomerDisplayName(code).Contains(selectedSearchTerm, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(GetCustomerDisplayName, _codeComparer);
+                .OrderBy(GetCustomerDisplayName, _codeComparer))
+        .ToList();
 
-    private bool AllFilteredSelected =>
-        FilteredCustomers.Count > 0 &&
-        FilteredCustomers.All(c => selectedCustomerCodes.Contains(c.CardCode ?? string.Empty));
+    // The share of the catalogue the drivers can see, for the header's bar.
+    private int CoveragePercent =>
+        customers.Count == 0
+            ? 0
+            : (int)Math.Round(selectedCustomerCodes.Count * 100d / customers.Count, MidpointRounding.AwayFromZero);
 
     protected override async Task OnInitializedAsync()
     {
@@ -130,20 +129,18 @@ public partial class DriverBusinessPartners : ComponentBase
             selectedCustomerCodes.Remove(cardCode);
     }
 
-    private void SelectAllFiltered()
+    // One control does both directions: it adds every row the filters show
+    // until they are all in scope, then removes them.
+    private void ToggleAllFiltered(bool select)
     {
         foreach (var c in FilteredCustomers)
         {
-            if (!string.IsNullOrWhiteSpace(c.CardCode))
-                selectedCustomerCodes.Add(c.CardCode);
-        }
-    }
+            if (string.IsNullOrWhiteSpace(c.CardCode))
+                continue;
 
-    private void DeselectAllFiltered()
-    {
-        foreach (var c in FilteredCustomers)
-        {
-            if (!string.IsNullOrWhiteSpace(c.CardCode))
+            if (select)
+                selectedCustomerCodes.Add(c.CardCode);
+            else
                 selectedCustomerCodes.Remove(c.CardCode);
         }
     }
@@ -225,16 +222,9 @@ public partial class DriverBusinessPartners : ComponentBase
             _ => string.Equals(customer.Channel?.Trim(), customerChannelFilter, StringComparison.OrdinalIgnoreCase)
         };
 
+    // The name on its own. The channel and the active/inactive state used to be
+    // appended to it; the design gives each its own column in the row, so
+    // repeating them in the name would say the same thing twice.
     private static string GetBusinessPartnerDisplayName(BusinessPartnerDto bp)
-    {
-        var name = string.IsNullOrWhiteSpace(bp.CardName) ? bp.CardCode ?? string.Empty : bp.CardName;
-        if (!bp.IsActive)
-        {
-            name = $"{name} (Inactive)";
-        }
-
-        return string.IsNullOrWhiteSpace(bp.Channel)
-            ? name
-            : $"{name} - {bp.Channel.Trim()}";
-    }
+        => string.IsNullOrWhiteSpace(bp.CardName) ? bp.CardCode ?? string.Empty : bp.CardName;
 }
