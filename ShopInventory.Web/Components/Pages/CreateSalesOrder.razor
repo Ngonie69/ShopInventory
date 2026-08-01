@@ -771,18 +771,26 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadMasterDataForCreate();
-        await ApplyUserDefaultWarehouse();
+        await ApplyDefaultWarehouse();
     }
 
-    private async Task ApplyUserDefaultWarehouse()
+    private async Task ApplyDefaultWarehouse()
     {
         if (!string.IsNullOrEmpty(newOrder.WarehouseCode)) return;
 
         var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var warehouseClaim = authState.User.FindFirst("warehouse")?.Value;
-        if (!string.IsNullOrEmpty(warehouseClaim) && cachedWarehouses.Any(w => w.WarehouseCode == warehouseClaim))
+
+        // Same rule as the invoice screen: the warehouse configured in Settings when this operator
+        // is entitled to it, otherwise their own assignment. Previously this read only the first
+        // "warehouse" claim and ignored the setting altogether.
+        newOrder.WarehouseCode = DefaultWarehouseResolver.Resolve(
+            authState.User, AppSettings.DefaultWarehouse, cachedWarehouses);
+
+        if (newOrder.WarehouseCode is null)
         {
-            newOrder.WarehouseCode = warehouseClaim;
+            Logger.LogWarning(
+            "No usable default warehouse for this operator (configured default {Configured}); the warehouse picker starts empty",
+            AppSettings.DefaultWarehouse);
         }
     }
 
@@ -1094,8 +1102,7 @@ state.FilteredProducts.Count;
             }
         }
 
-        line.WarehouseCode = !string.IsNullOrEmpty(newOrder.WarehouseCode) ? newOrder.WarehouseCode : (product.DefaultWarehouse
-?? "01");
+        line.WarehouseCode = !string.IsNullOrEmpty(newOrder.WarehouseCode) ? newOrder.WarehouseCode : product.DefaultWarehouse;
 
         var state = GetLineState(index);
         state.ShowProductDropdown = false;

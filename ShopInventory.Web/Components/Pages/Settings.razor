@@ -164,7 +164,11 @@
                                         <span class="stg-tag">edited</span>
                                     }
                                 </div>
-                                <span class="stg-row-desc">Shown on documents, invoices and printed labels</span>
+                                <span class="stg-row-desc">
+                                    Heading on printed inventory transfer notes. Invoice, quotation and sales-order PDFs,
+                                    exported reports and outgoing email all carry the registered company name and are not
+                                    affected by this.
+                                </span>
                                 @if (SettingMeta(SettingKeys.CompanyName) is string companyMeta)
                                 {
                                     <span class="stg-row-meta"><i class="ph ph-pencil-simple"></i>@companyMeta</span>
@@ -193,7 +197,10 @@
                                         <span class="stg-tag">edited</span>
                                     }
                                 </div>
-                                <span class="stg-row-desc">Pre-selected on new stock transactions</span>
+                                <span class="stg-row-desc">
+                                    Pre-selected in the defaults bar on a new invoice, so every line starts on it. Sales
+                                    orders start from the warehouse assigned to the signed-in user instead.
+                                </span>
                                 @if (SettingMeta(SettingKeys.DefaultWarehouse) is string warehouseMeta)
                                 {
                                     <span class="stg-row-meta"><i class="ph ph-pencil-simple"></i>@warehouseMeta</span>
@@ -249,7 +256,10 @@
                                         <span class="stg-tag">edited</span>
                                     }
                                 </div>
-                                <span class="stg-row-desc">Applied to new transactions and reports</span>
+                                <span class="stg-row-desc">
+                                    Currency a new invoice or credit note opens on. Picking a customer replaces it with
+                                    that customer's own currency.
+                                </span>
                                 @if (SettingMeta(SettingKeys.DefaultCurrency) is string currencyMeta)
                                 {
                                     <span class="stg-row-meta"><i class="ph ph-pencil-simple"></i>@currencyMeta</span>
@@ -266,9 +276,11 @@
                                 <div class="stg-select-wrap">
                                     <select class="stg-input stg-select" value="@GetValue(SettingKeys.DefaultCurrency)"
                                             @onchange="e => OnSettingChanged(SettingKeys.DefaultCurrency, e.Value?.ToString())">
+                                        @* Only the currencies the invoice and credit-note screens can actually be
+                                           raised in. ZAR was offered here but neither screen lists it, and pricing
+                                           falls back to the USD price for anything that is not ZIG. *@
                                         <option value="USD">USD · US Dollar</option>
                                         <option value="ZIG">ZIG · Zimbabwe Gold</option>
-                                        <option value="ZAR">ZAR · South African Rand</option>
                                     </select>
                                     <i class="ph ph-caret-down stg-select-caret"></i>
                                 </div>
@@ -285,7 +297,10 @@
                                         <span class="stg-tag">edited</span>
                                     }
                                 </div>
-                                <span class="stg-row-desc">How dates render across the interface and exports</span>
+                                <span class="stg-row-desc">
+                                    Format the date pickers use on documents, reports and list filters. Table columns and
+                                    exported reports render a fixed 04 Jan 2026 regardless.
+                                </span>
                                 @if (SettingMeta(SettingKeys.DateFormat) is string dateMeta)
                                 {
                                     <span class="stg-row-meta"><i class="ph ph-pencil-simple"></i>@dateMeta</span>
@@ -370,7 +385,11 @@
                                         <span class="stg-tag">edited</span>
                                     }
                                 </div>
-                                <span class="stg-row-desc">Quote line prices and totals VAT-inclusive; the excluding figure moves to the secondary line</span>
+                                <span class="stg-row-desc">
+                                    On the Create Invoice screen, quote line prices and totals VAT-inclusive and move the
+                                    excluding figure to the secondary line. Quotations, sales orders and credit notes
+                                    always show excluding.
+                                </span>
                                 @if (SettingMeta(SettingKeys.ShowPricesWithTax) is string taxMeta)
                                 {
                                     <span class="stg-row-meta"><i class="ph ph-pencil-simple"></i>@taxMeta</span>
