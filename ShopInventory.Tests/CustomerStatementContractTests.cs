@@ -136,20 +136,20 @@ public class CustomerStatementContractTests
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetPaymentTermsByCodeAsync) => Task.FromResult(paymentTerms),
-            nameof(ISAPServiceLayerClient.ExecuteScopedRawSqlQueryAsync) => LedgerRows((string)args![0]!),
+            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) => LedgerRows((string)args![0]!),
             nameof(ISAPServiceLayerClient.GetOpenInvoicesByCustomersAsync) => Task.FromResult(new List<Models.Invoice>()),
             _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected.")
         });
 
-    /// <summary>Answers the two statement queries by their code prefix, the way SAP would.</summary>
-    private static Task<List<Dictionary<string, object?>>> LedgerRows(string queryCodePrefix) =>
-        Task.FromResult(queryCodePrefix switch
+    /// <summary>Answers the two statement queries by their fixed code, the way SAP would.</summary>
+    private static Task<List<Dictionary<string, object?>>> LedgerRows(string queryCode) =>
+        Task.FromResult(queryCode switch
         {
-            "StmtOpen" =>
+            "STMT_OPENING_BALANCE" =>
             [
                 new Dictionary<string, object?> { ["TotalDebit"] = 3000m, ["TotalCredit"] = 2000m }
             ],
-            "StmtRows" =>
+            "STMT_LEDGER_ROWS" =>
             [
                 new Dictionary<string, object?>
                 {

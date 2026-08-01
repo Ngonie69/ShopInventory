@@ -15,7 +15,11 @@ namespace ShopInventory.IntegrationTests;
 /// </remarks>
 public static class SapAvailability
 {
-    private const int ProbeTimeoutMilliseconds = 2000;
+    // Measured TCP connect times to the SAP host swing between 0.2s and 3.7s depending on how busy
+    // it is. At 2000ms that turned into an intermittent skip of the whole suite — which reads
+    // exactly like a clean run, the failure mode this class exists to prevent. Kept short enough
+    // that a machine genuinely off the network still fails discovery quickly.
+    private const int ProbeTimeoutMilliseconds = 15000;
 
     private static readonly Lazy<(SAPSettings? Settings, string? SkipReason)> Probe = new(Evaluate);
 

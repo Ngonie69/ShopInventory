@@ -6832,17 +6832,134 @@ ORDER BY T0.""ItemCode""";
     /// Reuses the named SQLQueries entry when it already holds this exact statement.
     /// </summary>
     public async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(string queryCode, string queryName, string sqlText, CancellationToken cancellationToken = default)
+        => await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters: null, cancellationToken);
+
+    /// <summary>
+    /// Runs SQL that declares <c>:name</c> parameters, binding <paramref name="parameters"/> per
+    /// call. The statement itself never varies, so one SAP-side query object serves every caller.
+    /// </summary>
+    /// <remarks>
+    /// This is the only way to run per-request SQL without growing OUQR. The content-addressed
+    /// <see cref="ExecuteScopedRawSqlQueryAsync"/> reuses an object only when the SQL text is
+    /// byte-identical, so any statement carrying an interpolated date or code mints a fresh row on
+    /// every request — the leak this codebase has removed everywhere else.
+    ///
+    /// Verified against the live Service Layer (2026-08-01): <c>:name</c> binding filters exactly as
+    /// the equivalent literal does, costs the same, pages normally under
+    /// <c>Prefer: odata.maxpagesize</c>, and 10 executions with 10 distinct parameter sets left the
+    /// SQLQueries row count unchanged. Three limits found the same way and worth knowing before
+    /// writing a statement for this path:
+    /// <list type="bullet">
+    /// <item><description><c>TO_DATE</c> is rejected outright by SAP's validator. Compare a date
+    /// column against the bare parameter; SAP accepts <c>yyyy-MM-dd</c>.</description></item>
+    /// <item><description>One parameter cannot carry an <c>IN</c> list. <c>IN (:codes)</c> binds the
+    /// whole value as a single literal, so a comma-separated string matches nothing — silently, as
+    /// zero rows. Call once per value instead.</description></item>
+    /// <item><description>String concatenation with <c>||</c> is rejected by the validator, which
+    /// rules out the usual delimited-list matching tricks.</description></item>
+    /// </list>
+    /// </remarks>
+    public async Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        CancellationToken cancellationToken = default)
+        => await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters, cancellationToken);
+
+    /// <summary>
+    /// Lists the SqlCodes SAP currently holds.
+    /// </summary>
+    /// <remarks>
+    /// The only way to observe OUQR's size from here: the table itself is not readable through
+    /// SQLQueries — SAP answers "Table 'OUQR' not accessible" — and this entity set is the
+    /// supported view of it. Reads nothing else and runs no SQL, so it cannot perturb the count.
+    /// </remarks>
+    public async Task<List<string>> GetSqlQueryCodesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var codes = new List<string>();
+        var skip = 0;
+
+        while (true)
+        {
+            var url = $"SQLQueries?$select=SqlCode&$skip={skip}";
+
+            HttpRequestMessage CreateRequest(string? sessionId)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                request.Headers.Add("Prefer", "odata.maxpagesize=500");
+                return request;
+            }
+
+            var requestSession = _sessionId;
+            var response = await _httpClient.SendAsync(CreateRequest(requestSession), cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                await HandleAuthFailureAsync(requestSession, cancellationToken);
+                response = await _httpClient.SendAsync(CreateRequest(_sessionId), cancellationToken);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync(cancellationToken);
+                throw new Exception($"Failed to list SAP SQL queries: {response.StatusCode} - {error}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var doc = JsonDocument.Parse(content);
+
+            if (!doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                break;
+            }
+
+            var pageCount = 0;
+            foreach (var row in valueArray.EnumerateArray())
+            {
+                if (row.TryGetProperty("SqlCode", out var code) && code.ValueKind == JsonValueKind.String)
+                {
+                    codes.Add(code.GetString()!);
+                }
+
+                pageCount++;
+            }
+
+            var hasMore = (doc.RootElement.TryGetProperty("odata.nextLink", out _) ||
+                           doc.RootElement.TryGetProperty("@odata.nextLink", out _)) && pageCount > 0;
+            if (!hasMore)
+            {
+                break;
+            }
+
+            skip += pageCount;
+        }
+
+        return codes;
+    }
+
+    private async Task<List<Dictionary<string, object?>>> ExecuteRawSqlQueryAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string>? parameters,
+        CancellationToken cancellationToken)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
         await EnsureSqlQueryAsync(queryCode, queryName, sqlText, cancellationToken);
 
+        var parameterQuery = BuildSqlParameterQueryString(parameters);
         var allRows = new List<Dictionary<string, object?>>();
         var skip = 0;
         var hasMore = true;
 
         while (hasMore)
         {
-            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+            var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}$skip={skip}";
 
             HttpRequestMessage CreateRequest(string? sessionId)
             {
@@ -6941,6 +7058,33 @@ ORDER BY T0.""ItemCode""";
         var queryCode = BuildContentAddressedQueryCode(queryCodePrefix, sqlText);
 
         return await ExecuteRawSqlQueryAsync(queryCode, queryNamePrefix, sqlText, cancellationToken);
+    }
+
+    /// <summary>
+    /// Renders <paramref name="parameters"/> as the <c>name='value'</c> pairs SAP's
+    /// <c>SQLQueries('code')/List</c> expects, ending with a separator so a caller can append its
+    /// own OData options. Returns empty for a query that takes no parameters.
+    /// </summary>
+    /// <remarks>
+    /// SAP requires the quotes around the value and rejects a bare one with "Parameter error", so
+    /// the quotes are part of the value that gets URL-encoded. A quote inside the value is doubled
+    /// first, the SQL literal escape, which keeps a card code like <c>O'Brien</c> from terminating
+    /// the literal early.
+    /// </remarks>
+    internal static string BuildSqlParameterQueryString(IReadOnlyDictionary<string, string>? parameters)
+    {
+        if (parameters is null || parameters.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var pairs = parameters.Select(parameter =>
+        {
+            var escaped = parameter.Value.Replace("'", "''", StringComparison.Ordinal);
+            return $"{Uri.EscapeDataString(parameter.Key)}={Uri.EscapeDataString($"'{escaped}'")}";
+        });
+
+        return $"{string.Join("&", pairs)}&";
     }
 
     /// <summary>
