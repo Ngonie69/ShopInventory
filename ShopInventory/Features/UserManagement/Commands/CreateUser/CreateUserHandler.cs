@@ -180,11 +180,6 @@ public sealed class CreateUserHandler(
             {
                 user.DefaultGLAccount = request.DefaultGLAccount;
             }
-
-            if (request.AllowedPaymentBusinessPartners is { Count: > 0 })
-            {
-                user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
-            }
         }
 
         context.Users.Add(user);
@@ -242,7 +237,6 @@ public sealed class CreateUserHandler(
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             DefaultGLAccount = user.DefaultGLAccount,
-            AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

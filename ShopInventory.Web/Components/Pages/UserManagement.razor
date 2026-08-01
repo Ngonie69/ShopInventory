@@ -3499,7 +3499,6 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedWarehouseCodes = u.AssignedWarehouseCodes,
                 AllowedPaymentMethods = u.AllowedPaymentMethods ?? new(),
                 DefaultGLAccount = u.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = u.AllowedPaymentBusinessPartners ?? new(),
                 AssignedSection = u.AssignedSection,
                 AssignedCustomerCodes = u.AssignedCustomerCodes ?? new(),
                 AssignedBusinessPartnerCode = u.AssignedBusinessPartnerCode,
@@ -3608,7 +3607,6 @@ StringComparison.OrdinalIgnoreCase)))
             AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
             AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
             DefaultGLAccount = user.DefaultGLAccount,
-            AllowedPaymentBusinessPartners = new List<string>(user.AllowedPaymentBusinessPartners),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
@@ -3903,8 +3901,7 @@ StringComparison.OrdinalIgnoreCase)))
                 AssignedWarehouseCodes = new List<string>(user.AssignedWarehouseCodes),
                 AllowedPaymentMethods = new List<string>(user.AllowedPaymentMethods),
                 DefaultGLAccount = user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = new List<string>(user.AllowedPaymentBusinessPartners),
-                AssignedSection = user.AssignedSection,
+                    AssignedSection = user.AssignedSection,
                 AssignedCustomerCodes = new List<string>(user.AssignedCustomerCodes),
                 AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
                 AssignedCostCentreCode = user.AssignedCostCentreCode
@@ -3962,11 +3959,10 @@ StringComparison.OrdinalIgnoreCase)))
 
         if (UserRoles.HasUnrestrictedPaymentAccess(model.Role))
         {
-            // Cashiers and admins post against every G/L account, business partner and
-            // payment method, so no per-user payment restriction is sent for them.
+            // Cashiers and admins post against every G/L account and payment method, so no
+            // per-user payment restriction is sent for them.
             model.AllowedPaymentMethods = new();
             model.DefaultGLAccount = null;
-            model.AllowedPaymentBusinessPartners = new();
         }
     }
 
@@ -4046,7 +4042,6 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string> AssignedWarehouseCodes { get; set; } = new();
         public List<string> AllowedPaymentMethods { get; set; } = new();
         public string? DefaultGLAccount { get; set; }
-        public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }
@@ -4081,7 +4076,6 @@ StringComparison.OrdinalIgnoreCase)))
         public List<string> AssignedWarehouseCodes { get; set; } = new();
         public List<string> AllowedPaymentMethods { get; set; } = new();
         public string? DefaultGLAccount { get; set; }
-        public List<string> AllowedPaymentBusinessPartners { get; set; } = new();
         public string? AssignedSection { get; set; }
         public List<string> AssignedCustomerCodes { get; set; } = new();
         public string? AssignedBusinessPartnerCode { get; set; }

@@ -233,9 +233,6 @@ public class UserManagementService : IUserManagementService
 
             if (!string.IsNullOrWhiteSpace(request.DefaultGLAccount))
                 user.DefaultGLAccount = request.DefaultGLAccount;
-
-            if (request.AllowedPaymentBusinessPartners != null && request.AllowedPaymentBusinessPartners.Count > 0)
-                user.SetAllowedPaymentBusinessPartners(request.AllowedPaymentBusinessPartners);
         }
 
         _context.Users.Add(user);
@@ -533,7 +530,6 @@ public class UserManagementService : IUserManagementService
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             DefaultGLAccount = user.DefaultGLAccount,
-            AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,

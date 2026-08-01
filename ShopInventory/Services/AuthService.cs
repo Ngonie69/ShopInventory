@@ -290,7 +290,6 @@ public class AuthService : IAuthService
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
                 AllowedPaymentMethods = unrestrictedPayments ? new() : user.GetAllowedPaymentMethods(),
                 DefaultGLAccount = unrestrictedPayments ? null : user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = unrestrictedPayments ? new() : user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };
@@ -660,7 +659,6 @@ public class AuthService : IAuthService
                 AssignedCostCentreCode = user.AssignedCostCentreCode,
                 AllowedPaymentMethods = unrestrictedPayments ? new() : user.GetAllowedPaymentMethods(),
                 DefaultGLAccount = unrestrictedPayments ? null : user.DefaultGLAccount,
-                AllowedPaymentBusinessPartners = unrestrictedPayments ? new() : user.GetAllowedPaymentBusinessPartners(),
                 AssignedCustomerCodes = user.GetCustomerCodes()
             }
         };

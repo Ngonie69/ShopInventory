@@ -1550,7 +1550,6 @@
 
     // Business partner
     private List<BusinessPartnerDto> allBusinessPartners = new();
-    private List<string> allowedPaymentBPs = new();
     private string defaultGLAccount = "";
     private BusinessPartnerDto? selectedBusinessPartner;
     private string bpSearchTerm = "";
@@ -1570,7 +1569,6 @@
     private bool hasUnrestrictedPaymentAccess = false;
     private List<string> userAllowedPaymentMethods = new();
     private string? userDefaultGLAccount;
-    private List<string> userAllowedPaymentBPs = new();
 
     private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods =
 new()
@@ -1671,7 +1669,6 @@ new()
             hasUnrestrictedPaymentAccess = UserRoles.HasUnrestrictedPaymentAccess(role);
             userAllowedPaymentMethods = authState.User.FindAll("paymentmethod").Select(c => c.Value).ToList();
             userDefaultGLAccount = authState.User.FindFirst("defaultglaccount")?.Value;
-            userAllowedPaymentBPs = authState.User.FindAll("paymentbp").Select(c => c.Value).ToList();
         }
         catch (Exception ex)
         {
@@ -1714,12 +1711,6 @@ new()
                 activePaymentMethod = avail[0];
             }
 
-            // Load allowed business partners. Roles with unrestricted payment access serve
-            // any business partner, so the per-user list is not applied to them.
-            allowedPaymentBPs = hasUnrestrictedPaymentAccess
-                ? new()
-                : new List<string>(userAllowedPaymentBPs);
-
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
@@ -1745,14 +1736,6 @@ new()
                 if (!allBusinessPartners.Any())
                     allBusinessPartners = cached.BusinessPartners;
 
-                // Filter by allowed BPs if configured
-                if (allowedPaymentBPs.Any())
-                {
-                    allBusinessPartners = allBusinessPartners
-                    .Where(bp => bp.CardCode is not null && allowedPaymentBPs.Contains(bp.CardCode))
-                    .ToList();
-                }
-
                 bpLoadedFromCache = true;
                 isBpLoading = false;
                 await InvokeAsync(StateHasChanged);
@@ -1769,14 +1752,6 @@ new()
 
                 if (!allBusinessPartners.Any() && response.BusinessPartners.Any())
                     allBusinessPartners = response.BusinessPartners;
-
-                // Filter by allowed BPs if configured
-                if (allowedPaymentBPs.Any())
-                {
-                    allBusinessPartners = allBusinessPartners
-                    .Where(bp => bp.CardCode is not null && allowedPaymentBPs.Contains(bp.CardCode))
-                    .ToList();
-                }
             }
         }
         catch (Exception ex)

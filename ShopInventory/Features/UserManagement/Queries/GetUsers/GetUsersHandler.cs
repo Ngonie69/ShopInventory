@@ -119,7 +119,6 @@ public sealed class GetUsersHandler(
             AssignedWarehouseCodes = user.GetWarehouseCodes(),
             AllowedPaymentMethods = user.GetAllowedPaymentMethods(),
             DefaultGLAccount = user.DefaultGLAccount,
-            AllowedPaymentBusinessPartners = user.GetAllowedPaymentBusinessPartners(),
             AssignedSection = user.AssignedSection,
             AssignedCustomerCodes = user.GetCustomerCodes(),
             AssignedBusinessPartnerCode = user.AssignedBusinessPartnerCode,
