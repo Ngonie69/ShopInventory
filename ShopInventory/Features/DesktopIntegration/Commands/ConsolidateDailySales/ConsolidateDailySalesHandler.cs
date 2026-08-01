@@ -274,6 +274,18 @@ public sealed class ConsolidateDailySalesHandler(
                 continue;
 
             var requestLine = request.Lines[lineIndex];
+
+            if (requestLine.SerialNumbers is not { Count: > 0 } && allocatedLine.Serials.Count > 0)
+            {
+                requestLine.SerialNumbers = allocatedLine.Serials
+                    .Select(serial => new SerialNumberRequest
+                    {
+                        InternalSerialNumber = serial.InternalSerialNumber,
+                        SystemSerialNumber = serial.SystemSerialNumber
+                    })
+                    .ToList();
+            }
+
             if (requestLine.BatchNumbers is { Count: > 0 } || allocatedLine.Batches.Count == 0)
                 continue;
 
