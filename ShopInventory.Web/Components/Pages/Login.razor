@@ -13,876 +13,818 @@
 @rendermode InteractiveServer
 @layout EmptyLayout
 
-<PageTitle>Login - Shop Inventory</PageTitle>
+<PageTitle>Sign in - Shop Inventory</PageTitle>
 
-<div class="login-page auth-page">
-    <div class="auth-shell">
-        <section class="auth-visual">
-            <div class="orb orb-1"></div>
-            <div class="orb orb-2"></div>
-            <div class="orb orb-3"></div>
-            <div class="orb orb-4"></div>
-            <div class="visual-content">
-                <div class="visual-brand">
-                    <div class="brand-logo">
-                        <img src="images/kefalos-logo.jpg" alt="Kefalos" />
-                    </div>
-                    <div class="brand-text">
-                        <span class="brand-name">Kefalos Network</span>
-                        <span class="brand-tag">Inventory Platform</span>
-                    </div>
-                </div>
-                <div class="visual-card">
-                    <p class="visual-eyebrow">Staff Workspace</p>
-                    <h2>Inventory that feels effortless.</h2>
-                    <p class="visual-copy">
-                        Track stock, approve orders, and run reports in one place.
-                    </p>
-                    <div class="visual-footer">
-                        <span>Customer access?</span>
-                        <a class="visual-link" href="/customer-portal/login">Customer portal &rarr;</a>
-                    </div>
-                </div>
+@* Nocturne staff sign-in. No MudBlazor on this page: MudButton renders its own
+   ripple span, uppercase label and .mud-button-root paddings, none of which the
+   design's outlined .btn can out-specify without !important on every property.
+   Native <button> elements carry the Nocturne classes directly instead. *@
+<div class="nsi">
+
+    <section class="nsi-brandside">
+        <div class="nsi-edge"></div>
+
+        <div class="nsi-brand">
+            <img class="nsi-brand-logo" src="images/kefalos-logo.jpg" alt="Kefalos Quality Dairy Produce" />
+            <div class="nsi-brand-rule"></div>
+            <div class="nsi-brand-text">
+                <div class="nsi-brand-name">Kefalos Network</div>
+                <div>Inventory Platform</div>
             </div>
-        </section>
+        </div>
 
-        <section class="auth-form">
-            <div class="login-header">
-                <span class="eyebrow">Staff Login</span>
-                <h1>Sign in</h1>
-                <p class="subtitle">Use your staff credentials to continue.</p>
-            </div>
+        <div class="nsi-hero">
+            <div class="nsi-kicker">Staff workspace</div>
+            <h1 class="nsi-title">Depot and sales, running on one SAP.</h1>
+            <p class="nsi-lede">
+                An SAP add-on for the depot and sales teams &mdash; track stock, approve orders, and run reports in one
+                place.
+            </p>
+            <ul class="nsi-points">
+                <li><span class="nsi-dash"></span>Stock levels updated as they move</li>
+                <li><span class="nsi-dash"></span>Every order approval in one queue</li>
+                <li><span class="nsi-dash"></span>Reports that export clean</li>
+            </ul>
+        </div>
 
-            @if (!string.IsNullOrEmpty(errorMessage))
-            {
-                <div class="error-message">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                        <path
-                        d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" />
-                    </svg>
-                    <span>@errorMessage</span>
-                </div>
-            }
+        <div class="nsi-cross">
+            <span>Customer access?</span>
+            <a href="/customer-portal/login">
+                Customer portal
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12h13"></path>
+                    <path d="M12 6l6 6-6 6"></path>
+                </svg>
+            </a>
+        </div>
+    </section>
 
-            @if (!requiresTwoFactor)
-            {
-            <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="LoginForm">
-                <DataAnnotationsValidator />
+    <section class="nsi-formside">
 
-                <div class="form-group">
+        @if (!requiresTwoFactor)
+        {
+            <EditForm class="nsi-formcard" Model="loginModel" OnValidSubmit="HandleLogin" FormName="LoginForm">
+                <span class="nsi-tag">Staff login</span>
+                <h2 class="nsi-formtitle">Sign in</h2>
+                <p class="nsi-formlede">Use your staff credentials to continue.</p>
+
+                <div class="nsi-field">
                     <label for="username">Username or email</label>
-                    <div class="input-wrapper">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                             viewBox="0 0 16 16">
-                            <path
-                            d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4Zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10Z" />
+                    <div class="nsi-inputwrap">
+                        <svg class="nsi-inputicon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <circle cx="12" cy="8" r="3.6"></circle>
+                            <path d="M4.5 20c1.3-3.4 4.1-5.2 7.5-5.2s6.2 1.8 7.5 5.2"></path>
                         </svg>
-                        <InputText id="username" class="form-input" @bind-Value="loginModel.Username"
-                                   placeholder="Enter your username or email" />
+                        <InputText id="username" class="nsi-input" autocomplete="username"
+                                   placeholder="Enter your username or email" @bind-Value="loginModel.Username" />
                     </div>
-                    <ValidationMessage For="@(() => loginModel.Username)" class="validation-msg" />
                 </div>
 
-                <div class="form-group">
+                <div class="nsi-field nsi-field-pass">
                     <label for="password">Password</label>
-                    <div class="input-wrapper">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                             viewBox="0 0 16 16">
-                            <path
-                            d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+                    <div class="nsi-inputwrap">
+                        <svg class="nsi-inputicon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <rect x="4.5" y="10" width="15" height="10" rx="2.5"></rect>
+                            <path d="M8.2 10V7.4a3.8 3.8 0 0 1 7.6 0V10"></path>
                         </svg>
-                        <input id="password" type="@(showPassword ? "text" : "password")"
-                               class="form-input password-input" @bind="loginModel.Password"
-                               placeholder="Enter your password" />
-                        <MudButton ButtonType="ButtonType.Button" Class="password-toggle" OnClick="TogglePassword"
-                                   tabindex="-1">
+                        <input id="password" type="@(showPassword ? "text" : "password")" class="nsi-input nsi-input-pass"
+                               autocomplete="current-password" placeholder="••••••••" @bind="loginModel.Password" />
+                        <button type="button" class="nsi-eye" @onclick="TogglePassword" tabindex="-1"
+                                aria-label="Show or hide password">
                             @if (showPassword)
                             {
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                                     viewBox="0 0 16 16">
-                                    <path
-                                    d="M13.359 11.238C15.06 9.72 16 8 16 8s-3-5.5-8-5.5a7.028 7.028 0 0 0-2.79.588l.77.771A5.944 5.944 0 0 1 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.134 13.134 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755-.165.165-.337.328-.517.486l.708.709z" />
-                                    <path
-                                    d="M11.297 9.176a3.5 3.5 0 0 0-4.474-4.474l.823.823a2.5 2.5 0 0 1 2.829 2.829l.822.822zm-2.943 1.299.822.822a3.5 3.5 0 0 1-4.474-4.474l.823.823a2.5 2.5 0 0 0 2.829 2.829z" />
-                                    <path
-                                    d="M3.35 5.47c-.18.16-.353.322-.518.487A13.134 13.134 0 0 0 1.172 8l.195.288c.335.48.83 1.12 1.465 1.755C4.121 11.332 5.881 12.5 8 12.5c.716 0 1.39-.133 2.02-.36l.77.772A7.029 7.029 0 0 1 8 13.5C3 13.5 0 8 0 8s.939-1.721 2.641-3.238l.708.709zm10.296 8.884-12-12 .708-.708 12 12-.708.708z" />
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12z"></path>
+                                    <circle cx="12" cy="12" r="2.8"></circle>
+                                    <path d="M4 20L20 4"></path>
                                 </svg>
                             }
                             else
                             {
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                                     viewBox="0 0 16 16">
-                                    <path
-                                    d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z" />
-                                    <path
-                                    d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z" />
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12z"></path>
+                                    <circle cx="12" cy="12" r="2.8"></circle>
                                 </svg>
                             }
-                        </MudButton>
+                        </button>
                     </div>
-                    <ValidationMessage For="@(() => loginModel.Password)" class="validation-msg" />
                 </div>
 
-                <MudButton ButtonType="ButtonType.Submit" Class="submit-btn" Disabled="@(isLoading || isPasskeyLoading)">
-                    @if (isLoading)
-                    {
-                        <span class="spinner"></span>
-                        <span>Signing in...</span>
-                    }
-                    else
-                    {
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                             viewBox="0 0 16 16">
-                            <path fill-rule="evenodd"
-                                  d="M6 3.5a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-2a.5.5 0 0 0-1 0v2A1.5 1.5 0 0 0 6.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2h-8A1.5 1.5 0 0 0 5 3.5v2a.5.5 0 0 0 1 0v-2z" />
-                            <path fill-rule="evenodd"
-                                  d="M11.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L10.293 7.5H1.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z" />
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="nsi-error" role="alert">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5"></path>
+                            <path d="M12 16.4v.1"></path>
                         </svg>
-                        <span>Sign in</span>
-                    }
-                </MudButton>
+                        <span>@errorMessage</span>
+                    </div>
+                }
 
-                <div class="passkey-divider"><span>or</span></div>
+                <button type="submit" class="nsi-btn nsi-btn-primary nsi-btn-block nsi-submit"
+                        disabled="@(isLoading || isPasskeyLoading)">
+                    @(isLoading ? "Signing in…" : "Sign in")
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M5 12h12"></path>
+                        <path d="M11.5 6.5L18 12l-6.5 5.5"></path>
+                    </svg>
+                </button>
 
-                <MudButton ButtonType="ButtonType.Button" Class="passkey-btn" OnClick="HandlePasskeyLogin"
-                           Disabled="@(isLoading || isPasskeyLoading)">
-                    @if (isPasskeyLoading)
-                    {
-                        <span class="spinner spinner-dark"></span>
-                        <span>Checking passkey...</span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-fingerprint"></i>
-                        <span>Use a passkey</span>
-                    }
-                </MudButton>
+                <div class="nsi-or">
+                    <span class="nsi-or-line-l"></span>
+                    <span class="nsi-or-label">or</span>
+                    <span class="nsi-or-line-r"></span>
+                </div>
 
-                <p class="passkey-note">Use Windows Hello, Face ID, Touch ID, or your device PIN on a supported browser.</p>
+                <button type="button" class="nsi-btn nsi-btn-secondary nsi-btn-block nsi-passkey"
+                        @onclick="HandlePasskeyLogin" disabled="@(isLoading || isPasskeyLoading)">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 4.2c-4.3 0-7.8 3.5-7.8 7.8v3.2"></path>
+                        <path d="M19.8 12c0-4.3-3.5-7.8-7.8-7.8"></path>
+                        <path d="M8 12a4 4 0 0 1 8 0v4.2"></path>
+                        <path d="M12 12v7.6"></path>
+                        <path d="M7.6 15.4v2.6"></path>
+                        <path d="M19.5 15.8c.2-1.2.3-2.5.3-3.8"></path>
+                    </svg>
+                    @(isPasskeyLoading ? "Checking passkey…" : "Use a passkey")
+                </button>
+
+                <p class="nsi-note">Windows Hello, Face ID, Touch ID, or your device PIN on a supported browser.</p>
             </EditForm>
-            } @* end @if (!requiresTwoFactor) *@
+        }
+        else
+        {
+            <div class="nsi-formcard">
+                <span class="nsi-tag">Two-factor</span>
+                <h2 class="nsi-formtitle">Verify it's you</h2>
+                <p class="nsi-formlede">
+                    Enter the @(isBackupCode ? "backup code" : "6-digit code from your authenticator app").
+                </p>
 
-            @if (requiresTwoFactor)
-            {
-                <div class="twofactor-step">
-                    <div class="twofactor-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+                <div class="nsi-field">
+                    <label for="twofactor-code">@(isBackupCode ? "Backup code" : "Authenticator code")</label>
+                    <div class="nsi-inputwrap">
+                        <svg class="nsi-inputicon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <rect x="4.5" y="10" width="15" height="10" rx="2.5"></rect>
+                            <path d="M8.2 10V7.4a3.8 3.8 0 0 1 7.6 0V10"></path>
                         </svg>
+                        <input id="twofactor-code" type="text" class="nsi-input" @bind="twoFactorCode"
+                               @bind:event="oninput" placeholder="@(isBackupCode ? "XXXX-XXXX" : "000000")"
+                               maxlength="@(isBackupCode ? 9 : 6)" autocomplete="one-time-code" inputmode="text" />
                     </div>
-                    <h2 class="twofactor-title">Two-Factor Authentication</h2>
-                    <p class="twofactor-hint">Enter the 6-digit code from your authenticator app.</p>
-
-                    <div class="form-group">
-                        <label for="twofactor-code">@(isBackupCode ? "Backup Code" : "Authenticator Code")</label>
-                        <div class="input-wrapper">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
-                                <path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v2A1.5 1.5 0 0 1 14.5 7h-13A1.5 1.5 0 0 1 0 5.5v-2zM1.5 3a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13zM0 10.5A1.5 1.5 0 0 1 1.5 9h13a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 12.5v-2zM1.5 10a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13z"/>
-                            </svg>
-                            <input id="twofactor-code" type="text" class="form-input"
-                                   @bind="twoFactorCode" @bind:event="oninput"
-                                   placeholder="@(isBackupCode ? "XXXX-XXXX" : "000000")"
-                                   maxlength="@(isBackupCode ? 9 : 6)"
-                                   autocomplete="one-time-code" />
-                        </div>
-                    </div>
-
-                    <label class="twofactor-backup-toggle">
-                        <input type="checkbox" @bind="isBackupCode" />
-                        Use a backup code instead
-                    </label>
-
-                    <MudButton ButtonType="ButtonType.Button" Class="submit-btn" OnClick="HandleTwoFactorSubmit"
-                               Disabled="@(isLoading || string.IsNullOrWhiteSpace(twoFactorCode))">
-                        @if (isLoading)
-                        {
-                            <span class="spinner"></span>
-                            <span>Verifying...</span>
-                        }
-                        else
-                        {
-                            <span>Verify</span>
-                        }
-                    </MudButton>
-
-                    <button type="button" class="twofactor-cancel" @onclick="CancelTwoFactor">
-                        &larr; Back to login
-                    </button>
                 </div>
-            }
 
-            <p class="footer-text">© 2026 Shop Inventory System</p>
-        </section>
-    </div>
+                <label class="nsi-check">
+                    <input type="checkbox" @bind="isBackupCode" />
+                    <span class="nsi-dot"></span>
+                    Use a backup code instead
+                </label>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="nsi-error" role="alert">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5"></path>
+                            <path d="M12 16.4v.1"></path>
+                        </svg>
+                        <span>@errorMessage</span>
+                    </div>
+                }
+
+                <button type="button" class="nsi-btn nsi-btn-primary nsi-btn-block nsi-submit"
+                        @onclick="HandleTwoFactorSubmit" disabled="@(isLoading || string.IsNullOrWhiteSpace(twoFactorCode))">
+                    @(isLoading ? "Verifying…" : "Verify")
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M5 12h12"></path>
+                        <path d="M11.5 6.5L18 12l-6.5 5.5"></path>
+                    </svg>
+                </button>
+
+                <button type="button" class="nsi-btn nsi-btn-ghost nsi-back" @onclick="CancelTwoFactor">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M19 12H6"></path>
+                        <path d="M12 6l-6 6 6 6"></path>
+                    </svg>
+                    Back to sign in
+                </button>
+            </div>
+        }
+
+        <div class="nsi-copy">© 2026 Kefalos Network</div>
+    </section>
 </div>
 
 <style>
-    .login-page.auth-page {
+    /* ──────────────────────────────────────────────────────────────────────
+       Nocturne staff sign-in.
+
+       Every class is namespaced `nsi-` rather than carrying Nocturne's own
+       `.btn` / `.btn-primary` / `.card` names, because App.razor loads
+       Bootstrap and app.css globally: a bare `.btn-primary` would pick up
+       Bootstrap's solid blue fill and lose the outlined treatment this system
+       is built on. The declarations below are Nocturne's, unchanged — only the
+       selectors are renamed.
+
+       The page is dark in both app themes. Nocturne is a dark system whose
+       tokens are literal values, not theme-dependent ones, so there is no
+       `.dark-theme` branch to write here.
+       ────────────────────────────────────────────────────────────────────── */
+
+    .nsi {
+        /* Nocturne tokens (styles.css :root), only the ones this page uses. */
+        --nsi-bg: #161826;
+        --nsi-surface: #232532;
+        --nsi-text: #e9e9ed;
+        --nsi-accent: #9184d9;
+        --nsi-accent-200: #e7e5fe;
+        --nsi-accent-300: #d2cefd;
+        --nsi-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+        --nsi-section: #262a60;
+        --nsi-section-glow: #353b80;
+        --nsi-radius-sm: 4px;
+        --nsi-radius-md: 8px;
+        /* Density 0.70x: --space-2 / --space-3 from the scale. */
+        --nsi-space-1: 2.8px;
+        --nsi-space-2: 5.6px;
+        --nsi-space-3: 8.4px;
+
         min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2.5rem 1.5rem;
-        background: linear-gradient(135deg, #0b0b0b 0%, #151515 45%, #242424 100%);
-        font-family: "Outfit", "Segoe UI", sans-serif;
-        color: #111111;
-    }
-
-    .auth-shell {
-        width: min(1100px, 100%);
-        min-height: 640px;
-        background: #ffffff;
-        border-radius: 28px;
-        overflow: hidden;
         display: grid;
-        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-        box-shadow: 0 40px 90px rgba(0, 0, 0, 0.35);
+        grid-template-columns: 1.15fr 0.85fr;
+        background: var(--nsi-bg);
+        color: var(--nsi-text);
+        font-family: "Inter", system-ui, sans-serif;
+        font-size: 15px;
+        font-weight: 400;
+        line-height: 1.55;
+        /* Renders the password reveal, autofill chrome and scrollbars dark. */
+        color-scheme: dark;
     }
 
-    .auth-visual {
+    /* app.css paints html/body from the app theme with !important, which shows
+       through as a light rim around this page in the light theme. */
+    body:has(.nsi) {
+        background: #161826 !important;
+    }
+
+    .nsi *,
+    .nsi *::before,
+    .nsi *::after {
+        box-sizing: border-box;
+    }
+
+    .nsi :focus {
+        outline: none;
+    }
+
+    .nsi :focus-visible {
+        outline: 2px solid var(--nsi-accent);
+        outline-offset: 2px;
+    }
+
+    .nsi ::selection {
+        background: color-mix(in srgb, var(--nsi-accent) 30%, transparent);
+    }
+
+    /* — left: brand and positioning — */
+
+    .nsi-brandside {
         position: relative;
-        padding: 3rem;
-        background:
-            radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 45%),
-            radial-gradient(circle at 85% 18%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 40%),
-            radial-gradient(circle at 20% 85%, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 50%),
-            linear-gradient(145deg, #0b0b0b 0%, #1a1a1a 55%, #111111 100%);
-        color: #f5f5f5;
         overflow: hidden;
-    }
-
-    .auth-visual::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(120deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0));
-        pointer-events: none;
-    }
-
-    .orb {
-        position: absolute;
-        border-radius: 50%;
-        opacity: 0.95;
-        animation: float 12s ease-in-out infinite;
-    }
-
-    .orb-1 {
-        width: 170px;
-        height: 170px;
-        top: -40px;
-        left: -20px;
-        background: radial-gradient(circle at 30% 30%, #f5f5f5, #9c9c9c);
-        animation-delay: 0s;
-    }
-
-    .orb-2 {
-        width: 120px;
-        height: 120px;
-        top: 40px;
-        right: 60px;
-        background: radial-gradient(circle at 30% 30%, #ededed, #7d7d7d);
-        animation-delay: 1.5s;
-    }
-
-    .orb-3 {
-        width: 220px;
-        height: 220px;
-        bottom: -90px;
-        left: 35%;
-        background: radial-gradient(circle at 30% 30%, #d6d6d6, #4a4a4a);
-        animation-delay: 3s;
-    }
-
-    .orb-4 {
-        width: 140px;
-        height: 140px;
-        bottom: 40px;
-        right: -30px;
-        border: 14px solid rgba(255, 255, 255, 0.35);
-        background: transparent;
-        animation-delay: 2.2s;
-    }
-
-    .visual-content {
-        position: relative;
-        z-index: 1;
-        height: 100%;
+        padding: 44px 56px;
         display: flex;
         flex-direction: column;
-        justify-content: center;
-        gap: 2rem;
+        justify-content: space-between;
+        gap: 40px;
+        background:
+            radial-gradient(90% 70% at 12% 4%, color-mix(in srgb, var(--nsi-section-glow) 62%, transparent), transparent 62%),
+            radial-gradient(80% 60% at 88% 96%, color-mix(in srgb, var(--nsi-section) 78%, transparent), transparent 58%),
+            var(--nsi-bg);
     }
 
-    .visual-brand {
+    /* The column edge, drawn as a Nocturne rule: it fades out over 48px at
+       both ends instead of stopping cleanly. */
+    .nsi-edge {
+        position: absolute;
+        inset: 0 0 0 auto;
+        width: 1px;
+        background: linear-gradient(to bottom,
+            transparent, var(--nsi-divider) 48px,
+            var(--nsi-divider) calc(100% - 48px), transparent);
+    }
+
+    .nsi-brand {
         display: flex;
         align-items: center;
-        gap: 1rem;
+        gap: 16px;
     }
 
-    .brand-logo {
-        width: 56px;
-        height: 56px;
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.9);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
-    }
-
-    .brand-logo img {
-        width: 40px;
+    .nsi-brand-logo {
+        display: block;
+        width: 132px;
         height: auto;
+        border-radius: var(--nsi-radius-md);
     }
 
-    .brand-text {
+    .nsi-brand-rule {
+        width: 1px;
+        align-self: stretch;
+        background: var(--nsi-divider);
+    }
+
+    .nsi .nsi-brand-text {
+        font-size: 13px;
+        line-height: 1.35;
+        color: color-mix(in srgb, var(--nsi-text) 62%, transparent);
+    }
+
+    .nsi .nsi-brand-name {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--nsi-text);
+    }
+
+    .nsi-hero {
+        max-width: 460px;
+    }
+
+    .nsi-kicker {
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--nsi-accent-300);
+        margin-bottom: 18px;
+    }
+
+    /* Two classes deep: app.css sets `h1, h2 … { font-weight: 600 }` and
+       `.dark-theme h1 … { color: … }`, and Nocturne headings stay at 500. */
+    .nsi .nsi-title {
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 52px;
+        line-height: 1.06;
+        letter-spacing: -0.02em;
+        margin: 0 0 18px;
+        color: var(--nsi-text);
+        text-wrap: pretty;
+    }
+
+    .nsi .nsi-lede {
+        font-size: 16px;
+        line-height: 1.6;
+        max-width: 400px;
+        margin: 0 0 34px;
+        color: color-mix(in srgb, var(--nsi-text) 72%, transparent);
+    }
+
+    .nsi .nsi-points {
+        list-style: none;
+        margin: 0;
+        padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 0.2rem;
+        gap: 12px;
+        font-size: 14px;
+        color: color-mix(in srgb, var(--nsi-text) 78%, transparent);
     }
 
-    .brand-name {
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
-        font-size: 1.05rem;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-    }
-
-    .brand-tag {
-        font-size: 0.85rem;
-        color: rgba(255, 255, 255, 0.72);
-    }
-
-    .visual-card {
-        background: rgba(17, 17, 17, 0.62);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 2rem;
-        border-radius: 22px;
-        box-shadow: 0 22px 50px rgba(0, 0, 0, 0.45);
-        backdrop-filter: blur(12px);
-        animation: fadeUp 0.8s ease-out;
-    }
-
-    .visual-eyebrow {
-        text-transform: uppercase;
-        font-size: 0.72rem;
-        letter-spacing: 0.25em;
-        color: rgba(255, 255, 255, 0.6);
-        margin-bottom: 0.75rem;
-    }
-
-    .visual-card h2 {
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
-        font-size: 2rem;
-        margin: 0 0 0.75rem;
-    }
-
-    .visual-copy {
-        color: rgba(245, 245, 245, 0.78);
-        line-height: 1.6;
-        margin: 0;
-    }
-
-    .visual-footer {
+    .nsi .nsi-points li {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        margin-top: 1.5rem;
-        font-size: 0.95rem;
+        gap: 12px;
     }
 
-    .visual-link {
-        color: #ffffff;
-        text-decoration: none;
-        font-weight: 600;
-        transition: color 0.2s;
+    /* A short accent mark: solid, unlike the rules, which fade. */
+    .nsi-dash {
+        width: 14px;
+        height: 1px;
+        flex: none;
+        background: var(--nsi-accent);
     }
 
-    .visual-link:hover {
-        color: #d4d4d4;
-    }
-
-    .auth-form {
-        padding: 3.5rem 3rem;
+    .nsi-cross {
         display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 1.5rem;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: color-mix(in srgb, var(--nsi-text) 55%, transparent);
     }
 
-    .login-header h1 {
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
-        font-size: 2.2rem;
-        margin: 0.5rem 0 0.4rem;
-        /* Stated rather than inherited: app.css colours every h1 from the app
-           theme, and this card sets its own background, so the two disagree. */
-        color: #111111;
-    }
-
-    .eyebrow {
+    .nsi .nsi-cross a {
         display: inline-flex;
         align-items: center;
-        padding: 0.3rem 0.85rem;
-        border-radius: 999px;
-        background: #111111;
-        color: #ffffff;
-        font-size: 0.8rem;
-        font-weight: 600;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        gap: 6px;
+        font-family: inherit;
+        font-weight: 500;
+        color: var(--nsi-accent);
+        text-decoration: none;
     }
 
-    .subtitle {
-        color: #525252;
-        margin: 0;
-        font-size: 1rem;
+    .nsi .nsi-cross a:hover {
+        color: var(--nsi-accent-300);
     }
 
-    .error-message {
-        background: #f2f2f2;
-        border: 1px solid #e0e0e0;
-        color: #111111;
-        padding: 0.9rem 1rem;
-        border-radius: 0.9rem;
+    /* — right: the form — */
+
+    .nsi-formside {
+        position: relative;
         display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 44px 56px;
+    }
+
+    .nsi-formcard {
+        width: 100%;
+        max-width: 356px;
+        margin: 0 auto;
+        animation: nsi-rise 420ms ease both;
+    }
+
+    .nsi-tag {
+        display: inline-flex;
         align-items: center;
-        gap: 0.75rem;
-        font-size: 0.9rem;
+        padding: 3px 10px;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: 1px solid var(--nsi-accent);
+        border-radius: calc(var(--nsi-radius-md) * 0.75);
+        color: var(--nsi-accent);
     }
 
-    .form-group {
-        margin-bottom: 1.2rem;
+    .nsi .nsi-formtitle {
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 34px;
+        line-height: 1.12;
+        letter-spacing: -0.02em;
+        margin: 18px 0 6px;
+        color: var(--nsi-text);
     }
 
-    .form-group label {
+    .nsi .nsi-formlede {
+        font-size: 14px;
+        margin: 0 0 28px;
+        color: color-mix(in srgb, var(--nsi-text) 60%, transparent);
+    }
+
+    .nsi-field {
+        margin-bottom: 16px;
+    }
+
+    /* The design pairs this field with a "Forgot?" link. There is no staff
+       password-reset route to point it at, so the link is left out rather
+       than shipped dead; the spacing it carried is folded in below. */
+    .nsi-field-pass {
+        margin-bottom: 28px;
+    }
+
+    .nsi .nsi-field > label {
         display: block;
-        font-weight: 600;
-        color: #1f1f1f;
-        margin-bottom: 0.5rem;
-        font-size: 0.9rem;
+        font-size: 12px;
+        font-weight: 400;
+        margin-bottom: 5px;
+        color: color-mix(in srgb, var(--nsi-text) 70%, transparent);
     }
 
-    .input-wrapper {
+    .nsi-inputwrap {
         position: relative;
         display: flex;
         align-items: center;
     }
 
-    .input-wrapper svg {
+    .nsi-inputicon {
         position: absolute;
-        left: 1rem;
-        color: #8b8b8b;
+        left: 11px;
+        display: block;
         pointer-events: none;
-        transition: color 0.2s;
+        color: color-mix(in srgb, var(--nsi-text) 45%, transparent);
     }
 
-    .form-input {
+    .nsi .nsi-input {
         width: 100%;
-        padding: 0.9rem 1rem 0.9rem 2.9rem;
-        border: 1px solid #d6d6d6;
-        border-radius: 0.9rem;
-        font-size: 0.95rem;
-        transition: all 0.2s;
-        background: #f4f4f4;
+        min-height: 44px;
+        padding: 6px 10px 6px 36px;
+        font: inherit;
+        font-size: 14px;
+        color: var(--nsi-text);
+        caret-color: var(--nsi-accent);
+        background: var(--nsi-surface);
+        border: 1px solid var(--nsi-divider);
+        border-radius: var(--nsi-radius-md);
     }
 
-    .form-input.password-input {
-        padding-right: 3rem;
+    .nsi .nsi-input-pass {
+        padding-right: 40px;
     }
 
-    .form-input:focus {
-        outline: none;
-        border-color: #111111;
-        background: #ffffff;
-        box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.2);
+    .nsi .nsi-input:hover {
+        border-color: color-mix(in srgb, var(--nsi-text) 45%, transparent);
     }
 
-    .input-wrapper:focus-within svg {
-        color: #111111;
+    .nsi .nsi-input:focus-visible {
+        border-color: var(--nsi-accent);
+        outline-offset: 0;
     }
 
-    .form-input::placeholder {
-        color: #9b9b9b;
+    /* Chrome repaints autofilled fields with its own near-white ground, which
+       would put light-on-light text in the middle of a dark form. */
+    .nsi .nsi-input:-webkit-autofill,
+    .nsi .nsi-input:-webkit-autofill:hover,
+    .nsi .nsi-input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--nsi-text);
+        -webkit-box-shadow: 0 0 0 1000px var(--nsi-surface) inset;
+        caret-color: var(--nsi-accent);
     }
 
-    .password-toggle {
+    .nsi-eye {
         position: absolute;
-        right: 0.75rem;
-        background: none;
-        border: none;
-        padding: 0.25rem;
+        right: 6px;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: var(--nsi-radius-sm);
         cursor: pointer;
-        color: #8b8b8b;
+        color: color-mix(in srgb, var(--nsi-text) 55%, transparent);
+    }
+
+    .nsi-eye:hover {
+        color: var(--nsi-accent);
+        background: color-mix(in srgb, var(--nsi-accent) 12%, transparent);
+    }
+
+    .nsi-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        margin: 0 0 22px;
+        font-size: 13px;
+        color: color-mix(in srgb, var(--nsi-text) 70%, transparent);
+        cursor: pointer;
+    }
+
+    .nsi-check input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+
+    .nsi-check .nsi-dot {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 1.5px solid var(--nsi-divider);
+        border-radius: 4px;
+    }
+
+    .nsi-check:hover .nsi-dot {
+        border-color: var(--nsi-accent);
+    }
+
+    .nsi-check input:checked + .nsi-dot {
+        border-color: var(--nsi-accent);
+        background: var(--nsi-accent);
+        box-shadow: inset 0 0 0 4px var(--nsi-bg);
+    }
+
+    .nsi-check input:focus-visible + .nsi-dot {
+        outline: 2px solid var(--nsi-accent);
+        outline-offset: 2px;
+    }
+
+    .nsi-error {
         display: flex;
         align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        border-radius: var(--nsi-radius-md);
+        background: color-mix(in srgb, var(--nsi-accent) 12%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nsi-accent) 45%, transparent);
+        color: var(--nsi-accent-200);
+    }
+
+    .nsi-error svg {
+        flex: none;
+    }
+
+    /* — buttons — */
+
+    .nsi .nsi-btn {
+        display: inline-flex;
+        align-items: center;
         justify-content: center;
-        transition: color 0.2s;
+        gap: 6px;
+        padding: var(--nsi-space-2) calc(var(--nsi-space-3) * 1.2);
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 1.2;
+        color: var(--nsi-text);
+        text-decoration: none;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--nsi-radius-md);
+        cursor: pointer;
     }
 
-    .password-toggle:hover {
-        color: #111111;
-    }
-
-    .password-toggle svg {
-        position: static;
-        pointer-events: auto;
-    }
-
-    .validation-msg {
-        color: #2b2b2b;
-        font-size: 0.8rem;
-        margin-top: 0.4rem;
+    .nsi .nsi-btn svg {
         display: block;
     }
 
-    .submit-btn {
-        width: 100%;
-        padding: 0.95rem 1.5rem;
-        background: linear-gradient(90deg, #0f0f0f, #2a2a2a);
-        color: #ffffff;
-        border: none;
-        border-radius: 0.9rem;
-        font-size: 1rem;
-        font-weight: 600;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.6rem;
-        transition: transform 0.2s, box-shadow 0.2s;
-        margin-top: 1.4rem;
-        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3);
-    }
-
-    .submit-btn:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 18px 34px rgba(0, 0, 0, 0.4);
-    }
-
-    .submit-btn:active:not(:disabled) {
-        transform: translateY(0);
-    }
-
-    .submit-btn:disabled {
-        opacity: 0.7;
+    .nsi .nsi-btn:disabled {
+        opacity: 0.45;
         cursor: not-allowed;
-        /* MudBlazor puts `color: var(--mud-palette-action-disabled) !important`
-           on every disabled button — near-black, and this button is near-black. */
-        color: #ffffff !important;
     }
 
-    .spinner {
-        width: 20px;
-        height: 20px;
-        border: 2px solid rgba(255, 255, 255, 0.35);
-        border-top-color: white;
-        border-radius: 50%;
-        animation: spin 0.8s linear infinite;
+    /* Nocturne's primary is an accent outline, never a fill. */
+    .nsi .nsi-btn-primary {
+        color: var(--nsi-accent);
+        border-color: var(--nsi-accent);
     }
 
-    .spinner-dark {
-        border-color: rgba(17, 17, 17, 0.18);
-        border-top-color: #111111;
+    .nsi .nsi-btn-primary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-accent) 12%, transparent);
     }
 
-    .passkey-divider {
+    .nsi .nsi-btn-primary:active:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-accent) 22%, transparent);
+    }
+
+    .nsi .nsi-btn-secondary {
+        border-color: var(--nsi-divider);
+    }
+
+    .nsi .nsi-btn-secondary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-text) 7%, transparent);
+    }
+
+    .nsi .nsi-btn-secondary:active:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-text) 14%, transparent);
+    }
+
+    .nsi .nsi-btn-ghost {
+        color: var(--nsi-accent);
+        padding-inline: var(--nsi-space-1);
+    }
+
+    .nsi .nsi-btn-ghost:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-accent) 10%, transparent);
+    }
+
+    .nsi .nsi-btn-block {
+        width: 100%;
+        margin-top: var(--nsi-space-2);
+    }
+
+    .nsi .nsi-submit {
+        min-height: 46px;
+        margin-top: 0;
+        font-size: 15px;
+        letter-spacing: 0.01em;
+    }
+
+    .nsi .nsi-passkey {
+        min-height: 46px;
+        margin-top: 0;
+        font-size: 14px;
+        gap: 9px;
+    }
+
+    .nsi .nsi-back {
+        margin-top: 14px;
+    }
+
+    .nsi-or {
         display: flex;
         align-items: center;
-        gap: 0.85rem;
-        margin-top: 1rem;
-        color: #9b9b9b;
-        font-size: 0.82rem;
-        text-transform: uppercase;
-        letter-spacing: 0.14em;
+        gap: 14px;
+        margin: 20px 0;
     }
 
-    .passkey-divider::before,
-    .passkey-divider::after {
-        content: "";
+    .nsi-or-line-l {
         flex: 1;
         height: 1px;
-        background: rgba(17, 17, 17, 0.1);
+        background: linear-gradient(to right, transparent, var(--nsi-divider));
     }
 
-    .passkey-btn {
-        width: 100%;
-        margin-top: 0.95rem;
-        min-height: 3.6rem;
-        background: #f5f5f5;
-        color: #111111;
-        border: 1px solid rgba(17, 17, 17, 0.08);
-        border-radius: 0.9rem;
-        font-size: 1rem;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.65rem;
-        transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    .nsi-or-line-r {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(to left, transparent, var(--nsi-divider));
     }
 
-    .passkey-btn:hover:not(:disabled) {
-        background: #eeeeee;
-        transform: translateY(-1px);
-        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.12);
+    .nsi-or-label {
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: color-mix(in srgb, var(--nsi-text) 45%, transparent);
     }
 
-    .passkey-note {
-        margin: 0.75rem 0 0;
-        color: #7a7a7a;
-        font-size: 0.84rem;
-        line-height: 1.45;
+    .nsi .nsi-note {
+        margin: 12px 0 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: color-mix(in srgb, var(--nsi-text) 48%, transparent);
     }
 
-    .footer-text {
+    .nsi-copy {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 26px;
         text-align: center;
-        color: #9b9b9b;
-        font-size: 0.85rem;
-        margin: 0;
+        font-size: 12px;
+        color: color-mix(in srgb, var(--nsi-text) 38%, transparent);
     }
 
-    .twofactor-step {
-        display: flex;
-        flex-direction: column;
-        gap: 1.1rem;
-        animation: fadeIn 0.25s ease;
-    }
-
-    @@keyframes fadeIn {
+    @@keyframes nsi-rise {
         from { opacity: 0; transform: translateY(8px); }
-        to   { opacity: 1; transform: translateY(0); }
+        to   { opacity: 1; transform: none; }
     }
 
-    .twofactor-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 56px;
-        height: 56px;
-        border-radius: 14px;
-        background: #f1f5f9;
-        color: #334155;
-        margin-bottom: 0.25rem;
-    }
-
-    .twofactor-title {
-        font-size: 1.3rem;
-        font-weight: 700;
-        color: #111;
-        margin: 0;
-    }
-
-    .twofactor-hint {
-        color: #6b7280;
-        font-size: 0.9rem;
-        margin: 0;
-    }
-
-    .twofactor-backup-toggle {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.875rem;
-        color: #6b7280;
-        cursor: pointer;
-        user-select: none;
-    }
-
-    .twofactor-cancel {
-        background: none;
-        border: none;
-        color: #6b7280;
-        font-size: 0.875rem;
-        cursor: pointer;
-        padding: 0;
-        text-align: left;
-        text-decoration: underline;
-        width: fit-content;
-    }
-
-    .twofactor-cancel:hover {
-        color: #111;
-    }
-
-    .dark-theme .twofactor-icon {
-        /* A shade below the card, matching the inputs — #1e293b would be the
-           card's own colour and the tile would vanish. */
-        background: #0f172a;
-        color: #94a3b8;
-    }
-
-    .dark-theme .twofactor-title {
-        color: #f1f5f9;
-    }
-
-    .dark-theme .twofactor-hint {
-        color: #94a3b8;
-    }
-
-    .dark-theme .twofactor-backup-toggle {
-        color: #94a3b8;
-    }
-
-    .dark-theme .twofactor-cancel {
-        /* #64748b only reaches 3.6:1 on this card, and this is a link, not chrome. */
-        color: #94a3b8;
-    }
-
-    .dark-theme .twofactor-cancel:hover {
-        color: #e2e8f0;
-    }
-
-    @@keyframes spin {
-        to {
-            transform: rotate(360deg);
+    @@media (prefers-reduced-motion: reduce) {
+        .nsi-formcard {
+            animation: none;
         }
     }
 
-    @@keyframes float {
-
-        0%,
-        100% {
-            transform: translateY(0);
-        }
-
-        50% {
-            transform: translateY(-12px);
-        }
-    }
-
-    @@keyframes fadeUp {
-        from {
-            opacity: 0;
-            transform: translateY(16px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@media (max-width: 1024px) {
-        .auth-shell {
+    /* Below the two-column breakpoint the columns stack, the column edge
+       becomes the seam between them, and the footer rejoins the flow. */
+    @@media (max-width: 900px) {
+        .nsi {
             grid-template-columns: 1fr;
         }
 
-        .auth-visual {
-            min-height: 280px;
+        .nsi-edge {
+            inset: auto 0 0 0;
+            width: auto;
+            height: 1px;
+            background: linear-gradient(to right,
+                transparent, var(--nsi-divider) 48px,
+                var(--nsi-divider) calc(100% - 48px), transparent);
+        }
+
+        .nsi-brandside {
+            padding: 32px 28px;
+            gap: 28px;
+        }
+
+        .nsi .nsi-title {
+            font-size: 38px;
+        }
+
+        .nsi-formside {
+            padding: 36px 28px;
+        }
+
+        .nsi-copy {
+            position: static;
+            margin-top: 32px;
         }
     }
 
-    @@media (max-width: 640px) {
-        .auth-form {
-            padding: 2.5rem 1.5rem;
+    @@media (max-width: 520px) {
+        .nsi-brandside {
+            padding: 26px 20px;
         }
 
-        .auth-visual {
-            padding: 2rem;
+        .nsi-formside {
+            padding: 30px 20px;
         }
 
-        .visual-card {
-            padding: 1.6rem;
+        .nsi .nsi-title {
+            font-size: 30px;
         }
 
-        .visual-card h2 {
-            font-size: 1.6rem;
+        .nsi .nsi-formtitle {
+            font-size: 28px;
         }
-    }
-
-    .dark-theme .auth-shell {
-        background: #1e293b;
-    }
-
-    .dark-theme .login-header h1 {
-        color: #f1f5f9;
-    }
-
-    .dark-theme .subtitle {
-        color: #94a3b8;
-    }
-
-    .dark-theme .form-group label {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .form-input {
-        background: #0f172a;
-        border-color: #334155;
-        color: #f1f5f9;
-    }
-
-    .dark-theme .form-input:focus {
-        background: #1e293b;
-        border-color: #818cf8;
-        color: #f1f5f9;
-        box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2);
-    }
-
-    .dark-theme .form-input::placeholder {
-        color: #64748b;
-    }
-
-    .dark-theme .input-wrapper svg {
-        color: #64748b;
-    }
-
-    .dark-theme .input-wrapper:focus-within svg {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .password-toggle {
-        color: #64748b;
-    }
-
-    .dark-theme .password-toggle:hover {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .error-message {
-        background: #0f172a;
-        border-color: #334155;
-        color: #f1f5f9;
-    }
-
-    .dark-theme .passkey-divider {
-        color: #64748b;
-    }
-
-    .dark-theme .passkey-divider::before,
-    .dark-theme .passkey-divider::after {
-        background: rgba(148, 163, 184, 0.15);
-    }
-
-    .dark-theme .passkey-btn {
-        background: #0f172a;
-        color: #f1f5f9;
-        border-color: #334155;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
-    }
-
-    .dark-theme .passkey-btn:hover:not(:disabled) {
-        background: #132033;
-        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.22);
-    }
-
-    .dark-theme .spinner-dark {
-        border-color: rgba(226, 232, 240, 0.18);
-        border-top-color: #e2e8f0;
-    }
-
-    .dark-theme .passkey-note {
-        color: #94a3b8;
-    }
-
-    .dark-theme .footer-text {
-        color: #64748b;
-    }
-
-    .dark-theme .eyebrow {
-        background: #f1f5f9;
-        color: #0f172a;
     }
 </style>
 
@@ -947,6 +889,14 @@
 
     private async Task HandleLogin()
     {
+        // LoginModel carries no DataAnnotations, so EditForm's OnValidSubmit
+        // fires on an empty form too; the design states the check here.
+        if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrEmpty(loginModel.Password))
+        {
+            errorMessage = "Enter your username and password to continue.";
+            return;
+        }
+
         Logger.LogInformation("HandleLogin started for user: {Username}", loginModel.Username);
         isLoading = true;
         errorMessage = null;
