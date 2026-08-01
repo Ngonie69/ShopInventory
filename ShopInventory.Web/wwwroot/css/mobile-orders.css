@@ -1,0 +1,1580 @@
+/* ==========================================================================
+   Mobile Orders — Nocturne
+
+   Replicates the imported design (Mobile Orders.dc.html) on the Nocturne
+   design system: a dense review queue on a near-neutral blue-grey ground,
+   Inter at 500, 8px radii, outlined actions, and rules that fade to
+   transparent over 48px at each end rather than stopping cleanly.
+
+   The import draws the whole app shell — sidebar, top search bar, user chip.
+   Only the content column is built here; the app already carries its own nav
+   and topbar, and this page renders inside them like every other page.
+
+   The import is a single dark scheme, so the dark palette below is the
+   design's own — #161826 ground, #232532 surface, the #9184d9 blurple accent
+   and its OKLCH ramps, unchanged. The light palette is its daylight
+   counterpart, re-anchored on paper with the accent taken down to #5f52c4 so
+   it can carry text (#9184d9 is 3.0:1 on white — enough for chrome, not for
+   the order numbers and status words it has to colour here).
+
+   Light is the base and `.dark-theme` the override, matching the rest of the
+   app and the order App.razor's pre-paint script stamps the class in, so
+   neither scheme flashes.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same reason as credit-notes.css: app.css carries global `.dark-theme
+   input/select` rules that have to be out-specified, so every control carries
+   a class and every control selector is two classes deep, winning regardless
+   of load order.
+   ========================================================================== */
+
+.mox,
+.mox-overlay {
+    --mox-bg: #f4f4f8;
+    --mox-surface: #ffffff;
+    --mox-field: #ffffff;
+    --mox-ink: #1b1c26;
+    --mox-ink-2: #35374a;
+    --mox-mute: #4e5164;
+    --mox-mute-2: #656879;
+    --mox-mute-3: #7b7e8e;
+    --mox-faint: #a0a2ae;
+    --mox-placeholder: #9498a8;
+    --mox-divider: rgba(27, 28, 38, .14);
+    --mox-rowline: rgba(27, 28, 38, .09);
+    --mox-hover: rgba(27, 28, 38, .04);
+    --mox-press: rgba(27, 28, 38, .09);
+    --mox-field-edge: #d4d6e2;
+    --mox-field-edge-hi: #a9adc0;
+    --mox-accent: #5f52c4;
+    --mox-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-300 (a pale lavender); on paper the same role has to be
+       the deep end of the ramp instead. */
+    --mox-accent-text: #473d99;
+    --mox-accent-text-2: #362e7d;
+    /* The one filled accent in the design — the bulk Approve pill. Nocturne
+       outlines its actions, but the import fills this one because it appears
+       only inside the selection bar's own accent tint, where an outline would
+       vanish. */
+    --mox-accent-solid: #5f52c4;
+    --mox-accent-solid-hi: #4c419f;
+    --mox-accent-solid-ink: #ffffff;
+    --mox-avatar-bg: #e4e2f7;
+    --mox-avatar-ink: #473d99;
+    --mox-tag-bg: #e4e7f5;
+    --mox-tag-ink: #3f424d;
+    --mox-dot-idle: #b2b6ca;
+    --mox-bad: #b3273c;
+    --mox-bad-bg: #fdf0f2;
+    --mox-bad-edge: #f0ccd3;
+    --mox-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --mox-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
+    --mox-scrim: rgba(41, 43, 49, .34);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --mox-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --mox-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --mox-s1: 2.8px;
+    --mox-s2: 5.6px;
+    --mox-s3: 8.4px;
+    --mox-s4: 11.2px;
+    --mox-s6: 16.8px;
+    --mox-s8: 22.4px;
+    --mox-r-sm: 4px;
+    --mox-r-md: 8px;
+    --mox-r-lg: 14px;
+
+    color-scheme: var(--mox-scheme);
+}
+
+.dark-theme .mox,
+.dark-theme .mox-overlay {
+    --mox-bg: #161826;
+    --mox-surface: #232532;
+    --mox-field: #232532;
+    --mox-ink: #e9e9ed;
+    --mox-ink-2: #cfd3e5;
+    --mox-mute: #b2b6ca;
+    --mox-mute-2: #9397ab;
+    --mox-mute-3: #75798c;
+    --mox-faint: #595d6c;
+    --mox-placeholder: #6b6b77;
+    --mox-divider: rgba(233, 233, 237, .16);
+    --mox-rowline: rgba(233, 233, 237, .08);
+    --mox-hover: rgba(233, 233, 237, .04);
+    --mox-press: rgba(233, 233, 237, .1);
+    --mox-field-edge: rgba(233, 233, 237, .16);
+    --mox-field-edge-hi: rgba(233, 233, 237, .45);
+    --mox-accent: #9184d9;
+    --mox-accent-rgb: 145, 132, 217;
+    --mox-accent-text: #d2cefd;
+    --mox-accent-text-2: #e7e5fe;
+    --mox-accent-solid: #5d5294;
+    --mox-accent-solid-hi: #796cbf;
+    --mox-accent-solid-ink: #f5f4ff;
+    --mox-avatar-bg: #423a6a;
+    --mox-avatar-ink: #e7e5fe;
+    --mox-tag-bg: #3f424d;
+    --mox-tag-ink: #f3f5fe;
+    --mox-dot-idle: #75798c;
+    --mox-bad: #e8697d;
+    --mox-bad-bg: #2f2028;
+    --mox-bad-edge: #4a2c35;
+    --mox-shadow-sm: 0 0 0 1px #3f424d;
+    --mox-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+    --mox-scrim: rgba(10, 11, 18, .62);
+    --mox-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --mox-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.mox {
+    min-height: 100vh;
+    background: var(--mox-bg);
+    color: var(--mox-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mox *,
+.mox-overlay * {
+    box-sizing: border-box;
+}
+
+.mox :focus-visible,
+.mox-overlay :focus-visible {
+    outline: 2px solid var(--mox-accent);
+    outline-offset: 2px;
+}
+
+.mox ::selection,
+.mox-overlay ::selection {
+    background: rgba(var(--mox-accent-rgb), .3);
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-control separators stay solid. */
+.mox-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--mox-divider) 48px,
+            var(--mox-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.mox-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--mox-bg) 88%, transparent);
+}
+
+@supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+    .mox-head {
+        background: var(--mox-bg);
+    }
+}
+
+.mox-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--mox-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--mox-s8);
+}
+
+.mox-titles {
+    margin-right: auto;
+    min-width: 0;
+}
+
+.mox-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--mox-accent-text);
+    margin-bottom: var(--mox-s2);
+}
+
+.mox-title {
+    margin: 0 0 5px;
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    color: var(--mox-ink);
+}
+
+.mox-sub {
+    margin: 0;
+    max-width: 52ch;
+    font-size: 13px;
+    color: var(--mox-mute-2);
+    text-wrap: pretty;
+}
+
+.mox-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s3);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.mox-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--mox-s6) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--mox-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.mox .mox-btn,
+.mox-overlay .mox-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--mox-s2) calc(var(--mox-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--mox-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--mox-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.mox .mox-btn:disabled,
+.mox-overlay .mox-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.mox .mox-btn-primary,
+.mox-overlay .mox-btn-primary {
+    color: var(--mox-accent);
+    border-color: var(--mox-accent);
+    letter-spacing: .02em;
+}
+
+.mox .mox-btn-primary:hover:not(:disabled),
+.mox-overlay .mox-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--mox-accent-rgb), .12);
+}
+
+.mox .mox-btn-primary:active:not(:disabled),
+.mox-overlay .mox-btn-primary:active:not(:disabled) {
+    background: rgba(var(--mox-accent-rgb), .22);
+}
+
+.mox .mox-btn-secondary,
+.mox-overlay .mox-btn-secondary {
+    color: var(--mox-mute);
+    border-color: var(--mox-divider);
+}
+
+.mox .mox-btn-secondary:hover:not(:disabled),
+.mox-overlay .mox-btn-secondary:hover:not(:disabled) {
+    color: var(--mox-ink);
+    border-color: var(--mox-field-edge-hi);
+    background: var(--mox-hover);
+}
+
+.mox .mox-btn-secondary:active:not(:disabled),
+.mox-overlay .mox-btn-secondary:active:not(:disabled) {
+    background: var(--mox-press);
+}
+
+.mox .mox-btn-ghost,
+.mox-overlay .mox-btn-ghost {
+    color: var(--mox-accent);
+    padding-inline: var(--mox-s2);
+}
+
+.mox .mox-btn-ghost:hover:not(:disabled),
+.mox-overlay .mox-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--mox-accent-rgb), .1);
+}
+
+.mox .mox-btn-ghost:active:not(:disabled),
+.mox-overlay .mox-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--mox-accent-rgb), .18);
+}
+
+.mox .mox-btn-bad,
+.mox-overlay .mox-btn-bad {
+    color: var(--mox-bad);
+    border-color: var(--mox-bad-edge);
+}
+
+.mox .mox-btn-bad:hover:not(:disabled),
+.mox-overlay .mox-btn-bad:hover:not(:disabled) {
+    background: var(--mox-bad-bg);
+}
+
+.mox .mox-btn-sm,
+.mox-overlay .mox-btn-sm {
+    height: 28px;
+    font-size: 12.5px;
+}
+
+.mox .mox-btn-pill,
+.mox-overlay .mox-btn-pill {
+    border-radius: 999px;
+}
+
+.mox .mox-btn svg,
+.mox-overlay .mox-btn svg {
+    display: block;
+    width: 1em;
+    height: 1em;
+    fill: currentColor;
+    flex: none;
+}
+
+.mox .mox-btn i,
+.mox-overlay .mox-btn i {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* ── Stat tiles ────────────────────────────────────────────────────────── */
+
+.mox-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--mox-s4);
+}
+
+.mox-stat {
+    padding: var(--mox-s6) 18px;
+    border: 1px solid var(--mox-divider);
+    border-radius: var(--mox-r-lg);
+    background: var(--mox-surface);
+}
+
+/* The one tile the design lights: a soft accent wash falling away over the
+   top-left corner, not a flood. */
+.mox-stat.is-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--mox-accent-rgb), .12), transparent 62%),
+        var(--mox-surface);
+}
+
+.mox-stat.is-live {
+    border-color: rgba(var(--mox-accent-rgb), .32);
+}
+
+.mox-stat-label {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--mox-mute-2);
+}
+
+.mox-stat.is-lead .mox-stat-label,
+.mox-stat.is-live .mox-stat-label {
+    color: var(--mox-accent-text);
+}
+
+/* A short accent mark, solid — only freestanding rules fade. */
+.mox-stat-mark {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--mox-dot-idle);
+}
+
+.mox-stat.is-lead .mox-stat-mark {
+    background: var(--mox-accent);
+}
+
+.mox-stat-pip {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--mox-accent);
+    animation: mox-pulse 2.4s ease-in-out infinite;
+}
+
+.mox-stat-value {
+    margin-top: var(--mox-s4);
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.mox-stat-value.is-quiet {
+    color: var(--mox-ink-2);
+}
+
+.mox-stat-foot {
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--mox-mute-3);
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.mox-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--mox-surface);
+    border-radius: var(--mox-r-lg);
+    box-shadow: var(--mox-shadow-sm);
+    overflow: hidden;
+}
+
+.mox-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s4);
+    flex-wrap: wrap;
+    padding: var(--mox-s4) var(--mox-s8);
+    min-height: 56px;
+}
+
+.mox-tabs {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s1);
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--mox-hover);
+}
+
+.mox .mox-tab {
+    padding: 5px 13px;
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--mox-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, color .14s, box-shadow .14s;
+}
+
+.mox .mox-tab:hover {
+    color: var(--mox-ink);
+}
+
+.mox .mox-tab.is-on {
+    color: var(--mox-accent-text);
+    background: rgba(var(--mox-accent-rgb), .16);
+    box-shadow: inset 0 0 0 1px rgba(var(--mox-accent-rgb), .45);
+}
+
+.mox-shown {
+    font-size: 12.5px;
+    color: var(--mox-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.mox-toolbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    flex-wrap: wrap;
+}
+
+/* The selection bar: an accent tint with its own ring, carrying the count and
+   the bulk action. */
+.mox-selbar {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s3);
+    padding: 4px 5px 4px 13px;
+    border-radius: 999px;
+    background: rgba(var(--mox-accent-rgb), .13);
+    box-shadow: inset 0 0 0 1px rgba(var(--mox-accent-rgb), .4);
+}
+
+.mox-selcount {
+    font-size: 12.5px;
+    color: var(--mox-accent-text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.mox .mox-btn-solid {
+    color: var(--mox-accent-solid-ink);
+    background: var(--mox-accent-solid);
+    border-color: transparent;
+    border-radius: 999px;
+}
+
+.mox .mox-btn-solid:hover:not(:disabled) {
+    background: var(--mox-accent-solid-hi);
+}
+
+.mox-filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    background: rgba(var(--mox-accent-rgb), .18);
+    color: var(--mox-accent-text);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.mox-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--mox-s4);
+    flex-wrap: wrap;
+    padding: 0 var(--mox-s8) var(--mox-s6);
+}
+
+.mox-field > label {
+    display: block;
+    font-size: 11.5px;
+    margin-bottom: 4px;
+    color: var(--mox-mute);
+}
+
+.mox .mox-input,
+.mox-overlay .mox-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--mox-ink);
+    caret-color: var(--mox-accent);
+    background: var(--mox-field);
+    background-image: none;
+    border: 1px solid var(--mox-field-edge);
+    border-radius: var(--mox-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.mox .mox-input:hover,
+.mox-overlay .mox-input:hover {
+    border-color: var(--mox-field-edge-hi);
+}
+
+.mox .mox-input:focus-visible,
+.mox-overlay .mox-input:focus-visible {
+    border-color: var(--mox-accent);
+    outline-offset: 0;
+}
+
+.mox .mox-input::placeholder,
+.mox-overlay .mox-input::placeholder {
+    color: var(--mox-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--mox-placeholder);
+}
+
+.mox .mox-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The date input's own indicator is the control's only affordance, so it is
+   tinted to the ink rather than left as the browser's black-on-dark default. */
+.mox .mox-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+}
+
+.dark-theme .mox .mox-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.mox-select {
+    position: relative;
+}
+
+.mox .mox-select select.mox-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.mox-select .mox-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--mox-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.mox-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    margin-left: auto;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.mox-tablewrap {
+    overflow-x: auto;
+}
+
+.mox-table {
+    width: 100%;
+    min-width: 1240px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.mox-table th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--mox-mute-3);
+    padding: var(--mox-s2);
+    white-space: nowrap;
+}
+
+.mox-table td {
+    padding: var(--mox-s3) var(--mox-s2);
+    vertical-align: middle;
+}
+
+.mox-table th:first-child,
+.mox-table td:first-child {
+    width: 34px;
+    padding-left: var(--mox-s8);
+}
+
+.mox-table th:last-child,
+.mox-table td:last-child {
+    padding-right: var(--mox-s8);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.mox-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Row rules are painted as row-level strips so the end-fade spans the row
+   rather than restarting in every cell. */
+.mox-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--mox-divider) 48px,
+            var(--mox-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mox-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--mox-rowline) 48px,
+            var(--mox-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mox-table tbody tr:hover {
+    /* the hover tint layers over the row rule, which keeps painting */
+    background:
+        linear-gradient(var(--mox-hover), var(--mox-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--mox-rowline) 48px,
+            var(--mox-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mox-table tbody tr.is-selected,
+.mox-table tbody tr.is-selected:hover {
+    background:
+        linear-gradient(rgba(var(--mox-accent-rgb), .07), rgba(var(--mox-accent-rgb), .07)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--mox-rowline) 48px,
+            var(--mox-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.mox-th-sort {
+    cursor: pointer;
+    user-select: none;
+}
+
+.mox-th-sort:hover {
+    color: var(--mox-ink-2);
+}
+
+.mox-th-sort .mox-sort-mark {
+    margin-left: 4px;
+    font-size: 9px;
+    color: var(--mox-accent);
+}
+
+.mox .mox-check {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--mox-accent);
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.mox .mox-check:disabled {
+    cursor: not-allowed;
+    opacity: .35;
+}
+
+.mox .mox-docnum {
+    display: block;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+    color: var(--mox-accent-text);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.mox .mox-docnum:hover {
+    color: var(--mox-accent-text-2);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* The submission's sync state, sitting under the order number. */
+.mox-sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--mox-mute-3);
+}
+
+.mox-sync .mox-sync-dot {
+    width: 4px;
+    height: 4px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--mox-accent-solid);
+}
+
+.mox-sync.is-queued {
+    color: var(--mox-mute-2);
+}
+
+.mox-sync.is-queued .mox-sync-dot {
+    background: var(--mox-dot-idle);
+    animation: mox-pulse 2.4s ease-in-out infinite;
+}
+
+.mox-cust {
+    min-width: 0;
+    max-width: 220px;
+}
+
+.mox-cust-name {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mox-cust-meta {
+    display: block;
+    margin-top: 1px;
+    font-size: 11.5px;
+    color: var(--mox-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Submitted by: who keyed the order, and off what. */
+.mox-by {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s3);
+    min-width: 0;
+    max-width: 230px;
+}
+
+.mox-avatar {
+    width: 25px;
+    height: 25px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    background: var(--mox-avatar-bg);
+    color: var(--mox-avatar-ink);
+}
+
+.mox-by-text {
+    min-width: 0;
+}
+
+.mox-by-name {
+    display: block;
+    font-size: 12.5px;
+    color: var(--mox-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mox-by-device {
+    display: block;
+    font-size: 11px;
+    color: var(--mox-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mox-by-device i {
+    font-size: 11px;
+    vertical-align: -1px;
+}
+
+.mox-when {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--mox-ink-2);
+}
+
+.mox-when-at {
+    display: block;
+    margin-top: 1px;
+    font-size: 11px;
+    color: var(--mox-mute-3);
+}
+
+.mox-ccy {
+    font-size: 11.5px;
+    letter-spacing: .06em;
+    color: var(--mox-mute-2);
+}
+
+/* Status tones. This is a mono palette, so the ramp does the separating:
+   settled work carries the accent, work still in the queue carries it faintly,
+   untouched work stays neutral, and only a genuine failure state leaves the
+   accent for the bad ink. */
+.mox-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px 3px 7px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: nowrap;
+    color: var(--mox-mute);
+    background: var(--mox-hover);
+}
+
+.mox-status .mox-dot {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--mox-dot-idle);
+}
+
+.mox-status.is-open {
+    color: var(--mox-accent-text);
+    background: rgba(var(--mox-accent-rgb), .08);
+}
+
+.mox-status.is-open .mox-dot {
+    background: var(--mox-accent);
+    animation: mox-pulse 2.4s ease-in-out infinite;
+}
+
+.mox-status.is-done {
+    color: var(--mox-accent-text);
+    background: rgba(var(--mox-accent-rgb), .14);
+}
+
+.mox-status.is-done .mox-dot {
+    background: var(--mox-accent);
+}
+
+.mox-status.is-bad {
+    color: var(--mox-bad);
+    background: var(--mox-bad-bg);
+}
+
+.mox-status.is-bad .mox-dot {
+    background: var(--mox-bad);
+}
+
+.mox-total {
+    font-size: 13.5px;
+    letter-spacing: -.01em;
+}
+
+.mox-sap {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--mox-ink-2);
+}
+
+.mox-sap.is-waiting {
+    color: var(--mox-mute-2);
+}
+
+.mox-sap.is-none {
+    color: var(--mox-faint);
+}
+
+.mox-rowactions {
+    display: inline-flex;
+    gap: 1px;
+    justify-content: flex-end;
+}
+
+.mox .mox-iconbtn {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--mox-r-sm);
+    background: transparent;
+    color: var(--mox-mute-2);
+    cursor: pointer;
+    transition: background-color .14s, color .14s;
+}
+
+.mox .mox-iconbtn:hover:not(:disabled) {
+    background: var(--mox-press);
+    color: var(--mox-ink);
+}
+
+.mox .mox-iconbtn:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.mox .mox-iconbtn.is-accent {
+    color: var(--mox-accent);
+}
+
+.mox .mox-iconbtn.is-accent:hover:not(:disabled) {
+    background: rgba(var(--mox-accent-rgb), .16);
+    color: var(--mox-accent-text);
+}
+
+.mox .mox-iconbtn.is-bad:hover:not(:disabled) {
+    background: var(--mox-bad-bg);
+    color: var(--mox-bad);
+}
+
+.mox .mox-iconbtn svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.mox-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--mox-s3);
+    padding: 56px var(--mox-s6);
+    font-size: 13.5px;
+    color: var(--mox-mute);
+}
+
+.mox-empty i {
+    font-size: 22px;
+    color: var(--mox-accent);
+    opacity: .8;
+}
+
+.mox-empty strong {
+    font-weight: 500;
+    color: var(--mox-ink);
+}
+
+.mox-skel {
+    height: 11px;
+    border-radius: var(--mox-r-sm);
+    background: var(--mox-rowline);
+    animation: mox-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mox-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .4;
+    }
+}
+
+.mox-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: mox-spin .7s linear infinite;
+}
+
+@keyframes mox-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .mox-skel,
+    .mox-stat-pip,
+    .mox-sync.is-queued .mox-sync-dot,
+    .mox-status.is-open .mox-dot {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.mox-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s4);
+    flex-wrap: wrap;
+    padding: var(--mox-s4) var(--mox-s8);
+    border-top: 1px solid var(--mox-divider);
+}
+
+.mox-foot-range {
+    font-size: 12.5px;
+    color: var(--mox-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.mox-pagesize {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    font-size: 12.5px;
+    color: var(--mox-mute-3);
+}
+
+.mox-pagesize .mox-select {
+    width: 68px;
+}
+
+.mox-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    margin-left: auto;
+}
+
+.mox-page-label {
+    font-size: 12.5px;
+    color: var(--mox-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 84px;
+    text-align: center;
+}
+
+/* ── Alert ─────────────────────────────────────────────────────────────── */
+
+.mox-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--mox-s3);
+    padding: var(--mox-s3) var(--mox-s4);
+    border-radius: var(--mox-r-md);
+    background: var(--mox-bad-bg);
+    border: 1px solid var(--mox-bad-edge);
+    color: var(--mox-bad);
+    font-size: 13px;
+}
+
+.mox-alert-body {
+    flex: 1;
+}
+
+/* ── Overlays: drawer and viewer ───────────────────────────────────────── */
+/* Both render below the app bar rather than over it: the page container is a
+   stacking context, so an overlay centred on the full viewport is painted
+   over by the topbar however high its z-index. */
+
+.mox-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--mox-ink);
+}
+
+.mox-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--mox-scrim);
+    z-index: 9998;
+}
+
+.mox-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(660px, 96vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--mox-surface);
+    box-shadow: var(--mox-shadow-lg);
+    font-size: 14px;
+}
+
+.mox-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s4);
+    padding: var(--mox-s4) var(--mox-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--mox-divider);
+}
+
+.mox-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s3);
+    min-width: 0;
+}
+
+.mox-drawer-title i {
+    color: var(--mox-accent);
+    font-size: 15px;
+    flex: none;
+}
+
+.mox-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--mox-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--mox-s6);
+}
+
+.mox-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--mox-s2);
+    flex-wrap: wrap;
+    padding: var(--mox-s4) var(--mox-s6);
+    border-top: 1px solid var(--mox-divider);
+    flex-shrink: 0;
+}
+
+.mox-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--mox-s4);
+}
+
+.mox-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mox-mute-3);
+    margin-bottom: 2px;
+}
+
+.mox-dd {
+    font-size: 13.5px;
+    color: var(--mox-ink);
+    word-break: break-word;
+}
+
+.mox-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mox-accent-text);
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    margin-bottom: var(--mox-s3);
+}
+
+.mox-note {
+    padding: var(--mox-s3) var(--mox-s4);
+    border-radius: var(--mox-r-md);
+    background: var(--mox-hover);
+    font-size: 13px;
+    color: var(--mox-ink-2);
+}
+
+.mox-note p {
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.mox-note.is-bad {
+    background: var(--mox-bad-bg);
+    border: 1px solid var(--mox-bad-edge);
+    color: var(--mox-bad);
+}
+
+.mox-file {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--mox-s4);
+    padding: var(--mox-s3) var(--mox-s4);
+    border-radius: var(--mox-r-md);
+    background: var(--mox-hover);
+}
+
+.mox-file + .mox-file {
+    margin-top: var(--mox-s2);
+}
+
+.mox-file-name {
+    font-size: 13px;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.mox-file-meta {
+    font-size: 11.5px;
+    color: var(--mox-mute-3);
+}
+
+.mox-file-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.mox-coords {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s6);
+    flex-wrap: wrap;
+    margin-bottom: var(--mox-s3);
+    font-size: 12.5px;
+    color: var(--mox-mute);
+    font-variant-numeric: tabular-nums;
+}
+
+.mox .mox-maplink {
+    margin-left: auto;
+    color: var(--mox-accent-text);
+    text-decoration: none;
+}
+
+.mox .mox-maplink:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.mox-map {
+    border-radius: var(--mox-r-md);
+    overflow: hidden;
+    border: 1px solid var(--mox-divider);
+}
+
+.mox-map iframe {
+    display: block;
+    width: 100%;
+    height: 200px;
+    border: 0;
+}
+
+.mox-lines-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--mox-s4);
+    flex-wrap: wrap;
+}
+
+.mox-lines-head .mox-sect {
+    margin-bottom: 0;
+}
+
+.mox-pills {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s2);
+    flex-wrap: wrap;
+}
+
+.mox-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    white-space: nowrap;
+    background: var(--mox-tag-bg);
+    color: var(--mox-tag-ink);
+}
+
+.mox-lines {
+    width: 100%;
+    margin-top: var(--mox-s3);
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.mox-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--mox-mute-3);
+    padding: var(--mox-s2);
+    white-space: nowrap;
+}
+
+.mox-lines td {
+    padding: var(--mox-s2);
+    color: var(--mox-ink-2);
+}
+
+/* A row rule, not a row fill: the strip needs a gradient, because a bare colour
+   in `background` ignores the 1px size and floods the whole row. These rules do
+   not fade at the ends — inside a box, Nocturne keeps its separators solid. */
+.mox-lines thead tr,
+.mox-lines tbody tr,
+.mox-lines tfoot tr:first-child {
+    background: linear-gradient(var(--mox-rowline), var(--mox-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.mox-lines tfoot td {
+    color: var(--mox-ink);
+}
+
+.mox-lines .mox-item {
+    font-weight: 500;
+    color: var(--mox-accent-text);
+}
+
+.mox-grand {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--mox-s4);
+    padding: var(--mox-s4) var(--mox-s6);
+    border-radius: var(--mox-r-md);
+    border: 1px solid var(--mox-accent);
+    background: rgba(var(--mox-accent-rgb), .08);
+}
+
+.mox-grand-label {
+    font-size: 13px;
+    color: var(--mox-mute);
+}
+
+.mox-grand-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--mox-accent-text);
+}
+
+.mox-viewer-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--mox-s6);
+    background: var(--mox-scrim);
+}
+
+.mox-viewer {
+    width: min(1100px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--mox-s8) * 2);
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--mox-r-lg);
+    background: var(--mox-surface);
+    box-shadow: var(--mox-shadow-lg);
+    overflow: hidden;
+}
+
+.mox-viewer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--mox-s4);
+    padding: var(--mox-s4) var(--mox-s6);
+    border-bottom: 1px solid var(--mox-divider);
+    flex-shrink: 0;
+}
+
+.mox-viewer-name {
+    margin: 0 auto 0 0;
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mox-viewer-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+    overflow: auto;
+    background: var(--mox-bg);
+}
+
+.mox-viewer-body img {
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+}
+
+.mox-viewer-body iframe {
+    width: 100%;
+    height: calc(100vh - var(--kf-topbar-h, 74px) - 140px);
+    border: 0;
+    background: var(--mox-surface);
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 1080px) {
+    .mox-stats {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 860px) {
+    .mox-shell,
+    .mox-body {
+        padding-left: var(--mox-s6);
+        padding-right: var(--mox-s6);
+    }
+
+    .mox-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--mox-s4);
+    }
+
+    .mox-head-actions {
+        justify-content: flex-end;
+    }
+
+    .mox-toolbar,
+    .mox-filters,
+    .mox-foot {
+        padding-left: var(--mox-s6);
+        padding-right: var(--mox-s6);
+    }
+
+    .mox-table th:first-child,
+    .mox-table td:first-child {
+        padding-left: var(--mox-s6);
+    }
+
+    .mox-table th:last-child,
+    .mox-table td:last-child {
+        padding-right: var(--mox-s6);
+    }
+
+    .mox-toolbar-right {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .mox-field {
+        flex: 1 1 140px;
+    }
+
+    .mox-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .mox-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mox-pager {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
+@media (max-width: 560px) {
+    .mox-stats {
+        grid-template-columns: 1fr;
+    }
+}
