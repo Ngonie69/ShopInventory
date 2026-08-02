@@ -6,476 +6,523 @@
 @inject IMasterDataCacheService CacheService
 @rendermode InteractiveServer
 
-<PageTitle>Approval Process Setup</PageTitle>
+<PageTitle>Approval Process - Shop Inventory</PageTitle>
 
-<div class="container-fluid py-4 approval-setup">
-    <div class="setup-header d-flex justify-content-between align-items-start mb-4">
-        <div>
-            <h2 class="mb-1"><i class="bi bi-diagram-3 me-2 text-primary"></i>Approval Process Setup</h2>
-            <p class="text-muted mb-0">Configure SAP B1-style approval stages, authorizers, thresholds, originators and transfer conditions.</p>
+@* The imported Nocturne design is dark; wwwroot/css/approval-process.css
+   (linked from App.razor) carries it and its light counterpart, and follows
+   the app's theme toggle like every other page.
+
+   Icons are drawn inline rather than from the Phosphor font: the search glyph
+   sits inside a field and the tick is the whole of a checkbox, so a font that
+   failed to load would leave both reading as nothing.
+
+   The design draws a role and a person as buttons. They are native checkboxes
+   in labels here — identical to look at, but they keep the roving focus, the
+   space key and the "checked" a screen reader announces, none of which a
+   button gives for free. The Active switch is the same trick. *@
+
+<div class="apr">
+
+    <header class="apr-head">
+        <div class="apr-head-inner">
+            <nav class="apr-crumbs" aria-label="Breadcrumb">
+                <span>Administration</span>
+                <span class="apr-crumb-sep" aria-hidden="true">/</span>
+                <span class="apr-crumb-now" aria-current="page">Approval process</span>
+            </nav>
+            <div class="apr-head-actions">
+                <button type="button" class="apr-btn apr-btn-ghost" disabled="@(isLoading || isSaving)"
+                        @onclick="LoadAsync">
+                    @if (isLoading)
+                    {
+                        <span class="apr-spin" aria-hidden="true"></span>
+                        <span>Refreshing&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
         </div>
-        <button class="btn btn-outline-primary" @onclick="LoadAsync" disabled="@isLoading"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
-    </div>
+    </header>
 
-    @if (!string.IsNullOrWhiteSpace(message))
-    {
-        <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
-    }
+    <div class="apr-body">
 
-    <MudTabs Rounded="true" Elevation="0" Class="approval-tabs">
-        <MudTabPanel Text="Approval Stages" Icon="@Icons.Material.Filled.AccountTree">
-            <div class="setup-grid">
-                <section class="definition-list">
-                    <button class="btn new-definition-btn w-100 mb-3" @onclick="NewStage"><i class="bi bi-plus-lg me-1"></i>New Stage</button>
+        <section class="apr-hero">
+            <div class="apr-kicker">Workflow</div>
+            <h1>Approval process</h1>
+            <p>
+                Stages define who signs off. Templates decide which documents route through which stages,
+                and in what order.
+            </p>
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="apr-msg @(isError ? "apr-msg-error" : "")" role="@(isError ? "alert" : "status")">
+                @if (isError)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                    </svg>
+                }
+                else
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M8 12.5l2.7 2.7L16 9.8"></path>
+                    </svg>
+                }
+                <span>@message</span>
+                <button type="button" class="apr-msg-x" aria-label="Dismiss" @onclick="() => message = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
+        }
+
+        <div class="apr-tabs" role="tablist">
+            <button type="button" role="tab" class="apr-tab @(OnStages ? "apr-tab-on" : "")"
+                    aria-selected="@OnStages" @onclick="() => SwitchTab(StagesTab)">
+                Approval stages
+            </button>
+            <button type="button" role="tab" class="apr-tab @(OnStages ? "" : "apr-tab-on")"
+                    aria-selected="@(!OnStages)" @onclick="() => SwitchTab(TemplatesTab)">
+                Approval templates
+            </button>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="apr-loading">
+                <span class="apr-spin" aria-hidden="true"></span>
+                <span>Loading the approval process&#8230;</span>
+            </div>
+        }
+        else if (OnStages)
+        {
+            <section class="apr-grid">
+
+                <!-- ── The stages ─────────────────────────────────────────── -->
+                <div class="apr-rail">
+                    <button type="button" class="apr-btn apr-btn-primary apr-btn-block" @onclick="NewStage">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <path d="M12 5v14M5 12h14"></path>
+                        </svg>
+                        <span>New stage</span>
+                    </button>
+                    @if (stages.Count == 0)
+                    {
+                        <p class="apr-rail-empty">
+                            No approval stages yet — create one, then point a template at it.
+                        </p>
+                    }
                     @foreach (var stage in stages)
                     {
-                        <button class="definition-card @(editingStage.Id == stage.Id ? "active" : "")" @onclick="() => EditStage(stage)">
-                            <strong>@stage.Name</strong>
-                            <span>@stage.ApprovalsRequired approval(s), @stage.RejectionsRequired rejection(s)</span>
-                            <small>@(stage.IsActive ? "Active" : "Inactive") · @StageUsageLabel(stage.Id)</small>
+                        <button type="button" class="apr-card @(editingStage.Id == stage.Id ? "apr-card-on" : "")"
+                                @onclick="() => EditStage(stage)">
+                            <span class="apr-card-top">
+                                <span class="apr-card-name">@stage.Name</span>
+                                <span class="apr-pill @(stage.IsActive ? "apr-pill-on" : "")">
+                                    @(stage.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </span>
+                            <span class="apr-card-meta">@StageMeta(stage)</span>
                         </button>
                     }
-                </section>
-                <section class="editor-card">
-                    <h5>@(editingStage.Id == Guid.Empty ? "Create Approval Stage" : "Edit Approval Stage")</h5>
-                    <label>Stage Name</label>
-                    <input class="form-control" @bind="editingStage.Name" />
-                    <label>Description</label>
-                    <textarea class="form-control" rows="2" @bind="editingStage.Description"></textarea>
-                    <div class="row g-3">
-                        <div class="col-md-6"><label>No. of Approvals Required</label><input type="number" min="1" class="form-control" @bind="editingStage.ApprovalsRequired" /></div>
-                        <div class="col-md-6"><label>No. of Rejections Required</label><input type="number" min="1" class="form-control" @bind="editingStage.RejectionsRequired" /></div>
+                </div>
+
+                <!-- ── The stage editor ───────────────────────────────────── -->
+                <div class="apr-panel">
+
+                    <div class="apr-panel-head">
+                        <h2>@(editingStage.Id == Guid.Empty ? "Create approval stage" : "Edit approval stage")</h2>
+                        <p>Who signs off, and how many approvals or rejections settle the request.</p>
                     </div>
-                    <label class="mt-3">Authorizer Roles</label>
-                    <div class="choice-grid">
-                        @foreach (var role in availableRoles)
-                        {
-                            <label><input type="checkbox" checked="@editingStage.AuthorizerRoles.Contains(role)" @onchange="e => Toggle(editingStage.AuthorizerRoles, role, e.Value as bool? == true)" /> @FriendlyRole(role)</label>
-                        }
+
+                    <div class="apr-fields">
+                        <label class="apr-field apr-field-wide">
+                            <span class="apr-label">Name</span>
+                            <input class="apr-input" @bind="editingStage.Name" placeholder="Stock officer approval" />
+                        </label>
+                        <label class="apr-field apr-field-wide">
+                            <span class="apr-label">Description</span>
+                            <textarea class="apr-input" rows="2" @bind="editingStage.Description"
+                                      placeholder="What this stage is for."></textarea>
+                        </label>
+                        <label class="apr-field">
+                            <span class="apr-label">Approvals required</span>
+                            <input type="number" min="1" class="apr-input apr-input-num"
+                                   @bind="editingStage.ApprovalsRequired" />
+                        </label>
+                        <label class="apr-field">
+                            <span class="apr-label">Rejections required</span>
+                            <input type="number" min="1" class="apr-input apr-input-num"
+                                   @bind="editingStage.RejectionsRequired" />
+                        </label>
                     </div>
-                    <label class="mt-3">Specific Authorizers</label>
-                    <div class="choice-grid user-choices">
-                        @foreach (var user in users.Where(user => user.IsActive))
-                        {
-                            <label><input type="checkbox" checked="@editingStage.AuthorizerUserIds.Contains(user.Id)" @onchange="e => Toggle(editingStage.AuthorizerUserIds, user.Id, e.Value as bool? == true)" /> @user.Username <small>(@FriendlyRole(user.Role))</small></label>
-                        }
+
+                    <div>
+                        <div class="apr-block-head">
+                            <span class="apr-label">Authorizer roles</span>
+                            <span class="apr-block-count">
+                                @editingStage.AuthorizerRoles.Count of @availableRoles.Count
+                            </span>
+                        </div>
+                        <div class="apr-choices">
+                            @foreach (var role in availableRoles)
+                            {
+                                var picked = editingStage.AuthorizerRoles.Contains(role);
+                                <label class="apr-choice @(picked ? "apr-choice-on" : "")">
+                                    <input type="checkbox" class="apr-choice-check" checked="@picked"
+                                           @onchange="e => Toggle(editingStage.AuthorizerRoles, role, e.Value as bool? == true)" />
+                                    <span class="apr-box @(picked ? "apr-box-on" : "")" aria-hidden="true">@Tick</span>
+                                    <span class="apr-choice-name">@FriendlyRole(role)</span>
+                                </label>
+                            }
+                        </div>
                     </div>
-                    <label class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="editingStage.IsActive" /> Active</label>
+
+                    <div>
+                        <div class="apr-block-head">
+                            <span class="apr-label">Specific authorizers</span>
+                            <span class="apr-block-count">@editingStage.AuthorizerUserIds.Count picked</span>
+                            <label class="apr-block-search">
+                                <span class="visually-hidden">Find an authorizer</span>
+                                @SearchGlyph
+                                <input class="apr-input apr-input-search" type="search" autocomplete="off"
+                                       placeholder="Find a person&#8230;" @bind="peopleQuery" @bind:event="oninput" />
+                            </label>
+                        </div>
+                        <div class="apr-choices apr-choices-scroll">
+                            @foreach (var user in MatchingUsers)
+                            {
+                                var picked = editingStage.AuthorizerUserIds.Contains(user.Id);
+                                <label class="apr-choice @(picked ? "apr-choice-on" : "")">
+                                    <input type="checkbox" class="apr-choice-check" checked="@picked"
+                                           @onchange="e => Toggle(editingStage.AuthorizerUserIds, user.Id, e.Value as bool? == true)" />
+                                    <span class="apr-box @(picked ? "apr-box-on" : "")" aria-hidden="true">@Tick</span>
+                                    <span class="apr-choice-text">
+                                        <span class="apr-choice-name">@user.Username</span>
+                                        <span class="apr-choice-role">@FriendlyRole(user.Role)</span>
+                                    </span>
+                                </label>
+                            }
+                            @if (MatchingUsers.Count == 0)
+                            {
+                                <p class="apr-choices-empty">@NoPeopleMessage</p>
+                            }
+                        </div>
+                    </div>
+
                     @if (IsEditingStageLinked)
                     {
-                        <div class="linked-stage-notice mt-3" role="status">
-                            <i class="bi bi-lock-fill" aria-hidden="true"></i>
-                            <div>
-                                <strong>This stage is used by @LinkedTemplateNames.Count approval template(s).</strong>
-                                <span>@string.Join(", ", LinkedTemplateNames). Remove the stage from these templates before deleting it.</span>
-                            </div>
+                        <div class="apr-note" role="status">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M6 10.5h12v9H6z"></path>
+                                <path d="M8.5 10.5V7a3.5 3.5 0 1 1 7 0v3.5"></path>
+                            </svg>
+                            <span>
+                                <strong>
+                                    Used by @LinkedTemplateNames.Count approval
+                                    template@(LinkedTemplateNames.Count == 1 ? "" : "s").
+                                </strong>
+                                @string.Join(", ", LinkedTemplateNames). Remove the stage from these templates
+                                before deleting it.
+                            </span>
                         </div>
                     }
-                    <div class="d-flex gap-2 mt-4">
-                        <button class="btn btn-primary" @onclick="SaveStageAsync" disabled="@isSaving">Save Stage</button>
-                        @if (editingStage.Id != Guid.Empty)
-                        {
-                            <button class="btn btn-outline-danger" @onclick="DeleteStageAsync"
-                                    disabled="@(isSaving || IsEditingStageLinked)"
-                                    title="@(IsEditingStageLinked ? "Remove this stage from its approval templates before deleting it." : "Delete this approval stage")">
-                                <i class="bi bi-trash3 me-1"></i>Delete
-                            </button>
-                        }
-                    </div>
-                </section>
-            </div>
-        </MudTabPanel>
 
-        <MudTabPanel Text="Approval Templates" Icon="@Icons.Material.Filled.Rule">
-            <div class="setup-grid">
-                <section class="definition-list">
-                    <button class="btn new-definition-btn w-100 mb-3" @onclick="NewTemplate"><i class="bi bi-plus-lg me-1"></i>New Template</button>
+                    <div class="apr-foot">
+                        <label class="apr-switch">
+                            <input type="checkbox" class="apr-switch-check" @bind="editingStage.IsActive" />
+                            <span class="apr-track @(editingStage.IsActive ? "apr-track-on" : "")" aria-hidden="true">
+                                <span class="apr-knob"></span>
+                            </span>
+                            <span class="apr-switch-label">@(editingStage.IsActive ? "Active" : "Inactive")</span>
+                        </label>
+                        <div class="apr-foot-actions">
+                            @if (editingStage.Id != Guid.Empty)
+                            {
+                                <button type="button" class="apr-btn apr-btn-danger"
+                                        disabled="@(isSaving || IsEditingStageLinked)"
+                                        title="@(IsEditingStageLinked ? "Remove this stage from its approval templates before deleting it." : "Delete this approval stage")"
+                                        @onclick="DeleteStageAsync">
+                                    Delete
+                                </button>
+                            }
+                            <button type="button" class="apr-btn apr-btn-quiet" disabled="@isSaving"
+                                    @onclick="CancelStage">
+                                Cancel
+                            </button>
+                            <button type="button" class="apr-btn apr-btn-primary apr-btn-lg" disabled="@isSaving"
+                                    @onclick="SaveStageAsync">
+                                @if (isSaving)
+                                {
+                                    <span class="apr-spin" aria-hidden="true"></span>
+                                    <span>Saving&#8230;</span>
+                                }
+                                else
+                                {
+                                    <span>Save stage</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        }
+        else
+        {
+            <section class="apr-grid">
+
+                <!-- ── The templates ──────────────────────────────────────── -->
+                <div class="apr-rail">
+                    <button type="button" class="apr-btn apr-btn-primary apr-btn-block" @onclick="NewTemplate">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <path d="M12 5v14M5 12h14"></path>
+                        </svg>
+                        <span>New template</span>
+                    </button>
+                    @if (templates.Count == 0)
+                    {
+                        <p class="apr-rail-empty">
+                            No approval templates yet — until one exists, no document routes for approval.
+                        </p>
+                    }
                     @foreach (var template in templates)
                     {
-                        <button class="definition-card @(editingTemplate.Id == template.Id ? "active" : "")" @onclick="() => EditTemplate(template)">
-                            <strong>@template.Name</strong>
-                            <span>@FriendlyDocumentType(template.DocumentType) — @template.StageIds.Count stage(s), priority @template.Priority</span>
-                            <small>@(template.IsActive ? "Active" : "Inactive")</small>
+                        <button type="button" class="apr-card @(editingTemplate.Id == template.Id ? "apr-card-on" : "")"
+                                @onclick="() => EditTemplate(template)">
+                            <span class="apr-card-top">
+                                <span class="apr-card-name">@template.Name</span>
+                                <span class="apr-pill @(template.IsActive ? "apr-pill-on" : "")">
+                                    @(template.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </span>
+                            <span class="apr-card-meta">@TemplateMeta(template)</span>
                         </button>
                     }
-                </section>
-                <section class="editor-card">
-                    <h5>@(editingTemplate.Id == Guid.Empty ? "Create Approval Template" : "Edit Approval Template")</h5>
-                    <label>Template Name</label><input class="form-control" @bind="editingTemplate.Name" />
-                    <label>Description</label><textarea class="form-control" rows="2" @bind="editingTemplate.Description"></textarea>
-                    <label class="mt-3">Applies To</label>
-                    <select class="form-select" @bind="editingTemplate.DocumentType">
-                        @foreach (var documentType in documentTypes)
-                        {
-                            <option value="@documentType">@FriendlyDocumentType(documentType)</option>
-                        }
-                    </select>
-                    <div class="row g-3 mt-1">
-                        <div class="col-md-4"><label>Priority</label><input type="number" class="form-control" @bind="editingTemplate.Priority" /></div>
-                        <div class="col-md-4"><label>From Warehouse</label><select class="form-select" @bind="editingTemplate.FromWarehouse"><option value="">Any</option>@foreach (var warehouse in warehouses){<option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>}</select></div>
-                        <div class="col-md-4"><label>To Warehouse</label><select class="form-select" @bind="editingTemplate.ToWarehouse"><option value="">Any</option>@foreach (var warehouse in warehouses){<option value="@warehouse.WarehouseCode">@warehouse.WarehouseCode - @warehouse.WarehouseName</option>}</select></div>
+                </div>
+
+                <!-- ── The template editor ────────────────────────────────── -->
+                <div class="apr-panel">
+
+                    <div class="apr-panel-head">
+                        <h2>@(editingTemplate.Id == Guid.Empty ? "Create approval template" : "Edit approval template")</h2>
+                        <p>Which documents route here, in what order, and who may raise them.</p>
                     </div>
-                    <label class="mt-3">Originator Roles <small class="text-muted">(none means all users)</small></label>
-                    <div class="choice-grid">@foreach (var role in availableRoles){<label><input type="checkbox" checked="@editingTemplate.OriginatorRoles.Contains(role)" @onchange="e => Toggle(editingTemplate.OriginatorRoles, role, e.Value as bool? == true)" /> @FriendlyRole(role)</label>}</div>
-                    <label class="mt-3">Specific Originators</label>
-                    <div class="choice-grid user-choices">@foreach (var user in users.Where(user => user.IsActive)){<label><input type="checkbox" checked="@editingTemplate.OriginatorUserIds.Contains(user.Id)" @onchange="e => Toggle(editingTemplate.OriginatorUserIds, user.Id, e.Value as bool? == true)" /> @user.Username <small>(@FriendlyRole(user.Role))</small></label>}</div>
-                    <label class="mt-3">Approval Stages</label>
-                    <div class="choice-grid">@foreach (var stage in stages.Where(stage => stage.IsActive)){<label><input type="checkbox" checked="@editingTemplate.StageIds.Contains(stage.Id)" @onchange="e => Toggle(editingTemplate.StageIds, stage.Id, e.Value as bool? == true)" /> @stage.Name</label>}</div>
-                    <label class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="editingTemplate.IsActive" /> Active</label>
-                    <div class="d-flex gap-2 mt-4">
-                        <button class="btn btn-primary" @onclick="SaveTemplateAsync" disabled="@isSaving">Save Template</button>
-                        @if (editingTemplate.Id != Guid.Empty)
-                        {
-                            <button class="btn btn-outline-danger" @onclick="DeleteTemplateAsync">Delete</button>
-                        }
+
+                    <div class="apr-fields">
+                        <label class="apr-field apr-field-wide">
+                            <span class="apr-label">Name</span>
+                            <input class="apr-input" @bind="editingTemplate.Name" placeholder="Dispatch transfers" />
+                        </label>
+                        <label class="apr-field apr-field-wide">
+                            <span class="apr-label">Description</span>
+                            <textarea class="apr-input" rows="2" @bind="editingTemplate.Description"
+                                      placeholder="What this template is for."></textarea>
+                        </label>
+                        <label class="apr-field">
+                            <span class="apr-label">Document type</span>
+                            <span class="apr-select">
+                                <select class="apr-input" @bind="editingTemplate.DocumentType">
+                                    @foreach (var documentType in documentTypes)
+                                    {
+                                        <option value="@documentType">@FriendlyDocumentType(documentType)</option>
+                                    }
+                                </select>
+                                <span class="apr-caret" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <label class="apr-field">
+                            <span class="apr-label">Priority</span>
+                            <input type="number" class="apr-input apr-input-num" @bind="editingTemplate.Priority" />
+                        </label>
+                        <label class="apr-field">
+                            <span class="apr-label">From warehouse</span>
+                            <span class="apr-select">
+                                <select class="apr-input" @bind="editingTemplate.FromWarehouse">
+                                    <option value="">Any</option>
+                                    @foreach (var warehouse in warehouses)
+                                    {
+                                        <option value="@warehouse.WarehouseCode">
+                                            @warehouse.WarehouseCode &#8212; @warehouse.WarehouseName
+                                        </option>
+                                    }
+                                </select>
+                                <span class="apr-caret" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <label class="apr-field">
+                            <span class="apr-label">To warehouse</span>
+                            <span class="apr-select">
+                                <select class="apr-input" @bind="editingTemplate.ToWarehouse">
+                                    <option value="">Any</option>
+                                    @foreach (var warehouse in warehouses)
+                                    {
+                                        <option value="@warehouse.WarehouseCode">
+                                            @warehouse.WarehouseCode &#8212; @warehouse.WarehouseName
+                                        </option>
+                                    }
+                                </select>
+                                <span class="apr-caret" aria-hidden="true"></span>
+                            </span>
+                        </label>
                     </div>
-                </section>
-            </div>
-        </MudTabPanel>
-    </MudTabs>
+
+                    <div>
+                        <div class="apr-block-head">
+                            <span class="apr-label">
+                                Approval stages <span class="apr-label-note">(in the order they run)</span>
+                            </span>
+                            <span class="apr-block-count">
+                                @editingTemplate.StageIds.Count of @SelectableStages.Count
+                            </span>
+                        </div>
+                        <div class="apr-choices">
+                            @foreach (var stage in SelectableStages)
+                            {
+                                var picked = editingTemplate.StageIds.Contains(stage.Id);
+                                <label class="apr-choice @(picked ? "apr-choice-on" : "")">
+                                    <input type="checkbox" class="apr-choice-check" checked="@picked"
+                                           @onchange="e => Toggle(editingTemplate.StageIds, stage.Id, e.Value as bool? == true)" />
+                                    <span class="apr-box @(picked ? "apr-box-on" : "")" aria-hidden="true">@Tick</span>
+                                    <span class="apr-choice-text">
+                                        <span class="apr-choice-name">@stage.Name</span>
+                                        @if (!stage.IsActive)
+                                        {
+                                            <span class="apr-choice-role">Inactive</span>
+                                        }
+                                    </span>
+                                </label>
+                            }
+                            @if (SelectableStages.Count == 0)
+                            {
+                                <p class="apr-choices-empty">
+                                    No active approval stages — create one on the Approval stages tab first.
+                                </p>
+                            }
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="apr-block-head">
+                            <span class="apr-label">
+                                Originator roles <span class="apr-label-note">(none means everyone)</span>
+                            </span>
+                            <span class="apr-block-count">
+                                @editingTemplate.OriginatorRoles.Count of @availableRoles.Count
+                            </span>
+                        </div>
+                        <div class="apr-choices">
+                            @foreach (var role in availableRoles)
+                            {
+                                var picked = editingTemplate.OriginatorRoles.Contains(role);
+                                <label class="apr-choice @(picked ? "apr-choice-on" : "")">
+                                    <input type="checkbox" class="apr-choice-check" checked="@picked"
+                                           @onchange="e => Toggle(editingTemplate.OriginatorRoles, role, e.Value as bool? == true)" />
+                                    <span class="apr-box @(picked ? "apr-box-on" : "")" aria-hidden="true">@Tick</span>
+                                    <span class="apr-choice-name">@FriendlyRole(role)</span>
+                                </label>
+                            }
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="apr-block-head">
+                            <span class="apr-label">Specific originators</span>
+                            <span class="apr-block-count">@editingTemplate.OriginatorUserIds.Count picked</span>
+                            <label class="apr-block-search">
+                                <span class="visually-hidden">Find an originator</span>
+                                @SearchGlyph
+                                <input class="apr-input apr-input-search" type="search" autocomplete="off"
+                                       placeholder="Find a person&#8230;" @bind="peopleQuery" @bind:event="oninput" />
+                            </label>
+                        </div>
+                        <div class="apr-choices apr-choices-scroll">
+                            @foreach (var user in MatchingUsers)
+                            {
+                                var picked = editingTemplate.OriginatorUserIds.Contains(user.Id);
+                                <label class="apr-choice @(picked ? "apr-choice-on" : "")">
+                                    <input type="checkbox" class="apr-choice-check" checked="@picked"
+                                           @onchange="e => Toggle(editingTemplate.OriginatorUserIds, user.Id, e.Value as bool? == true)" />
+                                    <span class="apr-box @(picked ? "apr-box-on" : "")" aria-hidden="true">@Tick</span>
+                                    <span class="apr-choice-text">
+                                        <span class="apr-choice-name">@user.Username</span>
+                                        <span class="apr-choice-role">@FriendlyRole(user.Role)</span>
+                                    </span>
+                                </label>
+                            }
+                            @if (MatchingUsers.Count == 0)
+                            {
+                                <p class="apr-choices-empty">@NoPeopleMessage</p>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="apr-foot">
+                        <label class="apr-switch">
+                            <input type="checkbox" class="apr-switch-check" @bind="editingTemplate.IsActive" />
+                            <span class="apr-track @(editingTemplate.IsActive ? "apr-track-on" : "")" aria-hidden="true">
+                                <span class="apr-knob"></span>
+                            </span>
+                            <span class="apr-switch-label">@(editingTemplate.IsActive ? "Active" : "Inactive")</span>
+                        </label>
+                        <div class="apr-foot-actions">
+                            @if (editingTemplate.Id != Guid.Empty)
+                            {
+                                <button type="button" class="apr-btn apr-btn-danger" disabled="@isSaving"
+                                        title="Delete this approval template" @onclick="DeleteTemplateAsync">
+                                    Delete
+                                </button>
+                            }
+                            <button type="button" class="apr-btn apr-btn-quiet" disabled="@isSaving"
+                                    @onclick="CancelTemplate">
+                                Cancel
+                            </button>
+                            <button type="button" class="apr-btn apr-btn-primary apr-btn-lg" disabled="@isSaving"
+                                    @onclick="SaveTemplateAsync">
+                                @if (isSaving)
+                                {
+                                    <span class="apr-spin" aria-hidden="true"></span>
+                                    <span>Saving&#8230;</span>
+                                }
+                                else
+                                {
+                                    <span>Save template</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        }
+    </div>
 </div>
 
-<style>
-    .approval-setup {
-        --approval-panel: #ffffff;
-        --approval-panel-alt: #f8fafc;
-        --approval-card: #ffffff;
-        --approval-card-hover: #f8fafc;
-        --approval-input: #ffffff;
-        --approval-text: #172033;
-        --approval-muted: #64748b;
-        --approval-border: #d8e0eb;
-        --approval-border-strong: #b8c4d4;
-        --approval-accent: #4f46e5;
-        --approval-accent-soft: #eef2ff;
-        --approval-active-text: #3730a3;
-        --approval-checkbox-bg: #ffffff;
-        --approval-checkbox-border: #8b99ad;
-        max-width: 1500px;
-        color: var(--approval-text);
-    }
-
-    .setup-header h2 { color: var(--approval-text); }
-    .setup-header p { color: var(--approval-muted) !important; }
-
-    .approval-tabs {
-        overflow: hidden;
-        background: var(--approval-panel) !important;
-        border: 1px solid var(--approval-border);
-        border-radius: 12px;
-        box-shadow: 0 8px 24px rgb(15 23 42 / 8%);
-    }
-
-    .approval-tabs .mud-tabs-tabbar {
-        background: var(--approval-panel-alt);
-        border-bottom: 1px solid var(--approval-border);
-    }
-
-    .approval-tabs .mud-tab {
-        color: var(--approval-muted);
-        font-weight: 650;
-    }
-
-    .approval-tabs .mud-tab.mud-tab-active {
-        color: var(--approval-accent);
-    }
-
-    .approval-tabs .mud-tabs-panels {
-        background: var(--approval-panel);
-        color: var(--approval-text);
-        padding: 1.25rem;
-    }
-
-    .setup-grid {
-        display: grid;
-        grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
-        gap: 1.25rem;
-    }
-
-    .definition-list {
-        display: flex;
-        flex-direction: column;
-        gap: .65rem;
-        min-width: 0;
-    }
-
-    .new-definition-btn {
-        background: linear-gradient(135deg, #4f46e5, #6366f1);
-        border: 1px solid #6366f1;
-        color: #fff;
-        min-height: 46px;
-        font-weight: 650;
-        box-shadow: 0 5px 14px rgb(79 70 229 / 22%);
-    }
-
-    .new-definition-btn:hover,
-    .new-definition-btn:focus-visible {
-        background: linear-gradient(135deg, #4338ca, #4f46e5);
-        border-color: #818cf8;
-        color: #fff;
-    }
-
-    .definition-card {
-        width: 100%;
-        min-height: 96px;
-        text-align: left;
-        background: var(--approval-card);
-        color: var(--approval-text);
-        border: 1px solid var(--approval-border);
-        border-radius: 11px;
-        padding: .9rem 1rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-    }
-
-    .definition-card:hover {
-        background: var(--approval-card-hover);
-        border-color: var(--approval-border-strong);
-        transform: translateY(-1px);
-    }
-
-    .definition-card:focus-visible {
-        outline: 3px solid rgb(99 102 241 / 30%);
-        outline-offset: 2px;
-    }
-
-    .definition-card.active {
-        background: var(--approval-accent-soft);
-        border-color: var(--approval-accent);
-        box-shadow: 0 0 0 2px rgb(99 102 241 / 18%);
-    }
-
-    .definition-card strong {
-        color: var(--approval-text);
-        font-size: .98rem;
-    }
-
-    .definition-card.active strong { color: var(--approval-active-text); }
-    .definition-card span,
-    .definition-card small { color: var(--approval-muted); }
-
-    .editor-card {
-        min-width: 0;
-        background: var(--approval-panel-alt);
-        color: var(--approval-text);
-        border: 1px solid var(--approval-border);
-        border-radius: 12px;
-        padding: 1.35rem;
-    }
-
-    .editor-card h5,
-    .editor-card label { color: var(--approval-text); }
-
-    .editor-card > label {
-        font-weight: 650;
-        margin-top: .85rem;
-        margin-bottom: .35rem;
-    }
-
-    .editor-card .form-control,
-    .editor-card .form-select {
-        background-color: var(--approval-input);
-        border-color: var(--approval-border);
-        color: var(--approval-text);
-    }
-
-    .editor-card .form-control:focus,
-    .editor-card .form-select:focus {
-        background-color: var(--approval-input);
-        border-color: var(--approval-accent);
-        color: var(--approval-text);
-        box-shadow: 0 0 0 .2rem rgb(99 102 241 / 16%);
-    }
-
-    .editor-card .form-select option {
-        background: var(--approval-input);
-        color: var(--approval-text);
-    }
-
-    .choice-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-        gap: .35rem;
-        padding: .55rem;
-        background: var(--approval-input);
-        border: 1px solid var(--approval-border);
-        border-radius: 9px;
-    }
-
-    .choice-grid > label {
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-        min-width: 0;
-        margin: 0;
-        padding: .42rem .5rem;
-        border-radius: 7px;
-        color: var(--approval-text);
-        font-weight: 450;
-        overflow-wrap: anywhere;
-    }
-
-    .choice-grid > label:hover { background: var(--approval-card-hover); }
-    .approval-setup input[type="checkbox"] {
-        appearance: none !important;
-        -webkit-appearance: none !important;
-        width: 1.05rem;
-        height: 1.05rem;
-        min-width: 1.05rem;
-        margin-top: 0;
-        padding: 0;
-        background-color: var(--approval-checkbox-bg) !important;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-size: .78rem;
-        border: 1.5px solid var(--approval-checkbox-border) !important;
-        border-radius: .22rem;
-        box-shadow: none;
-        cursor: pointer;
-        opacity: 1;
-        transition: background-color .14s ease, border-color .14s ease, box-shadow .14s ease;
-    }
-
-    .approval-setup input[type="checkbox"]:checked {
-        background-color: var(--approval-accent) !important;
-        border-color: var(--approval-accent) !important;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M3 8l3 3 7-7'/%3E%3C/svg%3E");
-    }
-
-    .approval-setup input[type="checkbox"]:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 .2rem rgb(99 102 241 / 24%);
-    }
-
-    .approval-setup input[type="checkbox"]:disabled {
-        cursor: not-allowed;
-        opacity: .5;
-    }
-
-    .choice-grid input[type="checkbox"] { flex: 0 0 auto; }
-    .editor-card .form-check-input { accent-color: var(--approval-accent); }
-    .choice-grid small { color: var(--approval-muted); }
-
-    .user-choices {
-        max-height: 250px;
-        overflow: auto;
-        scrollbar-color: var(--approval-border-strong) var(--approval-panel-alt);
-    }
-
-    .linked-stage-notice {
-        display: flex;
-        align-items: flex-start;
-        gap: .75rem;
-        padding: .85rem 1rem;
-        background: #fffbeb;
-        border: 1px solid #f6cf72;
-        border-radius: 9px;
-        color: #713f12;
-    }
-
-    .linked-stage-notice > i {
-        flex: 0 0 auto;
-        margin-top: .1rem;
-        color: #b45309;
-    }
-
-    .linked-stage-notice div {
-        display: flex;
-        flex-direction: column;
-        gap: .15rem;
-    }
-
-    .linked-stage-notice strong { color: #713f12; }
-    .linked-stage-notice span { color: #92400e; }
-
-    .editor-card .btn:disabled {
-        cursor: not-allowed;
-        opacity: .55;
-    }
-
-    .dark-theme .approval-setup {
-        --approval-panel: #111a2b;
-        --approval-panel-alt: #172235;
-        --approval-card: #1c2940;
-        --approval-card-hover: #24334c;
-        --approval-input: #101a2c;
-        --approval-text: #edf2fa;
-        --approval-muted: #a8b5c8;
-        --approval-border: #3a4961;
-        --approval-border-strong: #60708a;
-        --approval-accent: #8b91ff;
-        --approval-accent-soft: #28325a;
-        --approval-active-text: #d9dcff;
-        --approval-checkbox-bg: #0c1525;
-        --approval-checkbox-border: #8190a8;
-    }
-
-    .dark-theme .approval-tabs {
-        box-shadow: 0 12px 30px rgb(0 0 0 / 28%);
-    }
-
-    .dark-theme .approval-tabs .mud-tabs-tabbar {
-        background: #151e30;
-    }
-
-    .dark-theme .approval-tabs .mud-tab-slider {
-        background: var(--approval-accent) !important;
-    }
-
-    .dark-theme .definition-card.active {
-        box-shadow: 0 0 0 2px rgb(139 145 255 / 24%);
-    }
-
-    .dark-theme .new-definition-btn {
-        background: linear-gradient(135deg, #5b5fe8, #7478f2);
-        border-color: #898eff;
-        box-shadow: 0 6px 18px rgb(91 95 232 / 28%);
-    }
-
-    .dark-theme .new-definition-btn:hover,
-    .dark-theme .new-definition-btn:focus-visible {
-        background: linear-gradient(135deg, #696df0, #8589ff);
-    }
-
-    .dark-theme .editor-card .form-control::placeholder { color: #75849a; }
-    .dark-theme .editor-card .form-check-input {
-        background-color: #0f192a;
-        border-color: #687791;
-    }
-    .dark-theme .editor-card .form-check-input:checked {
-        background-color: #7378f2;
-        border-color: #9397ff;
-    }
-
-    .dark-theme .linked-stage-notice {
-        background: rgb(120 53 15 / 28%);
-        border-color: #9a5b1d;
-        color: #fde7ad;
-    }
-
-    .dark-theme .linked-stage-notice > i { color: #fbbf24; }
-    .dark-theme .linked-stage-notice strong { color: #fef3c7; }
-    .dark-theme .linked-stage-notice span { color: #f6d486; }
-
-    @@media (max-width: 850px) {
-        .approval-setup { padding-inline: .75rem !important; }
-        .setup-header { gap: 1rem; }
-        .setup-grid { grid-template-columns: 1fr; }
-        .definition-card { min-height: 84px; }
-        .approval-tabs .mud-tabs-panels { padding: .85rem; }
-        .editor-card { padding: 1rem; }
-    }
-
-    @@media (max-width: 560px) {
-        .setup-header { flex-direction: column; }
-        .setup-header .btn { width: 100%; }
-        .choice-grid { grid-template-columns: 1fr; }
-    }
-</style>
-
 @code {
+    private const string StagesTab = "Stages";
+    private const string TemplatesTab = "Templates";
+
     private List<string> availableRoles = [];
     private List<ApprovalStageDefinitionModel> stages = [];
     private List<ApprovalTemplateDefinitionModel> templates = [];
@@ -487,8 +534,13 @@
 
     private ApprovalStageDefinitionModel editingStage = new();
     private ApprovalTemplateDefinitionModel editingTemplate = new();
+    private string tab = StagesTab;
+    private string peopleQuery = string.Empty;
     private bool isLoading = true, isSaving, isError;
     private string? message;
+
+    private bool OnStages => tab == StagesTab;
+
     private List<string> LinkedTemplateNames => editingStage.Id == Guid.Empty
         ? []
         : templates.Where(template => template.StageIds.Contains(editingStage.Id))
@@ -497,18 +549,75 @@
             .ToList();
     private bool IsEditingStageLinked => LinkedTemplateNames.Count > 0;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) { await LoadAsync(); StateHasChanged(); } }
+    private List<UserModel> MatchingUsers
+    {
+        get
+        {
+            var query = peopleQuery.Trim();
+            return users
+                .Where(user => user.IsActive)
+                .Where(user => query.Length == 0
+                    || user.Username.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || FriendlyRole(user.Role).Contains(query, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
+
+    private string NoPeopleMessage => peopleQuery.Trim().Length == 0
+        ? "No active users to choose from."
+        : $"No one matches “{peopleQuery.Trim()}”.";
+
+    // An inactive stage a template already points at stays listed, marked — the
+    // picker only offering active stages would hide it while the save kept it.
+    private List<ApprovalStageDefinitionModel> SelectableStages =>
+        stages.Where(stage => stage.IsActive || editingTemplate.StageIds.Contains(stage.Id)).ToList();
+
+    // Nothing here needs a rendered DOM, so the load starts with the component
+    // rather than waiting for a full render to reach the browser first.
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
     private async Task LoadAsync()
     {
         isLoading = true; message = null;
-        try { stages = await ApprovalService.GetStagesAsync(); templates = await ApprovalService.GetTemplatesAsync(); users = (await UserService.GetUsersAsync(1, 1000)).Items; availableRoles = await UserService.GetRolesAsync(); warehouses = await CacheService.GetWarehousesAsync(); }
+        try
+        {
+            stages = await ApprovalService.GetStagesAsync();
+            templates = await ApprovalService.GetTemplatesAsync();
+            users = (await UserService.GetUsersAsync(1, 1000)).Items;
+            availableRoles = await UserService.GetRolesAsync();
+            warehouses = await CacheService.GetWarehousesAsync();
+        }
         catch (Exception ex) { message = ex.Message; isError = true; }
         finally { isLoading = false; }
     }
+
+    private void SwitchTab(string value)
+    {
+        tab = value;
+        peopleQuery = string.Empty;
+    }
+
     private void NewStage() => editingStage = new();
     private void NewTemplate() => editingTemplate = new();
     private void EditStage(ApprovalStageDefinitionModel value) => editingStage = Clone(value);
     private void EditTemplate(ApprovalTemplateDefinitionModel value) => editingTemplate = Clone(value);
+
+    // Cancel drops unsaved edits: back to the stored definition, or to a blank
+    // form when the edit was a new one.
+    private void CancelStage()
+    {
+        var stored = stages.FirstOrDefault(stage => stage.Id == editingStage.Id);
+        editingStage = stored is null ? new() : Clone(stored);
+        message = null;
+    }
+
+    private void CancelTemplate()
+    {
+        var stored = templates.FirstOrDefault(template => template.Id == editingTemplate.Id);
+        editingTemplate = stored is null ? new() : Clone(stored);
+        message = null;
+    }
+
     private async Task SaveStageAsync() { if(!ValidateStage())return; isSaving=true; var result=await ApprovalService.SaveStageAsync(editingStage); if(result.Success){await LoadAsync(); if(result.Value is not null) EditStage(result.Value);} SetMessage(result.Success,result.Message); isSaving=false; }
     private async Task SaveTemplateAsync() { if(!ValidateTemplate())return; isSaving=true; var result=await ApprovalService.SaveTemplateAsync(editingTemplate); if(result.Success){await LoadAsync(); if(result.Value is not null) EditTemplate(result.Value);} SetMessage(result.Success,result.Message); isSaving=false; }
     private async Task DeleteStageAsync() { if(IsEditingStageLinked){SetMessage(false,LinkedStageMessage());return;} var result=await ApprovalService.DeleteStageAsync(editingStage.Id); if(result.Success){NewStage();await LoadAsync();} SetMessage(result.Success,result.Message); }
@@ -516,7 +625,24 @@
     private void SetMessage(bool success,string text){isError=!success;message=FriendlyMessage(text);}
     private bool ValidateStage(){if(string.IsNullOrWhiteSpace(editingStage.Name)){SetMessage(false,"Enter a stage name.");return false;}if(editingStage.ApprovalsRequired<1||editingStage.RejectionsRequired<1){SetMessage(false,"Approval and rejection requirements must be at least one.");return false;}if(editingStage.AuthorizerRoles.Count==0&&editingStage.AuthorizerUserIds.Count==0){SetMessage(false,"Select at least one authorizer role or specific authorizer.");return false;}return true;}
     private bool ValidateTemplate(){if(string.IsNullOrWhiteSpace(editingTemplate.Name)){SetMessage(false,"Enter a template name.");return false;}if(editingTemplate.StageIds.Count==0){SetMessage(false,"Select at least one approval stage.");return false;}return true;}
-    private string StageUsageLabel(Guid stageId){var count=templates.Count(template=>template.StageIds.Contains(stageId));return count==0?"Not used by a template":$"Used by {count} template{(count==1?"":"s")}";}
+
+    // The design writes a card's second line as "1 approval · 1 rejection ·
+    // used by 3 templates".
+    private string StageMeta(ApprovalStageDefinitionModel stage)
+    {
+        var approvals = $"{stage.ApprovalsRequired} approval{(stage.ApprovalsRequired == 1 ? "" : "s")}";
+        var rejections = $"{stage.RejectionsRequired} rejection{(stage.RejectionsRequired == 1 ? "" : "s")}";
+        return $"{approvals} · {rejections} · {StageUsageLabel(stage.Id)}";
+    }
+
+    private string TemplateMeta(ApprovalTemplateDefinitionModel template)
+    {
+        var count = template.StageIds.Count;
+        return $"{FriendlyDocumentType(template.DocumentType)} · {count} stage{(count == 1 ? "" : "s")}"
+            + $" · priority {template.Priority}";
+    }
+
+    private string StageUsageLabel(Guid stageId){var count=templates.Count(template=>template.StageIds.Contains(stageId));return count==0?"not used by a template":$"used by {count} template{(count==1?"":"s")}";}
     private string LinkedStageMessage()=>$"This approval stage is used by {string.Join(", ", LinkedTemplateNames)}. Remove it from those templates before deleting it.";
     private static string FriendlyMessage(string text)
     {
@@ -531,4 +657,19 @@
     private static ApprovalTemplateDefinitionModel Clone(ApprovalTemplateDefinitionModel x)=>new(){Id=x.Id,Name=x.Name,Description=x.Description,DocumentType=x.DocumentType,OriginatorUserIds=[..x.OriginatorUserIds],OriginatorRoles=[..x.OriginatorRoles],StageIds=[..x.StageIds],FromWarehouse=x.FromWarehouse,ToWarehouse=x.ToWarehouse,Priority=x.Priority,IsActive=x.IsActive};
     private static string FriendlyRole(string role)=>role switch{"StockController"=>"Stock Officer","DepotController"=>"Depot Controller",_=>role};
     private static string FriendlyDocumentType(string? documentType)=>documentType switch{"InventoryTransferRequest"=>"Transfer requests","InventoryTransfer"=>"Direct transfers",_=>documentType ?? "Unknown"};
+
+    // Drawn once and reused: the tick sits inside every checkbox on the page
+    // and the magnifier inside both search fields.
+    private static readonly RenderFragment Tick = @<svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                                                       stroke="currentColor" stroke-width="3.2" stroke-linecap="round"
+                                                       stroke-linejoin="round">
+        <path d="M5 12.5l4.5 4.5L19 7"></path>
+    </svg>;
+
+    private static readonly RenderFragment SearchGlyph = @<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                               stroke="currentColor" stroke-width="1.7"
+                                                               stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="M20 20l-3.5-3.5"></path>
+    </svg>;
 }

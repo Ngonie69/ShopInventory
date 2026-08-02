@@ -1,0 +1,1057 @@
+/* ==========================================================================
+   Approval Process — Nocturne
+
+   Replicates the imported design (Approval Process.dc.html): a breadcrumb
+   header, a stated hero, two underlined tabs, and below them a rail of
+   definition cards beside one editor panel that washes into the ground.
+
+   The import is drawn as a single dark scheme, so the dark palette below is
+   the design's own — #161826 ground, #232532 surface, the #9184d9 blurple
+   accent and its OKLCH ramps, unchanged. The light palette is its daylight
+   counterpart, re-anchored on paper with the accent taken from #9184d9 down
+   to #5f52c4 so it can carry the kicker, the tally and the card names it
+   colours (#9184d9 is 3.0:1 on white — enough for chrome, not for text).
+
+   Light is the base and `.dark-theme` the override, matching the rest of the
+   app and the order App.razor's pre-paint script stamps the class in, so
+   neither scheme flashes. Token names and values are deliberately identical
+   to driver-shop-access.css so the two Administration pages stay one system.
+
+   Rules live here rather than an inline Razor <style> block for the same
+   reasons as driver-shop-access.css: app.css carries global
+   `.dark-theme input/select/textarea` rules that have to be out-specified, so
+   every control carries a class and every control selector is two classes
+   deep, winning regardless of load order. Headings are pinned to Nocturne's
+   500 because Bootstrap's global `h1-h6 { font-weight: 600 }` would otherwise
+   bolden them past the weight this system allows.
+   ========================================================================== */
+
+.apr {
+    --apr-bg: #f4f4f8;
+    --apr-surface: #ffffff;
+    --apr-wash: #ffffff;
+    --apr-ink: #1b1c26;
+    --apr-ink-2: #35374a;
+    --apr-mute: #4e5164;
+    --apr-mute-2: #656879;
+    --apr-mute-3: #7b7e8e;
+    --apr-faint: #a0a2ae;
+    --apr-placeholder: #9498a8;
+    --apr-divider: rgba(27, 28, 38, .14);
+    --apr-hover: rgba(27, 28, 38, .04);
+    --apr-press: rgba(27, 28, 38, .09);
+    --apr-field-bg: rgba(27, 28, 38, .04);
+    --apr-field-edge: #d4d6e2;
+    --apr-field-edge-hi: #a9adc0;
+    --apr-accent: #5f52c4;
+    --apr-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-200/300 (a pale lavender); on paper the same role has to
+       be the deep end of the ramp instead. */
+    --apr-accent-text: #473d99;
+    --apr-accent-ink: #ffffff;
+    --apr-box-on: #5f52c4;
+    --apr-track: #c9ccd8;
+    --apr-thumb: #c8cad6;
+    /* The one hue outside the system: a destructive action and a blocked
+       deletion have to read as neither accent nor neutral. */
+    --apr-warn-bg: #fdf6e6;
+    --apr-warn-edge: #e5cd94;
+    --apr-warn-ink: #6b4c12;
+    --apr-danger: #b3352f;
+    --apr-danger-rgb: 179, 53, 47;
+    --apr-good-bg: #eaf5ee;
+    --apr-good-edge: #a9cdb7;
+    --apr-good-ink: #1f5433;
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --apr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --apr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    --apr-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --apr-s1: 2.8px;
+    --apr-s2: 5.6px;
+    --apr-s3: 8.4px;
+    --apr-s4: 11.2px;
+    --apr-s6: 16.8px;
+    --apr-s8: 22.4px;
+    --apr-r-sm: 4px;
+    --apr-r-md: 8px;
+    --apr-r-lg: 14px;
+
+    color-scheme: var(--apr-scheme);
+}
+
+.dark-theme .apr {
+    --apr-bg: #161826;
+    --apr-surface: #232532;
+    --apr-wash: rgba(35, 37, 50, .7);
+    --apr-ink: #e9e9ed;
+    --apr-ink-2: #e4e7f5;
+    --apr-mute: #cfd3e5;
+    --apr-mute-2: #b2b6ca;
+    --apr-mute-3: #9397ab;
+    --apr-faint: #75798c;
+    --apr-placeholder: #75798c;
+    --apr-divider: rgba(233, 233, 237, .16);
+    --apr-hover: rgba(243, 245, 254, .05);
+    --apr-press: rgba(243, 245, 254, .1);
+    --apr-field-bg: rgba(243, 245, 254, .05);
+    --apr-field-edge: rgba(233, 233, 237, .16);
+    --apr-field-edge-hi: #595d6c;
+    --apr-accent: #9184d9;
+    --apr-accent-rgb: 145, 132, 217;
+    --apr-accent-text: #d2cefd;
+    --apr-accent-ink: #f5f4ff;
+    --apr-box-on: #796cbf;
+    --apr-track: #3f424d;
+    --apr-thumb: #3f424d;
+    --apr-warn-bg: rgba(120, 83, 15, .28);
+    --apr-warn-edge: #9a7b3d;
+    --apr-warn-ink: #f2dfae;
+    --apr-danger: #e98a84;
+    --apr-danger-rgb: 233, 138, 132;
+    --apr-good-bg: rgba(31, 84, 51, .3);
+    --apr-good-edge: #4a7d5d;
+    --apr-good-ink: #b7dcc5;
+    --apr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --apr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    --apr-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.apr {
+    min-height: 100vh;
+    background: var(--apr-bg);
+    color: var(--apr-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.apr * {
+    box-sizing: border-box;
+}
+
+.apr :focus-visible {
+    outline: 2px solid var(--apr-accent);
+    outline-offset: 2px;
+}
+
+.apr ::selection {
+    background: rgba(var(--apr-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.apr h1,
+.apr h2 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the breadcrumb and
+   Refresh stay reachable while the editor scrolls. */
+
+.apr-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: color-mix(in srgb, var(--apr-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--apr-divider);
+}
+
+.apr-head-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s6);
+}
+
+.apr-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--apr-mute-3);
+}
+
+.apr-crumb-sep {
+    color: var(--apr-faint);
+}
+
+.apr-crumb-now {
+    color: var(--apr-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.apr-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.apr .apr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--apr-s2) calc(var(--apr-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--apr-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--apr-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.apr .apr-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.apr .apr-btn svg {
+    display: block;
+    flex: none;
+}
+
+.apr .apr-btn-primary {
+    color: var(--apr-accent);
+    border-color: var(--apr-accent);
+    letter-spacing: .02em;
+}
+
+.apr .apr-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--apr-accent-rgb), .12);
+}
+
+.apr .apr-btn-primary:active:not(:disabled) {
+    background: rgba(var(--apr-accent-rgb), .22);
+}
+
+.apr .apr-btn-ghost {
+    color: var(--apr-accent);
+}
+
+.apr .apr-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--apr-accent-rgb), .1);
+}
+
+.apr .apr-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--apr-accent-rgb), .18);
+}
+
+.apr .apr-btn-quiet {
+    color: var(--apr-mute-2);
+    border-color: var(--apr-divider);
+}
+
+.apr .apr-btn-quiet:hover:not(:disabled) {
+    color: var(--apr-ink);
+    border-color: var(--apr-field-edge-hi);
+    background: var(--apr-hover);
+}
+
+.apr .apr-btn-danger {
+    color: var(--apr-danger);
+}
+
+.apr .apr-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--apr-danger-rgb), .12);
+}
+
+.apr .apr-btn-lg {
+    height: 36px;
+    font-size: 13px;
+    padding-inline: var(--apr-s6);
+}
+
+/* "New stage" heads the rail, so it spans it. */
+.apr .apr-btn-block {
+    width: 100%;
+    height: 38px;
+    font-size: 13px;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.apr-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--apr-s6);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.apr-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--apr-accent-text);
+    margin-bottom: 9px;
+}
+
+.apr-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.apr-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--apr-mute-2);
+    max-width: 66ch;
+    text-wrap: pretty;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────── */
+/* An underline rather than a filled bar — Nocturne marks the current thing
+   with a line, not a flood. */
+
+.apr-tabs {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    border-bottom: 1px solid var(--apr-divider);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.apr-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.apr .apr-tab {
+    padding: 9px 2px;
+    border: 0;
+    background: transparent;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.4;
+    color: var(--apr-mute-2);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color .14s, box-shadow .14s;
+}
+
+.apr .apr-tab:hover {
+    color: var(--apr-ink);
+}
+
+.apr .apr-tab-on {
+    color: var(--apr-ink);
+    box-shadow: inset 0 -2px 0 var(--apr-accent);
+}
+
+/* ── The two columns ───────────────────────────────────────────────────── */
+
+.apr-grid {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: var(--apr-s6);
+    align-items: start;
+}
+
+/* The rail stays put while the editor — much the taller of the two — scrolls
+   past it, so switching stage is always one click away. */
+.apr-rail {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 74px);
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - 104px);
+    overflow-y: auto;
+    /* Room for the focus ring on the last card, which a clipped overflow
+       would otherwise shave. */
+    padding: 2px;
+    margin: -2px;
+}
+
+.apr-card {
+    display: block;
+    width: 100%;
+    flex: none;
+    text-align: left;
+    padding: 13px 15px;
+    border: 1px solid var(--apr-divider);
+    border-radius: var(--apr-r-md);
+    background: var(--apr-surface);
+    font: inherit;
+    color: var(--apr-ink);
+    cursor: pointer;
+    transition: background-color .14s, border-color .14s;
+}
+
+.apr-card:hover {
+    border-color: var(--apr-field-edge-hi);
+}
+
+.apr-card-on {
+    border-color: rgba(var(--apr-accent-rgb), .4);
+    background: rgba(var(--apr-accent-rgb), .1);
+}
+
+.apr-card-top {
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s4);
+}
+
+.apr-card-name {
+    font-size: 13.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.apr-card-meta {
+    display: block;
+    margin-top: 5px;
+    font-size: 11.5px;
+    color: var(--apr-mute-2);
+    text-wrap: pretty;
+}
+
+.apr-pill {
+    margin-left: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--apr-mute-2);
+    background: var(--apr-press);
+}
+
+.apr-pill-on {
+    color: var(--apr-accent-text);
+    background: rgba(var(--apr-accent-rgb), .14);
+}
+
+/* ── The editor panel ──────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 260px rather than a
+   filled card — the design's one gradient. */
+
+.apr-panel {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--apr-s8);
+    padding: 20px 22px 18px;
+    border: 1px solid var(--apr-divider);
+    border-radius: var(--apr-r-lg);
+    background: linear-gradient(to bottom, var(--apr-wash), transparent 260px);
+}
+
+.apr-panel-head h2 {
+    margin: 0 0 5px;
+    font-size: 17px;
+    letter-spacing: -.01em;
+}
+
+.apr-panel-head p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--apr-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────── */
+
+.apr-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--apr-s6);
+}
+
+.apr-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.apr-field-wide {
+    grid-column: 1 / -1;
+}
+
+.apr-label {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--apr-mute-3);
+}
+
+.apr-label-note {
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--apr-faint);
+}
+
+.apr .apr-input {
+    width: 100%;
+    min-height: 36px;
+    padding: 9px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.4;
+    color: var(--apr-ink);
+    caret-color: var(--apr-accent);
+    background: var(--apr-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--apr-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.apr .apr-input:hover {
+    border-color: var(--apr-field-edge);
+}
+
+.apr .apr-input:focus-visible {
+    border-color: rgba(var(--apr-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.apr .apr-input::placeholder {
+    color: var(--apr-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--apr-placeholder);
+}
+
+.apr .apr-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.apr textarea.apr-input {
+    min-height: 62px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.apr-select {
+    position: relative;
+    display: flex;
+}
+
+.apr .apr-select select.apr-input {
+    padding: 9px 28px 9px 11px;
+    cursor: pointer;
+}
+
+.apr-select .apr-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--apr-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── Pickers ───────────────────────────────────────────────────────────── */
+
+.apr-block-head {
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s4);
+    margin-bottom: var(--apr-s3);
+    flex-wrap: wrap;
+}
+
+.apr-block-count {
+    font-size: 11.5px;
+    color: var(--apr-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.apr-block-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    width: 210px;
+    max-width: 100%;
+}
+
+.apr-block-search svg {
+    position: absolute;
+    left: 10px;
+    pointer-events: none;
+    color: var(--apr-mute-3);
+}
+
+.apr .apr-input-search {
+    min-height: 32px;
+    padding: 7px 11px 7px 31px;
+    font-size: 12.5px;
+    border-radius: 999px;
+}
+
+.apr .apr-input-search[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    margin-left: var(--apr-s2);
+    background: var(--apr-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.apr .apr-input-search[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+.apr-choices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px;
+    padding: 6px;
+    border: 1px solid var(--apr-divider);
+    border-radius: var(--apr-r-md);
+}
+
+.apr-choices-scroll {
+    max-height: 234px;
+    overflow-y: auto;
+    align-content: start;
+}
+
+/* A choice is a native checkbox wearing the design's box — the control keeps
+   its keyboard and screen-reader behaviour while the drawn square carries the
+   state. */
+.apr-choice {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+    margin: 0;
+    padding: 7px 9px;
+    border-radius: 7px;
+    background: transparent;
+    font-size: 12.5px;
+    line-height: 1.35;
+    text-align: left;
+    color: var(--apr-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.apr-choice:hover {
+    background: var(--apr-hover);
+}
+
+.apr-choice-on {
+    color: var(--apr-ink);
+}
+
+/* Only the people list tints its selected rows; the role grid is short enough
+   that the ticked box alone reads. */
+.apr-choices-scroll .apr-choice-on {
+    background: rgba(var(--apr-accent-rgb), .09);
+}
+
+.apr-choice:has(input:focus-visible) {
+    outline: 2px solid var(--apr-accent);
+    outline-offset: 1px;
+}
+
+.apr .apr-choice-check {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.apr-box {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border-radius: 4px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--apr-field-edge-hi);
+    background: transparent;
+    color: transparent;
+    transition: background-color .13s, border-color .13s, color .13s;
+}
+
+.apr-box-on {
+    border-color: transparent;
+    background: var(--apr-box-on);
+    color: var(--apr-accent-ink);
+}
+
+.apr-choice-text {
+    min-width: 0;
+}
+
+.apr-choice-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.apr-choice-role {
+    display: block;
+    font-size: 11px;
+    color: var(--apr-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.apr-choices-empty {
+    grid-column: 1 / -1;
+    padding: var(--apr-s4) 9px;
+    font-size: 12.5px;
+    color: var(--apr-mute-3);
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+.apr-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s4);
+    flex-wrap: wrap;
+    margin-top: 2px;
+    padding-top: var(--apr-s6);
+    border-top: 1px solid var(--apr-divider);
+}
+
+/* The switch is a native checkbox too: the drawn track and knob are the
+   label's, the state and the keyboard are the input's. */
+.apr-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--apr-s4);
+    margin: 0;
+    cursor: pointer;
+}
+
+.apr-switch:has(input:focus-visible) {
+    outline: 2px solid var(--apr-accent);
+    outline-offset: 3px;
+    border-radius: 999px;
+}
+
+.apr .apr-switch-check {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.apr-track {
+    position: relative;
+    width: 38px;
+    height: 21px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--apr-track);
+    transition: background-color .16s ease;
+}
+
+.apr-track-on {
+    background: var(--apr-box-on);
+}
+
+.apr-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(27, 28, 38, .3);
+    transition: left .16s ease;
+}
+
+.apr-track-on .apr-knob {
+    left: 20px;
+    background: var(--apr-accent-ink);
+}
+
+.apr-switch-label {
+    font-size: 13px;
+    color: var(--apr-mute);
+}
+
+.apr-foot-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--apr-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────── */
+
+.apr-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--apr-s4);
+    padding: var(--apr-s4) var(--apr-s6);
+    border: 1px solid var(--apr-good-edge);
+    border-radius: var(--apr-r-md);
+    background: var(--apr-good-bg);
+    color: var(--apr-good-ink);
+    font-size: 13px;
+}
+
+.apr-msg-error {
+    border-color: var(--apr-warn-edge);
+    background: var(--apr-warn-bg);
+    color: var(--apr-warn-ink);
+}
+
+.apr-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.apr .apr-msg-x {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s, background-color .13s;
+}
+
+.apr .apr-msg-x:hover {
+    opacity: 1;
+    background: rgba(27, 28, 38, .08);
+}
+
+.dark-theme .apr .apr-msg-x:hover {
+    background: rgba(243, 245, 254, .12);
+}
+
+.apr-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--apr-s4);
+    padding: var(--apr-s4) var(--apr-s6);
+    border: 1px solid var(--apr-warn-edge);
+    border-radius: var(--apr-r-md);
+    background: var(--apr-warn-bg);
+    color: var(--apr-warn-ink);
+    font-size: 12.5px;
+    text-wrap: pretty;
+}
+
+.apr-note svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.apr-note strong {
+    display: block;
+    font-weight: 500;
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.apr-rail-empty {
+    padding: var(--apr-s6) 15px;
+    border: 1px dashed var(--apr-divider);
+    border-radius: var(--apr-r-md);
+    font-size: 12.5px;
+    color: var(--apr-mute-3);
+    text-wrap: pretty;
+}
+
+.apr-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--apr-s4);
+    padding: 72px var(--apr-s6);
+    border: 1px solid var(--apr-divider);
+    border-radius: var(--apr-r-lg);
+    background: var(--apr-surface);
+    font-size: 13px;
+    color: var(--apr-mute-2);
+}
+
+.apr-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: apr-spin .7s linear infinite;
+}
+
+@keyframes apr-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .apr-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.apr-rail::-webkit-scrollbar,
+.apr-choices-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.apr-rail::-webkit-scrollbar-thumb,
+.apr-choices-scroll::-webkit-scrollbar-thumb {
+    background: var(--apr-thumb);
+    border-radius: 8px;
+}
+
+.apr-rail::-webkit-scrollbar-track,
+.apr-choices-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1000px) {
+    .apr-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Stacked, the rail sits above the editor rather than beside it, so
+       pinning it would park it over the panel it belongs to. */
+    .apr-rail {
+        position: static;
+        max-height: none;
+        overflow: visible;
+    }
+}
+
+@media (max-width: 760px) {
+    .apr-head-inner {
+        padding: var(--apr-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--apr-s3);
+    }
+
+    .apr-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .apr-head-actions .apr-btn {
+        flex: 1;
+    }
+
+    .apr-body {
+        padding: var(--apr-s8) 18px 56px;
+    }
+
+    .apr-hero h1 {
+        font-size: 24px;
+    }
+
+    .apr-panel {
+        padding: var(--apr-s6) var(--apr-s4) var(--apr-s4);
+        gap: var(--apr-s6);
+    }
+
+    .apr-fields {
+        grid-template-columns: 1fr;
+        gap: var(--apr-s4);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .apr .apr-input {
+        font-size: 16px;
+    }
+
+    .apr-choices {
+        grid-template-columns: 1fr;
+    }
+
+    .apr-block-search {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .apr-foot-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .apr-foot-actions .apr-btn {
+        flex: 1;
+    }
+}
+
+@media (max-width: 1200px) and (min-width: 761px) {
+    .apr-choices {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}

@@ -2,1496 +2,522 @@
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Data
 @attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
-@inject IBusinessPartnerService BusinessPartnerService
-@inject HttpClient Http
-@inject IJSRuntime JS
-@inject NavigationManager NavigationManager
-@inject IAppSettingsProvider AppSettings
-@inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>Customers - Shop Inventory</PageTitle>
-
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .cust-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .cust-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cust-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .cust-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .cust-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .cust-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .cust-header-actions {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-        align-items: center;
-    }
-
-    .btn-cust-outline {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .45rem 1.1rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-cust-outline:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-    }
-
-    .btn-cust-outline:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    .btn-cust-outline.active {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border-color: transparent;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-    }
-
-    .sync-hint {
-        font-size: .78rem;
-        color: #9ca3af;
-        display: flex;
-        align-items: center;
-        gap: .3rem;
-    }
-
-    /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: all .25s ease;
-    }
-
-    .stat-card:hover {
-        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
-        transform: translateY(-2px);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.blue {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.amber {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.2;
-    }
-
-    .stat-info .stat-label {
-        font-size: .78rem;
-        color: #6b7280;
-        font-weight: 500;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 200px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-bar .filter-field input {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .filter-bar .filter-field input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Type Toggle ─────────────────────────────────── */
-    .type-toggle {
-        display: flex;
-        gap: 0;
-        border-radius: 10px;
-        overflow: hidden;
-        border: 1px solid #d1d5db;
-    }
-
-    .type-toggle button {
-        padding: .4rem 1rem;
-        border: none;
-        background: #fff;
-        color: #6b7280;
-        font-weight: 600;
-        font-size: .82rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .type-toggle button:not(:last-child) {
-        border-right: 1px solid #e5e7eb;
-    }
-
-    .type-toggle button:hover {
-        background: #f3f4f6;
-    }
-
-    .type-toggle button.active {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .cust-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        margin-bottom: 1.25rem;
-    }
-
-    .cust-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .cust-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .cust-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    /* Quick filter within table */
-    .table-quick-filter {
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .85rem;
-        color: #374151;
-        min-width: 220px;
-        transition: all .15s;
-    }
-
-    .table-quick-filter:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    /* ── Status & Type Badges ────────────────────────── */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-badge.active {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.inactive {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .type-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .2rem;
-        padding: .15rem .55rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-    }
-
-    .type-badge.customer {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .type-badge.supplier {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .type-badge.lead {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-
-    /* ── Contact Info ────────────────────────────────── */
-    .contact-cell {
-        font-size: .85rem;
-    }
-
-    .contact-cell a {
-        color: #667eea;
-        text-decoration: none;
-        font-weight: 500;
-    }
-
-    .contact-cell a:hover {
-        text-decoration: underline;
-    }
-
-    .contact-cell .phone {
-        font-size: .78rem;
-        color: #9ca3af;
-    }
-
-    /* ── Balance Cell ────────────────────────────────── */
-    .balance-positive {
-        color: #dc2626;
-        font-weight: 700;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .balance-zero {
-        color: #059669;
-        font-weight: 600;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    /* ── Customer Code ───────────────────────────────── */
-    .customer-code {
-        font-weight: 700;
-        color: #667eea;
-        font-size: .88rem;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .customer-name {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .88rem;
-    }
-
-    /* ── Action Buttons ──────────────────────────────── */
-    .action-btn {
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        color: #6b7280;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .85rem;
-    }
-
-    .action-btn:hover {
-        background: #f3f4f6;
-        color: #374151;
-        border-color: #d1d5db;
-    }
-
-    .action-btn.primary:hover {
-        background: #ede9fe;
-        color: #667eea;
-        border-color: #c4b5fd;
-    }
-
-    .action-btn.info:hover {
-        background: #dbeafe;
-        color: #2563eb;
-        border-color: #93c5fd;
-    }
-
-    /* ── Drawer Modal ────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-        flex-wrap: wrap;
-    }
-
-    .detail-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .15rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    /* Statement date fields */
-    .stmt-row {
-        display: flex;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: .85rem 1rem;
-        background: #f8fafc;
-        border-radius: 10px;
-        border: 1px solid #e5e7eb;
-        margin-bottom: 1.25rem;
-        flex-wrap: wrap;
-    }
-
-    .stmt-row .stmt-field {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .stmt-row .stmt-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .25rem;
-    }
-
-    .stmt-row .stmt-field input {
-        width: 100%;
-        padding: .4rem .6rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: .85rem;
-    }
-
-    .stmt-row .stmt-field input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    /* Action buttons in drawer */
-    .btn-drawer-primary {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .5rem 1.25rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-drawer-primary:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-    }
-
-    .btn-drawer-primary:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-drawer-warning {
-        background: linear-gradient(135deg, #f59e0b, #d97706);
-        border: none;
-        color: #fff;
-        padding: .5rem 1.25rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-drawer-warning:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(217, 119, 6, .3);
-    }
-
-    .btn-drawer-warning:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-drawer-secondary {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.25rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-drawer-secondary:hover {
-        background: #f9fafb;
-    }
-
-    /* ── Empty & Loading States ──────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-        margin-bottom: 1rem;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .alert-banner.info-alert {
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        color: #1e40af;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    /* ── Responsive ──────────────────────────────────── */
-    @@media (max-width:768px) {
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .cust-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .85rem;
-        }
-
-        .cust-header-actions {
-            width: 100%;
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .cust-header-actions>* {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .sync-hint {
-            justify-content: center;
-        }
-
-        .filter-bar {
-            padding: .85rem;
-        }
-
-        .filter-bar .filter-field {
-            min-width: 100%;
-            flex: 1 1 100%;
-        }
-
-        .filter-actions-row {
-            width: 100%;
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .filter-actions-row>* {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .cust-table-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .75rem;
-        }
-
-        .cust-table-tools {
-            display: flex;
-            flex-direction: column;
-            gap: .5rem;
-            align-items: stretch !important;
-        }
-
-        .table-quick-filter {
-            min-width: 0;
-            width: 100%;
-        }
-
-        .detail-drawer {
-            width: 100vw;
-            max-width: 100vw;
-        }
-
-        .detail-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .stmt-row {
-            flex-direction: column;
-        }
-    }
-</style>
-
-<div class="cust-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="cust-header">
-            <div class="cust-header-left">
-                <div class="cust-header-icon"><i class="bi bi-people-fill"></i></div>
-                <div>
-                    <h2>Customers</h2>
-                    <p>Manage customers, suppliers & business partners</p>
-                </div>
-            </div>
-            <div class="cust-header-actions">
+<PageTitle>Business Partners - Shop Inventory</PageTitle>
+
+@* The imported Nocturne design is dark; wwwroot/css/business-partners.css
+   (linked from App.razor) carries it and its light counterpart, and follows
+   the app's theme toggle like every other page.
+
+   Icons are drawn inline rather than from the Phosphor font: the search glyph
+   sits inside a field and the two row actions are icon-only, so a font that
+   failed to load would leave them reading as nothing.
+
+   The directory is a plain CSS grid rather than MudTable. The design's row is
+   nine columns wide with a per-column treatment MudTable's cells cannot carry,
+   and below 900px the same markup re-lays as a labelled card — which a table
+   element cannot do at all. *@
+
+<div class="bp">
+
+    <header class="bp-head">
+        <div class="bp-head-inner">
+            <label class="bp-head-search">
+                <span class="visually-hidden">Search business partners</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="M20 20l-3.5-3.5"></path>
+                </svg>
+                <input class="bp-input bp-input-search" type="search" autocomplete="off"
+                       placeholder="Search by code, name, or email&#8230;"
+                       @bind="searchTerm" @bind:event="oninput" />
+            </label>
+            <div class="bp-head-meta">
                 @if (lastSyncTime.HasValue)
                 {
-                    <span class="sync-hint">
-                        <i class="bi bi-clock-history"></i> Synced @lastSyncTime.Value.ToLocalTime().ToString("g")
-                    </span>
+                    <span class="bp-synced">Synced @lastSyncTime.Value.ToLocalTime().ToString("d MMM yyyy, HH:mm")</span>
                 }
-                <MudButton Class="btn-cust-outline" OnClick="RefreshFromApi" Disabled="@isSyncing">
+                <button type="button" class="bp-btn bp-btn-ghost" disabled="@(isLoading || isSyncing)"
+                        @onclick="RefreshFromApi">
                     @if (isSyncing)
                     {
-                        <span class="spinner-border spinner-border-sm"></span>
-                        <span>Syncing...</span>
+                        <span class="bp-spin" aria-hidden="true"></span>
+                        <span>Syncing&#8230;</span>
                     }
                     else
                     {
-                        <i class="bi bi-arrow-clockwise"></i>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
                         <span>Refresh</span>
                     }
-                </MudButton>
-                <div class="type-toggle">
-                    <MudButton Class="@(selectedType == "cCustomer" ? "active" : "")"
-                               OnClick='() => FilterByType("cCustomer")'>
-                        Customers</MudButton>
-                        <MudButton Class="@(selectedType == "cSupplier" ? "active" : "")"
-                                   OnClick='() => FilterByType("cSupplier")'>
-                            Suppliers</MudButton>
-                            <MudButton Class="@(selectedType == "" ? "active" : "")" OnClick='() => FilterByType("")'>All
-                            </MudButton>
-                        </div>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="bp-body">
+
+        <section class="bp-hero">
+            <div>
+                <div class="bp-kicker">Master data</div>
+                <h1>Business partners</h1>
+                <p>Customers, suppliers and the accounts they trade on &#8212; mirrored from SAP.</p>
+            </div>
+            <div class="bp-scopes" role="group" aria-label="Partner type">
+                @foreach (var (value, label) in Scopes)
+                {
+                    <button type="button" class="bp-scope @(scope == value ? "bp-scope-on" : "")"
+                            aria-pressed="@(scope == value)" @onclick="() => SetScope(value)">
+                        @label
+                    </button>
+                }
+            </div>
+        </section>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="bp-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
+                <button type="button" class="bp-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
+            </div>
+        }
+
+        @if (isLoading)
+        {
+            <div class="bp-loading">
+                <span class="bp-spin" aria-hidden="true"></span>
+                <span>Loading business partners&#8230;</span>
+            </div>
+        }
+        else
+        {
+            var rows = Filtered;
+            var page = ClampPage(rows.Count);
+
+            <section class="bp-stats">
+                <div class="bp-stat bp-stat-lead">
+                    <div class="bp-stat-head"><span class="bp-stat-rule" aria-hidden="true"></span>Customers</div>
+                    <div class="bp-stat-num">@CustomerCount.ToString("N0")</div>
+                    <div class="bp-stat-sub">Trading accounts</div>
+                </div>
+                <div class="bp-stat">
+                    <div class="bp-stat-head"><span class="bp-stat-rule" aria-hidden="true"></span>Suppliers</div>
+                    <div class="bp-stat-num">@SupplierCount.ToString("N0")</div>
+                    <div class="bp-stat-sub">Goods and services</div>
+                </div>
+                <div class="bp-stat">
+                    <div class="bp-stat-head"><span class="bp-stat-dot" aria-hidden="true"></span>Active</div>
+                    <div class="bp-stat-num">@ActiveCount.ToString("N0")</div>
+                    @* The cache only ever holds active partners, so this equals the
+                       total on file — say so rather than imply a comparison. *@
+                    <div class="bp-stat-sub">Only active partners are cached</div>
+                </div>
+                <div class="bp-stat">
+                    <div class="bp-stat-head"><span class="bp-stat-rule" aria-hidden="true"></span>Total outstanding</div>
+                    <div class="bp-stat-num">@TotalOutstanding.ToString("N0")</div>
+                    <div class="bp-stat-sub">Sum of balances owed</div>
+                </div>
+            </section>
+
+            <section class="bp-panel">
+                <div class="bp-panel-head">
+                    <h2>Directory</h2>
+                    <span class="bp-count">@rows.Count.ToString("N0") shown · @AllCount.ToString("N0") total</span>
+                    <div class="bp-panel-tools">
+                        <button type="button" class="bp-tool @(showFilters ? "bp-tool-on" : "")"
+                                aria-expanded="@showFilters" @onclick="() => showFilters = !showFilters">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                                <path d="M4 6h16M7 12h10M10 18h4"></path>
+                            </svg>
+                            Filters@(ActiveFilterCount > 0 ? $" ({ActiveFilterCount})" : "")
+                        </button>
+                        <button type="button" class="bp-tool" disabled="@(isExporting || rows.Count == 0)"
+                                @onclick="() => ExportCsv(rows)">
+                            @if (isExporting)
+                            {
+                                <span class="bp-spin" aria-hidden="true"></span>
+                                <span>Exporting&#8230;</span>
+                            }
+                            else
+                            {
+                                <span>Export</span>
+                            }
+                        </button>
                     </div>
                 </div>
 
-                <!-- ━━━ Alerts ━━━ -->
-                @if (!string.IsNullOrEmpty(errorMessage))
+                @if (showFilters)
                 {
-                    <div class="alert-banner error-alert">
-                        <i class="bi bi-exclamation-octagon-fill"></i>
-                        <div style="flex:1;">@errorMessage</div>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" Style="color:inherit;opacity:.45;font-size:1rem;"
-                                       OnClick="() => errorMessage = null" />
-                    </div>
-                }
-
-                <!-- ━━━ Stat Cards ━━━ -->
-                @if (customers?.Any() == true)
-                {
-                    <div class="stat-row">
-                        <div class="stat-card">
-                            <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
-                            <div class="stat-info">
-                                <div class="stat-value">@customers.Count(c => c.CardType == "cCustomer" || c.CardType == "C")</div>
-                                <div class="stat-label">Customers</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon blue"><i class="bi bi-truck"></i></div>
-                            <div class="stat-info">
-                                <div class="stat-value">@customers.Count(c => c.CardType == "cSupplier" || c.CardType == "S")</div>
-                                <div class="stat-label">Suppliers</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon green"><i class="bi bi-check-circle-fill"></i></div>
-                            <div class="stat-info">
-                                <div class="stat-value">@customers.Count(c => c.IsActive)</div>
-                                <div class="stat-label">Active</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon amber"><i class="bi bi-cash-coin"></i></div>
-                            <div class="stat-info">
-                                <div class="stat-value">@customers.Where(c => c.Balance > 0).Sum(c => c.Balance ?? 0).ToString("N0")
-                                </div>
-                                <div class="stat-label">Total Outstanding</div>
-                            </div>
-                        </div>
-                    </div>
-                }
-
-                <!-- ━━━ Filter Bar ━━━ -->
-                <div class="filter-bar">
-                    <div class="filter-field">
-                        <label>Search</label>
-                        <input type="text" @bind="searchTerm" @bind:event="oninput" @onkeyup="OnSearchKeyUp"
-                               placeholder="Search by code, name, or email..." />
-                    </div>
-                    <div class="filter-actions-row">
-                        <MudButton Class="btn-search" OnClick="SearchCustomers">
-                            <i class="bi bi-search"></i> Search
-                        </MudButton>
-                        @if (!string.IsNullOrEmpty(searchTerm))
+                    <div class="bp-filters">
+                        <label class="bp-field">
+                            <span class="bp-label">Channel</span>
+                            <span class="bp-select">
+                                <select class="bp-input" @bind="channelFilter" @bind:after="ResetPage">
+                                    <option value="@FilterAll">All channels</option>
+                                    @if (HasPartnersWithoutChannel)
+                                    {
+                                        <option value="@FilterNone">No channel</option>
+                                    }
+                                    @foreach (var channel in AvailableChannels)
+                                    {
+                                        <option value="@channel">@channel</option>
+                                    }
+                                </select>
+                                <span class="bp-caret" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        <label class="bp-field">
+                            <span class="bp-label">Currency</span>
+                            <span class="bp-select">
+                                <select class="bp-input" @bind="currencyFilter" @bind:after="ResetPage">
+                                    <option value="@FilterAll">All currencies</option>
+                                    @foreach (var currency in AvailableCurrencies)
+                                    {
+                                        <option value="@currency">@currency</option>
+                                    }
+                                </select>
+                                <span class="bp-caret" aria-hidden="true"></span>
+                            </span>
+                        </label>
+                        @if (ActiveFilterCount > 0)
                         {
-                            <MudButton Class="btn-clear" OnClick="ClearSearch">
-                                <i class="bi bi-x-circle"></i> Clear
-                            </MudButton>
+                            <div class="bp-field">
+                                <span class="bp-label">&nbsp;</span>
+                                <button type="button" class="bp-btn bp-btn-quiet" @onclick="ClearFilters">
+                                    Clear filters
+                                </button>
+                            </div>
                         }
                     </div>
-                </div>
+                }
 
-                <!-- ━━━ Content ━━━ -->
-                @if (isLoading)
+                @if (rows.Count == 0)
                 {
-                    <div class="loading-state">
-                        <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                        <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading customers...</p>
+                    <div class="bp-empty">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="M20 20l-3.5-3.5"></path>
+                        </svg>
+                        @if (AllCount == 0)
+                        {
+                            <span>Nothing cached yet &#8212; refresh to pull the business partners from SAP.</span>
+                            <div class="bp-empty-actions">
+                                <button type="button" class="bp-btn bp-btn-primary" disabled="@isSyncing"
+                                        @onclick="RefreshFromApi">
+                                    Refresh from SAP
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <span>No business partners match the current search and filters.</span>
+                            <div class="bp-empty-actions">
+                                <button type="button" class="bp-btn bp-btn-quiet" @onclick="ClearAllCriteria">
+                                    Clear search and filters
+                                </button>
+                            </div>
+                        }
                     </div>
                 }
-                else if (customers?.Any() == true)
+                else
                 {
-                    <div class="cust-table-wrap">
-                        <div class="cust-table-header">
-                            <h6><i class="bi bi-table"></i> Business Partners</h6>
-                            <div class="cust-table-tools" style="display:flex;align-items:center;gap:.75rem;">
-                                <span class="cust-count-badge">@totalCount total</span>
-                                <input type="text" class="table-quick-filter" @bind="_searchString" @bind:event="oninput"
-                                       placeholder="Quick filter..." />
+                    <div class="bp-scroll">
+                        <div class="bp-grid" role="table" aria-label="Business partners">
+                            <div class="bp-thead" role="row">
+                                <span role="columnheader">Code</span>
+                                <span role="columnheader">Name</span>
+                                <span role="columnheader">Type</span>
+                                <span role="columnheader">Contact</span>
+                                <span role="columnheader">Location</span>
+                                <span role="columnheader">Ccy</span>
+                                <span role="columnheader" class="bp-num">Balance</span>
+                                <span role="columnheader">Status</span>
+                                <span role="columnheader" class="bp-num">Actions</span>
                             </div>
-                        </div>
-                        <MudTable @ref="@_table" Items="@customers" RowsPerPage="@_pageSize" Dense="true" Hover="true"
-                                  Striped="true" Filter="new Func<BusinessPartnerDto, bool>(_quickFilter)"
-                                  OnRowClick="@OnCustomerRowClicked" T="BusinessPartnerDto" Elevation="0" Style="background:transparent;">
-                            <HeaderContent>
-                                <MudTh>Code</MudTh>
-                                <MudTh>Name</MudTh>
-                                <MudTh>Type</MudTh>
-                                <MudTh>Contact</MudTh>
-                                <MudTh>Location</MudTh>
-                                <MudTh>Currency</MudTh>
-                                <MudTh Style="text-align:right">Balance</MudTh>
-                                <MudTh>Status</MudTh>
-                                <MudTh Style="width:80px">Actions</MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Code"><span class="customer-code">@context.CardCode</span></MudTd>
-                                <MudTd DataLabel="Name"><span class="customer-name">@context.CardName</span></MudTd>
-                                <MudTd DataLabel="Type">
-                                    <span class="type-badge @GetTypeClass(context.CardType)">@GetTypeLabel(context.CardType)</span>
-                                </MudTd>
-                                <MudTd DataLabel="Contact">
-                                    <div class="contact-cell">
-                                        @if (!string.IsNullOrEmpty(context.Email))
-                                        {
-                                            <a href="mailto:@context.Email">@context.Email</a>
-                                        }
-                                        @if (!string.IsNullOrEmpty(context.Phone1))
-                                        {
-                                            <div class="phone"><i class="bi bi-telephone me-1"></i>@context.Phone1</div>
-                                        }
-                                    </div>
-                                </MudTd>
-                                <MudTd DataLabel="Location">
-                                    @if (!string.IsNullOrEmpty(context.City) || !string.IsNullOrEmpty(context.Country))
-                                    {
-                                        <span style="font-size:.85rem;">@context.City @context.Country</span>
-                                    }
-                                    else
-                                    {
-                                        <span style="color:#d1d5db;">—</span>
-                                    }
-                                </MudTd>
-                                <MudTd DataLabel="Currency">
-                                    <span
-                                        style="font-size:.82rem;padding:.15rem .45rem;border-radius:4px;background:#f3f4f6;color:#374151;font-weight:600;">@(context.Currency
-                                                                                                                                                                                                                                                                                                                                                            ?? "USD")</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Balance" Style="text-align:right">
-                                        <span class="@(context.Balance > 0 ? "balance-positive" : "balance-zero")">
-                                            @((context.Balance ?? 0).ToString("N2"))
+
+                            @foreach (var partner in rows.Skip((page - 1) * pageSize).Take(pageSize))
+                            {
+                                var cardCode = partner.CardCode ?? string.Empty;
+                                var balance = partner.Balance ?? 0m;
+                                @* The row's click is a pointer convenience; the eye button
+                                   beside it is the control keyboards and screen readers use. *@
+                                <div class="bp-row" role="row" @onclick="() => ViewCustomer(partner)">
+                                    <span class="bp-code" role="cell">@cardCode</span>
+                                    <span class="bp-name-cell" role="cell">
+                                        <span class="bp-avatar" aria-hidden="true">@Initials(partner.CardName)</span>
+                                        <span class="bp-name">@partner.CardName</span>
+                                    </span>
+                                    <span class="bp-cell-type" role="cell">
+                                        <span class="bp-type @(IsCustomer(partner.CardType) ? "bp-type-customer" : "")">
+                                            @GetTypeLabel(partner.CardType)
                                         </span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Status">
-                                        @if (context.IsActive)
+                                    </span>
+                                    <span class="bp-contact" role="cell">
+                                        <span class="bp-rl">Contact</span>
+                                        @if (!string.IsNullOrWhiteSpace(partner.Email))
                                         {
-                                            <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
+                                            <a href="mailto:@partner.Email" @onclick:stopPropagation>@partner.Email</a>
                                         }
                                         else
                                         {
-                                            <span class="status-badge inactive">Inactive</span>
+                                            @(string.IsNullOrWhiteSpace(partner.Phone1) ? "—" : partner.Phone1)
                                         }
-                                    </MudTd>
-                                    <MudTd DataLabel="Actions">
-                                        <div style="display:flex;gap:.3rem;">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Visibility" Class="action-btn primary"
-                                                           OnClick="@(() => ViewCustomer(context))" title="View Details" />
-                                            <MudIconButton Icon="@Icons.Material.Filled.Receipt" Class="action-btn info"
-                                                           OnClick="@(() => NavigateToInvoices(context.CardCode ?? string.Empty))"
-                                                           title="View Invoices" />
-                                        </div>
-                                    </MudTd>
-                                </RowTemplate>
-                                <PagerContent>
-                                    <div class="pager-row">
-                                        <div class="page-size-wrap">
-                                            <span>Show</span>
-                                            <select @bind="_pageSize">
-                                                <option value="10">10</option>
-                                                <option value="25">25</option>
-                                                <option value="50">50</option>
-                                                <option value="100">100</option>
-                                                <option value="200">200</option>
-                                            </select>
-                                            <span>per page</span>
-                                        </div>
-                                        <MudPagination SelectedChanged="PageChanged"
-                                                       Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                                       Class="pa-4" />
-                                    </div>
-                                </PagerContent>
-                            </MudTable>
+                                    </span>
+                                    <span class="bp-loc" role="cell">
+                                        <span class="bp-rl">Location</span>@Location(partner)
+                                    </span>
+                                    <span class="bp-ccy" role="cell">
+                                        <span class="bp-rl">Currency</span>@(partner.Currency ?? "USD")
+                                    </span>
+                                    <span class="bp-bal bp-num @BalanceClass(balance)" role="cell">
+                                        <span class="bp-rl">Balance</span>@FormatBalance(balance)
+                                    </span>
+                                    <span class="bp-cell-status" role="cell">
+                                        <span class="bp-status @(partner.IsActive ? "" : "bp-status-off")">
+                                            <span class="bp-dot" aria-hidden="true"></span>
+                                            @(partner.IsActive ? "Active" : "Inactive")
+                                        </span>
+                                    </span>
+                                    <span class="bp-actions" role="cell">
+                                        <button type="button" class="bp-icon-btn" title="Open @cardCode"
+                                                aria-label="Open @cardCode" @onclick="() => ViewCustomer(partner)"
+                                                @onclick:stopPropagation>
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                                                 aria-hidden="true">
+                                                <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path>
+                                                <circle cx="12" cy="12" r="2.6"></circle>
+                                            </svg>
+                                        </button>
+                                        <button type="button" class="bp-icon-btn" title="Invoices for @cardCode"
+                                                aria-label="Invoices for @cardCode" @onclick="() => NavigateToInvoices(cardCode)"
+                                                @onclick:stopPropagation>
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path>
+                                                <path d="M9 8h6M9 12h6"></path>
+                                            </svg>
+                                        </button>
+                                    </span>
+                                </div>
+                            }
                         </div>
-                    }
-        else
-                    {
-                        <div class="empty-state">
-                            <div class="empty-icon"><i class="bi bi-people"></i></div>
-                            <h6>No customers found</h6>
-                            <p>Try adjusting your search criteria or click Refresh to sync from server.</p>
-                            <MudButton Class="btn-search" OnClick="RefreshFromApi"><i class="bi bi-arrow-clockwise"></i> Refresh
-                            </MudButton>
-                        </div>
-                    }
-                </div>
-            </div>
-
-            <!-- ━━━ Customer Detail Drawer ━━━ -->
-            @if (selectedCustomer != null)
-            {
-                <div class="modal-backdrop-custom" @onclick="() => selectedCustomer = null"></div>
-                <div class="detail-drawer">
-                    <div class="drawer-header">
-                        <h5><i class="bi bi-person-badge"></i> @selectedCustomer.CardName</h5>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                                       OnClick="() => selectedCustomer = null" />
                     </div>
-                    <div class="drawer-body">
-                        <!-- Statement Generator -->
-                        <div class="stmt-row">
-                            <div class="stmt-field">
-                                <label>Statement From</label>
-                                <MudDatePicker @bind-Date="statementFromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-                            </div>
-                            <div class="stmt-field">
-                                <label>Statement To</label>
-                                <MudDatePicker @bind-Date="statementToDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-                            </div>
-                            <MudButton Class="btn-drawer-warning" Style="align-self:flex-end;"
-                                       OnClick="() => GenerateStatement(selectedCustomer.CardCode ?? string.Empty)"
-                                       Disabled="@isGeneratingStatement">
-                                @if (isGeneratingStatement)
+
+                    <div class="bp-foot">
+                        <label class="bp-per">
+                            <span>Show</span>
+                            <span class="bp-select">
+                                <select class="bp-input" @bind="pageSize" @bind:after="ResetPage">
+                                    @foreach (var size in PageSizes)
+                                    {
+                                        <option value="@size">@size</option>
+                                    }
+                                </select>
+                                <span class="bp-caret" aria-hidden="true"></span>
+                            </span>
+                            <span>per page</span>
+                        </label>
+                        <div class="bp-pages">
+                            <button type="button" class="bp-step" disabled="@(page <= 1)"
+                                    @onclick="() => GoToPage(page - 1)">
+                                Prev
+                            </button>
+                            @foreach (var slot in PageSlots(page, PageCount(rows.Count)))
+                            {
+                                if (slot is null)
                                 {
-                                    <span class="spinner-border spinner-border-sm"></span>
-                                    <span>Generating...</span>
+                                    <span class="bp-gap" aria-hidden="true">…</span>
                                 }
                                 else
                                 {
-                                    <i class="bi bi-file-pdf"></i>
-                                    <span>Generate Statement</span>
+                                    var number = slot.Value;
+                                    <button type="button" class="bp-page @(number == page ? "bp-page-on" : "")"
+                                            aria-current="@(number == page ? "page" : null)"
+                                            aria-label="Page @number" @onclick="() => GoToPage(number)">
+                                        @number
+                                    </button>
                                 }
-                            </MudButton>
-                        </div>
-
-                        <!-- General Information -->
-                        <div class="detail-section-title"><i class="bi bi-info-circle"></i> General Information</div>
-                        <div class="detail-grid">
-                            <div class="detail-item">
-                                <div class="detail-label">Code</div>
-                                <div class="detail-value" style="font-family:'Space Grotesk',monospace;color:#667eea;">
-                                    @selectedCustomer.CardCode</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Name</div>
-                                    <div class="detail-value">@selectedCustomer.CardName</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Type</div>
-                                    <div class="detail-value">
-                                        <span
-                                        class="type-badge @GetTypeClass(selectedCustomer.CardType)">@GetTypeLabel(selectedCustomer.CardType)</span>
-                                    </div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Group Code</div>
-                                    <div class="detail-value">@(selectedCustomer.GroupCode ?? "—")</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Status</div>
-                                    <div class="detail-value">
-                                        @if (selectedCustomer.IsActive)
-                                        {
-                                            <span class="status-badge active"><i class="bi bi-check-circle-fill"></i> Active</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="status-badge inactive">Inactive</span>
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Contact Information -->
-                            <div class="detail-section-title"><i class="bi bi-telephone"></i> Contact Information</div>
-                            <div class="detail-grid">
-                                <div class="detail-item">
-                                    <div class="detail-label">Email</div>
-                                    <div class="detail-value">
-                                        @if (!string.IsNullOrEmpty(selectedCustomer.Email))
-                                        {
-                                            <a href="mailto:@selectedCustomer.Email"
-                                               style="color:#667eea;text-decoration:none;">@selectedCustomer.Email</a>
-                                        }
-                                        else
-                                        {
-
-                                            <span style="color:#d1d5db;">—</span>
-                                        }
-                                    </div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Phone 1</div>
-                                    <div class="detail-value">@(selectedCustomer.Phone1 ?? "—")</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Phone 2</div>
-                                    <div class="detail-value">@(selectedCustomer.Phone2 ?? "—")</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Address</div>
-                                    <div class="detail-value">@(selectedCustomer.Address ?? "—")</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">City / Country</div>
-                                    <div class="detail-value">@selectedCustomer.City @selectedCustomer.Country</div>
-                                </div>
-                            </div>
-
-                            <!-- Financial Information -->
-                            <div class="detail-section-title"><i class="bi bi-cash-coin"></i> Financial Information</div>
-                            <div class="detail-grid">
-                                <div class="detail-item">
-                                    <div class="detail-label">Currency</div>
-                                    <div class="detail-value">@(selectedCustomer.Currency ?? "USD")</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="detail-label">Balance</div>
-                                    <div class="detail-value">
-                                        <span class="@(selectedCustomer.Balance > 0 ? "balance-positive" : "balance-zero")"
-                                              style="font-size:1.1rem;">
-                                            @((selectedCustomer.Balance ?? 0).ToString("N2"))
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="drawer-footer">
-                            <MudButton Class="btn-drawer-primary" OnClick='() => NavigateToInvoices(selectedCustomer.CardCode ?? "")'>
-                                <i class="bi bi-receipt"></i> View Invoices
-                            </MudButton>
-                            <MudButton Class="btn-drawer-secondary" OnClick="() => selectedCustomer = null">Close</MudButton>
+                            }
+                            <button type="button" class="bp-step" disabled="@(page >= PageCount(rows.Count))"
+                                    @onclick="() => GoToPage(page + 1)">
+                                Next
+                            </button>
                         </div>
                     </div>
                 }
-
-@code {
-    private MudTable<BusinessPartnerDto> _table = null!;
-    private int _pageSize = 10;
-    private List<BusinessPartnerDto>? customers;
-    private BusinessPartnerDto? selectedCustomer;
-    private bool isLoading = true;
-    private bool isGeneratingStatement = false;
-    private bool isSyncing = false;
-    private string? errorMessage;
-    private string searchTerm = "";
-    private string selectedType = "";
-    private int totalCount = 0;
-    private DateTime? statementFromDate = DateTime.Now.AddMonths(-3);
-    private DateTime? statementToDate = DateTime.Now;
-    private DateTime? lastSyncTime;
-    private string _searchString = string.Empty;
-
-    private Func<BusinessPartnerDto, bool> _quickFilter => x =>
-    {
-        if (string.IsNullOrWhiteSpace(_searchString))
-            return true;
-
-        if (x.CardCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.CardName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Email?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Phone1?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.City?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.Country?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        return false;
-    };
-
-    private void OnCustomerRowClicked(TableRowClickEventArgs<BusinessPartnerDto> args)
-    {
-        if (args.Item is not null)
-            ViewCustomer(args.Item);
-    }
-
-    private void PageChanged(int i)
-    {
-        _table.NavigateTo(i - 1);
-    }
-
-    protected override async Task OnInitializedAsync()
-    {
-        _pageSize = AppSettings.PageSize;
-        await LoadCustomers();
-        lastSyncTime = await BusinessPartnerService.GetLastSyncTimeAsync();
-        await AuditService.LogAsync(AuditActions.ViewCustomers, "Customer", null);
-    }
-
-    private async Task LoadCustomers()
-    {
-        isLoading = true;
-        errorMessage = null;
-
-        try
-        {
-            BusinessPartnerListResponse? response;
-
-            if (!string.IsNullOrEmpty(searchTerm))
-            {
-                response = await BusinessPartnerService.SearchCachedBusinessPartnersAsync(searchTerm);
-            }
-            else
-            {
-                response = await BusinessPartnerService.GetCachedBusinessPartnersAsync();
-            }
-
-            if (response != null)
-            {
-                var filteredPartners = response.BusinessPartners;
-
-                if (!string.IsNullOrEmpty(selectedType))
-                {
-                    filteredPartners = filteredPartners?.Where(p => p.CardType == selectedType).ToList();
-                }
-
-                customers = filteredPartners;
-                totalCount = customers?.Count ?? 0;
-            }
-            else
-            {
-                errorMessage = "No cached data found. Click Refresh to sync from server.";
-            }
+            </section>
         }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
+    </div>
+</div>
 
-    private async Task RefreshFromApi()
-    {
-        isSyncing = true;
-        errorMessage = null;
-        StateHasChanged();
+@if (selectedCustomer is not null)
+{
+    var partner = selectedCustomer;
+    var cardCode = partner.CardCode ?? string.Empty;
+    var balance = partner.Balance ?? 0m;
 
-        try
-        {
-            var count = await BusinessPartnerService.SyncBusinessPartnersAsync();
-            lastSyncTime = DateTime.UtcNow;
-            await LoadCustomers();
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Sync failed: {ex.Message}";
-        }
-        finally
-        {
-            isSyncing = false;
-        }
-    }
+    <div class="bp bp-scrim" @onclick="CloseDrawer"></div>
+    <aside class="bp bp-drawer" role="dialog" aria-modal="true" aria-label="@partner.CardName">
+        <div class="bp-drawer-head">
+            <div>
+                <h2>@partner.CardName</h2>
+                <div class="bp-drawer-sub">@cardCode · @GetTypeLabel(partner.CardType)</div>
+            </div>
+            <button type="button" class="bp-icon-btn" style="margin-left:auto" aria-label="Close"
+                    @onclick="CloseDrawer">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
 
-    private async Task FilterByType(string type)
-    {
-        selectedType = type;
-        await LoadCustomers();
-    }
+        <div class="bp-drawer-body">
 
-    private async Task SearchCustomers()
-    {
-        await LoadCustomers();
-    }
+            <section class="bp-section">
+                <h3>Statement</h3>
+                <div class="bp-stmt">
+                    <label class="bp-field">
+                        <span class="bp-label">From</span>
+                        <input type="date" class="bp-input" @bind="statementFromDate" @bind:format="yyyy-MM-dd" />
+                    </label>
+                    <label class="bp-field">
+                        <span class="bp-label">To</span>
+                        <input type="date" class="bp-input" @bind="statementToDate" @bind:format="yyyy-MM-dd" />
+                    </label>
+                    <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" disabled="@isGeneratingStatement"
+                            @onclick="() => GenerateStatement(cardCode)">
+                        @if (isGeneratingStatement)
+                        {
+                            <span class="bp-spin" aria-hidden="true"></span>
+                            <span>Generating&#8230;</span>
+                        }
+                        else
+                        {
+                            <span>Generate PDF</span>
+                        }
+                    </button>
+                </div>
+            </section>
 
-    private async Task ClearSearch()
-    {
-        searchTerm = "";
-        await LoadCustomers();
-    }
+            <section class="bp-section">
+                <h3>General</h3>
+                <div class="bp-dl">
+                    <div>
+                        <div class="bp-dt">Code</div>
+                        <div class="bp-dd bp-dd-num">@cardCode</div>
+                    </div>
+                    <div>
+                        <div class="bp-dt">Group code</div>
+                        <div class="bp-dd">@Dash(partner.GroupCode)</div>
+                    </div>
+                    <div>
+                        <div class="bp-dt">Type</div>
+                        <div class="bp-dd">@GetTypeLabel(partner.CardType)</div>
+                    </div>
+                    <div>
+                        <div class="bp-dt">Status</div>
+                        <div class="bp-dd">
+                            <span class="bp-status @(partner.IsActive ? "" : "bp-status-off")">
+                                <span class="bp-dot" aria-hidden="true"></span>
+                                @(partner.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(partner.Channel))
+                    {
+                        <div>
+                            <div class="bp-dt">Channel</div>
+                            <div class="bp-dd">@partner.Channel</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(partner.PriceListName))
+                    {
+                        <div>
+                            <div class="bp-dt">Price list</div>
+                            <div class="bp-dd">@partner.PriceListName</div>
+                        </div>
+                    }
+                </div>
+            </section>
 
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            await SearchCustomers();
-        }
-    }
+            <section class="bp-section">
+                <h3>Contact</h3>
+                <div class="bp-dl">
+                    <div class="bp-dl-wide">
+                        <div class="bp-dt">Email</div>
+                        <div class="bp-dd">
+                            @if (!string.IsNullOrWhiteSpace(partner.Email))
+                            {
+                                <a href="mailto:@partner.Email">@partner.Email</a>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        <div class="bp-dt">Phone 1</div>
+                        <div class="bp-dd bp-dd-num">@Dash(partner.Phone1)</div>
+                    </div>
+                    <div>
+                        <div class="bp-dt">Phone 2</div>
+                        <div class="bp-dd bp-dd-num">@Dash(partner.Phone2)</div>
+                    </div>
+                    <div class="bp-dl-wide">
+                        <div class="bp-dt">Address</div>
+                        <div class="bp-dd">@Dash(partner.Address)</div>
+                    </div>
+                    <div class="bp-dl-wide">
+                        <div class="bp-dt">City / country</div>
+                        <div class="bp-dd">@Location(partner)</div>
+                    </div>
+                </div>
+            </section>
 
-    private void ViewCustomer(BusinessPartnerDto customer)
-    {
-        selectedCustomer = customer;
-    }
+            <section class="bp-section">
+                <h3>Financial</h3>
+                <div class="bp-dl">
+                    <div>
+                        <div class="bp-dt">Currency</div>
+                        <div class="bp-dd">@(partner.Currency ?? "USD")</div>
+                    </div>
+                    <div>
+                        <div class="bp-dt">Balance</div>
+                        <div class="bp-dd bp-dd-num @BalanceClass(balance)">@FormatBalance(balance)</div>
+                    </div>
+                </div>
+            </section>
 
-    private void NavigateToInvoices(string cardCode)
-    {
-        selectedCustomer = null;
-        NavigationManager.NavigateTo($"/invoices?customer={cardCode}");
-    }
+        </div>
 
-    private string GetTypeBadgeClass(string? type) => type switch
-    {
-        "C" or "cCustomer" => "bg-primary",
-        "S" or "cSupplier" => "bg-success",
-        "L" or "cLead" => "bg-info",
-        _ => "bg-secondary"
-    };
-
-    private string GetTypeClass(string? type) => type switch
-    {
-        "C" or "cCustomer" => "customer",
-        "S" or "cSupplier" => "supplier",
-        "L" or "cLead" => "lead",
-        _ => ""
-    };
-
-    private string GetTypeLabel(string? type) => type switch
-    {
-        "C" or "cCustomer" => "Customer",
-        "S" or "cSupplier" => "Supplier",
-        "L" or "cLead" => "Lead",
-        _ => "Unknown"
-    };
-
-    private async Task GenerateStatement(string cardCode)
-    {
-        isGeneratingStatement = true;
-        try
-        {
-            var fromDate = (statementFromDate ?? DateTime.Now.AddMonths(-3)).ToString("yyyy-MM-dd");
-            var toDate = (statementToDate ?? DateTime.Now).ToString("yyyy-MM-dd");
-            var response = await Http.GetAsync($"api/statement/generate/{cardCode}?fromDate={fromDate}&toDate={toDate}");
-            if (response.IsSuccessStatusCode)
-            {
-                var fileBytes = await response.Content.ReadAsByteArrayAsync();
-                var fileName = $"Statement_{cardCode}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
-
-                var base64 = Convert.ToBase64String(fileBytes);
-                await JS.InvokeVoidAsync("downloadFile", fileName, base64);
-                await AuditService.LogAsync(AuditActions.GenerateStatement, "Customer", cardCode);
-            }
-            else
-            {
-                var errorContent = await response.Content.ReadAsStringAsync();
-                errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
-                    response.StatusCode,
-                    errorContent,
-                    "We couldn't generate this statement right now. Please try again.");
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = ShopInventory.Web.Services.ApiErrorResponse.GetFriendlyMessage(
-                ex,
-                "We couldn't generate this statement right now. Please try again.");
-        }
-        finally
-        {
-            isGeneratingStatement = false;
-        }
-    }
+        <div class="bp-drawer-foot">
+            <button type="button" class="bp-btn bp-btn-quiet" @onclick="CloseDrawer">Close</button>
+            <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" @onclick="() => NavigateToInvoices(cardCode)">
+                View invoices
+            </button>
+        </div>
+    </aside>
 }
