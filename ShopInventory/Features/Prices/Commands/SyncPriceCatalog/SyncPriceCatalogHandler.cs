@@ -65,13 +65,15 @@ public sealed class SyncPriceCatalogHandler(
                 syncedItemPriceCount += sapPrices.Count;
                 syncedPriceListCount++;
 
+                // An empty result on an active list never overwrites what is cached: it may mean SAP
+                // holds no price for the list, or that neither read path completed, and this cannot
+                // tell those apart. The SAP client reports which it was — it is the only layer that
+                // knows — and warns only for the second. See ReportEmptyActivePriceList.
+                //
+                // An inactive list falls through deliberately: syncing an empty set clears the
+                // list's cached prices, which is what should happen once SAP stops carrying it.
                 if (sapPrices.Count == 0 && priceList.IsActive)
                 {
-                    logger.LogWarning(
-                        "No item prices returned from SAP for active price list {PriceListNum} (base {BasePriceList}, factor {Factor}); retaining existing cached prices for this list",
-                        priceList.ListNum,
-                        priceList.BasePriceList,
-                        priceList.Factor);
                     continue;
                 }
 

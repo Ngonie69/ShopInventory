@@ -396,7 +396,28 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
         public List<string> Pages { get; } = [];
         public bool IsComplete { get; set; }
         public bool SqlUnavailable { get; set; }
+
+        /// <summary>
+        /// SQL failures since the last one that worked, used to decide when the SQL path has stopped
+        /// being worth trying for the rest of this sync.
+        /// </summary>
+        public int ConsecutiveSqlFailures { get; set; }
     }
+
+    /// <summary>
+    /// How many price lists in a row have to fail on the SQL path before the rest of the sync gives
+    /// up on it and reads everything through the shared Items API snapshot.
+    /// </summary>
+    /// <remarks>
+    /// Latching on the first failure is too eager for a Service Layer with this one's latency
+    /// distribution. On 2026-08-02 lists 1-34 each resolved through SQL in about 0.2s, then list 37
+    /// timed out once — and that single timeout pushed the remaining 76 lists onto the Items API
+    /// path, which costs a full item scan up front and about 1.2s per list after it. Giving up still
+    /// has to be possible, or a genuinely sick endpoint would burn the per-list budget 116 times
+    /// over, so this trades one extra timeout's worth of latency for not discarding a working path
+    /// on a single blip.
+    /// </remarks>
+    private const int PriceListSqlFailuresBeforeFallback = 3;
 
     private async Task<HttpResponseMessage> SendSapRequestWithTransientRetryAsync(
         HttpClient client,
@@ -3901,8 +3922,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
         var existingSqlText = await TryGetSqlQueryTextAsync(queryCode, cancellationToken);
 
-        if (existingSqlText is not null &&
-            string.Equals(NormalizeSqlText(existingSqlText), NormalizeSqlText(sqlText), StringComparison.Ordinal))
+        if (existingSqlText is not null && SqlTextsAreEquivalent(existingSqlText, sqlText))
         {
             _logger.LogDebug("Reusing existing SAP SQL query '{QueryCode}'", queryCode);
             MarkSqlQueryVerified(queryCode, sqlText);
@@ -4387,7 +4407,8 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
     }
 
     /// <summary>
-    /// Gets all price lists from SAP Business One (OPLN table) using SQL query
+    /// Gets all price lists from SAP Business One, through the OData <c>PriceLists</c> entity set
+    /// with a SQL read of OPLN as the fallback.
     /// </summary>
     public async Task<List<PriceListDto>> GetPriceListsAsync(CancellationToken cancellationToken = default)
     {
@@ -4413,37 +4434,50 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
             }
 
             // Price list definitions gate the whole catalog sync, so they degrade in stages rather
-            // than failing outright: the SQL query first, then the native OData entity set when the
-            // SQLQueries endpoint is sick, and only then the last set we read successfully.
+            // than failing outright: the native OData entity set first, then the SQL query, and only
+            // then the last set we read successfully.
+            //
+            // OData leads because the two paths read the same six OPLN columns — PriceListNo,
+            // PriceListName, BasePriceList, Factor, RoundingMethod and Active map one-for-one onto
+            // ListNum, ListName, BASE_NUM, Factor, RoundSys and ValidFor — so nothing is given up by
+            // preferring it, and it is by far the more reliable of the two. Every observed run of
+            // the SQL path on 2026-08-02 spent its entire 20-second budget on a single request for
+            // ~116 rows and then handed over to OData, which answered in about three seconds. That
+            // is 20 seconds burned before any useful work, on the catalog sync and on the
+            // interactive GetPricesByBusinessPartner path alike. Leading with OData also stops the
+            // sync touching the SHOP_PRICE_LISTS SQLQueries row at all unless OData is down, which
+            // keeps writes off an already-oversized OUQR.
             List<PriceListDto> result;
             var isFresh = true;
 
             try
             {
-                result = await GetPriceListsFromSAPAsync(cancellationToken);
+                result = await GetPriceListsFromSapODataAsync(cancellationToken);
             }
-            catch (Exception sqlException) when (sqlException is not OperationCanceledException)
+            catch (Exception odataException) when (odataException is not OperationCanceledException)
             {
                 _logger.LogWarning(
-                    sqlException,
-                    "Failed to read price list definitions through the SQL query path; trying the OData PriceLists fallback.");
+                    odataException,
+                    "Failed to read price list definitions through the OData PriceLists entity set; trying the SQL query fallback.");
 
                 try
                 {
-                    result = await GetPriceListsFromSapODataAsync(cancellationToken);
+                    result = await GetPriceListsFromSAPAsync(cancellationToken);
                     _logger.LogInformation(
-                        "Recovered {Count} price list definition(s) through the OData fallback after the SQL path failed.",
+                        "Recovered {Count} price list definition(s) through the SQL query fallback after the OData path failed.",
                         result.Count);
                 }
-                catch (Exception odataException) when (
-                    odataException is not OperationCanceledException && _lastKnownGoodPriceLists is { Count: > 0 })
+                catch (Exception sqlException) when (
+                    sqlException is not OperationCanceledException && _lastKnownGoodPriceLists is { Count: > 0 })
                 {
                     // Both live paths are down. OPLN changes rarely, so the last good read is far
                     // closer to correct than failing the sync. Deliberately not written back into
                     // the 60-minute cache — the next call must retry SAP rather than pin stale data.
+                    // Carries the fallback's failure: the OData one that opened this block was
+                    // already logged as a warning above.
                     _logger.LogError(
-                        odataException,
-                        "Both the SQL and OData price list paths failed; serving the last known good set of {Count} price list(s) read at {ReadAtUtc:O}.",
+                        sqlException,
+                        "Both the OData and SQL price list paths failed; serving the last known good set of {Count} price list(s) read at {ReadAtUtc:O}.",
                         _lastKnownGoodPriceLists.Count,
                         _lastKnownGoodPriceListsAtUtc);
 
@@ -4491,8 +4525,13 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
         // Create SQL query to fetch price lists from OPLN table
         // BASE_NUM and Factor are needed for price lists derived from another list.
-        var sqlText = @"SELECT 
-            T0.""ListNum"", 
+        //
+        // No trailing whitespace on any line. SAP strips it before storing, and NormalizeSqlText
+        // only trims the ends of the whole string, so a line ending in a space made the stored text
+        // never compare equal to this one — every probe logged "exists with different text" and
+        // PATCHed a query that had not changed since the day it was created.
+        var sqlText = @"SELECT
+            T0.""ListNum"",
             T0.""ListName"",
             T0.""BASE_NUM"" AS ""BasePriceList"",
             T0.""Factor"",
@@ -4887,6 +4926,11 @@ ORDER BY T0.""ItemCode""";
                 {
                     await EnsureSqlQueryAsync(queryCode, $"Prices for List {priceListNum}", sqlText, sqlTimeoutSource.Token);
                     prices = await ExecutePriceListQueryAsync(queryCode, priceListNum, isDerivedPriceList, sqlTimeoutSource.Token);
+
+                    if (resolutionSnapshot is not null)
+                    {
+                        resolutionSnapshot.ConsecutiveSqlFailures = 0;
+                    }
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -4895,15 +4939,31 @@ ORDER BY T0.""ItemCode""";
                 catch (Exception ex)
                 {
                     sqlQueryFailed = true;
+
+                    var consecutiveFailures = 1;
                     if (resolutionSnapshot is not null)
                     {
-                        resolutionSnapshot.SqlUnavailable = true;
+                        consecutiveFailures = ++resolutionSnapshot.ConsecutiveSqlFailures;
+                        resolutionSnapshot.SqlUnavailable =
+                            consecutiveFailures >= PriceListSqlFailuresBeforeFallback;
                     }
 
-                    _logger.LogWarning(
-                        ex,
-                        "SQL query path failed for price list {PriceListNum}; the remaining lists in this sync will use the shared Items API fallback",
-                        priceListNum);
+                    if (resolutionSnapshot?.SqlUnavailable == true)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "SQL query path failed for price list {PriceListNum}, the {FailureCount}th in a row; the remaining lists in this sync will use the shared Items API fallback",
+                            priceListNum,
+                            consecutiveFailures);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "SQL query path failed for price list {PriceListNum}; falling back to the Items API for this list and retrying SQL on the next one",
+                            priceListNum);
+                    }
+
                     prices = [];
                 }
             }
@@ -4914,6 +4974,10 @@ ORDER BY T0.""ItemCode""";
                     "Skipping SAP SQL for price list {PriceListNum} because an earlier list failed in this resolution scope",
                     priceListNum);
             }
+
+            // A read is authoritative when the path behind it ran to completion: only then does an
+            // empty result mean "SAP holds no price here" rather than "we could not find out".
+            var resolvedAuthoritatively = !sqlQueryFailed;
 
             // If SQL query returned empty, fall back to OData Items API for direct lists.
             // Derived lists often have no direct ITM1 rows, so skip the full item scan and derive from BASE_NUM/Factor below.
@@ -4930,16 +4994,24 @@ ORDER BY T0.""ItemCode""";
                 else if (sqlQueryFailed)
                 {
                     _logger.LogInformation("Using OData Items API fallback for price list {PriceListNum} after SQL query failure", priceListNum);
-                    prices = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
+                    (prices, resolvedAuthoritatively) = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
                 }
                 else
                 {
-                    _logger.LogWarning("SQL query returned 0 prices for price list {PriceListNum}, falling back to OData Items API", priceListNum);
-                    prices = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
+                    _logger.LogInformation(
+                        "SQL query returned 0 prices for price list {PriceListNum}; confirming against the OData Items API, which also sees prices SAP computes rather than stores",
+                        priceListNum);
+                    (prices, resolvedAuthoritatively) = await GetPricesByPriceListViaItemsApiAsync(priceListNum, cancellationToken);
                 }
             }
 
             prices = await MergeDerivedPriceListItemsAsync(priceListNum, prices, priceLists, visitedPriceLists, cancellationToken);
+
+            if (prices.Count == 0 && priceList?.IsActive == true)
+            {
+                ReportEmptyActivePriceList(priceListNum, resolvedAuthoritatively, isDerivedPriceList, basePriceList);
+            }
+
             resolutionCache ??= _priceListResolutionCache.Value;
             if (resolutionCache is not null)
             {
@@ -5053,6 +5125,50 @@ ORDER BY T0.""ItemCode""";
             .ToList();
     }
 
+    /// <summary>
+    /// Says why an active price list resolved to nothing, at the only point that knows.
+    /// </summary>
+    /// <remarks>
+    /// An active list with no prices used to be one warning per list per sync, regardless of cause —
+    /// 27 of them on 2026-08-02, all reading "retaining existing cached prices for this list". Most
+    /// were lists SAP genuinely holds no price for, where there is nothing to act on and nothing
+    /// stale being served; the warning that mattered would have been indistinguishable among them.
+    ///
+    /// A completed read that finds nothing is information. Only a read that did not finish is a
+    /// warning, because that is the one where the cached prices being kept might be wrong.
+    /// </remarks>
+    private void ReportEmptyActivePriceList(
+        int priceListNum,
+        bool resolvedAuthoritatively,
+        bool isDerivedPriceList,
+        int basePriceList)
+    {
+        if (!resolvedAuthoritatively)
+        {
+            _logger.LogWarning(
+                "Could not establish prices for active price list {PriceListNum}: neither the SQL path nor the Items API scan completed. Any cached prices for this list are being kept and may be stale.",
+                priceListNum);
+            return;
+        }
+
+        if (isDerivedPriceList)
+        {
+            // Says only what this level established. Whether the base was itself read successfully
+            // is the base's own resolution to report, and it does — MergeDerivedPriceListItemsAsync
+            // resolves it through this same method, so a failed base read is already a warning of
+            // its own rather than something to infer here.
+            _logger.LogInformation(
+                "Active price list {PriceListNum} resolved to no prices: it holds none directly, and base list {BasePriceList} contributed none.",
+                priceListNum,
+                basePriceList);
+            return;
+        }
+
+        _logger.LogInformation(
+            "Active price list {PriceListNum} resolved to no prices; SAP holds none for it, stored or computed.",
+            priceListNum);
+    }
+
     private static bool TryGetPriceListDerivation(
         PriceListDto? priceList,
         int priceListNum,
@@ -5078,7 +5194,14 @@ ORDER BY T0.""ItemCode""";
     /// Fallback: Gets prices for a specific price list using the SAP Items OData API.
     /// This correctly handles derived price lists where SAP calculates prices on the fly.
     /// </summary>
-    private async Task<List<ItemPriceByListDto>> GetPricesByPriceListViaItemsApiAsync(int priceListNum, CancellationToken cancellationToken)
+    /// <returns>
+    /// The prices found, and whether the scan behind them ran to completion. An incomplete scan
+    /// cannot tell an empty price list apart from one it never finished reading, which is the
+    /// difference between "SAP holds no price here" and "we do not know".
+    /// </returns>
+    private async Task<(List<ItemPriceByListDto> Prices, bool ScanCompleted)> GetPricesByPriceListViaItemsApiAsync(
+        int priceListNum,
+        CancellationToken cancellationToken)
     {
         var prices = new List<ItemPriceByListDto>();
         var priceListName = _priceListDefinitionsResolutionCache.Value?
@@ -5099,7 +5222,9 @@ ORDER BY T0.""ItemCode""";
                 "Shared Items API snapshot supplied {Count} prices for price list {ListNum}",
                 snapshotPrices.Count,
                 priceListNum);
-            return snapshotPrices;
+            // The snapshot is only marked complete after a scan that finished, so anything served
+            // from it is as authoritative as the scan that built it.
+            return (snapshotPrices, true);
         }
 
         var syncHttpClient = GetLongRunningHttpClient();
@@ -5198,7 +5323,7 @@ ORDER BY T0.""ItemCode""";
             "Items API fallback retrieved {Count} prices for price list {ListNum}",
             deduplicatedPrices.Count,
             priceListNum);
-        return deduplicatedPrices;
+        return (deduplicatedPrices, scanCompleted);
     }
 
     private static List<ItemPriceByListDto> DeduplicateItemPriceRows(
@@ -6623,16 +6748,18 @@ ORDER BY T0.""ItemCode""";
             T0.""U_PackagingCodeLids"" as ""PackagingCodeLids"""
             : "";
 
-        var sqlText = $@"SELECT 
-            T0.""ItemCode"", 
-            T0.""ItemName"", 
+        // No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
+        // space makes the stored text never compare equal and every probe re-PATCHes.
+        var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
             T1.""OnHand"" as ""InStock"",
             T1.""IsCommited"" as ""Committed"",
             T1.""OnOrder"" as ""Ordered"",
             T0.""InvntryUom"" as ""UoM""{customFieldsSql}
-        FROM OITM T0 
+        FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
         WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
         ORDER BY T0.""ItemCode""";
@@ -6735,16 +6862,18 @@ ORDER BY T0.""ItemCode""";
 
         // Simple SQL without pagination - SAP doesn't support standard SQL pagination
         // Filter only items with stock to improve performance
-        var sqlText = $@"SELECT 
-            T0.""ItemCode"", 
-            T0.""ItemName"", 
+        // No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
+        // space makes the stored text never compare equal and every probe re-PATCHes.
+        var sqlText = $@"SELECT
+            T0.""ItemCode"",
+            T0.""ItemName"",
             T0.""CodeBars"" as ""BarCode"",
             T1.""WhsCode"" as ""WarehouseCode"",
             T1.""OnHand"" as ""InStock"",
             T1.""IsCommited"" as ""Committed"",
             T1.""OnOrder"" as ""Ordered"",
             T0.""InvntryUom"" as ""UoM""
-        FROM OITM T0 
+        FROM OITM T0
         INNER JOIN OITW T1 ON T0.""ItemCode"" = T1.""ItemCode""
         WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
         ORDER BY T0.""ItemCode""";
@@ -7125,6 +7254,36 @@ ORDER BY T0.""ItemCode""";
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace("\r", "\n", StringComparison.Ordinal)
             .Trim();
+
+    /// <summary>
+    /// True when SAP's stored statement and the one about to be sent are the same statement, so the
+    /// caller can skip the PATCH.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately separate from <see cref="NormalizeSqlText"/>, which must not change: it feeds
+    /// <see cref="ComputeSqlFingerprint"/>, so loosening it would move every content-addressed query
+    /// code and mint a fresh SQLQueries row for each one, orphaning the existing rows in an OUQR
+    /// that is already oversized and effectively undeletable.
+    ///
+    /// SAP strips whitespace from the end of each stored line, which <c>NormalizeSqlText</c> cannot
+    /// undo because it only trims the ends of the whole string. A statement written with a line
+    /// ending in a space therefore never compared equal to itself after a round trip, so every
+    /// probe logged "exists with different text" and PATCHed a query nobody had edited. Comparing
+    /// line by line with the ends trimmed removes the whole class of it, rather than only the
+    /// literals that happen to carry it today — including the two content-addressed statements left
+    /// as written, because rewriting those would change their codes and mint new rows.
+    ///
+    /// Only end-of-line whitespace is ignored — runs inside a line are preserved, because those can
+    /// fall inside a string literal where they change what the statement means.
+    /// </remarks>
+    internal static bool SqlTextsAreEquivalent(string storedSqlText, string sqlText) =>
+        string.Equals(
+            TrimLineEnds(NormalizeSqlText(storedSqlText)),
+            TrimLineEnds(NormalizeSqlText(sqlText)),
+            StringComparison.Ordinal);
+
+    private static string TrimLineEnds(string normalizedSqlText) =>
+        string.Join('\n', normalizedSqlText.Split('\n').Select(line => line.TrimEnd()));
 
     private static string Truncate(string value, int maxLength) =>
         value.Length <= maxLength ? value : value[..maxLength];
@@ -7519,9 +7678,11 @@ ORDER BY T0.""ItemCode""";
 
 
         // SQL query to get sales quantities by warehouse and date range with packaging code fields
-        var sqlText = $@"SELECT 
-            T1.""ItemCode"", 
-            T2.""ItemName"", 
+        // No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
+        // space makes the stored text never compare equal and every probe re-PATCHes.
+        var sqlText = $@"SELECT
+            T1.""ItemCode"",
+            T2.""ItemName"",
             T2.""CodeBars"" as ""BarCode"",
             SUM(T1.""Quantity"") as ""TotalQuantitySold"",
             SUM(T1.""LineTotal"") as ""TotalSalesValue"",
@@ -7537,7 +7698,7 @@ ORDER BY T0.""ItemCode""";
         AND T0.""DocDate"" >= '{fromDate:yyyy-MM-dd}'
         AND T0.""DocDate"" <= '{toDate:yyyy-MM-dd}'
         AND T0.""CANCELED"" = 'N'
-        GROUP BY T1.""ItemCode"", T2.""ItemName"", T2.""CodeBars"", T2.""InvntryUom"", 
+        GROUP BY T1.""ItemCode"", T2.""ItemName"", T2.""CodeBars"", T2.""InvntryUom"",
                  T2.""U_PackagingCode"", T2.""U_PackagingCodeLabels"", T2.""U_PackagingCodeLids""
         ORDER BY SUM(T1.""Quantity"") DESC";
 
