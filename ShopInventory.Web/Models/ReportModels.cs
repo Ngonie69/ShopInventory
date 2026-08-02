@@ -541,6 +541,23 @@ public class NotificationListResponse
     public List<NotificationModel> Notifications { get; set; } = new();
 }
 
+/// <summary>
+/// The <see cref="NotificationModel.Data"/> keys this app reads. The producer is
+/// NotificationService in the ShopInventory API, which this project does not
+/// reference — so these strings are one half of a contract the compiler cannot
+/// check. Renaming a key there makes the toast fall back to its prose shape with
+/// no error anywhere; keep the two sides in step by hand.
+/// </summary>
+public static class NotificationDataKeys
+{
+    public const string OrderNumber = "orderNumber";
+    public const string CustomerName = "customerName";
+    public const string DocTotal = "docTotal";
+    public const string SourceLabel = "sourceLabel";
+    public const string Source = "source";
+    public const string CreatedBy = "createdBy";
+}
+
 public class NotificationModel
 {
     public int Id { get; set; }
@@ -554,6 +571,46 @@ public class NotificationModel
     public bool IsRead { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ReadAt { get; set; }
+    public string? CreatedBy { get; set; }
+
+    /// <summary>
+    /// Structured fields the producer attached alongside the prose message —
+    /// orderNumber, customerName, docTotal and the rest, for a sales order.
+    /// Stored on the notification and returned by every read path, so it survives
+    /// a page reload and the polling fallback. Still null for notification types
+    /// whose producer attaches nothing, and for anything raised before the column
+    /// was added, so consumers have to degrade.
+    /// </summary>
+    public Dictionary<string, string>? Data { get; set; }
+
+    /// <summary>
+    /// Reads one <see cref="Data"/> field, treating blank as absent. The API builds
+    /// the dictionary case-insensitively but System.Text.Json rebuilds it with the
+    /// default ordinal comparer, so a plain lookup would miss on any casing drift
+    /// between the two sides — hence the fallback scan.
+    /// </summary>
+    public string? DataValue(string key)
+    {
+        if (Data is null)
+        {
+            return null;
+        }
+
+        if (Data.TryGetValue(key, out var exact))
+        {
+            return string.IsNullOrWhiteSpace(exact) ? null : exact;
+        }
+
+        foreach (var pair in Data)
+        {
+            if (string.Equals(pair.Key, key, StringComparison.OrdinalIgnoreCase))
+            {
+                return string.IsNullOrWhiteSpace(pair.Value) ? null : pair.Value;
+            }
+        }
+
+        return null;
+    }
 
     public string? EffectiveActionUrl =>
         string.Equals(Category, "SalesOrder", StringComparison.OrdinalIgnoreCase) &&

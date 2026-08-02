@@ -1,0 +1,149 @@
+@using System.Globalization
+@using System.Text
+
+@* Body of a notification toast, rendered inside MudBlazor's snackbar via
+   Snackbar.Add<NotificationToast>. Only the copy and the actions live here; the
+   card, the severity rail and the close button are the snackbar's own, re-skinned
+   by the Toasts section of nocturne-shell.css.
+
+   Two shapes. When the notification carries its Data fields, the toast lays them
+   out — eyebrow, document number, party and amount, then how it got here. When it
+   does not — a notification type whose producer attaches nothing, or one raised
+   before the Data column existed — it falls back to the title and the message.
+   Nothing here parses the message back apart to find the fields. *@
+
+<div class="kf-toast @(HasDetail ? "kf-toast--detail" : "")">
+    <div class="kf-toast__head">
+        <span class="kf-toast__eyebrow">@Eyebrow</span>
+        <time class="kf-toast__time" datetime="@Notification.CreatedAt.ToString("o")">@Notification.TimeAgo</time>
+    </div>
+
+    @if (HasDetail)
+    {
+        <strong class="kf-toast__headline">@DocumentNumber</strong>
+
+        @if (Party is not null || Amount is not null)
+        {
+            <div class="kf-toast__figures">
+                <span class="kf-toast__party">@Party</span>
+                @if (Amount is not null)
+                {
+                    <span class="kf-toast__amount">@Amount</span>
+                }
+            </div>
+        }
+
+        @if (Provenance is not null)
+        {
+            <span class="kf-toast__provenance">@Provenance</span>
+        }
+    }
+    else
+    {
+        <strong class="kf-toast__headline kf-toast__headline--plain">@Notification.Title</strong>
+
+        @if (!string.IsNullOrWhiteSpace(Notification.Message))
+        {
+            <span class="kf-toast__body">@Notification.Message</span>
+        }
+    }
+
+    @* MudBlazor closes a snackbar when the card itself is clicked, so both buttons
+       stop the event here — otherwise the toast would be torn down underneath the
+       handler that is still trying to navigate. *@
+    <div class="kf-toast__actions">
+        @if (!string.IsNullOrWhiteSpace(Notification.EffectiveActionUrl))
+        {
+            <button type="button" class="kf-toast__action kf-toast__action--open"
+                    @onclick="OnOpen" @onclick:stopPropagation="true">
+                @OpenLabel
+            </button>
+        }
+        <button type="button" class="kf-toast__action"
+                @onclick="OnDismiss" @onclick:stopPropagation="true">Dismiss</button>
+    </div>
+
+    @* Runs the snackbar's own VisibleStateDuration, so the bar empties as the
+       toast actually ages out rather than on a duration guessed in CSS. *@
+    <span class="kf-toast__timer" style="animation-duration: @(DurationMs)ms" aria-hidden="true"></span>
+</div>
+
+@code {
+    [Parameter] public NotificationModel Notification { get; set; } = new();
+
+    [Parameter] public int DurationMs { get; set; } = 8000;
+
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    [Parameter] public EventCallback OnOpen { get; set; }
+
+    // EntityId is the fallback because it already holds the order number for a
+    // sales order, and unlike Data it survives being re-read from the list.
+    private string? DocumentNumber =>
+        Notification.DataValue(NotificationDataKeys.OrderNumber) ?? Notification.EntityId;
+
+    private string? Party => Notification.DataValue(NotificationDataKeys.CustomerName);
+
+    // Formatted the way the producer already writes it into the message — a bare
+    // "$" and N2 — so the toast and the notification list read the same figure.
+    private string? Amount =>
+        decimal.TryParse(Notification.DataValue(NotificationDataKeys.DocTotal), NumberStyles.Number,
+                         CultureInfo.InvariantCulture, out var total)
+            ? "$" + total.ToString("N2", CultureInfo.InvariantCulture)
+            : null;
+
+    // A detail toast needs something to headline. Party and amount are optional
+    // on top of that, so a notification carrying only its document number still
+    // gets the structured shape rather than dropping to the prose fallback.
+    private bool HasDetail => !string.IsNullOrWhiteSpace(DocumentNumber);
+
+    private string Eyebrow => Notification.Category switch
+    {
+        "SalesOrder" => "New sales order",
+        null or "" => "Notification",
+        _ => Humanise(Notification.Category)
+    };
+
+    // Categories are stored PascalCase ("LowStock"), and the eyebrow renders
+    // uppercase — "LOWSTOCK" without this.
+    private static string Humanise(string value)
+    {
+        var text = new StringBuilder(value.Length + 4);
+
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (i > 0 && char.IsUpper(value[i]) && !char.IsUpper(value[i - 1]))
+            {
+                text.Append(' ');
+            }
+
+            text.Append(value[i]);
+        }
+
+        return text.ToString();
+    }
+
+    private string OpenLabel => Notification.Category switch
+    {
+        "SalesOrder" => "View order",
+        _ => "Open"
+    };
+
+    private string? Provenance
+    {
+        get
+        {
+            var source = Notification.DataValue(NotificationDataKeys.SourceLabel)
+                         ?? Notification.DataValue(NotificationDataKeys.Source);
+            var by = Notification.DataValue(NotificationDataKeys.CreatedBy);
+
+            return (source, by) switch
+            {
+                (not null, not null) => $"Submitted from {source} by {by}",
+                (not null, null) => $"Submitted from {source}",
+                (null, not null) => $"Submitted by {by}",
+                _ => null
+            };
+        }
+    }
+}

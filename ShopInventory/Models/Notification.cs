@@ -95,6 +95,14 @@ public class Notification
     public string? CreatedBy { get; set; }
 
     /// <summary>
+    /// JSON serialized structured fields the producer attached alongside the prose
+    /// message — for a sales order, its number, customer, total and source. Held so
+    /// a consumer can lay the fields out itself instead of parsing the sentence
+    /// back apart. Null on anything written before this column existed.
+    /// </summary>
+    public string? Data { get; set; }
+
+    /// <summary>
     /// Expiration date for auto-cleanup
     /// </summary>
     public DateTime? ExpiresAt { get; set; }
