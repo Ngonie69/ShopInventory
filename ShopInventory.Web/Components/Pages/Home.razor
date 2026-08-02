@@ -20,9 +20,10 @@
    Sales reps get a different dashboard at the same route — see
    SalesRepDashboard, which shares this stylesheet.
 
-   The header states when the figures were read and offers to read them
-   again. The label it replaces said "Updated just now" from a static string,
-   which stayed true for about a minute of a shift that runs all day. *@
+   The header states when the figures were read. The label it replaces said
+   "Updated just now" from a static string, which stayed true for about a
+   minute of a shift that runs all day. The page reads once and does not poll,
+   so that stamp is also how you tell how old the figures on screen are. *@
 
 @if (isSalesRep)
 {
@@ -52,20 +53,6 @@ else
                             @("Reading…")
                         }
                     </span>
-
-                    <button type="button" class="dsh-btn dsh-btn-quiet"
-                            disabled="@isRefreshing" @onclick="RefreshAsync">
-                        @if (isRefreshing)
-                        {
-                            <span class="dsh-spin" aria-hidden="true"></span>
-                            <span>Refreshing&#8230;</span>
-                        }
-                        else
-                        {
-                            <DashIcon Name="refresh" Size="14" />
-                            <span>Refresh</span>
-                        }
-                    </button>
 
                     <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/invoices/create">
                         <DashIcon Name="plus-circle" Size="15" />
@@ -189,7 +176,6 @@ else
 
     /// <summary>When the figures on screen were read. Null until the first read lands.</summary>
     private DateTime? loadedAt;
-    private bool isRefreshing;
 
     private static string FormatMoney(decimal value) => $"USD {value:N2}";
     private string GreetingName
@@ -283,30 +269,6 @@ else
         // Stamped once every read has landed, so the header's time describes the
         // whole page rather than whichever call returned first.
         loadedAt = DateTime.Now;
-    }
-
-    /// <summary>
-    /// Reads the same five sources again. Failures are swallowed the same way the
-    /// first read swallows them, so a refresh that cannot reach SAP leaves the
-    /// figures already on screen alone rather than blanking them.
-    /// </summary>
-    private async Task RefreshAsync()
-    {
-        if (isRefreshing) return;
-
-        isRefreshing = true;
-        isLoadingInvoices = true;
-        isLoadingPayments = true;
-
-        try
-        {
-            await LoadDashboardData();
-        }
-        finally
-        {
-            isRefreshing = false;
-            await InvokeAsync(StateHasChanged);
-        }
     }
 
     private async Task LoadPendingTransfersAsync()
