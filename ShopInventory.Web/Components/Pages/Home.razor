@@ -13,94 +13,144 @@
 
 <PageTitle>@(isSalesRep ? "Sales Dashboard - Kefalos Cheese" : "Dashboard - Kefalos Cheese")</PageTitle>
 
+@* The imported Nocturne design is dark; wwwroot/css/dashboard.css (linked
+   from App.razor) carries it and its light counterpart, and follows the app's
+   theme toggle like every other page.
+
+   Sales reps get a different dashboard at the same route — see
+   SalesRepDashboard, which shares this stylesheet.
+
+   The header states when the figures were read. The label it replaces said
+   "Updated just now" from a static string, which stayed true for about a
+   minute of a shift that runs all day. The page reads once and does not poll,
+   so that stamp is also how you tell how old the figures on screen are. *@
+
 @if (isSalesRep)
 {
-    <SalesRepDashboard Username="@currentUsername" />
+    <SalesRepDashboard DisplayName="@GreetingName" />
 }
 else
 {
-    <div class="kf-dashboard">
-        <header class="kf-dashboard-header">
-            <div>
-                <h1>@GreetingText, @GreetingName</h1>
-                <p>Today's sales snapshot</p>
-            </div>
-            <div class="kf-dashboard-header__actions">
-                <span class="kf-live-status"><i aria-hidden="true"></i>Updated just now</span>
-                <a class="kf-primary-button" href="/invoices/create">
-                    <MudIcon Icon="@Icons.Material.Outlined.AddCircleOutline" />
-                    Create invoice
-                </a>
+    <div class="dsh">
+
+        <header class="dsh-head">
+            <div class="dsh-head-inner">
+                <nav class="dsh-crumbs" aria-label="Breadcrumb">
+                    <span>Sales</span>
+                    <span class="dsh-crumb-sep" aria-hidden="true">/</span>
+                    <span class="dsh-crumb-now" aria-current="page">Dashboard</span>
+                </nav>
+
+                <div class="dsh-head-meta">
+                    <span class="dsh-synced">
+                        <span class="dsh-synced-dot" aria-hidden="true"></span>
+                        @if (loadedAt is { } stamp)
+                        {
+                            @($"Read at {stamp:HH:mm}")
+                        }
+                        else
+                        {
+                            @("Reading…")
+                        }
+                    </span>
+
+                    <a class="dsh-btn dsh-btn-primary dsh-btn-lg" href="/invoices/create">
+                        <DashIcon Name="plus-circle" Size="15" />
+                        Create invoice
+                    </a>
+                </div>
             </div>
         </header>
 
-        <section class="kf-kpi-grid" aria-label="Today’s key performance indicators">
-            <StatCard Label="Invoices"
-                      Value="@todayInvoiceCount.ToString()"
-                      ValueLabel="Today's invoices"
-                      Trend="@invoiceTrend.Text"
-                      Direction="@invoiceTrend.Direction"
-                      Amount="@FormatMoney(invoiceTotal)"
-                      AmountLabel="Total value"
-                      Icon="@Icons.Material.Outlined.ReceiptLong" />
-            <StatCard Label="Payments"
-                      Value="@todayPaymentCount.ToString()"
-                      ValueLabel="Today's payments"
-                      Trend="@paymentTrend.Text"
-                      Direction="@paymentTrend.Direction"
-                      Amount="@FormatMoney(paymentTotal)"
-                      AmountLabel="Total received"
-                      Icon="@Icons.Material.Outlined.Payments" />
-            @* Transfers carry no monetary value and every per-warehouse read needs a
-               warehouse code, so this card reports the approval queue across all
-               warehouses. No historical series is available, hence no trend or sparkline. *@
-            <StatCard Label="Pending transfers"
-                      Value="@pendingTransferCount.ToString()"
-                      ValueLabel="Awaiting approval"
-                      Amount="@pendingTransferUnits.ToString("N0")"
-                      AmountLabel="Total units"
-                      Icon="@Icons.Material.Outlined.SwapHoriz" />
-        </section>
+        <div class="dsh-body">
 
-        <section class="kf-activity-grid" aria-label="Recent sales activity">
-            <ActivityTable Title="Recent invoices"
-                           ViewAllHref="/invoices"
-                           Kind="ActivityTable.ActivityKind.Invoices"
-                           Invoices="@recentInvoices"
-                           IsLoading="@isLoadingInvoices" />
-            <ActivityTable Title="Recent payments"
-                           ViewAllHref="/payments"
-                           Kind="ActivityTable.ActivityKind.Payments"
-                           Payments="@recentPayments"
-                           IsLoading="@isLoadingPayments" />
-        </section>
+            <section class="dsh-hero">
+                <div>
+                    <div class="dsh-kicker">Today at a glance</div>
+                    <h1>@GreetingText, @GreetingName</h1>
+                    <p>
+                        Invoices raised, payments received and the transfer queue as they stand now.
+                        Each comparison is against the same figure yesterday.
+                    </p>
+                </div>
+                <div class="dsh-date">
+                    <DashIcon Name="calendar" Size="14" />
+                    <span>@DateTime.Now.ToString("dddd d MMMM yyyy")</span>
+                </div>
+            </section>
 
-        <section class="kf-quick-panel" aria-labelledby="quick-actions-heading">
-            <header class="kf-quick-panel__header">
-                <span class="kf-panel-icon" aria-hidden="true">
-                    <MudIcon Icon="@Icons.Material.Outlined.Bolt" />
-                </span>
-                <h2 id="quick-actions-heading">Quick actions</h2>
-            </header>
-            <div class="kf-quick-grid">
-                <QuickAction Title="Create invoice"
-                             Description="Create a new sales invoice"
-                             Href="/invoices/create"
-                             Icon="@Icons.Material.Outlined.NoteAdd" />
-                <QuickAction Title="Search invoices"
-                             Description="Find and view invoices"
-                             Href="/invoices"
-                             Icon="@Icons.Material.Outlined.Search" />
-                <QuickAction Title="View products"
-                             Description="Browse product catalog"
-                             Href="/products"
-                             Icon="@Icons.Material.Outlined.Inventory2" />
-                <QuickAction Title="View prices"
-                             Description="Check product prices"
-                             Href="/prices"
-                             Icon="@Icons.Material.Outlined.Sell" />
-            </div>
-        </section>
+            @* Three figures, and the invoice count leads: it is the one the
+               shift is measured on, so it is the one that carries the accent. *@
+            <section class="dsh-stats" aria-label="Today's key figures">
+                <StatCard Label="Invoices"
+                          Value="@todayInvoiceCount.ToString()"
+                          ValueLabel="Raised today"
+                          Trend="@invoiceTrend.Text"
+                          Direction="@invoiceTrend.Direction"
+                          Amount="@FormatMoney(invoiceTotal)"
+                          AmountLabel="Total value"
+                          Icon="receipt"
+                          IsLead="true" />
+                <StatCard Label="Payments"
+                          Value="@todayPaymentCount.ToString()"
+                          ValueLabel="Received today"
+                          Trend="@paymentTrend.Text"
+                          Direction="@paymentTrend.Direction"
+                          Amount="@FormatMoney(paymentTotal)"
+                          AmountLabel="Total received"
+                          Icon="card" />
+                @* Transfers carry no monetary value and every per-warehouse read needs a
+                   warehouse code, so this card reports the approval queue across all
+                   warehouses. No historical series is available, hence no trend. *@
+                <StatCard Label="Pending transfers"
+                          Value="@pendingTransferCount.ToString()"
+                          ValueLabel="Awaiting approval"
+                          Amount="@pendingTransferUnits.ToString("N0")"
+                          AmountLabel="Total units"
+                          Icon="swap" />
+            </section>
+
+            <section class="dsh-panels" aria-label="Recent activity">
+                <ActivityTable Title="Recent invoices"
+                               ViewAllHref="/invoices"
+                               Kind="ActivityTable.ActivityKind.Invoices"
+                               Invoices="@recentInvoices"
+                               IsLoading="@isLoadingInvoices" />
+                <ActivityTable Title="Recent payments"
+                               ViewAllHref="/payments"
+                               Kind="ActivityTable.ActivityKind.Payments"
+                               Payments="@recentPayments"
+                               IsLoading="@isLoadingPayments" />
+            </section>
+
+            <section class="dsh-panel" aria-labelledby="quick-actions-heading">
+                <header class="dsh-panel-head">
+                    <span class="dsh-panel-icon">
+                        <DashIcon Name="bolt" Size="15" />
+                    </span>
+                    <h2 id="quick-actions-heading">Quick actions</h2>
+                </header>
+                <div class="dsh-quick">
+                    <QuickAction Title="Create invoice"
+                                 Description="Raise a new sales invoice"
+                                 Href="/invoices/create"
+                                 Icon="note-add" />
+                    <QuickAction Title="Search invoices"
+                                 Description="Find and open an invoice"
+                                 Href="/invoices"
+                                 Icon="search" />
+                    <QuickAction Title="View products"
+                                 Description="Browse the product catalogue"
+                                 Href="/products"
+                                 Icon="box" />
+                    <QuickAction Title="View prices"
+                                 Description="Check a product's price"
+                                 Href="/prices"
+                                 Icon="tag" />
+                </div>
+            </section>
+
+        </div>
     </div>
 }
 
@@ -123,6 +173,9 @@ else
     private bool isSalesRep;
     private string currentUsername = "Sales Rep";
     private bool _initialized;
+
+    /// <summary>When the figures on screen were read. Null until the first read lands.</summary>
+    private DateTime? loadedAt;
 
     private static string FormatMoney(decimal value) => $"USD {value:N2}";
     private string GreetingName
@@ -212,6 +265,10 @@ else
         };
 
         await Task.WhenAll(tasks);
+
+        // Stamped once every read has landed, so the header's time describes the
+        // whole page rather than whichever call returned first.
+        loadedAt = DateTime.Now;
     }
 
     private async Task LoadPendingTransfersAsync()
