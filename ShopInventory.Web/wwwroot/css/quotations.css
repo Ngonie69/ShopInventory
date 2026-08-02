@@ -1,0 +1,1418 @@
+/* ==========================================================================
+   Quotations — Nocturne
+
+   The quotation list on the Nocturne design system, sibling to
+   sales-orders.css and credit-notes.css: a dense, quiet table on a
+   near-neutral blue-grey ground, Inter at 500, 8px radii, outlined buttons,
+   and freestanding rules that fade to transparent over 48px at each end.
+
+   There is no imported design file for this page. The palette and the
+   density scale are copied verbatim from credit-notes.css so the list pages
+   stay one system; what is new here is the source toggle (this list can be
+   read from SAP or from the local projection) and the reprice dialog's
+   editable line table.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme
+   flashes.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same two reasons as credit-notes.css: a scoped style block cannot reach
+   native controls the way these selectors need to, and app.css carries
+   global `.dark-theme input/select/textarea` rules that have to be
+   out-specified — so every control carries a class and every control
+   selector is two classes deep, winning regardless of load order.
+   ========================================================================== */
+
+.qtx,
+.qtx-overlay {
+    --qtx-bg: #f4f4f8;
+    --qtx-surface: #ffffff;
+    --qtx-field: #ffffff;
+    --qtx-ink: #1b1c26;
+    --qtx-ink-2: #35374a;
+    --qtx-mute: #4e5164;
+    --qtx-mute-2: #656879;
+    --qtx-mute-3: #7b7e8e;
+    --qtx-faint: #a0a2ae;
+    --qtx-placeholder: #9498a8;
+    --qtx-divider: rgba(27, 28, 38, .14);
+    --qtx-rowline: rgba(27, 28, 38, .09);
+    --qtx-hover: rgba(27, 28, 38, .04);
+    --qtx-press: rgba(27, 28, 38, .09);
+    --qtx-field-edge: #d4d6e2;
+    --qtx-field-edge-hi: #a9adc0;
+    --qtx-accent: #5f52c4;
+    --qtx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --qtx-accent-text: #473d99;
+    --qtx-tag-bg: #e4e7f5;
+    --qtx-tag-ink: #3f424d;
+    --qtx-dot: #9397ab;
+    --qtx-dot-quiet: #b2b6ca;
+    --qtx-dot-faint: #cfd3e5;
+    --qtx-bad: #b3273c;
+    --qtx-bad-bg: #fdf0f2;
+    --qtx-bad-edge: #f0ccd3;
+    --qtx-warn: #8a5a05;
+    --qtx-ok: #0b6b4f;
+    --qtx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --qtx-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
+    --qtx-scrim: rgba(41, 43, 49, .34);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --qtx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --qtx-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --qtx-s1: 2.8px;
+    --qtx-s2: 5.6px;
+    --qtx-s3: 8.4px;
+    --qtx-s4: 11.2px;
+    --qtx-s6: 16.8px;
+    --qtx-s8: 22.4px;
+    --qtx-r-sm: 4px;
+    --qtx-r-md: 8px;
+    --qtx-r-lg: 14px;
+
+    color-scheme: var(--qtx-scheme);
+}
+
+.dark-theme .qtx,
+.dark-theme .qtx-overlay {
+    --qtx-bg: #161826;
+    --qtx-surface: #232532;
+    --qtx-field: #232532;
+    --qtx-ink: #e9e9ed;
+    --qtx-ink-2: #aeaeb5;
+    --qtx-mute: #9999a1;
+    --qtx-mute-2: #87878f;
+    --qtx-mute-3: #72727d;
+    --qtx-faint: #5a5a66;
+    --qtx-placeholder: #6b6b77;
+    --qtx-divider: rgba(233, 233, 237, .16);
+    --qtx-rowline: rgba(233, 233, 237, .08);
+    --qtx-hover: rgba(233, 233, 237, .04);
+    --qtx-press: rgba(233, 233, 237, .1);
+    --qtx-field-edge: rgba(233, 233, 237, .16);
+    --qtx-field-edge-hi: rgba(233, 233, 237, .45);
+    --qtx-accent: #9184d9;
+    --qtx-accent-rgb: 145, 132, 217;
+    --qtx-accent-text: #d2cefd;
+    --qtx-tag-bg: #3f424d;
+    --qtx-tag-ink: #f3f5fe;
+    --qtx-dot: #b2b6ca;
+    --qtx-dot-quiet: #75798c;
+    --qtx-dot-faint: #595d6c;
+    --qtx-bad: #e8697d;
+    --qtx-bad-bg: #2f2028;
+    --qtx-bad-edge: #4a2c35;
+    --qtx-warn: #e0b062;
+    --qtx-ok: #b6ecd8;
+    --qtx-shadow-sm: 0 0 0 1px #3f424d;
+    --qtx-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+    --qtx-scrim: rgba(10, 11, 18, .62);
+    --qtx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --qtx-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.qtx {
+    min-height: 100vh;
+    background: var(--qtx-bg);
+    color: var(--qtx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.qtx *,
+.qtx-overlay * {
+    box-sizing: border-box;
+}
+
+.qtx :focus-visible,
+.qtx-overlay :focus-visible {
+    outline: 2px solid var(--qtx-accent);
+    outline-offset: 2px;
+}
+
+.qtx ::selection,
+.qtx-overlay ::selection {
+    background: rgba(var(--qtx-accent-rgb), .3);
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-control separators stay solid. */
+.qtx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--qtx-divider) 48px,
+            var(--qtx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, and opaque rather than
+   the design's frosted glass: a translucent bar only hides what passes beneath
+   it while the compositor honours the backdrop blur, and software rendering, a
+   reduced-transparency setting or an offscreen capture all drop the blur.
+   --qtx-bg is the page's own ground, so an opaque bar is indistinguishable
+   from the design at rest. */
+
+.qtx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--qtx-bg);
+}
+
+.qtx-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--qtx-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--qtx-s8);
+}
+
+.qtx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.qtx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s3);
+}
+
+.qtx-titles-row i {
+    font-size: 17px;
+    color: var(--qtx-accent);
+}
+
+.qtx-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--qtx-ink);
+}
+
+.qtx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--qtx-mute-2);
+}
+
+.qtx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s4);
+}
+
+.qtx-count {
+    font-size: 12px;
+    color: var(--qtx-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.qtx-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--qtx-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtx-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.qtx .qtx-btn,
+.qtx-overlay .qtx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--qtx-s2) calc(var(--qtx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--qtx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--qtx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.qtx .qtx-btn:disabled,
+.qtx-overlay .qtx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.qtx .qtx-btn-primary,
+.qtx-overlay .qtx-btn-primary {
+    color: var(--qtx-accent);
+    border-color: var(--qtx-accent);
+    letter-spacing: .02em;
+}
+
+.qtx .qtx-btn-primary:hover:not(:disabled),
+.qtx-overlay .qtx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--qtx-accent-rgb), .12);
+}
+
+.qtx .qtx-btn-primary:active:not(:disabled),
+.qtx-overlay .qtx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--qtx-accent-rgb), .22);
+}
+
+.qtx .qtx-btn-secondary,
+.qtx-overlay .qtx-btn-secondary {
+    border-color: var(--qtx-divider);
+}
+
+.qtx .qtx-btn-secondary:hover:not(:disabled),
+.qtx-overlay .qtx-btn-secondary:hover:not(:disabled) {
+    background: var(--qtx-hover);
+}
+
+.qtx .qtx-btn-secondary:active:not(:disabled),
+.qtx-overlay .qtx-btn-secondary:active:not(:disabled) {
+    background: var(--qtx-press);
+}
+
+.qtx .qtx-btn-ghost,
+.qtx-overlay .qtx-btn-ghost {
+    color: var(--qtx-accent);
+    padding-inline: var(--qtx-s1);
+}
+
+.qtx .qtx-btn-ghost:hover:not(:disabled),
+.qtx-overlay .qtx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--qtx-accent-rgb), .1);
+}
+
+.qtx .qtx-btn-ghost:active:not(:disabled),
+.qtx-overlay .qtx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--qtx-accent-rgb), .18);
+}
+
+.qtx .qtx-btn-bad,
+.qtx-overlay .qtx-btn-bad {
+    color: var(--qtx-bad);
+    border-color: var(--qtx-bad-edge);
+}
+
+.qtx .qtx-btn-bad:hover:not(:disabled),
+.qtx-overlay .qtx-btn-bad:hover:not(:disabled) {
+    background: var(--qtx-bad-bg);
+}
+
+.qtx .qtx-btn-sm,
+.qtx-overlay .qtx-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.qtx .qtx-btn-icon,
+.qtx-overlay .qtx-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.qtx .qtx-btn-icon-sm,
+.qtx-overlay .qtx-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+/* Icon-only buttons draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that fails to load would
+   leave them reading as dead controls. Stroked at 1.7 to match the weight
+   Inter 500 sets beside them — same recipe as mobile-orders.css. */
+.qtx .qtx-btn svg,
+.qtx-overlay .qtx-btn svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── Stat row ──────────────────────────────────────────────────────────── */
+
+.qtx-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--qtx-s4);
+}
+
+.qtx-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s4);
+    padding: var(--qtx-s4) var(--qtx-s6);
+    background: var(--qtx-surface);
+    border-radius: var(--qtx-r-md);
+    box-shadow: var(--qtx-shadow-sm);
+}
+
+.qtx-stat-mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--qtx-r-md);
+    background: rgba(var(--qtx-accent-rgb), .1);
+    color: var(--qtx-accent);
+    font-size: 16px;
+}
+
+.qtx-stat-mark.is-quiet {
+    background: var(--qtx-hover);
+    color: var(--qtx-mute);
+}
+
+.qtx-stat-value {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+.qtx-stat-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtx-mute-3);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.qtx-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--qtx-s4);
+    flex-wrap: wrap;
+}
+
+.qtx-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--qtx-mute);
+}
+
+.qtx .qtx-input,
+.qtx-overlay .qtx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--qtx-ink);
+    caret-color: var(--qtx-accent);
+    background: var(--qtx-field);
+    background-image: none;
+    border: 1px solid var(--qtx-field-edge);
+    border-radius: var(--qtx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.qtx .qtx-input:hover,
+.qtx-overlay .qtx-input:hover {
+    border-color: var(--qtx-field-edge-hi);
+}
+
+.qtx .qtx-input:focus-visible,
+.qtx-overlay .qtx-input:focus-visible {
+    border-color: var(--qtx-accent);
+    outline-offset: 0;
+}
+
+.qtx .qtx-input::placeholder,
+.qtx-overlay .qtx-input::placeholder {
+    color: var(--qtx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--qtx-placeholder);
+}
+
+.qtx .qtx-input:disabled,
+.qtx-overlay .qtx-input:disabled,
+.qtx .qtx-input[readonly],
+.qtx-overlay .qtx-input[readonly] {
+    background: var(--qtx-hover);
+    color: var(--qtx-mute);
+    cursor: not-allowed;
+}
+
+.qtx .qtx-input-num,
+.qtx-overlay .qtx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The date input's own indicator is the control's only affordance, so it is
+   tinted to the ink rather than left as the browser's black-on-dark default. */
+.qtx .qtx-input[type="date"]::-webkit-calendar-picker-indicator,
+.qtx-overlay .qtx-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+}
+
+.dark-theme .qtx .qtx-input[type="date"]::-webkit-calendar-picker-indicator,
+.dark-theme .qtx-overlay .qtx-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.qtx-select {
+    position: relative;
+}
+
+.qtx .qtx-select select.qtx-input,
+.qtx-overlay .qtx-select select.qtx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.qtx-select .qtx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--qtx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.qtx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s2);
+    margin-left: auto;
+}
+
+/* The source toggle. This list can be read from SAP or from the local
+   projection, and which one is showing changes what the rows mean — so the
+   control states both options rather than hiding one behind a select. */
+.qtx-seg {
+    display: inline-flex;
+    padding: 2px;
+    gap: 2px;
+    border: 1px solid var(--qtx-field-edge);
+    border-radius: var(--qtx-r-md);
+    background: var(--qtx-field);
+}
+
+.qtx .qtx-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--qtx-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--qtx-r-md) - 3px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.qtx .qtx-seg-btn:hover:not(:disabled) {
+    color: var(--qtx-ink);
+    background: var(--qtx-hover);
+}
+
+.qtx .qtx-seg-btn.is-on {
+    color: var(--qtx-accent-text);
+    background: rgba(var(--qtx-accent-rgb), .13);
+}
+
+.qtx .qtx-seg-btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.qtx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--qtx-surface);
+    border-radius: var(--qtx-r-md);
+    box-shadow: var(--qtx-shadow-sm);
+    overflow: hidden;
+    position: relative;
+}
+
+/* A refresh keeps the rows on screen and readable; this strip is the only
+   thing that moves, so a re-read never blanks the table. */
+.qtx-refresh {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2px;
+    overflow: hidden;
+    background: var(--qtx-rowline);
+}
+
+.qtx-refresh::after {
+    content: "";
+    display: block;
+    width: 35%;
+    height: 100%;
+    background: var(--qtx-accent);
+    animation: qtx-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes qtx-slide {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(320%);
+    }
+}
+
+.qtx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s4);
+    padding: var(--qtx-s4) var(--qtx-s6);
+    min-height: 54px;
+}
+
+.qtx-range {
+    font-size: 13px;
+    color: var(--qtx-mute-2);
+}
+
+.qtx-hint {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--qtx-s2);
+    font-size: 12px;
+    color: var(--qtx-mute-3);
+}
+
+.qtx-hint i {
+    font-size: 13px;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.qtx-tablewrap {
+    overflow-x: auto;
+}
+
+.qtx-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.qtx-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtx-mute);
+    padding: var(--qtx-s2);
+    white-space: nowrap;
+}
+
+.qtx-table td {
+    padding: var(--qtx-s2);
+    vertical-align: middle;
+}
+
+.qtx-table th:first-child,
+.qtx-table td:first-child {
+    padding-left: var(--qtx-s6);
+}
+
+.qtx-table th:last-child,
+.qtx-table td:last-child {
+    padding-right: var(--qtx-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.qtx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Row rules are painted as row-level strips so the end-fade spans the row
+   rather than restarting in every cell. */
+.qtx-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--qtx-divider) 48px,
+            var(--qtx-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.qtx-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--qtx-rowline) 48px,
+            var(--qtx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.qtx-table tbody tr:hover {
+    /* the hover tint layers over the row rule, which keeps painting */
+    background:
+        linear-gradient(var(--qtx-hover), var(--qtx-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--qtx-rowline) 48px,
+            var(--qtx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.qtx .qtx-link,
+.qtx-overlay .qtx-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--qtx-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.qtx .qtx-link:hover,
+.qtx-overlay .qtx-link:hover {
+    color: var(--qtx-accent-text);
+    text-decoration: underline;
+}
+
+.qtx-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 140px;
+}
+
+.qtx-cust-name {
+    font-weight: 500;
+}
+
+.qtx-cust-code {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--qtx-mute-3);
+}
+
+.qtx-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--qtx-ink-2);
+}
+
+.qtx-date.is-unset {
+    color: var(--qtx-faint);
+}
+
+/* An expiry that has passed is the one date on this page worth colouring:
+   it changes what can still be done with the quotation. */
+.qtx-date.is-lapsed {
+    color: var(--qtx-bad);
+}
+
+.qtx-curr {
+    font-size: 12.5px;
+    color: var(--qtx-mute-2);
+}
+
+.qtx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--qtx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--qtx-tag-bg);
+    color: var(--qtx-tag-ink);
+}
+
+.qtx-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.qtx-status .qtx-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--qtx-dot);
+}
+
+.qtx-dot.is-draft {
+    background: var(--qtx-dot-quiet);
+}
+
+.qtx-dot.is-pending {
+    background: var(--qtx-warn);
+}
+
+.qtx-dot.is-live {
+    background: var(--qtx-accent);
+}
+
+.qtx-dot.is-done {
+    background: var(--qtx-ok);
+}
+
+.qtx-dot.is-bad {
+    background: var(--qtx-bad);
+}
+
+.qtx-dot.is-void {
+    background: var(--qtx-dot-faint);
+}
+
+.qtx-status-text {
+    color: var(--qtx-mute);
+}
+
+.qtx-status-text.is-live {
+    color: var(--qtx-accent-text);
+}
+
+.qtx-status-text.is-bad {
+    color: var(--qtx-bad);
+}
+
+.qtx-rowactions {
+    display: inline-flex;
+    gap: var(--qtx-s1);
+    justify-content: flex-end;
+    align-items: center;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.qtx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--qtx-s3);
+    padding: 56px var(--qtx-s6);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.qtx-empty i {
+    font-size: 22px;
+    color: var(--qtx-accent);
+    opacity: .8;
+}
+
+.qtx-empty-sub {
+    font-size: 12.5px;
+    color: var(--qtx-mute-2);
+    max-width: 42ch;
+}
+
+.qtx-skel {
+    height: 11px;
+    border-radius: var(--qtx-r-sm);
+    background: var(--qtx-rowline);
+    animation: qtx-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes qtx-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .qtx-skel {
+        animation: none;
+    }
+
+    .qtx-refresh::after {
+        animation-duration: 3s;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.qtx-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s4);
+    padding: var(--qtx-s4) var(--qtx-s6);
+    border-top: 1px solid var(--qtx-divider);
+    flex-wrap: wrap;
+}
+
+.qtx-foot-range {
+    font-size: 12px;
+    color: var(--qtx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.qtx-pagesize {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--qtx-s2);
+    font-size: 12px;
+    color: var(--qtx-mute-3);
+}
+
+.qtx .qtx-pagesize select.qtx-input {
+    width: auto;
+    min-height: 28px;
+    padding: 2px 24px 2px 8px;
+    font-size: 12.5px;
+}
+
+.qtx-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s2);
+    margin-left: auto;
+}
+
+.qtx-page-label {
+    font-size: 12px;
+    color: var(--qtx-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alert ─────────────────────────────────────────────────────────────── */
+
+.qtx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--qtx-s3);
+    padding: var(--qtx-s3) var(--qtx-s4);
+    border-radius: var(--qtx-r-md);
+    background: var(--qtx-bad-bg);
+    border: 1px solid var(--qtx-bad-edge);
+    color: var(--qtx-bad);
+    font-size: 13px;
+}
+
+.qtx-alert-body {
+    flex: 1;
+}
+
+/* ── Overlays: drawer and dialogs ──────────────────────────────────────── */
+/* Both render below the app bar rather than over it: the page container is a
+   stacking context, so an overlay centred on the full viewport is painted
+   over by the topbar however high its z-index. */
+
+.qtx-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--qtx-ink);
+}
+
+.qtx-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--qtx-scrim);
+    z-index: 9998;
+}
+
+.qtx-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(720px, 95vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--qtx-surface);
+    box-shadow: var(--qtx-shadow-lg);
+    font-size: 14px;
+}
+
+.qtx-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s4);
+    padding: var(--qtx-s4) var(--qtx-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--qtx-divider);
+}
+
+.qtx-drawer-titles {
+    margin-right: auto;
+    min-width: 0;
+}
+
+.qtx-drawer-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s3);
+}
+
+.qtx-drawer-title i {
+    color: var(--qtx-accent);
+    font-size: 15px;
+}
+
+.qtx-drawer-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--qtx-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.qtx-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--qtx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtx-s6);
+}
+
+.qtx-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--qtx-s2);
+    padding: var(--qtx-s4) var(--qtx-s6);
+    border-top: 1px solid var(--qtx-divider);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.qtx-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--qtx-s4);
+}
+
+.qtx-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtx-mute-3);
+    margin-bottom: 2px;
+}
+
+.qtx-dd {
+    font-size: 13.5px;
+    color: var(--qtx-ink);
+}
+
+.qtx-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtx-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s2);
+    margin-bottom: var(--qtx-s3);
+}
+
+.qtx-note {
+    padding: var(--qtx-s3) var(--qtx-s4);
+    border-radius: var(--qtx-r-md);
+    background: var(--qtx-hover);
+    font-size: 13px;
+    color: var(--qtx-ink-2);
+}
+
+/* Only for text that arrives with its own line breaks — a quotation's comments
+   and terms come from SAP as typed. It must not go on `.qtx-note` itself:
+   pre-wrap would then also preserve the Razor source's own indentation and
+   line wrapping in every fixed note on the page. */
+.qtx-note.is-prose {
+    white-space: pre-wrap;
+}
+
+.qtx-note .qtx-dt {
+    color: var(--qtx-mute-3);
+}
+
+.qtx-note.is-warn {
+    background: rgba(var(--qtx-accent-rgb), .08);
+    border: 1px solid var(--qtx-accent);
+    color: var(--qtx-ink-2);
+}
+
+.qtx-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.qtx-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtx-mute);
+    padding: var(--qtx-s2);
+    white-space: nowrap;
+}
+
+.qtx-lines td {
+    padding: var(--qtx-s2);
+    color: var(--qtx-ink-2);
+}
+
+/* A row rule, not a row fill: the strip needs a gradient, because a bare colour
+   in `background` ignores the 1px size and floods the whole row. These rules do
+   not fade at the ends — inside a box, Nocturne keeps its separators solid. */
+.qtx-lines thead tr,
+.qtx-lines tbody tr,
+.qtx-lines tfoot tr:first-child {
+    background: linear-gradient(var(--qtx-rowline), var(--qtx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.qtx-lines tfoot td {
+    color: var(--qtx-ink);
+}
+
+.qtx-lines .qtx-neg {
+    color: var(--qtx-bad);
+}
+
+.qtx-linescroll {
+    overflow-x: auto;
+}
+
+.qtx-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--qtx-s4) var(--qtx-s6);
+    margin-top: var(--qtx-s4);
+    border-radius: var(--qtx-r-md);
+    border: 1px solid var(--qtx-accent);
+    background: rgba(var(--qtx-accent-rgb), .08);
+}
+
+.qtx-total-label {
+    font-size: 13px;
+    color: var(--qtx-mute);
+}
+
+.qtx-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--qtx-accent-text);
+}
+
+.qtx-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--qtx-s4);
+    background: var(--qtx-scrim);
+}
+
+.qtx-dialog {
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--qtx-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtx-s4);
+    padding: var(--qtx-s6);
+    border-radius: var(--qtx-r-lg);
+    background: var(--qtx-surface);
+    box-shadow: var(--qtx-shadow-lg);
+    font-size: 14px;
+}
+
+.qtx-dialog.is-wide {
+    width: min(920px, 100%);
+}
+
+.qtx-dialog-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s3);
+}
+
+.qtx-dialog-title i {
+    font-size: 17px;
+    color: var(--qtx-accent);
+}
+
+.qtx-dialog-head {
+    display: flex;
+    align-items: center;
+    gap: var(--qtx-s4);
+}
+
+.qtx-dialog-head .qtx-dialog-title {
+    margin-right: auto;
+}
+
+.qtx-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtx-s4);
+    overflow-y: auto;
+}
+
+.qtx-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--qtx-s2);
+}
+
+.qtx-overlay .qtx-textarea {
+    min-height: 72px;
+    resize: vertical;
+    line-height: 1.5;
+    padding: var(--qtx-s2) 10px;
+}
+
+.qtx-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--qtx-s4);
+    padding: var(--qtx-s4);
+    border-radius: var(--qtx-r-md);
+    background: var(--qtx-hover);
+}
+
+.qtx-summary-item.is-wide {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+
+.qtx-summary-value {
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Reprice dialog form ───────────────────────────────────────────────── */
+
+.qtx-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--qtx-s4);
+}
+
+.qtx-form .is-wide {
+    grid-column: 1 / -1;
+}
+
+/* The editable line table. Cells hold controls rather than text, so the row
+   rhythm comes from the inputs' own 28px height. */
+.qtx-editlines {
+    width: 100%;
+    min-width: 700px;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.qtx-editlines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtx-mute);
+    padding: var(--qtx-s2);
+    white-space: nowrap;
+}
+
+.qtx-editlines td {
+    padding: var(--qtx-s1) var(--qtx-s2);
+}
+
+.qtx-editlines thead tr,
+.qtx-editlines tbody tr {
+    background: linear-gradient(var(--qtx-rowline), var(--qtx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.qtx-overlay .qtx-editlines .qtx-input {
+    min-height: 28px;
+    padding: 3px 8px;
+    font-size: 12.5px;
+    border-radius: var(--qtx-r-sm);
+}
+
+.qtx-overlay .qtx-editlines .qtx-input[type="number"] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.qtx-linetotal {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--qtx-ink);
+}
+
+/* The running totals sit under the line table, right-aligned to the column
+   they sum. */
+.qtx-tally {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.qtx-tally-inner {
+    min-width: 260px;
+    display: grid;
+    gap: 3px;
+}
+
+.qtx-tally-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--qtx-s6);
+    font-size: 12.5px;
+    color: var(--qtx-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.qtx-tally-row.is-neg {
+    color: var(--qtx-bad);
+}
+
+.qtx-tally-row.is-total {
+    padding-top: var(--qtx-s2);
+    border-top: 1px solid var(--qtx-divider);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--qtx-accent-text);
+}
+
+.qtx-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: qtx-spin .7s linear infinite;
+}
+
+@keyframes qtx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .qtx-spin {
+        animation-duration: 3s;
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .qtx-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .qtx-shell,
+    .qtx-body {
+        padding-left: var(--qtx-s6);
+        padding-right: var(--qtx-s6);
+    }
+
+    .qtx-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--qtx-s4);
+    }
+
+    .qtx-head-actions {
+        justify-content: space-between;
+    }
+
+    .qtx-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .qtx-field {
+        flex: 1 1 150px;
+    }
+
+    .qtx-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .qtx-grid,
+    .qtx-summary,
+    .qtx-form {
+        grid-template-columns: 1fr;
+    }
+
+    .qtx-pager {
+        margin-left: 0;
+        width: 100%;
+        justify-content: space-between;
+    }
+}

@@ -1,0 +1,1101 @@
+/* ==========================================================================
+   Incoming Payments — Nocturne
+
+   The receipts list on the Nocturne design system, sibling to invoices.css:
+   a dense, quiet table on a near-neutral blue-grey ground, Inter at 500, 8px
+   radii, outlined buttons, and freestanding rules that fade to transparent
+   over 48px at each end.
+
+   There is no imported design file for this page. The palette and the density
+   scale are copied verbatim from credit-notes.css so the list pages stay one
+   system. What is new here is the tender split — a payment can arrive as any
+   mix of cash, transfer, cheque and credit, so both the row and the drawer
+   have to show four amounts without turning into a colour chart. They are
+   told apart by icon, not by hue.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same two reasons as credit-notes.css: a scoped style block cannot reach
+   native controls the way these selectors need to, and app.css carries global
+   `.dark-theme input/select/textarea` rules that have to be out-specified.
+   ========================================================================== */
+
+.pyx,
+.pyx-overlay {
+    --pyx-bg: #f4f4f8;
+    --pyx-surface: #ffffff;
+    --pyx-field: #ffffff;
+    --pyx-ink: #1b1c26;
+    --pyx-ink-2: #35374a;
+    --pyx-mute: #4e5164;
+    --pyx-mute-2: #656879;
+    --pyx-mute-3: #7b7e8e;
+    --pyx-faint: #a0a2ae;
+    --pyx-placeholder: #9498a8;
+    --pyx-divider: rgba(27, 28, 38, .14);
+    --pyx-rowline: rgba(27, 28, 38, .09);
+    --pyx-hover: rgba(27, 28, 38, .04);
+    --pyx-press: rgba(27, 28, 38, .09);
+    --pyx-field-edge: #d4d6e2;
+    --pyx-field-edge-hi: #a9adc0;
+    --pyx-accent: #5f52c4;
+    --pyx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --pyx-accent-text: #473d99;
+    --pyx-tag-bg: #e4e7f5;
+    --pyx-tag-ink: #3f424d;
+    --pyx-bad: #b3273c;
+    --pyx-bad-bg: #fdf0f2;
+    --pyx-bad-edge: #f0ccd3;
+    --pyx-warn: #8a5a05;
+    --pyx-warn-bg: #fdf6e7;
+    --pyx-warn-edge: #ecd9ac;
+    --pyx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --pyx-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
+    --pyx-scrim: rgba(41, 43, 49, .34);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --pyx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --pyx-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --pyx-s1: 2.8px;
+    --pyx-s2: 5.6px;
+    --pyx-s3: 8.4px;
+    --pyx-s4: 11.2px;
+    --pyx-s6: 16.8px;
+    --pyx-s8: 22.4px;
+    --pyx-r-sm: 4px;
+    --pyx-r-md: 8px;
+    --pyx-r-lg: 14px;
+
+    color-scheme: var(--pyx-scheme);
+}
+
+.dark-theme .pyx,
+.dark-theme .pyx-overlay {
+    --pyx-bg: #161826;
+    --pyx-surface: #232532;
+    --pyx-field: #232532;
+    --pyx-ink: #e9e9ed;
+    --pyx-ink-2: #aeaeb5;
+    --pyx-mute: #9999a1;
+    --pyx-mute-2: #87878f;
+    --pyx-mute-3: #72727d;
+    --pyx-faint: #5a5a66;
+    --pyx-placeholder: #6b6b77;
+    --pyx-divider: rgba(233, 233, 237, .16);
+    --pyx-rowline: rgba(233, 233, 237, .08);
+    --pyx-hover: rgba(233, 233, 237, .04);
+    --pyx-press: rgba(233, 233, 237, .1);
+    --pyx-field-edge: rgba(233, 233, 237, .16);
+    --pyx-field-edge-hi: rgba(233, 233, 237, .45);
+    --pyx-accent: #9184d9;
+    --pyx-accent-rgb: 145, 132, 217;
+    --pyx-accent-text: #d2cefd;
+    --pyx-tag-bg: #3f424d;
+    --pyx-tag-ink: #f3f5fe;
+    --pyx-bad: #e8697d;
+    --pyx-bad-bg: #2f2028;
+    --pyx-bad-edge: #4a2c35;
+    --pyx-warn: #e0b062;
+    --pyx-warn-bg: #2c2620;
+    --pyx-warn-edge: #4a3d28;
+    --pyx-shadow-sm: 0 0 0 1px #3f424d;
+    --pyx-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+    --pyx-scrim: rgba(10, 11, 18, .62);
+    --pyx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --pyx-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.pyx {
+    min-height: 100vh;
+    background: var(--pyx-bg);
+    color: var(--pyx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.pyx *,
+.pyx-overlay * {
+    box-sizing: border-box;
+}
+
+.pyx :focus-visible,
+.pyx-overlay :focus-visible {
+    outline: 2px solid var(--pyx-accent);
+    outline-offset: 2px;
+}
+
+.pyx ::selection,
+.pyx-overlay ::selection {
+    background: rgba(var(--pyx-accent-rgb), .3);
+}
+
+.pyx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--pyx-divider) 48px,
+            var(--pyx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque rather than the design's frosted glass: a translucent bar only hides
+   what passes beneath it while the compositor honours the backdrop blur, and
+   software rendering, a reduced-transparency setting or an offscreen capture
+   all drop the blur. --pyx-bg is the page's own ground, so an opaque bar is
+   indistinguishable from the design at rest. */
+
+.pyx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--pyx-bg);
+}
+
+.pyx-shell {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--pyx-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--pyx-s8);
+}
+
+.pyx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.pyx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s3);
+}
+
+.pyx-titles-row i {
+    font-size: 17px;
+    color: var(--pyx-accent);
+}
+
+.pyx-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--pyx-ink);
+}
+
+.pyx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--pyx-mute-2);
+}
+
+.pyx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s4);
+}
+
+.pyx-count {
+    font-size: 12px;
+    color: var(--pyx-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.pyx-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: var(--pyx-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--pyx-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.pyx .pyx-btn,
+.pyx-overlay .pyx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--pyx-s2) calc(var(--pyx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--pyx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--pyx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.pyx .pyx-btn:disabled,
+.pyx-overlay .pyx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.pyx .pyx-btn-primary,
+.pyx-overlay .pyx-btn-primary {
+    color: var(--pyx-accent);
+    border-color: var(--pyx-accent);
+    letter-spacing: .02em;
+}
+
+.pyx .pyx-btn-primary:hover:not(:disabled),
+.pyx-overlay .pyx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--pyx-accent-rgb), .12);
+}
+
+.pyx .pyx-btn-primary:active:not(:disabled),
+.pyx-overlay .pyx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--pyx-accent-rgb), .22);
+}
+
+.pyx .pyx-btn-secondary,
+.pyx-overlay .pyx-btn-secondary {
+    border-color: var(--pyx-divider);
+}
+
+.pyx .pyx-btn-secondary:hover:not(:disabled),
+.pyx-overlay .pyx-btn-secondary:hover:not(:disabled) {
+    background: var(--pyx-hover);
+}
+
+.pyx .pyx-btn-secondary:active:not(:disabled),
+.pyx-overlay .pyx-btn-secondary:active:not(:disabled) {
+    background: var(--pyx-press);
+}
+
+.pyx .pyx-btn-ghost,
+.pyx-overlay .pyx-btn-ghost {
+    color: var(--pyx-accent);
+    padding-inline: var(--pyx-s1);
+}
+
+.pyx .pyx-btn-ghost:hover:not(:disabled),
+.pyx-overlay .pyx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--pyx-accent-rgb), .1);
+}
+
+.pyx .pyx-btn-ghost:active:not(:disabled),
+.pyx-overlay .pyx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--pyx-accent-rgb), .18);
+}
+
+.pyx .pyx-btn-sm,
+.pyx-overlay .pyx-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.pyx .pyx-btn-icon,
+.pyx-overlay .pyx-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.pyx .pyx-btn-icon-sm,
+.pyx-overlay .pyx-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+/* Icon-only buttons draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that fails to load would
+   leave them reading as dead controls. */
+.pyx .pyx-btn svg,
+.pyx-overlay .pyx-btn svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── Stat row ──────────────────────────────────────────────────────────── */
+
+.pyx-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--pyx-s4);
+}
+
+.pyx-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s4);
+    padding: var(--pyx-s4) var(--pyx-s6);
+    background: var(--pyx-surface);
+    border-radius: var(--pyx-r-md);
+    box-shadow: var(--pyx-shadow-sm);
+}
+
+.pyx-stat-mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--pyx-r-md);
+    background: rgba(var(--pyx-accent-rgb), .1);
+    color: var(--pyx-accent);
+    font-size: 16px;
+}
+
+.pyx-stat-mark.is-quiet {
+    background: var(--pyx-hover);
+    color: var(--pyx-mute);
+}
+
+.pyx-stat-value {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+.pyx-stat-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pyx-mute-3);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.pyx-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--pyx-s4);
+    flex-wrap: wrap;
+}
+
+.pyx-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--pyx-mute);
+}
+
+.pyx .pyx-input,
+.pyx-overlay .pyx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--pyx-ink);
+    caret-color: var(--pyx-accent);
+    background: var(--pyx-field);
+    background-image: none;
+    border: 1px solid var(--pyx-field-edge);
+    border-radius: var(--pyx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.pyx .pyx-input:hover,
+.pyx-overlay .pyx-input:hover {
+    border-color: var(--pyx-field-edge-hi);
+}
+
+.pyx .pyx-input:focus-visible,
+.pyx-overlay .pyx-input:focus-visible {
+    border-color: var(--pyx-accent);
+    outline-offset: 0;
+}
+
+.pyx .pyx-input::placeholder,
+.pyx-overlay .pyx-input::placeholder {
+    color: var(--pyx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--pyx-placeholder);
+}
+
+.pyx .pyx-input:disabled,
+.pyx-overlay .pyx-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.pyx .pyx-input-num,
+.pyx-overlay .pyx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.pyx .pyx-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+}
+
+.dark-theme .pyx .pyx-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.pyx-select {
+    position: relative;
+}
+
+.pyx .pyx-select select.pyx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.pyx-select .pyx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--pyx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.pyx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.pyx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--pyx-surface);
+    border-radius: var(--pyx-r-md);
+    box-shadow: var(--pyx-shadow-sm);
+    overflow: hidden;
+}
+
+.pyx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s4);
+    padding: var(--pyx-s4) var(--pyx-s6);
+    min-height: 54px;
+}
+
+.pyx-range {
+    font-size: 13px;
+    color: var(--pyx-mute-2);
+}
+
+/* The quick filter narrows what is already loaded, so it lives on the card's
+   own toolbar rather than in the filter row above, which refetches. */
+.pyx-quick {
+    position: relative;
+    margin-left: auto;
+    width: 240px;
+}
+
+.pyx .pyx-quick .pyx-input {
+    padding-left: 30px;
+}
+
+.pyx-quick > i {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--pyx-mute-3);
+    pointer-events: none;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.pyx-tablewrap {
+    overflow-x: auto;
+}
+
+.pyx-table {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.pyx-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pyx-mute);
+    padding: var(--pyx-s2);
+    white-space: nowrap;
+}
+
+.pyx-table td {
+    padding: var(--pyx-s2);
+    vertical-align: middle;
+}
+
+.pyx-table th:first-child,
+.pyx-table td:first-child {
+    padding-left: var(--pyx-s6);
+}
+
+.pyx-table th:last-child,
+.pyx-table td:last-child {
+    padding-right: var(--pyx-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.pyx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pyx-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--pyx-divider) 48px,
+            var(--pyx-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.pyx-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--pyx-rowline) 48px,
+            var(--pyx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.pyx-table tbody tr:hover {
+    background:
+        linear-gradient(var(--pyx-hover), var(--pyx-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--pyx-rowline) 48px,
+            var(--pyx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.pyx .pyx-link,
+.pyx-overlay .pyx-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--pyx-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.pyx .pyx-link:hover,
+.pyx-overlay .pyx-link:hover {
+    color: var(--pyx-accent-text);
+    text-decoration: underline;
+}
+
+.pyx-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 150px;
+}
+
+.pyx-cust-name {
+    font-weight: 500;
+}
+
+.pyx-cust-code {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--pyx-mute-3);
+}
+
+.pyx-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--pyx-ink-2);
+}
+
+.pyx-curr {
+    font-size: 12.5px;
+    color: var(--pyx-mute-2);
+}
+
+/* The tender split. Four kinds of money in one cell, told apart by their icon
+   rather than by four competing fills — a payment often carries two or three
+   of these at once, and a colour-coded row reads as an alert. */
+.pyx-tenders {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--pyx-s1);
+}
+
+.pyx-tender {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    border-radius: calc(var(--pyx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--pyx-tag-bg);
+    color: var(--pyx-tag-ink);
+}
+
+.pyx-tender i {
+    font-size: 12px;
+    color: var(--pyx-mute-2);
+}
+
+.dark-theme .pyx-tender i {
+    color: var(--pyx-ink-2);
+}
+
+.pyx-rowactions {
+    display: inline-flex;
+    gap: var(--pyx-s1);
+    justify-content: flex-end;
+    align-items: center;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.pyx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pyx-s3);
+    padding: 56px var(--pyx-s6);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.pyx-empty i {
+    font-size: 22px;
+    color: var(--pyx-accent);
+    opacity: .8;
+}
+
+.pyx-empty-sub {
+    font-size: 12.5px;
+    color: var(--pyx-mute-2);
+    max-width: 42ch;
+}
+
+.pyx-skel {
+    height: 11px;
+    border-radius: var(--pyx-r-sm);
+    background: var(--pyx-rowline);
+    animation: pyx-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pyx-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pyx-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.pyx-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s4);
+    padding: var(--pyx-s4) var(--pyx-s6);
+    border-top: 1px solid var(--pyx-divider);
+    flex-wrap: wrap;
+}
+
+.pyx-foot-range {
+    font-size: 12px;
+    color: var(--pyx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.pyx-pagesize {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--pyx-s2);
+    font-size: 12px;
+    color: var(--pyx-mute-3);
+}
+
+.pyx .pyx-pagesize select.pyx-input {
+    width: auto;
+    min-height: 28px;
+    padding: 2px 24px 2px 8px;
+    font-size: 12.5px;
+}
+
+.pyx-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s2);
+    margin-left: auto;
+}
+
+.pyx-page-label {
+    font-size: 12px;
+    color: var(--pyx-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alert ─────────────────────────────────────────────────────────────── */
+
+.pyx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pyx-s3);
+    padding: var(--pyx-s3) var(--pyx-s4);
+    border-radius: var(--pyx-r-md);
+    font-size: 13px;
+    background: var(--pyx-bad-bg);
+    border: 1px solid var(--pyx-bad-edge);
+    color: var(--pyx-bad);
+}
+
+/* A timeout is not a failure — SAP is slow and the request is worth retrying,
+   so it reads as a warning with an action rather than as an error. */
+.pyx-alert.is-warn {
+    background: var(--pyx-warn-bg);
+    border-color: var(--pyx-warn-edge);
+    color: var(--pyx-warn);
+}
+
+.pyx-alert-body {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s4);
+    flex-wrap: wrap;
+}
+
+/* ── Overlays: drawer ──────────────────────────────────────────────────── */
+
+.pyx-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--pyx-ink);
+}
+
+.pyx-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--pyx-scrim);
+    z-index: 9998;
+}
+
+.pyx-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(680px, 95vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--pyx-surface);
+    box-shadow: var(--pyx-shadow-lg);
+    font-size: 14px;
+}
+
+.pyx-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s4);
+    padding: var(--pyx-s4) var(--pyx-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--pyx-divider);
+}
+
+.pyx-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s3);
+}
+
+.pyx-drawer-title i {
+    color: var(--pyx-accent);
+    font-size: 15px;
+}
+
+.pyx-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--pyx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--pyx-s6);
+}
+
+.pyx-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--pyx-s2);
+    padding: var(--pyx-s4) var(--pyx-s6);
+    border-top: 1px solid var(--pyx-divider);
+    flex-shrink: 0;
+}
+
+.pyx-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--pyx-s4);
+}
+
+.pyx-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pyx-mute-3);
+    margin-bottom: 2px;
+}
+
+.pyx-dd {
+    font-size: 13.5px;
+    color: var(--pyx-ink);
+}
+
+.pyx-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pyx-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--pyx-s2);
+    margin-bottom: var(--pyx-s3);
+}
+
+.pyx-note {
+    padding: var(--pyx-s3) var(--pyx-s4);
+    border-radius: var(--pyx-r-md);
+    background: var(--pyx-hover);
+    font-size: 13px;
+    color: var(--pyx-ink-2);
+}
+
+/* Only for text that arrives with its own line breaks — payment remarks come
+   from SAP as typed. It must not go on `.pyx-note` itself. */
+.pyx-note.is-prose {
+    white-space: pre-wrap;
+}
+
+/* The tender breakdown, as four amounts side by side. A zero is drawn faint
+   rather than hidden: which tenders were *not* used is part of the reading. */
+.pyx-split {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--pyx-s3);
+}
+
+.pyx-split-cell {
+    padding: var(--pyx-s3) var(--pyx-s4);
+    border-radius: var(--pyx-r-md);
+    border: 1px solid var(--pyx-divider);
+    background: var(--pyx-hover);
+}
+
+.pyx-split-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pyx-mute-3);
+    margin-bottom: 2px;
+}
+
+.pyx-split-value {
+    font-size: 15px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.pyx-split-cell.is-zero .pyx-split-value {
+    color: var(--pyx-faint);
+    font-weight: 400;
+}
+
+.pyx-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.pyx-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pyx-mute);
+    padding: var(--pyx-s2);
+    white-space: nowrap;
+}
+
+.pyx-lines td {
+    padding: var(--pyx-s2);
+    color: var(--pyx-ink-2);
+}
+
+/* A row rule, not a row fill: the strip needs a gradient, because a bare colour
+   in `background` ignores the 1px size and floods the whole row. */
+.pyx-lines thead tr,
+.pyx-lines tbody tr {
+    background: linear-gradient(var(--pyx-rowline), var(--pyx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.pyx-linescroll {
+    overflow-x: auto;
+}
+
+.pyx-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--pyx-s4) var(--pyx-s6);
+    border-radius: var(--pyx-r-md);
+    border: 1px solid var(--pyx-accent);
+    background: rgba(var(--pyx-accent-rgb), .08);
+}
+
+.pyx-total-label {
+    font-size: 13px;
+    color: var(--pyx-mute);
+}
+
+.pyx-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--pyx-accent-text);
+}
+
+.pyx-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: pyx-spin .7s linear infinite;
+}
+
+@keyframes pyx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pyx-spin {
+        animation-duration: 3s;
+    }
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .pyx-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .pyx-split {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .pyx-shell,
+    .pyx-body {
+        padding-left: var(--pyx-s6);
+        padding-right: var(--pyx-s6);
+    }
+
+    .pyx-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--pyx-s4);
+    }
+
+    .pyx-head-actions {
+        justify-content: space-between;
+    }
+
+    .pyx-field {
+        flex: 1 1 150px;
+    }
+
+    .pyx-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .pyx-quick {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .pyx-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .pyx-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pyx-pager {
+        margin-left: 0;
+        width: 100%;
+        justify-content: space-between;
+    }
+}

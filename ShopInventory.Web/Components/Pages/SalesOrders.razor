@@ -1,2131 +1,789 @@
 @page "/sales-orders"
 @using System.Diagnostics
 @using Microsoft.AspNetCore.Authorization
-@using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier,SalesRep")]
 @inject ISalesOrderService SalesOrderService
-@inject IBusinessPartnerService BusinessPartnerService
-@inject IMasterDataCacheService CacheService
-@inject IPriceService PriceService
-@inject IBusinessPartnerPricingService BusinessPartnerPricingService
 @inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
-@inject IDialogService DialogService
 @inject ILogger<SalesOrders> Logger
 @inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
-@inject AuthenticationStateProvider AuthStateProvider
 @inject IJSRuntime JSRuntime
 @rendermode InteractiveServer
 
 <PageTitle>Sales Orders - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .so-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .so-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .so-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .so-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .so-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .so-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .btn-so-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        text-decoration: none;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-        cursor: pointer;
-    }
-
-    .btn-so-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-        color: #fff;
-    }
-
-    /* ── Stat Cards ───────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 1rem 1.15rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: transform .15s, box-shadow .15s;
-    }
-
-    .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.total {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.pending {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-icon.approved {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.fulfilled {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.1;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .stat-info .stat-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-bar .filter-field input,
-    .filter-bar .filter-field select {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .filter-bar .filter-field input:focus,
-    .filter-bar .filter-field select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .so-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .so-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .so-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .so-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    /* ── Status Badges ───────────────────────────────── */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-badge.draft {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .status-badge.pending {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .status-badge.approved {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.partial {
-        background: #e0e7ff;
-        color: #3730a3;
-    }
-
-    .status-badge.fulfilled {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .status-badge.invoiced {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.cancelled {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .status-badge.rejected {
-        background: #fff7ed;
-        color: #c2410c;
-    }
-
-    .status-badge.on-hold {
-        background: #374151;
-        color: #fff;
-    }
-
-    /* ── Cell Styles ─────────────────────────────────── */
-    .doc-number {
-        font-weight: 700;
-        color: #667eea;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    .customer-info .name {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-    }
-
-    .customer-info .code {
-        font-size: .75rem;
-        color: #9ca3af;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .amount-cell {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    /* ── Action Buttons ──────────────────────────────── */
-    .action-btn {
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        color: #6b7280;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .85rem;
-    }
-
-    .action-btn:hover {
-        background: #f3f4f6;
-        color: #374151;
-        border-color: #d1d5db;
-    }
-
-    .action-btn.view:hover {
-        background: #ede9fe;
-        color: #667eea;
-        border-color: #c4b5fd;
-    }
-
-    .action-btn.approve:hover {
-        background: #d1fae5;
-        color: #059669;
-        border-color: #6ee7b7;
-    }
-
-    .action-btn.invoice:hover {
-        background: #dbeafe;
-        color: #2563eb;
-        border-color: #93c5fd;
-    }
-
-    .action-btn.delete:hover {
-        background: #fee2e2;
-        color: #dc2626;
-        border-color: #fca5a5;
-    }
-
-    .sync-dot {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        font-size: .78rem;
-        font-weight: 600;
-    }
-
-    .sync-dot i {
-        font-size: .7rem;
-    }
-
-    .sync-dot.synced {
-        color: #059669;
-    }
-
-    .sync-dot.unsynced {
-        color: #d97706;
-    }
-
-    /* ── Drawer ──────────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-        flex-wrap: wrap;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .15rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .detail-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .rejection-note {
-        background: #fff7ed;
-        border: 1px solid #fdba74;
-        border-radius: 10px;
-        padding: .85rem 1rem;
-        margin-bottom: 1rem;
-    }
-
-    .rejection-note-title {
-        font-size: .72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: .45px;
-        color: #c2410c;
-        margin-bottom: .25rem;
-    }
-
-    .rejection-note-meta {
-        font-size: .74rem;
-        color: #9a3412;
-        margin-bottom: .35rem;
-    }
-
-    .rejection-note-body {
-        font-size: .88rem;
-        color: #7c2d12;
-        white-space: pre-wrap;
-    }
-
-    .dark-theme .rejection-note {
-        background: #431407;
-        border-color: #9a3412;
-    }
-
-    .dark-theme .rejection-note-title {
-        color: #fdba74;
-    }
-
-    .dark-theme .rejection-note-meta {
-        color: #fdba74;
-        opacity: .85;
-    }
-
-    .dark-theme .rejection-note-body {
-        color: #fed7aa;
-    }
-
-    /* ── Lines Table ─────────────────────────────────── */
-    .lines-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-    }
-
-    .lines-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .lines-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    /* Total Banner */
-    .total-banner {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 1.25rem;
-    }
-
-    .total-banner .total-label {
-        font-size: .9rem;
-        font-weight: 500;
-    }
-
-    .total-banner .total-value {
-        font-size: 1.4rem;
-        font-weight: 700;
-    }
-
-    /* ── Create Modal ────────────────────────────────── */
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .create-modal-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .5);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        animation: fadeIn .2s ease;
-        padding: 1rem;
-    }
-
-    .create-modal {
-        background: #fff;
-        border-radius: 14px;
-        width: min(780px, 95vw);
-        max-height: calc(90vh - var(--kf-topbar-h, 74px));
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
-        animation: scaleIn .25s ease;
-    }
-
-    .create-modal-header {
-        padding: 1.15rem 1.5rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .create-modal-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1rem;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .create-modal-header .btn-close-modal {
-        background: #f3f4f6;
-        border: none;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        color: #6b7280;
-        transition: all .15s;
-        font-size: .9rem;
-    }
-
-    .create-modal-header .btn-close-modal:hover {
-        background: #e5e7eb;
-        color: #374151;
-    }
-
-    .create-modal-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .create-modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-    }
-
-    .form-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-    }
-
-    .form-field {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .form-field.full {
-        grid-column: span 2;
-    }
-
-    .form-field label {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-        margin-bottom: .25rem;
-    }
-
-    .form-field input,
-    .form-field select,
-    .form-field textarea {
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        transition: all .15s;
-    }
-
-    .form-field input:focus,
-    .form-field select:focus,
-    .form-field textarea:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .btn-create {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-create:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-    }
-
-    .btn-create:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f9fafb;
-    }
-
-    .approval-modal {
-        width: min(560px, 95vw);
-    }
-
-    .approval-summary {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .75rem;
-        margin-bottom: 1rem;
-    }
-
-    .approval-summary-item {
-        min-width: 0;
-        padding: .75rem .85rem;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        background: #f8fafc;
-    }
-
-    .approval-summary-item.customer {
-        grid-column: 1 / -1;
-    }
-
-    .approval-summary-label {
-        color: #6b7280;
-        font-size: .7rem;
-        font-weight: 700;
-        letter-spacing: .04em;
-        text-transform: uppercase;
-    }
-
-    .approval-summary-value {
-        overflow: hidden;
-        margin-top: .2rem;
-        color: #111827;
-        font-size: .92rem;
-        font-weight: 650;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .approval-impact {
-        display: flex;
-        gap: .7rem;
-        padding: .85rem;
-        border: 1px solid #a7f3d0;
-        border-radius: 10px;
-        background: #ecfdf5;
-        color: #065f46;
-        font-size: .84rem;
-        line-height: 1.45;
-    }
-
-    .approval-impact i {
-        flex: 0 0 auto;
-        margin-top: .05rem;
-        font-size: 1.05rem;
-    }
-
-    .approval-processing {
-        padding: .35rem 0 .15rem;
-        text-align: center;
-    }
-
-    .approval-processing-icon {
-        display: inline-flex;
-        width: 54px;
-        height: 54px;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: .8rem;
-        border-radius: 50%;
-        background: #ecfdf5;
-        color: #059669;
-        font-size: 1.45rem;
-    }
-
-    .approval-processing h6 {
-        margin-bottom: .35rem;
-        color: #111827;
-        font-weight: 700;
-    }
-
-    .approval-processing p {
-        max-width: 430px;
-        margin: 0 auto;
-        color: #6b7280;
-        font-size: .86rem;
-        line-height: 1.5;
-    }
-
-    .approval-progress-bar {
-        height: 5px;
-        margin: 1rem auto .8rem;
-        overflow: hidden;
-        border-radius: 999px;
-        background: #d1fae5;
-    }
-
-    .approval-progress-bar span {
-        display: block;
-        width: 45%;
-        height: 100%;
-        border-radius: inherit;
-        background: linear-gradient(90deg, #10b981, #047857);
-        animation: approvalProgress 1.25s ease-in-out infinite;
-    }
-
-    .approval-includes {
-        margin-top: .85rem;
-        color: #6b7280;
-        font-size: .76rem;
-        text-align: center;
-    }
-
-    .btn-approve-order {
-        background: linear-gradient(135deg, #059669, #047857);
-    }
-
-    .btn-approve-order:hover {
-        box-shadow: 0 4px 14px rgba(5, 150, 105, .28);
-    }
-
-    .dark-theme .approval-summary-item {
-        border-color: #374151;
-        background: #172033;
-    }
-
-    .dark-theme .approval-summary-label,
-    .dark-theme .approval-processing p,
-    .dark-theme .approval-includes {
-        color: #a7b0c0;
-    }
-
-    .dark-theme .approval-summary-value,
-    .dark-theme .approval-processing h6 {
-        color: #f3f4f6;
-    }
-
-    .dark-theme .approval-impact {
-        border-color: #065f46;
-        background: rgba(6, 95, 70, .2);
-        color: #a7f3d0;
-    }
-
-    /* ── Empty / Loading ─────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@keyframes scaleIn {
-        from {
-            opacity: 0;
-            transform: scale(.95);
-        }
-
-        to {
-            opacity: 1;
-            transform: scale(1);
-        }
-    }
-
-    @@keyframes approvalProgress {
-        from {
-            transform: translateX(-110%);
-        }
-
-        to {
-            transform: translateX(245%);
-        }
-    }
-
-    @@media (max-width:768px) {
-        .so-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .85rem;
-        }
-
-        .btn-so-gradient {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .filter-bar {
-            flex-direction: column;
-            padding: .85rem;
-        }
-
-        .filter-bar .filter-field {
-            min-width: 100%;
-            flex: 1 1 100%;
-        }
-
-        .filter-actions-row {
-            width: 100%;
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .filter-actions-row > * {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .so-table-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .75rem;
-        }
-
-        .detail-grid,
-        .form-grid,
-        .approval-summary {
-            grid-template-columns: 1fr;
-        }
-
-        .form-field.full {
-            grid-column: span 1;
-        }
-
-        .approval-summary-item.customer {
-            grid-column: auto;
-        }
-    }
-</style>
-
-<div class="so-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="so-header">
-            <div class="so-header-left">
-                <div class="so-header-icon"><i class="bi bi-cart-check"></i></div>
-                <div>
-                    <h2>Sales Orders</h2>
-                    <p>Track order status and fulfillment</p>
+@* Nocturne, carried by wwwroot/css/sales-orders.css (linked from App.razor) in
+   both schemes, following the app's theme toggle like every other page. The
+   palette and density scale are credit-notes.css's, unchanged, so the two list
+   pages read as one system.
+
+   Icon-only buttons draw their glyph inline rather than from the Phosphor font:
+   the glyph is their whole label, so a font that fails to load would leave them
+   reading as dead controls. *@
+
+<div class="sox">
+
+    <header class="sox-head">
+        <div class="sox-shell">
+            <div class="sox-titles">
+                <div class="sox-titles-row">
+                    <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                    <h1 class="sox-title">Sales Orders</h1>
                 </div>
+                <p class="sox-sub">Track order status and fulfilment</p>
             </div>
-            <AuthorizeView Roles="Admin,Cashier">
-                <Authorized>
-                    <MudButton Class="btn-so-gradient" Href="/sales-orders/create">
-                        <i class="bi bi-plus-lg"></i> New Sales Order
-                    </MudButton>
-                </Authorized>
-            </AuthorizeView>
+            <div class="sox-head-actions">
+                <span class="sox-count">@totalCount.ToString("N0") orders</span>
+                <AuthorizeView Roles="Admin,Cashier" Context="createAccess">
+                    <Authorized>
+                        <a class="sox-btn sox-btn-primary" href="/sales-orders/create">
+                            <i class="ph ph-plus" aria-hidden="true"></i>New sales order
+                        </a>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
         </div>
+        <div class="sox-rule"></div>
+    </header>
 
-        <!-- ━━━ Alerts ━━━ -->
+    <div class="sox-body">
+
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close"
-                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                               OnClick="() => errorMessage = null" />
+            <div class="sox-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="sox-alert-body">@errorMessage</div>
+                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
             </div>
         }
 
-        <!-- ━━━ Stat Cards ━━━ -->
+        @* Counted over the loaded page, not the whole result set — the labels say
+           "on this page" so the numbers cannot be misread as totals. Only the
+           first tile, which reads the server's count, is a true total. *@
         @if (orders?.Any() == true)
         {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon total"><i class="bi bi-cart-check"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@totalCount</div>
-                        <div class="stat-label">Total Orders</div>
+            <section class="sox-stats" aria-label="Order counts">
+                <div class="sox-stat">
+                    <span class="sox-stat-mark" aria-hidden="true"><i class="ph ph-shopping-cart"></i></span>
+                    <div>
+                        <div class="sox-stat-value">@totalCount.ToString("N0")</div>
+                        <div class="sox-stat-label">Total orders</div>
                     </div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon pending"><i class="bi bi-clock-history"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Pending)</div>
-                        <div class="stat-label">Pending</div>
+                <div class="sox-stat">
+                    <span class="sox-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-clock-countdown"></i></span>
+                    <div>
+                        <div class="sox-stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Pending)</div>
+                        <div class="sox-stat-label">Pending on this page</div>
                     </div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Approved)</div>
-                        <div class="stat-label">Approved</div>
+                <div class="sox-stat">
+                    <span class="sox-stat-mark" aria-hidden="true"><i class="ph ph-check-circle"></i></span>
+                    <div>
+                        <div class="sox-stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Approved)</div>
+                        <div class="sox-stat-label">Approved on this page</div>
                     </div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon fulfilled"><i class="bi bi-truck"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Fulfilled || o.Status ==
-                                                                                                                                                                                                                                                                                                                                            SalesOrderStatus.Invoiced)</div>
-                            <div class="stat-label">Fulfilled</div>
+                <div class="sox-stat">
+                    <span class="sox-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-truck"></i></span>
+                    <div>
+                        <div class="sox-stat-value">
+                            @orders.Count(o => o.Status == SalesOrderStatus.Fulfilled || o.Status == SalesOrderStatus.Invoiced)
                         </div>
+                        <div class="sox-stat-label">Fulfilled on this page</div>
                     </div>
                 </div>
-            }
+            </section>
+        }
 
-            <!-- ━━━ Filter Bar ━━━ -->
-            <div class="filter-bar">
-                <div class="filter-field">
-                    <label>Order Number</label>
-                    <input type="text" @bind="orderNumberFilter" placeholder="e.g., SO-001" />
-                </div>
-                <div class="filter-field">
-                    <label>Customer</label>
-                    <input type="text" @bind="customerFilter" placeholder="Customer code" />
-                </div>
-                <div class="filter-field">
-                    <label>Status</label>
-                    <select @bind="statusFilter">
-                        <option value="">All Statuses</option>
-                        @foreach (SalesOrderStatus status in Enum.GetValues(typeof(SalesOrderStatus)))
+        <section class="sox-filters">
+            <div class="sox-field" style="width:150px">
+                <label for="sox-f-number">Order number</label>
+                <input id="sox-f-number" class="sox-input sox-input-num" type="text" placeholder="e.g. SO-001"
+                       @bind="orderNumberFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown" />
+            </div>
+            <div class="sox-field" style="width:190px">
+                <label for="sox-f-customer">Customer</label>
+                <input id="sox-f-customer" class="sox-input" type="text" placeholder="Customer code"
+                       @bind="customerFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown" />
+            </div>
+            <div class="sox-field" style="width:160px">
+                <label for="sox-f-status">Status</label>
+                <div class="sox-select">
+                    <select id="sox-f-status" class="sox-input" @bind="statusFilter">
+                        <option value="">All statuses</option>
+                        @foreach (SalesOrderStatus status in Enum.GetValues<SalesOrderStatus>())
                         {
                             <option value="@(((int)status).ToString())">@status</option>
                         }
                     </select>
-                </div>
-                <div class="filter-field">
-                    <label>From Date</label>
-                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
-                </div>
-                <div class="filter-field">
-                    <label>To Date</label>
-                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
-                </div>
-                <div class="filter-actions-row">
-                    <MudButton Class="btn-search" OnClick="ApplyFilter">
-                        <i class="bi bi-search"></i> Search
-                    </MudButton>
-                    <MudButton Class="btn-clear" OnClick="ClearFilter">
-                        <i class="bi bi-x-circle"></i> Clear
-                    </MudButton>
+                    <span class="sox-caret" aria-hidden="true"></span>
                 </div>
             </div>
+            <div class="sox-field" style="width:140px">
+                <label for="sox-f-from">From date</label>
+                <input id="sox-f-from" class="sox-input sox-input-num" type="date" @bind="fromDate" />
+            </div>
+            <div class="sox-field" style="width:140px">
+                <label for="sox-f-to">To date</label>
+                <input id="sox-f-to" class="sox-input sox-input-num" type="date" @bind="toDate" />
+            </div>
+            <div class="sox-filter-actions">
+                <button type="button" class="sox-btn sox-btn-ghost" @onclick="ClearFilter" disabled="@isLoading">
+                    Clear
+                </button>
+                <button type="button" class="sox-btn sox-btn-secondary" @onclick="ApplyFilter" disabled="@isLoading">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>@(isLoading ? "Searching…" : "Search")
+                </button>
+            </div>
+        </section>
 
-            <!-- ━━━ Content ━━━ -->
-            @if (isLoading)
-            {
-                <div class="loading-state">
-                    <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                    <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading sales orders...</p>
-                </div>
-            }
-            else if (orders?.Any() == true)
-            {
-                <div class="so-table-wrap">
-                    <div class="so-table-header">
-                        <h6><i class="bi bi-table"></i> Sales Orders</h6>
-                        <span class="so-count-badge">@totalCount total</span>
-                    </div>
-                    <MudTable Items="@orders" RowsPerPage="@pageSize" Hover="true" Striped="true" Dense="true"
-                              Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary" T="SalesOrderDto"
-                              Elevation="0" Style="background:transparent;">
-                        <HeaderContent>
-                            <MudTh>Doc Entry</MudTh>
-                            <MudTh>Doc #</MudTh>
-                            <MudTh>Customer</MudTh>
-                            <MudTh>Order Date</MudTh>
-                            <MudTh>Delivery</MudTh>
-                            <MudTh>Status</MudTh>
-                            <MudTh>Currency</MudTh>
-                            <MudTh Style="text-align:right">Total</MudTh>
-                            <MudTh>Synced</MudTh>
-                            <MudTh Style="width:150px">Actions</MudTh>
-                        </HeaderContent>
-                        <RowTemplate>
-                            <MudTd DataLabel="Doc Entry"><span
-                                style="font-size:.85rem;color:#6b7280;">@(context.SAPDocEntry?.ToString() ??
-                                                                                                                                                                                                                            context.Id.ToString())</span></MudTd>
-                                <MudTd DataLabel="Doc #"><span class="doc-number">@(context.SAPDocNum?.ToString() ??
-                                                                                                                                                                                                                                                    context.OrderNumber)</span></MudTd>
-                                    <MudTd DataLabel="Customer">
-                                        <div class="customer-info">
-                                            <span class="name">@context.CardName</span>
-                                            <span class="code">@context.CardCode</span>
-                                        </div>
-                                    </MudTd>
-                                    <MudTd DataLabel="Order Date"><span
-                                        style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Delivery"><span
-                                        style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ??
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                "—")</span></MudTd>
-                                        <MudTd DataLabel="Status">
-                                            <span class="status-badge @GetStatusCssClass(context.Status)">@context.StatusName</span>
-                                            @if (context.IsMobileOrder)
+        <section class="sox-card">
+
+            <div class="sox-toolbar">
+                <span class="sox-range">@RangeLabel</span>
+                <span class="sox-hint">
+                    <i class="ph ph-cursor-click" aria-hidden="true"></i>Open an order for its lines and actions
+                </span>
+            </div>
+
+            <div class="sox-tablewrap">
+                <table class="sox-table">
+                    <thead>
+                        <tr>
+                            <th>Doc entry</th>
+                            <th>Doc #</th>
+                            <th>Customer</th>
+                            <th>Order date</th>
+                            <th>Delivery</th>
+                            <th>Status</th>
+                            <th>Currency</th>
+                            <th class="sox-num">Total</th>
+                            <th>Synced</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 10; skeletonCell++)
+                                    {
+                                        <td><div class="sox-skel"></div></td>
+                                    }
+                                </tr>
+                            }
+                        }
+                        else if (orders is not null)
+                        {
+                            @foreach (var order in orders)
+                            {
+                                <tr @key="order.Id" class="@(IsOrderActionBusy(order.Id) ? "is-busy" : null)">
+                                    <td class="sox-docentry">@(order.SAPDocEntry?.ToString() ?? order.Id.ToString())</td>
+                                    <td>
+                                        <button type="button" class="sox-link" disabled="@IsOrderActionBusy(order.Id)"
+                                                @onclick="async () => await ViewOrder(order)">
+                                            @(order.SAPDocNum?.ToString() ?? order.OrderNumber)
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <span class="sox-cust">
+                                            <span class="sox-cust-name">@order.CardName</span>
+                                            <span class="sox-cust-code">@order.CardCode</span>
+                                        </span>
+                                    </td>
+                                    <td class="sox-date">@order.OrderDate.ToString("dd MMM yyyy")</td>
+                                    <td class="sox-date @(order.DeliveryDate.HasValue ? null : "is-unset")">
+                                        @(order.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")
+                                    </td>
+                                    <td>
+                                        <span class="sox-status-wrap">
+                                            <span class="sox-status">
+                                                <span class="sox-dot @GetStatusDotClass(order.Status)" aria-hidden="true"></span>
+                                                <span class="sox-status-text @GetStatusTextClass(order.Status)">@order.StatusName</span>
+                                            </span>
+                                            @if (order.IsMobileOrder)
                                             {
-                                                <span
-                                                    style="display:inline-flex; align-items:center; gap:.2rem; background:#dbeafe; color:#1e40af; font-size:.68rem; font-weight:600; padding:.1rem .4rem; border-radius:5px; margin-left:.3rem;"><i
-                                                    class="bi bi-phone"></i> Mobile</span>
-                                                }
-                                            </MudTd>
-                                            <MudTd DataLabel="Currency"><span style="font-size:.85rem;color:#6b7280;">@context.Currency</span>
-                                            </MudTd>
-                                            <MudTd DataLabel="Total" Style="text-align:right">
-                                                <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
-                                            </MudTd>
-                                            <MudTd DataLabel="Synced">
-                                                @if (context.IsSynced)
+                                                <span class="sox-tag">
+                                                    <i class="ph ph-device-mobile" aria-hidden="true"></i>Mobile
+                                                </span>
+                                            }
+                                        </span>
+                                    </td>
+                                    <td class="sox-curr">@order.Currency</td>
+                                    <td class="sox-num">@order.DocTotal.ToString("N2")</td>
+                                    <td>
+                                        @if (order.IsSynced)
+                                        {
+                                            <span class="sox-sync">
+                                                <span class="sox-pip" aria-hidden="true"></span>Synced
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="sox-sync is-pending">
+                                                <span class="sox-pip" aria-hidden="true"></span>Pending
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="sox-rowactions">
+                                            <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                    title="View order" aria-label="View order @order.OrderNumber"
+                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                    @onclick="async () => await ViewOrder(order)">
+                                                @if (IsOrderActionBusy(order.Id, OrderActionType.View))
                                                 {
-                                                    <span class="sync-dot synced"><i class="bi bi-circle-fill"></i> Synced</span>
+                                                    <span class="sox-spin" aria-hidden="true"></span>
                                                 }
                                                 else
                                                 {
-                                                    <span class="sync-dot unsynced"><i class="bi bi-circle-fill"></i> Pending</span>
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
                                                 }
-                                            </MudTd>
-                                            <MudTd DataLabel="Actions">
-                                                <MudStack Row="true" Spacing="1">
-                                                    <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.View) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Visibility)" Size="Size.Small"
-                                                                   Variant="Variant.Outlined" Color="Color.Primary" aria-label="View Details"
-                                                                   Disabled="@IsOrderActionBusy(context.Id)"
-                                                                   OnClick="async () => await ViewOrder(context)" />
-                                                    @if ((context.Status == SalesOrderStatus.Draft || context.Status ==
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    SalesOrderStatus.Pending) && !context.IsSynced)
-                                                    {
-                                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                                       Variant="Variant.Outlined" Color="Color.Warning" aria-label="Edit"
-                                                                       Disabled="@IsOrderActionBusy(context.Id)"
-                                                                       OnClick="() => NavigateToEdit(context.Id)" />
-                                                    }
-                                                    @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
-                                                    {
-                                                        <MudIconButton
-                                                        Icon="@(IsOrderActionBusy(context.Id, OrderActionType.ConvertToInvoice) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
-                                                        Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                                        aria-label="Convert to Invoice" Disabled="@IsOrderActionBusy(context.Id)"
-                                                        OnClick="() => ConvertToInvoice(context)" />
-                                                    }
-                                                    @if (!context.IsSynced)
-                                                    {
-                                                        @if (context.Status == SalesOrderStatus.Pending)
-                                                        {
-                                                            @if (IsOrderActionBusy(context.Id, OrderActionType.Approve))
-                                                            {
-                                                                <span class="spinner-border spinner-border-sm text-success" style="width:1rem;height:1rem;" role="status" aria-label="Approving order"></span>
-                                                            }
-                                                            else
-                                                            {
-                                                                <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                                               Variant="Variant.Outlined" Color="Color.Success" aria-label="Approve"
-                                                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                                                               OnClick="() => OpenApprovalModal(context)" />
-                                                            }
-                                                        }
-                                                            @if (CanRejectOrder(context))
-                                                            {
-                                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Block)" Size="Size.Small"
-                                                                               Variant="Variant.Outlined" Color="Color.Warning" aria-label="Reject"
-                                                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                                                               OnClick="() => OpenRejectModal(context)" />
-                                                            }
-                                                                    @if (CanCancelOrder(context))
-                                                        {
-                                                                        <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Cancel)" Size="Size.Small"
-                                                                                       Variant="Variant.Outlined" Color="Color.Error" aria-label="Cancel"
-                                                                           Disabled="@IsOrderActionBusy(context.Id)"
-                                                                                       OnClick="() => CancelOrder(context.Id)" />
-                                                        }
-                                                                    @if (CanRestoreToDraft(context))
-                                                                    {
-                                                                        <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Undo)" Size="Size.Small"
-                                                                                       Variant="Variant.Outlined" Color="Color.Warning" aria-label="Back to Draft"
-                                                                                       Disabled="@IsOrderActionBusy(context.Id)"
-                                                                                       OnClick="() => RestoreOrderToDraft(context.Id)" />
-                                                                    }
-                                                                    <AuthorizeView Roles="Admin" Context="deleteAccess">
-                                                                        <Authorized>
-                                                                            @if (CanDeleteOrder(context))
-                                                                            {
-                                                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.Delete) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Delete)" Size="Size.Small"
-                                                                                               Variant="Variant.Outlined" Color="Color.Error" aria-label="Delete"
-                                                                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                                                                               OnClick="() => DeleteOrder(context.Id)" />
-                                                                            }
-                                                                        </Authorized>
-                                                                    </AuthorizeView>
-                                                    }
-                                                </MudStack>
-                                            </MudTd>
-                                        </RowTemplate>
-                                        <PagerContent>
-                                            <div class="pager-row">
-                                                <div class="page-size-wrap">
-                                                    <span>Show</span>
-                                                    <select @bind="pageSize" @bind:after="OnPageSizeChanged">
-                                                        <option value="10">10</option>
-                                                        <option value="25">25</option>
-                                                        <option value="50">50</option>
-                                                        <option value="100">100</option>
-                                                        <option value="200">200</option>
-                                                    </select>
-                                                    <span>per page</span>
-                                                </div>
-                                                <MudPagination Selected="@currentPage"
-                                                               SelectedChanged="OnPageChanged"
-                                                               Count="@totalPages"
-                                                               Class="pa-4" />
-                                            </div>
-                                        </PagerContent>
-                                    </MudTable>
-                                </div>
-                            }
-        else
-                            {
-                                <div class="empty-state">
-                                    <div class="empty-icon"><i class="bi bi-cart-x"></i></div>
-                                    <h6>No sales orders found</h6>
-                                    <p>Create a new order or adjust your filters to find existing ones.</p>
-                                </div>
-                            }
-                        </div>
-                    </div>
-
-                    <!-- ━━━ View Order Drawer ━━━ -->
-                    @if (selectedOrder != null)
-                    {
-                        <div class="modal-backdrop-custom" @onclick="() => selectedOrder = null"></div>
-                        <div class="detail-drawer">
-                            <div class="drawer-header">
-                                <h5><i class="bi bi-cart-check me-2"></i>Sales Order: @selectedOrder.OrderNumber</h5>
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                                               OnClick="() => selectedOrder = null" />
-                            </div>
-                            <div class="drawer-body">
-                                @{ var rejectedNote = GetRejectedNote(selectedOrder); }
-                                <div class="detail-grid">
-                                    <div class="detail-item">
-                                        <div class="detail-label">Customer</div>
-                                        <div class="detail-value">@selectedOrder.CardCode — @selectedOrder.CardName</div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">Order Date</div>
-                                        <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">Delivery Date</div>
-                                        <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">Status</div>
-                                        <div class="detail-value"><span
-                                            class="status-badge @GetStatusCssClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
-                                        </div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">Currency</div>
-                                        <div class="detail-value">@selectedOrder.Currency</div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">Created By</div>
-                                        <div class="detail-value">@selectedOrder.CreatedByUserName</div>
-                                    </div>
-                                </div>
-
-                                @if (selectedOrder.Status == SalesOrderStatus.Rejected)
-                                {
-                                    <div class="rejection-note">
-                                        <div class="rejection-note-title">
-                                            <i class="bi bi-slash-circle me-1"></i>Rejected Reason
-                                        </div>
-                                        @if (!string.IsNullOrWhiteSpace(GetRejectedNoteRecordedAtLocalDisplay(rejectedNote)))
-                                        {
-                                            <div class="rejection-note-meta">Recorded @GetRejectedNoteRecordedAtLocalDisplay(rejectedNote)</div>
-                                        }
-                                        <div class="rejection-note-body">
-                                            @(string.IsNullOrWhiteSpace(rejectedNote?.Reason)
-                                                ? "No rejection reason was recorded for this order."
-                                                : rejectedNote.Reason)
-                                        </div>
-                                    </div>
-                                }
-
-                                @if (selectedOrder.Lines?.Any() == true)
-                                {
-                                    <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
-                                    <table class="lines-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Item</th>
-                                                <th>Description</th>
-                                                <th style="text-align:right">Qty</th>
-                                                <th style="text-align:right">Unit Price</th>
-                                                <th style="text-align:right">Total</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var line in selectedOrder.Lines)
-                                            {
-                                                <tr>
-                                                    <td><span style="font-weight:600;color:#667eea;">@line.ItemCode</span></td>
-                                                    <td>@line.ItemDescription</td>
-                                                    <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                                    <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                                    <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                        <tfoot>
-                                            <tr>
-                                                <td colspan="4" style="text-align:right;font-weight:600;">Subtotal:</td>
-                                                <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
-                                            </tr>
-                                            <tr>
-                                                <td colspan="4" style="text-align:right;font-weight:600;">Tax:</td>
-                                                <td style="text-align:right;">@selectedOrder.TaxAmount.ToString("N2")</td>
-                                            </tr>
-                                        </tfoot>
-                                    </table>
-
-                                    <div class="total-banner">
-                                        <span class="total-label">Total</span>
-                                        <span class="total-value">@selectedOrder.DocTotal.ToString("N2")</span>
-                                    </div>
-                                }
-                            </div>
-                            <div class="drawer-footer">
-                                @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending) &&
-                                                                                                                                                                                                                                                                                                                        !selectedOrder.IsSynced)
-                                {
-                                    <MudButton Class="btn-so-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
-                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                                               OnClick="() => NavigateToEdit(selectedOrder.Id)">
-                                        <i class="bi bi-pencil-square me-1"></i> Edit
-                                    </MudButton>
-                                }
-                                @if (!selectedOrder.IsSynced && CanRejectOrder(selectedOrder))
-                                {
-                                    <MudButton Class="btn-so-gradient"
-                                               Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#f59e0b,#d97706);"
-                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                                               OnClick="() => OpenRejectModal(selectedOrder)">
-                                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.UpdateStatus))
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-1"></span>
-                                            <span>Rejecting...</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-slash-circle me-1"></i>
-                                            <span>Reject</span>
-                                        }
-                                    </MudButton>
-                                }
-                                @if (selectedOrder.Status == SalesOrderStatus.Pending && !selectedOrder.IsSynced)
-                                {
-                                    <MudButton Class="btn-so-gradient"
-                                               Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                                               OnClick="() => OpenApprovalModal(selectedOrder)">
-                                        <i class="bi bi-check-circle me-1"></i>
-                                        <span>Review &amp; Approve</span>
-                                    </MudButton>
-                                }
-                                @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
-                                {
-                                    <MudButton Class="btn-so-gradient"
-                                               Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                                               Disabled="@IsOrderActionBusy(selectedOrder.Id)" OnClick="() => PostOrderToSAP(selectedOrder.Id)">
-                                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-1"></span>
-                                            <span>Posting...</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-cloud-upload me-1"></i>
-                                            <span>Post to SAP</span>
-                                        }
-                                    </MudButton>
-                                }
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintSalesOrderPdf"
-                                           Disabled="@isPdfLoading">
-                                    <i class="bi bi-printer me-1"></i> Print
-                                </MudButton>
-                                <MudButton Class="btn-secondary-action" OnClick="() => selectedOrder = null">Close</MudButton>
-                            </div>
-                        </div>
-                    }
-
-                    @if (approvalOrder != null)
-                    {
-                        <div class="create-modal-overlay" @onclick="CloseApprovalModal">
-                            <div class="create-modal approval-modal"
-                                 role="dialog"
-                                 aria-modal="true"
-                                 aria-labelledby="approval-dialog-title"
-                                 @onclick:stopPropagation="true">
-                                <div class="create-modal-header">
-                                    <h5 id="approval-dialog-title">
-                                        <i class="bi bi-check-circle text-success"></i>
-                                        Approve Sales Order
-                                    </h5>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close"
-                                                   Class="btn-close-modal"
-                                                   OnClick="CloseApprovalModal"
-                                                   Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)" />
-                                </div>
-                                <div class="create-modal-body">
-                                    @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
-                                    {
-                                        <div class="approval-processing" aria-live="polite">
-                                            <div class="approval-processing-icon">
-                                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                                            </div>
-                                            <h6>Approving and posting to SAP</h6>
-                                            <p>
-                                                Current SAP pricing is being validated, duplicate safeguards are being checked,
-                                                and the order is being posted. Please keep this window open.
-                                            </p>
-                                            <div class="approval-progress-bar" aria-hidden="true"><span></span></div>
-                                            <div class="approval-includes">
-                                                Order @approvalOrder.OrderNumber · retries are protected
-                                            </div>
-                                        </div>
-                                    }
-                                    else
-                                    {
-                                        <div class="approval-summary">
-                                            <div class="approval-summary-item customer">
-                                                <div class="approval-summary-label">Customer</div>
-                                                <div class="approval-summary-value" title="@approvalOrder.CardName">
-                                                    @approvalOrder.CardCode — @approvalOrder.CardName
-                                                </div>
-                                            </div>
-                                            <div class="approval-summary-item">
-                                                <div class="approval-summary-label">Order</div>
-                                                <div class="approval-summary-value">@approvalOrder.OrderNumber</div>
-                                            </div>
-                                            <div class="approval-summary-item">
-                                                <div class="approval-summary-label">Amount</div>
-                                                <div class="approval-summary-value">
-                                                    @approvalOrder.Currency @approvalOrder.DocTotal.ToString("N2")
-                                                </div>
-                                            </div>
-                                            @if (approvalOrder.Lines?.Count > 0)
-                                            {
-                                                <div class="approval-summary-item">
-                                                    <div class="approval-summary-label">Lines</div>
-                                                    <div class="approval-summary-value">@approvalOrder.Lines.Count</div>
-                                                </div>
-                                            }
-                                            <div class="approval-summary-item">
-                                                <div class="approval-summary-label">Created by</div>
-                                                <div class="approval-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
-                                            </div>
-                                        </div>
-                                        <div class="approval-impact">
-                                            <i class="bi bi-info-circle-fill"></i>
-                                            <div>
-                                                <strong>This action also posts the order to SAP.</strong>
-                                                Prices will be refreshed from SAP before posting, so the final amount may reflect
-                                                the customer's current pricing.
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
-                                <div class="create-modal-footer">
-                                    <MudButton Class="btn-secondary-action"
-                                               OnClick="CloseApprovalModal"
-                                               Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
-                                        Cancel
-                                    </MudButton>
-                                    <MudButton Class="btn-create btn-approve-order"
-                                               OnClick="ConfirmApproval"
-                                               Disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
-                                        @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
-                                        {
-                                            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                                            <span>Approving…</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-cloud-check"></i>
-                                            <span>Approve &amp; Post to SAP</span>
-                                        }
-                                    </MudButton>
-                                </div>
-                            </div>
-                        </div>
-                    }
-
-                    @if (showRejectModal)
-                    {
-                        <div class="create-modal-overlay" @onclick="CloseRejectModal">
-                            <div class="create-modal" style="width:min(520px, 95vw);" @onclick:stopPropagation="true">
-                                <div class="create-modal-header">
-                                    <h5><i class="bi bi-slash-circle"></i> Reject Sales Order</h5>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal" OnClick="CloseRejectModal" Disabled="@isRejecting" />
-                                </div>
-                                <div class="create-modal-body">
-                                    <p style="margin:0 0 .9rem; color:#374151; font-size:.9rem;">
-                                        Add a rejection reason for <strong>@rejectOrderNumber</strong>. This reason will be saved with the order and sent in the mobile notification.
-                                    </p>
-                                    <div class="form-field full">
-                                        <label>Rejection Reason</label>
-                                        <textarea @bind="rejectReason" rows="4" placeholder="Explain why the order is being rejected" disabled="@isRejecting"></textarea>
-                                    </div>
-                                    @if (!string.IsNullOrWhiteSpace(rejectReasonError))
-                                    {
-                                        <div style="color:#dc2626; font-size:.82rem; margin-top:.45rem;">@rejectReasonError</div>
-                                    }
-                                </div>
-                                <div class="create-modal-footer">
-                                    <MudButton Class="btn-secondary-action" OnClick="CloseRejectModal" Disabled="@isRejecting">Cancel</MudButton>
-                                    <MudButton Class="btn-create"
-                                               Style="background:linear-gradient(135deg,#f59e0b,#d97706);"
-                                               OnClick="ConfirmRejectOrder"
-                                               Disabled="@isRejecting">
-                                        @if (isRejecting)
-                                        {
-                                            <span class="spinner-border spinner-border-sm"></span>
-                                        }
-                                        <span>Reject Order</span>
-                                    </MudButton>
-                                </div>
-                            </div>
-                        </div>
-                    }
-
-                    <!-- ━━━ Create Order Modal ━━━ -->
-                    @if (showCreateModal)
-                    {
-                        <div class="create-modal-overlay" @onclick="CloseCreateModal">
-                            <div class="create-modal" @onclick:stopPropagation="true">
-                                <div class="create-modal-header">
-                                    <h5><i class="bi bi-plus-circle"></i> New Sales Order</h5>
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal" OnClick="CloseCreateModal" />
-                                </div>
-                                <div class="create-modal-body">
-
-                                    <!-- Customer Section -->
-                                    <div style="margin-bottom:1.25rem;">
-                                        <label
-                                            style="display:block; font-size:.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">
-                                            Customer <span style="color:#ef4444;">*</span>
-                                        </label>
-                                        @if (isLoadingBPs)
-                                        {
-                                            <div class="d-flex align-items-center gap-2" style="padding:.4rem 0;">
-                                                <div class="spinner-border spinner-border-sm text-primary"></div>
-                                                <span style="color:#6b7280; font-size:.85rem;">Loading customers…</span>
-                                            </div>
-                                        }
-                                        else if (selectedBusinessPartner != null)
-                                        {
-                                            <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
-                                                <div class="d-flex justify-content-between align-items-start">
-                                                    <div>
-                                                        <div style="font-weight:700; color:#065f46;">
-                                                            <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
-                                                            @selectedBusinessPartner.CardCode
-                                                        </div>
-                                                        <div style="font-size:.85rem; color:#065f46; opacity:.8;">@selectedBusinessPartner.CardName
-                                                        </div>
-                                                        @if (!string.IsNullOrEmpty(selectedBusinessPartner.Phone1))
-                                                        {
-                                                            <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
-                                                                <i class="bi bi-telephone me-1"></i>@selectedBusinessPartner.Phone1
-                                                            </div>
-                                                        }
-                                                        @if (customerPriceListNum.HasValue)
-                                                        {
-                                                            <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
-                                                                <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
-                                                                @if (isLoadingCustomerPrices)
-                                                                {
-                                                                    <span class="spinner-border spinner-border-sm ms-1"></span>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <span
-                                                                        style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                                                        @customerPricing.Count items
-                                                                    </span>
-                                                                }
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                    <button type="button"
-                                                            style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.8rem;"
-                                                            @onclick="ClearSelectedBP">
-                                                        <i class="bi bi-x"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <div class="position-relative">
-                                                <input type="text"
-                                                       style="width:100%; padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151;"
-                                                       @bind="bpSearchTerm" @bind:event="oninput" @onfocus="() => showBPDropdown = true"
-                                                       @onblur="OnBPSearchBlur" placeholder="Search by code or name…" autocomplete="off" />
-                                                @if (showBPDropdown && filteredBusinessPartners.Any())
-                                                {
-                                                    <div class="dropdown-autocomplete" @onmousedown:preventDefault>
-                                                        @foreach (var bp in filteredBusinessPartners.Take(15))
-                                                        {
-                                                            <div class="dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
-                                                                <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
-                                                            </div>
-                                                        }
-                                                        @if (filteredBusinessPartners.Count() > 15)
-                                                        {
-                                                            <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.82rem;">
-                                                                <i class="bi bi-info-circle me-1"></i>
-                                                                @filteredBusinessPartners.Count() total — type more to filter
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                }
-                                                else if (showBPDropdown && !string.IsNullOrWhiteSpace(bpSearchTerm) &&
-                                                !filteredBusinessPartners.Any())
-                                                {
-                                                    <div class="dropdown-autocomplete" style="padding:1rem; text-align:center; color:#9ca3af;">
-                                                        <i class="bi bi-search me-1"></i>No customers found
-                                                    </div>
-                                                }
-                                            </div>
-                                        }
-                                        @if (createValidationErrors.ContainsKey("Customer"))
-                                        {
-                                            <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Customer"]
-                                            </div>
-                                        }
-                                    </div>
-
-                                    <!-- Details Grid -->
-                                    <div class="form-grid" style="margin-bottom:1.25rem;">
-                                        <div class="form-field">
-                                            <label>Delivery Date</label>
-                                            <MudDatePicker @bind-Date="newOrder.DeliveryDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                           DateFormat="@AppSettings.DateFormat" Editable="true" />
-                                        </div>
-                                        <div class="form-field">
-                                            <label>Currency</label>
-                                            <select @bind="newOrder.Currency">
-                                                <option value="">Select currency</option>
-                                                <option value="USD">USD — US Dollar</option>
-                                                <option value="ZIG">ZIG — Zimbabwe Gold</option>
-                                            </select>
-                                            @if (createValidationErrors.ContainsKey("Currency"))
-                                            {
-                                                <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]</div>
-                                            }
-                                        </div>
-                                        <div class="form-field">
-                                            <label>Customer Reference</label>
-                                            <input type="text" @bind="newOrder.CustomerRefNo" placeholder="PO / Reference number" />
-                                        </div>
-                                        <div class="form-field">
-                                            <label>Warehouse</label>
-                                            <select @bind="newOrder.WarehouseCode">
-                                                <option value="">— Default —</option>
-                                                @foreach (var wh in cachedWarehouses)
-                                                {
-                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                }
-                                            </select>
-                                        </div>
-                                        <div class="form-field full">
-                                            <label>Comments</label>
-                                            <textarea @bind="newOrder.Comments" rows="2" placeholder="Optional comments"></textarea>
-                                        </div>
-                                    </div>
-
-                                    <!-- Line Items Section -->
-                                    <div style="border-top:1px solid #e5e7eb; padding-top:1rem;">
-                                        <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
-                                            <span style="font-weight:600; font-size:.92rem; color:#1a1a2e;">
-                                                <i class="bi bi-list-ul me-1" style="color:#667eea;"></i>Order Lines
-                                            </span>
-                                            <button type="button" class="btn-so-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
-                                                    @onclick="AddOrderLine">
-                                                <i class="bi bi-plus-lg"></i> Add Line
                                             </button>
-                                        </div>
-
-                                        @if (isLoadingMasterData)
-                                        {
-                                            <div style="text-align:center; padding:1.5rem;">
-                                                <div class="spinner-border spinner-border-sm text-primary"></div>
-                                                <span style="color:#6b7280; font-size:.85rem; margin-left:.5rem;">Loading products…</span>
-                                            </div>
-                                        }
-                                        else if (newOrder.Lines.Any())
-                                        {
-                                            @for (int i = 0; i < newOrder.Lines.Count; i++)
+                                            @if ((order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending) && !order.IsSynced)
                                             {
-                                                var index = i;
-                                                var line = newOrder.Lines[index];
-                                                var lineState = GetLineState(index);
-                                                var lineErrors = GetLineValidationErrors(index);
-
-                                                <div
-                                                    style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
-                                                    <!-- Line Header -->
-                                                    <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
-                                                        <div class="d-flex align-items-center gap-2">
-                                                            <span
-                                                                style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        + 1)</span>
-                                            @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                            {
-                                                <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
-                                                <span style="color:#d1d5db;">—</span>
-                                                <span style="color:#6b7280; font-size:.82rem;">@TruncateName(line.ItemDescription,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    30)</span>
-                                                }
-                            else
-                                                {
-                                                    <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
-                                                }
-                                            </div>
-                                            <div class="d-flex align-items-center gap-2">
-                                                <span
-                                                style="font-weight:700; color:#059669; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
-                                                <button type="button"
-                                                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
-                                                        @onclick="() => RemoveOrderLine(index)">
-                                                    <i class="bi bi-x"></i>
+                                                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                        title="Edit order" aria-label="Edit order @order.OrderNumber"
+                                                        disabled="@IsOrderActionBusy(order.Id)"
+                                                        @onclick="() => NavigateToEdit(order.Id)">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
                                                 </button>
-                                            </div>
-                                        </div>
-
-                                        <!-- Item Code + Description -->
-                                        <div class="row g-2 mb-2">
-                                            <div class="col-5">
-                                                <label
-                                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
-                                                    Code <span style="color:#ef4444;">*</span></label>
-                                                    <div class="position-relative">
-                                                        <input type="text"
-                                                               style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
-                                                               value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
-                                                               @onkeydown="(e) => OnItemCodeKeyDown(index, e)"
-                                                               @onfocus="() => OnItemCodeFocus(index)" @onblur="() => OnItemCodeBlur(index)"
-                                                               placeholder="Search item…" autocomplete="off" />
-                                                        @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
+                                            }
+                                            @if (order.Status == SalesOrderStatus.Approved && order.InvoiceId == null)
+                                            {
+                                                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                        title="Convert to invoice" aria-label="Convert order @order.OrderNumber to invoice"
+                                                        disabled="@IsOrderActionBusy(order.Id)"
+                                                        @onclick="() => OpenConvertDialog(order)">
+                                                    @if (IsOrderActionBusy(order.Id, OrderActionType.ConvertToInvoice))
+                                                    {
+                                                        <span class="sox-spin" aria-hidden="true"></span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path><path d="M9 8h6M9 12h6"></path></svg>
+                                                    }
+                                                </button>
+                                            }
+                                            @if (!order.IsSynced)
+                                            {
+                                                @if (order.Status == SalesOrderStatus.Pending)
+                                                {
+                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                            title="Approve" aria-label="Approve order @order.OrderNumber"
+                                                            disabled="@IsOrderActionBusy(order.Id)"
+                                                            @onclick="() => OpenApprovalModal(order)">
+                                                        @if (IsOrderActionBusy(order.Id, OrderActionType.Approve))
                                                         {
-                                                            <div class="dropdown-autocomplete" @onmousedown:preventDefault>
-                                                                @foreach (var product in lineState.FilteredProducts.Take(10))
-                                                                {
-                                                                    var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
-                                                                    var displayPrice = GetPricingForItem(product.ItemCode, product.Price).NetPrice;
-                                                                    <div class="dropdown-item @(isSelected ? "selected" : "")"
-                                                                         @onmousedown="async () => await SelectProduct(index, product)">
-                                                                        <div class="d-flex justify-content-between align-items-center">
-                                                                            <div>
-                                                                                <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
-                                                                                <small
-                                                                                    style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        25)</small>
-                                                                                </div>
-                                                                                <span
-                                                                                    style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
-                                                                                    @displayPrice.ToString("N2")
-                                                                                </span>
-                                                                            </div>
-                                                                        </div>
-                                                                    }
-                                                                    @if (lineState.FilteredProducts.Count > 10)
-                                                                    {
-                                                                        <div class="dropdown-item"
-                                                                             style="color:#9ca3af; text-align:center; font-size:.78rem;">
-                                                                            +@(lineState.FilteredProducts.Count - 10) more…
-                                                                        </div>
-                                                                    }
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-7">
-                                                        <label
-                                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
-                                                        @if (!string.IsNullOrEmpty(line.ItemDescription))
-                                                        {
-                                                            <div
-                                                                style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e;">
-                                                                <i class="bi bi-box-seam me-1"
-                                                                   style="color:#667eea;"></i>@TruncateName(line.ItemDescription, 35)
-                                                            </div>
+                                                            <span class="sox-spin" aria-hidden="true"></span>
                                                         }
                                                         else
                                                         {
-                                                            <input type="text"
-                                                                   style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
-                                                                   placeholder="Select an item" readonly />
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
                                                         }
-                                                    </div>
-                                                </div>
-
-                                                <!-- Quantity + Price + Warehouse -->
-                                                <div class="row g-2">
-                                                    <div class="col-3">
-                                                        <label
-                                                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
-                                                            <span style="color:#ef4444;">*</span></label>
-                                                            <input type="number"
-                                                                   style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
-                                                                   value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())"
-                                                                   min="0.001" step="0.001" placeholder="0" />
-                                                        </div>
-                                                        <div class="col-3">
-                                                            <label
-                                                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
-                                                                Price</label>
-                                                                <input type="text"
-                                                                       style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
-                                                                       value="@line.UnitPrice.ToString("N2")" readonly />
-                                                            </div>
-                                                            <div class="col-3">
-                                                                <label
-                                                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
-                                                                    %</label>
-                                                                    @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
-                                                                    <input type="number"
-                                                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                                                           @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
-                                                                    @if (HasSpecialPrice(line.ItemCode))
-                                                                    {
-                                                                        <div style="color:#059669; font-size:.7rem; margin-top:.2rem;">
-                                                                            <i class="bi bi-tag-fill me-1"></i>Customer special price
-                                                                        </div>
-                                                                    }
-                                                                </div>
-                                                                <div class="col-3">
-                                                                    <label
-                                                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
-                                                                    <select
-                                                                        style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                                                        @bind="line.WarehouseCode">
-                                                                        <option value="">Default</option>
-                                                                        @foreach (var wh in cachedWarehouses)
-                                                                        {
-                                                                            <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                                                        }
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    }
-
-                                                    <!-- Add another line -->
-                                                    <div style="text-align:center; margin-top:.5rem;">
-                                                        <button type="button"
-                                                                style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
-                                                                @onclick="AddOrderLine">
-                                                            <i class="bi bi-plus-lg me-1"></i>Add Another Line
-                                                        </button>
-                                                    </div>
+                                                    </button>
                                                 }
-                else
+                                                @if (CanRejectOrder(order))
                                                 {
-                                                    <div
-                                                        style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
-                                                        <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
-                                                        <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No order lines yet</p>
-                                                        <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to build the sales
-                                                            order</p>
-                                                            <button type="button" class="btn-so-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
-                                                                    @onclick="AddOrderLine">
-                                                                <i class="bi bi-plus-lg"></i> Add First Line
+                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                            title="Reject" aria-label="Reject order @order.OrderNumber"
+                                                            disabled="@IsOrderActionBusy(order.Id)"
+                                                            @onclick="() => OpenRejectModal(order)">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M8 12h8"></path></svg>
+                                                    </button>
+                                                }
+                                                @if (CanCancelOrder(order))
+                                                {
+                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                            title="Cancel" aria-label="Cancel order @order.OrderNumber"
+                                                            disabled="@IsOrderActionBusy(order.Id)"
+                                                            @onclick="() => CancelOrder(order.Id)">
+                                                        @if (IsOrderActionBusy(order.Id, OrderActionType.UpdateStatus))
+                                                        {
+                                                            <span class="sox-spin" aria-hidden="true"></span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M5.6 5.6l12.8 12.8"></path></svg>
+                                                        }
+                                                    </button>
+                                                }
+                                                @if (CanRestoreToDraft(order))
+                                                {
+                                                    <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                            title="Back to draft" aria-label="Move order @order.OrderNumber back to draft"
+                                                            disabled="@IsOrderActionBusy(order.Id)"
+                                                            @onclick="() => RestoreOrderToDraft(order.Id)">
+                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10H9"></path><path d="M8 5L4 9l4 4"></path></svg>
+                                                    </button>
+                                                }
+                                                <AuthorizeView Roles="Admin" Context="deleteAccess">
+                                                    <Authorized>
+                                                        @if (CanDeleteOrder(order))
+                                                        {
+                                                            <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon-sm"
+                                                                    title="Delete" aria-label="Delete order @order.OrderNumber"
+                                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                                    @onclick="() => DeleteOrder(order.Id)">
+                                                                @if (IsOrderActionBusy(order.Id, OrderActionType.Delete))
+                                                                {
+                                                                    <span class="sox-spin" aria-hidden="true"></span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+                                                                }
                                                             </button>
-                                                        </div>
-                                                    }
-                                                    @if (createValidationErrors.ContainsKey("Lines"))
-                                                    {
-                                                        <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@createValidationErrors["Lines"]</div>
-                                                    }
-                                                </div>
+                                                        }
+                                                    </Authorized>
+                                                </AuthorizeView>
+                                            }
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
 
-                                                <!-- Order Summary -->
-                                                @if (newOrder.Lines.Any())
-                                                {
-                                                    <div
-                                                        style="background:linear-gradient(135deg,#667eea,#764ba2); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
-                                                        <div class="d-flex justify-content-between align-items-center">
-                                                            <div>
-                                                                <div style="font-size:.78rem; opacity:.8;">@newOrder.Lines.Count line(s) · @newOrder.Currency
-                                                                </div>
-                                                                <div style="font-size:.85rem; font-weight:500;">Subtotal</div>
-                                                            </div>
-                                                            <div style="font-size:1.3rem; font-weight:700;">@CalculateOrderTotal().ToString("N2")</div>
-                                                        </div>
-                                                    </div>
-                                                }
-                                            </div>
-                                            <div class="create-modal-footer">
-                                                <MudButton Class="btn-secondary-action" OnClick="CloseCreateModal">Cancel</MudButton>
-                                                <MudButton Class="btn-create" OnClick="CreateOrder" Disabled="@isCreating">
-                                                    @if (isCreating)
-                                                    {
-                                                        <span class="spinner-border spinner-border-sm"></span>
-                                                    }
-                                                    <span>Create Order</span>
-                                                </MudButton>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
+            @if (!isLoading && orders?.Any() != true)
+            {
+                <div class="sox-empty">
+                    <i class="ph ph-funnel-simple" aria-hidden="true"></i>
+                    <span>No sales orders found</span>
+                    <span class="sox-empty-sub">Create a new order, or widen the date range and filters to find existing ones.</span>
+                </div>
+            }
+
+            <div class="sox-foot">
+                <span class="sox-foot-range">@RangeLabel</span>
+                <span class="sox-pagesize">
+                    <span>Rows</span>
+                    <span class="sox-select">
+                        <select class="sox-input" aria-label="Rows per page" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                            @foreach (var size in PageSizeOptions)
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                        <span class="sox-caret" aria-hidden="true"></span>
+                    </span>
+                </span>
+                <div class="sox-pager">
+                    <button type="button" class="sox-btn sox-btn-secondary sox-btn-icon" title="Previous page"
+                            aria-label="Previous page" disabled="@(currentPage <= 1 || isLoading)"
+                            @onclick="() => GoToPage(currentPage - 1)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+                    </button>
+                    <span class="sox-page-label">Page @currentPage / @Math.Max(totalPages, 1)</span>
+                    <button type="button" class="sox-btn sox-btn-secondary sox-btn-icon" title="Next page"
+                            aria-label="Next page" disabled="@(currentPage >= totalPages || isLoading)"
+                            @onclick="() => GoToPage(currentPage + 1)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+@if (selectedOrder != null)
+{
+    var rejectedNote = GetRejectedNote(selectedOrder);
+    <div class="sox-overlay">
+        <div class="sox-scrim" @onclick="CloseDrawer"></div>
+        <aside class="sox-drawer" aria-label="Sales order detail">
+            <div class="sox-drawer-head">
+                <h2 class="sox-drawer-title">
+                    <i class="ph ph-shopping-cart" aria-hidden="true"></i>
+                    @selectedOrder.OrderNumber
+                </h2>
+                <button type="button" class="sox-btn sox-btn-ghost sox-btn-icon" title="Close"
+                        aria-label="Close details" @onclick="CloseDrawer">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
+            </div>
+            <div class="sox-drawer-body">
+                <div class="sox-grid">
+                    <div>
+                        <div class="sox-dt">Customer</div>
+                        <div class="sox-dd">@selectedOrder.CardCode — @selectedOrder.CardName</div>
+                    </div>
+                    <div>
+                        <div class="sox-dt">Order date</div>
+                        <div class="sox-dd">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
+                    </div>
+                    <div>
+                        <div class="sox-dt">Delivery date</div>
+                        <div class="sox-dd">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="sox-dt">Status</div>
+                        <div class="sox-dd">
+                            <span class="sox-status">
+                                <span class="sox-dot @GetStatusDotClass(selectedOrder.Status)" aria-hidden="true"></span>
+                                <span class="sox-status-text @GetStatusTextClass(selectedOrder.Status)">@selectedOrder.StatusName</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="sox-dt">Currency</div>
+                        <div class="sox-dd">@selectedOrder.Currency</div>
+                    </div>
+                    <div>
+                        <div class="sox-dt">Created by</div>
+                        <div class="sox-dd">@(selectedOrder.CreatedByUserName ?? "—")</div>
+                    </div>
+                    <div>
+                        <div class="sox-dt">SAP</div>
+                        <div class="sox-dd">
+                            @if (selectedOrder.IsSynced)
+                            {
+                                <span class="sox-sync">
+                                    <span class="sox-pip" aria-hidden="true"></span>
+                                    @(selectedOrder.SAPDocNum.HasValue ? $"Doc #{selectedOrder.SAPDocNum}" : "Synced")
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="sox-sync is-pending">
+                                    <span class="sox-pip" aria-hidden="true"></span>Not posted
+                                </span>
+                            }
+                        </div>
+                    </div>
+                    @if (selectedOrder.InvoiceId.HasValue)
+                    {
+                        <div>
+                            <div class="sox-dt">Invoice</div>
+                            <div class="sox-dd">#@selectedOrder.InvoiceId</div>
+                        </div>
+                    }
+                </div>
+
+                @if (selectedOrder.Status == SalesOrderStatus.Rejected)
+                {
+                    <div class="sox-note is-bad">
+                        <div class="sox-dt">Rejected reason</div>
+                        @if (!string.IsNullOrWhiteSpace(GetRejectedNoteRecordedAtLocalDisplay(rejectedNote)))
+                        {
+                            <div class="sox-note-meta">Recorded @GetRejectedNoteRecordedAtLocalDisplay(rejectedNote)</div>
+                        }
+                        <div>
+                            @(string.IsNullOrWhiteSpace(rejectedNote?.Reason)
+                                ? "No rejection reason was recorded for this order."
+                                : rejectedNote.Reason)
+                        </div>
+                    </div>
+                }
+
+                @if (selectedOrder.Lines?.Any() == true)
+                {
+                    <div>
+                        <div class="sox-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Order lines</div>
+                        <div class="sox-linescroll">
+                            <table class="sox-lines">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th class="sox-num">Qty</th>
+                                        <th class="sox-num">Unit price</th>
+                                        <th class="sox-num">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var line in selectedOrder.Lines)
+                                    {
+                                        <tr>
+                                            <td><span class="sox-cust-name">@line.ItemCode</span></td>
+                                            <td>@line.ItemDescription</td>
+                                            <td class="sox-num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                            <td class="sox-num">@line.UnitPrice.ToString("N2")</td>
+                                            <td class="sox-num">@line.LineTotal.ToString("N2")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="4" class="sox-num">Subtotal</td>
+                                        <td class="sox-num">@selectedOrder.SubTotal.ToString("N2")</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="4" class="sox-num">Tax</td>
+                                        <td class="sox-num">@selectedOrder.TaxAmount.ToString("N2")</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+
+                        <div class="sox-total">
+                            <span class="sox-total-label">Total</span>
+                            <span class="sox-total-value">@selectedOrder.DocTotal.ToString("N2")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="sox-drawer-foot">
+                @if ((selectedOrder.Status == SalesOrderStatus.Draft || selectedOrder.Status == SalesOrderStatus.Pending)
+                     && !selectedOrder.IsSynced)
+                {
+                    <button type="button" class="sox-btn sox-btn-secondary"
+                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                            @onclick="() => NavigateToEdit(selectedOrder.Id)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>Edit
+                    </button>
+                }
+                @if (!selectedOrder.IsSynced && CanRejectOrder(selectedOrder))
+                {
+                    <button type="button" class="sox-btn sox-btn-bad"
+                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                            @onclick="() => OpenRejectModal(selectedOrder)">
+                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.UpdateStatus))
+                        {
+                            <span class="sox-spin" aria-hidden="true"></span>
+                            <span>Rejecting…</span>
+                        }
+                        else
+                        {
+                            <span>Reject</span>
+                        }
+                    </button>
+                }
+                @if (selectedOrder.Status == SalesOrderStatus.Pending && !selectedOrder.IsSynced)
+                {
+                    <button type="button" class="sox-btn sox-btn-primary"
+                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                            @onclick="() => OpenApprovalModal(selectedOrder)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>Review &amp; approve
+                    </button>
+                }
+                @if (selectedOrder.Status == SalesOrderStatus.Approved && !selectedOrder.IsSynced)
+                {
+                    <button type="button" class="sox-btn sox-btn-primary"
+                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                            @onclick="() => PostOrderToSAP(selectedOrder.Id)">
+                        @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
+                        {
+                            <span class="sox-spin" aria-hidden="true"></span>
+                            <span>Posting…</span>
+                        }
+                        else
+                        {
+                            <span>Post to SAP</span>
+                        }
+                    </button>
+                }
+                <button type="button" class="sox-btn sox-btn-secondary" disabled="@isPdfLoading"
+                        @onclick="PrintSalesOrderPdf">
+                    @if (isPdfLoading)
+                    {
+                        <span class="sox-spin" aria-hidden="true"></span>
+                        <span>Preparing…</span>
+                    }
+                    else
+                    {
+                        <span>Print</span>
+                    }
+                </button>
+                <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseDrawer">Close</button>
+            </div>
+        </aside>
+    </div>
+}
+
+@if (approvalOrder != null)
+{
+    <div class="sox-overlay">
+        <div class="sox-dialog-wrap" @onclick="CloseApprovalModal">
+            <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-approve-title"
+                 @onclick:stopPropagation="true">
+                <h2 class="sox-dialog-title" id="sox-approve-title">
+                    <i class="ph ph-check-circle" aria-hidden="true"></i>Approve sales order
+                </h2>
+                <div class="sox-dialog-body">
+                    @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                    {
+                        @* Approval posts to SAP in the same call, and that round trip is long
+                           enough that a spinner on the button alone reads as a hung page. *@
+                        <div class="sox-working" aria-live="polite">
+                            <span class="sox-spin sox-spin-lg" aria-hidden="true"></span>
+                            <h3>Approving and posting to SAP</h3>
+                            <p>
+                                Current SAP pricing is being validated, duplicate safeguards are being
+                                checked, and the order is being posted. Please keep this window open.
+                            </p>
+                            <div class="sox-track" aria-hidden="true"><span></span></div>
+                            <div class="sox-working-meta">Order @approvalOrder.OrderNumber · retries are protected</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="sox-summary">
+                            <div class="sox-summary-item is-wide">
+                                <div class="sox-dt">Customer</div>
+                                <div class="sox-summary-value" title="@approvalOrder.CardName">
+                                    @approvalOrder.CardCode — @approvalOrder.CardName
+                                </div>
+                            </div>
+                            <div class="sox-summary-item">
+                                <div class="sox-dt">Order</div>
+                                <div class="sox-summary-value">@approvalOrder.OrderNumber</div>
+                            </div>
+                            <div class="sox-summary-item">
+                                <div class="sox-dt">Amount</div>
+                                <div class="sox-summary-value">@approvalOrder.Currency @approvalOrder.DocTotal.ToString("N2")</div>
+                            </div>
+                            @if (approvalOrder.Lines?.Count > 0)
+                            {
+                                <div class="sox-summary-item">
+                                    <div class="sox-dt">Lines</div>
+                                    <div class="sox-summary-value">@approvalOrder.Lines.Count</div>
+                                </div>
+                            }
+                            <div class="sox-summary-item">
+                                <div class="sox-dt">Created by</div>
+                                <div class="sox-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
+                            </div>
+                        </div>
+                        <div class="sox-impact">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <div>
+                                <strong>This action also posts the order to SAP.</strong>
+                                Prices will be refreshed from SAP before posting, so the final amount may
+                                reflect the customer's current pricing.
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="sox-dialog-actions">
+                    <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseApprovalModal"
+                            disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                        Cancel
+                    </button>
+                    <button type="button" class="sox-btn sox-btn-primary" @onclick="ConfirmApproval"
+                            disabled="@IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve)">
+                        @if (IsOrderActionBusy(approvalOrder.Id, OrderActionType.Approve))
+                        {
+                            <span class="sox-spin" aria-hidden="true"></span>
+                            <span>Approving…</span>
+                        }
+                        else
+                        {
+                            <span>Approve &amp; post to SAP</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showRejectModal)
+{
+    <div class="sox-overlay">
+        <div class="sox-dialog-wrap" @onclick="CloseRejectModal">
+            <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-reject-title"
+                 @onclick:stopPropagation="true">
+                <h2 class="sox-dialog-title" id="sox-reject-title">
+                    <i class="ph ph-prohibit" aria-hidden="true"></i>Reject sales order
+                </h2>
+                <div class="sox-dialog-body">
+                    <p style="margin:0">
+                        Add a rejection reason for <strong>@rejectOrderNumber</strong>. It is saved with the
+                        order and sent in the mobile notification.
+                    </p>
+                    <div class="sox-field">
+                        <label for="sox-reject-reason">Rejection reason</label>
+                        <textarea id="sox-reject-reason" class="sox-input sox-textarea" @bind="rejectReason"
+                                  placeholder="Explain why the order is being rejected" disabled="@isRejecting"></textarea>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(rejectReasonError))
+                    {
+                        <div class="sox-err">@rejectReasonError</div>
+                    }
+                </div>
+                <div class="sox-dialog-actions">
+                    <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseRejectModal"
+                            disabled="@isRejecting">Cancel</button>
+                    <button type="button" class="sox-btn sox-btn-bad" @onclick="ConfirmRejectOrder"
+                            disabled="@isRejecting">
+                        @if (isRejecting)
+                        {
+                            <span class="sox-spin" aria-hidden="true"></span>
+                        }
+                        <span>Reject order</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (convertOrder != null)
+{
+    <div class="sox-overlay">
+        <div class="sox-dialog-wrap" @onclick="CloseConvertDialog">
+            <div class="sox-dialog" role="dialog" aria-modal="true" aria-labelledby="sox-convert-title"
+                 @onclick:stopPropagation="true">
+                <h2 class="sox-dialog-title" id="sox-convert-title">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>Convert to invoice
+                </h2>
+                <div class="sox-dialog-body">
+                    <div class="sox-summary">
+                        <div class="sox-summary-item is-wide">
+                            <div class="sox-dt">Customer</div>
+                            <div class="sox-summary-value" title="@convertOrder.CardName">
+                                @convertOrder.CardCode — @convertOrder.CardName
+                            </div>
+                        </div>
+                        <div class="sox-summary-item">
+                            <div class="sox-dt">Order</div>
+                            <div class="sox-summary-value">@convertOrder.OrderNumber</div>
+                        </div>
+                        <div class="sox-summary-item">
+                            <div class="sox-dt">Amount</div>
+                            <div class="sox-summary-value">@convertOrder.Currency @convertOrder.DocTotal.ToString("N2")</div>
+                        </div>
+                    </div>
+                    <div class="sox-note">This raises a customer invoice for the order. It cannot be undone here.</div>
+                </div>
+                <div class="sox-dialog-actions">
+                    <button type="button" class="sox-btn sox-btn-secondary" @onclick="CloseConvertDialog"
+                            disabled="@isConverting">Cancel</button>
+                    <button type="button" class="sox-btn sox-btn-primary" @onclick="ConfirmConvertToInvoice"
+                            disabled="@isConverting">
+                        @if (isConverting)
+                        {
+                            <span class="sox-spin" aria-hidden="true"></span>
+                        }
+                        <span>Convert</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
+    private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];
+
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
     private SalesOrderDto? approvalOrder;
+    private SalesOrderDto? convertOrder;
     private bool isLoading = true;
     private bool isPdfLoading = false;
-    private bool isCreating = false;
     private bool isRejecting = false;
-    private bool showCreateModal = false;
+    private bool isConverting = false;
     private bool showRejectModal = false;
     private string? errorMessage;
     private string rejectReason = string.Empty;
@@ -2144,7 +802,7 @@
     private DateTime? fromDate;
     private DateTime? toDate;
 
-    // Pagination
+    // Pagination — the server pages this list, so a page change is a refetch.
     private int currentPage = 1;
     private int pageSize = 10;
     private int totalPages = 1;
@@ -2160,53 +818,19 @@
         Delete
     }
 
-    // New order
-    private CreateSalesOrderRequest newOrder = new();
-
-    // Business Partner autocomplete state
-    private List<BusinessPartnerDto> allBusinessPartners = new();
-    private BusinessPartnerDto? selectedBusinessPartner;
-    private string? bpSearchTerm;
-    private bool showBPDropdown = false;
-    private bool isLoadingBPs = true;
-
-    // Master data
-    private bool isLoadingMasterData = true;
-    private List<ProductDto> cachedProducts = new();
-    private List<WarehouseDto> cachedWarehouses = new();
-
-    // Customer price list
-    private Dictionary<string, ResolvedItemPrice> customerPricing = new(StringComparer.OrdinalIgnoreCase);
-    private int? customerPriceListNum;
-    private bool isLoadingCustomerPrices = false;
-
-    // Line item autocomplete state
-    private Dictionary<int, LineState> lineStates = new();
-
-    // Validation
-    private Dictionary<string, string> createValidationErrors = new();
-    private Dictionary<int, Dictionary<string, string>> lineValidationErrors = new();
-
-    private class LineState
-    {
-        public string SearchTerm { get; set; } = string.Empty;
-        public bool ShowProductDropdown { get; set; } = false;
-        public List<ProductDto> FilteredProducts { get; set; } = new();
-        public ProductDto? SuggestedProduct { get; set; } = null;
-        public string SuggestionSuffix { get; set; } = string.Empty;
-    }
-
-    private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
+    private string RangeLabel
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(bpSearchTerm))
-                return allBusinessPartners.Take(50);
+            if (isLoading && orders is null)
+                return "Loading…";
 
-            var search = bpSearchTerm.ToLowerInvariant();
-            return allBusinessPartners.Where(bp =>
-            (bp.CardCode?.ToLowerInvariant().Contains(search) ?? false) ||
-            (bp.CardName?.ToLowerInvariant().Contains(search) ?? false));
+            var shown = orders?.Count ?? 0;
+            if (totalCount == 0 || shown == 0)
+                return "No orders";
+
+            var first = ((currentPage - 1) * pageSize) + 1;
+            return $"{first:N0}–{first + shown - 1:N0} of {totalCount:N0} orders";
         }
     }
 
@@ -2307,9 +931,12 @@
         await LoadOrders();
     }
 
-    private async Task OnPageChanged(int page)
+    private async Task HandleFilterKeyDown(KeyboardEventArgs args)
     {
-        await GoToPage(page);
+        if (args.Key == "Enter")
+        {
+            await ApplyFilter();
+        }
     }
 
     private async Task GoToPage(int page)
@@ -2319,6 +946,12 @@
             currentPage = page;
             await LoadOrders();
         }
+    }
+
+    private async Task OnPageSizeChanged()
+    {
+        currentPage = 1;
+        await LoadOrders();
     }
 
     private async Task ViewOrder(SalesOrderDto order)
@@ -2349,6 +982,11 @@
             EndOrderAction(order.Id);
             StateHasChanged();
         }
+    }
+
+    private void CloseDrawer()
+    {
+        selectedOrder = null;
     }
 
     private async Task RefreshSelectedOrderAsync()
@@ -2563,19 +1201,32 @@
         }
     }
 
-    private async Task ConvertToInvoice(SalesOrderDto order)
+    private void OpenConvertDialog(SalesOrderDto order)
     {
-        var result = await DialogService.ShowMessageBoxAsync(
-        "Convert to Invoice",
-        $"Are you sure you want to convert order {order.OrderNumber} for {order.CardName ?? order.CardCode} (Total: {order.Currency} {order.DocTotal:N2}) into an invoice?",
-        yesText: "Convert",
-        cancelText: "Cancel");
+        if (IsOrderActionBusy(order.Id))
+            return;
 
-        if (result != true) return;
+        convertOrder = order;
+    }
 
+    private void CloseConvertDialog()
+    {
+        if (isConverting)
+            return;
+
+        convertOrder = null;
+    }
+
+    private async Task ConfirmConvertToInvoice()
+    {
+        if (convertOrder == null)
+            return;
+
+        var order = convertOrder;
         if (!TryBeginOrderAction(order.Id, OrderActionType.ConvertToInvoice))
             return;
 
+        isConverting = true;
         StateHasChanged();
 
         try
@@ -2585,6 +1236,7 @@
             {
                 Snackbar.Add($"Order {order.OrderNumber} converted to Invoice #{invoice.DocNum} successfully!", Severity.Success);
                 await AuditService.LogAsync(AuditActions.ConvertOrderToInvoice, "SalesOrder", order.Id.ToString(), $"Converted to Invoice #{invoice.DocNum}", true);
+                convertOrder = null;
                 await LoadOrders();
             }
             else
@@ -2598,6 +1250,7 @@
         }
         finally
         {
+            isConverting = false;
             EndOrderAction(order.Id);
             StateHasChanged();
         }
@@ -2753,526 +1406,29 @@
         }
     }
 
-    // ── Create Modal Logic ──────────────────────────────
-
-    private async Task OpenCreateModal()
-    {
-        showCreateModal = true;
-        newOrder = new CreateSalesOrderRequest();
-        selectedBusinessPartner = null;
-        bpSearchTerm = null;
-        showBPDropdown = false;
-        customerPricing.Clear();
-        customerPriceListNum = null;
-        lineStates.Clear();
-        createValidationErrors.Clear();
-        lineValidationErrors.Clear();
-
-        // Load master data if not already loaded
-        if (allBusinessPartners.Count == 0 || cachedProducts.Count == 0)
-        {
-            await LoadMasterDataForCreate();
-        }
-        else
-        {
-            isLoadingBPs = false;
-            isLoadingMasterData = false;
-        }
-
-        // Pre-select user's assigned warehouse
-        await ApplyUserDefaultWarehouse();
-    }
-
-    private async Task ApplyUserDefaultWarehouse()
-    {
-        if (!string.IsNullOrEmpty(newOrder.WarehouseCode)) return;
-
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var warehouseClaim = authState.User.FindFirst("warehouse")?.Value;
-        if (!string.IsNullOrEmpty(warehouseClaim) && cachedWarehouses.Any(w => w.WarehouseCode == warehouseClaim))
-        {
-            newOrder.WarehouseCode = warehouseClaim;
-        }
-    }
-
-    private void CloseCreateModal()
-    {
-        showCreateModal = false;
-    }
-
-    private async Task LoadMasterDataForCreate()
-    {
-        isLoadingBPs = true;
-        isLoadingMasterData = true;
-
-        try
-        {
-            allBusinessPartners = await CacheService.GetBusinessPartnersAsync();
-            isLoadingBPs = false;
-            StateHasChanged();
-
-            cachedWarehouses = await CacheService.GetWarehousesAsync();
-            cachedProducts = await CacheService.GetProductsAsync();
-            isLoadingMasterData = false;
-
-            Logger.LogInformation("Loaded create modal data: {BPCount} customers, {ProductCount} products, {WHCount} warehouses",
-            allBusinessPartners.Count, cachedProducts.Count, cachedWarehouses.Count);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading master data for create modal");
-            errorMessage = "Failed to load master data. Please try again.";
-        }
-        finally
-        {
-            isLoadingBPs = false;
-            isLoadingMasterData = false;
-        }
-    }
-
-    // ── Business Partner Selection ──────────────────────
-
-    private async Task SelectBusinessPartnerAsync(BusinessPartnerDto bp)
-    {
-        selectedBusinessPartner = bp;
-        newOrder.CardCode = bp.CardCode ?? string.Empty;
-        newOrder.CardName = bp.CardName;
-        bpSearchTerm = bp.DisplayName;
-        showBPDropdown = false;
-
-        if (!string.IsNullOrWhiteSpace(bp.Currency))
-        {
-            newOrder.Currency = bp.Currency.Trim().ToUpperInvariant();
-        }
-
-        createValidationErrors.Remove("Customer");
-        createValidationErrors.Remove("Currency");
-
-        await LoadBusinessPartnerPricesAsync(bp);
-        UpdateExistingLinePrices();
-    }
-
-    private void SelectBusinessPartner(BusinessPartnerDto bp)
-    {
-        _ = SelectBusinessPartnerAsync(bp);
-    }
-
-    private void ClearSelectedBP()
-    {
-        selectedBusinessPartner = null;
-        newOrder.CardCode = string.Empty;
-        newOrder.CardName = null;
-        bpSearchTerm = null;
-        customerPricing.Clear();
-        customerPriceListNum = null;
-        UpdateExistingLinePrices();
-    }
-
-    private void UpdateExistingLinePrices()
-    {
-        foreach (var line in newOrder.Lines)
-        {
-            if (!string.IsNullOrWhiteSpace(line.ItemCode))
-            {
-                var product = cachedProducts.FirstOrDefault(p =>
-                    string.Equals(p.ItemCode, line.ItemCode, StringComparison.OrdinalIgnoreCase));
-                var defaultPrice = product?.Price ?? line.UnitPrice;
-                ApplyPricing(line, GetPricingForItem(line.ItemCode, defaultPrice));
-            }
-        }
-    }
-
-    private async Task LoadBusinessPartnerPricesAsync(BusinessPartnerDto bp)
-    {
-        isLoadingCustomerPrices = true;
-        StateHasChanged();
-
-        try
-        {
-            var lookup = await BusinessPartnerPricingService.LoadPriceLookupAsync(bp);
-            customerPricing = lookup.Pricing;
-            customerPriceListNum = lookup.PriceListNum;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading customer prices for {CardCode}", bp.CardCode);
-            customerPricing.Clear();
-            customerPriceListNum = null;
-        }
-        finally
-        {
-            isLoadingCustomerPrices = false;
-            StateHasChanged();
-        }
-    }
-
-    private ResolvedItemPrice GetPricingForItem(string? itemCode, decimal defaultPrice)
-    {
-        if (string.IsNullOrEmpty(itemCode)) return ResolvedItemPrice.Flat(defaultPrice);
-        return customerPricing.TryGetValue(itemCode, out var customerPrice) ? customerPrice : ResolvedItemPrice.Flat(defaultPrice);
-    }
-
     /// <summary>
-    /// Shows a customer's special price the way SAP does - the price list price in Unit Price and the
-    /// gap in Discount % - rather than collapsing both into a net price with an empty discount.
+    /// The dot beside a status. Nocturne reserves a colour fill for the states that
+    /// need acting on; everything settled reads in neutral ink.
     /// </summary>
-    private static void ApplyPricing(CreateSalesOrderLineRequest line, ResolvedItemPrice pricing)
+    private static string GetStatusDotClass(SalesOrderStatus status) => status switch
     {
-        line.UnitPrice = pricing.UnitPrice;
-        line.DiscountPercent = pricing.DiscountPercent;
-    }
-
-    private bool HasSpecialPrice(string? itemCode)
-        => !string.IsNullOrEmpty(itemCode)
-            && customerPricing.TryGetValue(itemCode, out var pricing)
-            && pricing.DiscountPercent > 0;
-
-    private async Task OnBPSearchBlur()
-    {
-        await Task.Delay(200);
-        showBPDropdown = false;
-    }
-
-    // ── Line Item Management ────────────────────────────
-
-    private void AddOrderLine()
-    {
-        newOrder.Lines.Add(new CreateSalesOrderLineRequest
-        {
-            Quantity = 1,
-            WarehouseCode = newOrder.WarehouseCode ?? ""
-        });
-    }
-
-    private void RemoveOrderLine(int index)
-    {
-        if (index >= 0 && index < newOrder.Lines.Count)
-        {
-            newOrder.Lines.RemoveAt(index);
-            lineStates.Remove(index);
-            lineValidationErrors.Remove(index);
-
-            // Re-index states
-            var oldStates = new Dictionary<int, LineState>(lineStates);
-            var oldErrors = new Dictionary<int, Dictionary<string, string>>(lineValidationErrors);
-            lineStates.Clear();
-            lineValidationErrors.Clear();
-
-            for (int i = 0; i < newOrder.Lines.Count; i++)
-            {
-                var oldIndex = i >= index ? i + 1 : i;
-                if (oldStates.TryGetValue(oldIndex, out var state))
-                    lineStates[i] = state;
-                if (oldErrors.TryGetValue(oldIndex, out var errors))
-                    lineValidationErrors[i] = errors;
-            }
-        }
-    }
-
-    private LineState GetLineState(int index)
-    {
-        if (!lineStates.ContainsKey(index))
-            lineStates[index] = new LineState();
-        return lineStates[index];
-    }
-
-    private Dictionary<string, string> GetLineValidationErrors(int index)
-    {
-        return lineValidationErrors.TryGetValue(index, out var errors) ? errors : new Dictionary<string, string>();
-    }
-
-    // ── Product Autocomplete ────────────────────────────
-
-    private void OnItemCodeInput(int index, string? value)
-    {
-        var line = newOrder.Lines[index];
-        line.ItemCode = value ?? string.Empty;
-
-        var state = GetLineState(index);
-        state.SearchTerm = value ?? string.Empty;
-        state.SuggestedProduct = null;
-        state.SuggestionSuffix = string.Empty;
-
-        if (lineValidationErrors.TryGetValue(index, out var errors))
-            errors.Remove("ItemCode");
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            state.FilteredProducts = new List<ProductDto>();
-            state.ShowProductDropdown = false;
-            return;
-        }
-
-        var searchLower = value.ToLowerInvariant();
-        var searchUpper = value.ToUpperInvariant();
-
-        state.FilteredProducts = cachedProducts.Where(p =>
-        (p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false) ||
-        (p.ItemCode?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-        (p.ItemName?.ToLowerInvariant().Contains(searchLower) ?? false) ||
-        (p.BarCode?.ToLowerInvariant().Contains(searchLower) ?? false))
-        .OrderByDescending(p => p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false)
-        .ThenBy(p => p.ItemCode)
-        .ToList();
-
-        var exactMatch = state.FilteredProducts.FirstOrDefault(p =>
-        p.ItemCode?.ToUpperInvariant().StartsWith(searchUpper) ?? false);
-
-        if (exactMatch != null && !string.IsNullOrEmpty(exactMatch.ItemCode))
-        {
-            state.SuggestedProduct = exactMatch;
-            state.SuggestionSuffix = exactMatch.ItemCode.Substring(value.Length);
-        }
-
-        state.ShowProductDropdown = state.FilteredProducts.Any();
-        StateHasChanged();
-    }
-
-    private async Task OnItemCodeKeyDown(int index, KeyboardEventArgs e)
-    {
-        var state = GetLineState(index);
-
-        if ((e.Key == "Tab" || e.Key == "ArrowRight") && state.SuggestedProduct != null)
-        {
-            if (e.Key == "Tab" || !string.IsNullOrEmpty(state.SuggestionSuffix))
-                await SelectProduct(index, state.SuggestedProduct);
-        }
-        else if (e.Key == "ArrowDown" && state.ShowProductDropdown && state.FilteredProducts.Any())
-        {
-            var currentIndex = state.SuggestedProduct != null ? state.FilteredProducts.IndexOf(state.SuggestedProduct) : -1;
-            var nextIndex = Math.Min(currentIndex + 1, state.FilteredProducts.Count - 1);
-            state.SuggestedProduct = state.FilteredProducts[nextIndex];
-            StateHasChanged();
-        }
-        else if (e.Key == "ArrowUp" && state.ShowProductDropdown && state.FilteredProducts.Any())
-        {
-            var currentIndex = state.SuggestedProduct != null ? state.FilteredProducts.IndexOf(state.SuggestedProduct) :
-            state.FilteredProducts.Count;
-            var prevIndex = Math.Max(currentIndex - 1, 0);
-            state.SuggestedProduct = state.FilteredProducts[prevIndex];
-            StateHasChanged();
-        }
-        else if (e.Key == "Enter" && state.SuggestedProduct != null)
-        {
-            await SelectProduct(index, state.SuggestedProduct);
-        }
-        else if (e.Key == "Escape")
-        {
-            state.ShowProductDropdown = false;
-            state.SuggestedProduct = null;
-            state.SuggestionSuffix = string.Empty;
-            StateHasChanged();
-        }
-    }
-
-    private void OnItemCodeFocus(int index)
-    {
-        var state = GetLineState(index);
-        if (!string.IsNullOrEmpty(state.SearchTerm) || cachedProducts.Any())
-        {
-            state.ShowProductDropdown = true;
-            if (string.IsNullOrEmpty(state.SearchTerm))
-                state.FilteredProducts = cachedProducts.Take(15).ToList();
-        }
-    }
-
-    private async Task OnItemCodeBlur(int index)
-    {
-        await Task.Delay(200);
-        var state = GetLineState(index);
-        state.ShowProductDropdown = false;
-        state.SuggestionSuffix = string.Empty;
-        StateHasChanged();
-    }
-
-    private async Task SelectProduct(int index, ProductDto product)
-    {
-        var line = newOrder.Lines[index];
-        line.ItemCode = product.ItemCode ?? string.Empty;
-        line.ItemDescription = product.ItemName ?? string.Empty;
-        ApplyPricing(line, GetPricingForItem(product.ItemCode, product.Price));
-
-        if (!string.IsNullOrEmpty(product.ItemCode))
-        {
-            try
-            {
-                ApplyPricing(line, await BusinessPartnerPricingService.ResolveItemPriceAsync(
-                    product.ItemCode,
-                    newOrder.Currency,
-                    product.Price,
-                    newOrder.CardCode,
-                    customerPriceListNum,
-                    customerPricing));
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Failed to resolve BP-aware price for item {ItemCode}", product.ItemCode);
-            }
-        }
-
-        line.WarehouseCode = !string.IsNullOrEmpty(newOrder.WarehouseCode) ? newOrder.WarehouseCode : (product.DefaultWarehouse
-        ?? "01");
-
-        var state = GetLineState(index);
-        state.ShowProductDropdown = false;
-        state.SearchTerm = product.ItemCode ?? string.Empty;
-        state.SuggestedProduct = null;
-        state.SuggestionSuffix = string.Empty;
-
-        if (lineValidationErrors.TryGetValue(index, out var errors))
-            errors.Remove("ItemCode");
-
-        StateHasChanged();
-    }
-
-    private void OnQuantityChange(int index, string? value)
-    {
-        var line = newOrder.Lines[index];
-        if (decimal.TryParse(value, out var quantity))
-        {
-            line.Quantity = quantity < 0 ? 0 : quantity;
-        }
-        else
-        {
-            line.Quantity = 0;
-        }
-
-        if (lineValidationErrors.TryGetValue(index, out var errors))
-            errors.Remove("Quantity");
-
-        StateHasChanged();
-    }
-
-    // ── Calculations ────────────────────────────────────
-
-    private decimal CalculateLineTotal(CreateSalesOrderLineRequest line)
-    {
-        var subtotal = line.Quantity * line.UnitPrice;
-        return line.DiscountPercent > 0 ? subtotal * (1 - line.DiscountPercent / 100) : subtotal;
-    }
-
-    private decimal CalculateOrderTotal()
-    {
-        return newOrder.Lines.Sum(l => CalculateLineTotal(l));
-    }
-
-    private string TruncateName(string? name, int maxLength)
-    {
-        return name?.Length > maxLength ? name[..maxLength] + "…" : name ?? "";
-    }
-
-    // ── Validation & Submit ─────────────────────────────
-
-    private bool ValidateCreateForm()
-    {
-        createValidationErrors.Clear();
-        lineValidationErrors.Clear();
-
-        if (selectedBusinessPartner == null || string.IsNullOrEmpty(newOrder.CardCode))
-            createValidationErrors["Customer"] = "Please select a customer";
-
-        if (string.IsNullOrWhiteSpace(newOrder.Currency))
-            createValidationErrors["Currency"] = "Please select a currency";
-
-        if (!newOrder.Lines.Any())
-            createValidationErrors["Lines"] = "At least one line item is required";
-
-        for (int i = 0; i < newOrder.Lines.Count; i++)
-        {
-            var line = newOrder.Lines[i];
-            var errors = new Dictionary<string, string>();
-
-            if (string.IsNullOrEmpty(line.ItemCode))
-                errors["ItemCode"] = "Item code is required";
-            if (line.Quantity <= 0)
-                errors["Quantity"] = "Quantity must be greater than 0";
-
-            if (errors.Any())
-                lineValidationErrors[i] = errors;
-        }
-
-        return !createValidationErrors.Any() && !lineValidationErrors.Any();
-    }
-
-    private async Task CreateOrder()
-    {
-        if (!ValidateCreateForm()) return;
-
-        isCreating = true;
-        try
-        {
-            var result = await SalesOrderService.CreateSalesOrderAsync(newOrder);
-            if (result != null)
-            {
-                showCreateModal = false;
-                var createWarningMessage = GetCreateWarningMessage(result);
-                Snackbar.Add(
-                    createWarningMessage ?? $"Sales order {result.OrderNumber} created successfully!",
-                    createWarningMessage is null ? Severity.Success : Severity.Warning);
-                await LoadOrders();
-            }
-            else
-            {
-                Snackbar.Add("Failed to create sales order. Please try again.", Severity.Error);
-            }
-        }
-        catch (HttpRequestException ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Unexpected error creating sales order");
-            Snackbar.Add("We couldn't create this sales order right now. Please try again.", Severity.Error);
-        }
-        finally
-        {
-            isCreating = false;
-        }
-    }
-
-    private string GetStatusCssClass(SalesOrderStatus status) => status switch
-    {
-        SalesOrderStatus.Draft => "draft",
-        SalesOrderStatus.Pending => "pending",
-        SalesOrderStatus.Approved => "approved",
-        SalesOrderStatus.PartiallyFulfilled => "partial",
-        SalesOrderStatus.Fulfilled => "fulfilled",
-        SalesOrderStatus.Cancelled => "cancelled",
-        SalesOrderStatus.OnHold => "on-hold",
-        SalesOrderStatus.Rejected => "rejected",
-        _ => "draft"
+        SalesOrderStatus.Draft => "is-draft",
+        SalesOrderStatus.Pending => "is-pending",
+        SalesOrderStatus.Approved => "is-approved",
+        SalesOrderStatus.PartiallyFulfilled => "is-partial",
+        SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => "is-fulfilled",
+        SalesOrderStatus.Cancelled => "is-void",
+        SalesOrderStatus.OnHold => "is-pending",
+        SalesOrderStatus.Rejected => "is-bad",
+        _ => "is-draft"
     };
 
-    private static string? GetCreateWarningMessage(SalesOrderDto order)
+    private static string GetStatusTextClass(SalesOrderStatus status) => status switch
     {
-        if (order.IsSynced)
-            return null;
-
-        if (string.IsNullOrWhiteSpace(order.SyncError))
-            return $"Sales order {order.OrderNumber} was created as a draft because it could not be posted to SAP.";
-
-        var reason = order.SyncError.Trim().TrimEnd('.');
-        if (string.IsNullOrWhiteSpace(reason))
-            return $"Sales order {order.OrderNumber} was created as a draft because it could not be posted to SAP.";
-
-        var clause = ToSentenceClause(reason);
-        return reason.Contains("SAP", StringComparison.OrdinalIgnoreCase)
-            ? $"Sales order {order.OrderNumber} was created as a draft because {clause}."
-            : $"Sales order {order.OrderNumber} was created as a draft because {clause} in SAP.";
-    }
-
-    private static string ToSentenceClause(string value)
-    {
-        var trimmedValue = value.Trim().TrimEnd('.');
-        if (string.IsNullOrWhiteSpace(trimmedValue))
-            return "it could not be posted";
-
-        if (trimmedValue.Length > 1 && char.IsUpper(trimmedValue[0]) && !char.IsUpper(trimmedValue[1]))
-            return char.ToLowerInvariant(trimmedValue[0]) + trimmedValue[1..];
-
-        return trimmedValue;
-    }
+        SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled => "is-live",
+        SalesOrderStatus.Rejected => "is-bad",
+        _ => string.Empty
+    };
 
     private static RejectedStatusNote? GetRejectedNote(SalesOrderDto order)
     {
@@ -3339,10 +1495,4 @@
 
     private static string GetStatusChangeVerb(SalesOrderStatus status)
         => status == SalesOrderStatus.Draft ? "restore" : "cancel";
-
-    private async Task OnPageSizeChanged()
-    {
-        currentPage = 1;
-        await LoadOrders();
-    }
 }

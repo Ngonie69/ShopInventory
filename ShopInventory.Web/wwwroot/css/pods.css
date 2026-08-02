@@ -1,0 +1,1427 @@
+/* ==========================================================================
+   Proof of Delivery — Nocturne
+
+   The POD record surfaces on the Nocturne design system: /pods (product PODs),
+   /crates/pods and /crates/pods/history, which PodNavTabs binds into one
+   tabbed surface. All three share this file, which is what retires the
+   hand-synchronised pair of style components they used to carry — the old
+   ProofOfDelivery block had comments reading "kept in step with .crpod-hero in
+   CratePodStyles.razor", and now there is one rule to keep.
+
+   There is no imported design file for these pages. The palette and the
+   density scale are copied verbatim from credit-notes.css so every list page
+   in the app stays one system.
+
+   These pages are not lists, though — they are working surfaces. Uploading is
+   the point, so the upload card is the one place given an accent-outlined
+   container, and the file-mapping table earns status fills that a document
+   list would not: a bulk run of forty files is read by scanning for the ones
+   that failed.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same two reasons as credit-notes.css: a scoped style block cannot reach
+   native controls the way these selectors need to, and app.css carries global
+   `.dark-theme input/select/textarea` rules that have to be out-specified.
+   ========================================================================== */
+
+/* `.podx-tabs` carries the tokens too, not just `.podx`: PodNavTabs renders on
+   three pages, and while they are being converted one at a time it has to hold
+   its own colours on a page that is not `.podx` yet. */
+.podx,
+.podx-overlay,
+.podx-tabs {
+    --podx-bg: #f4f4f8;
+    --podx-surface: #ffffff;
+    --podx-field: #ffffff;
+    --podx-ink: #1b1c26;
+    --podx-ink-2: #35374a;
+    --podx-mute: #4e5164;
+    --podx-mute-2: #656879;
+    --podx-mute-3: #7b7e8e;
+    --podx-faint: #a0a2ae;
+    --podx-placeholder: #9498a8;
+    --podx-divider: rgba(27, 28, 38, .14);
+    --podx-rowline: rgba(27, 28, 38, .09);
+    --podx-hover: rgba(27, 28, 38, .04);
+    --podx-press: rgba(27, 28, 38, .09);
+    --podx-field-edge: #d4d6e2;
+    --podx-field-edge-hi: #a9adc0;
+    --podx-accent: #5f52c4;
+    --podx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --podx-accent-text: #473d99;
+    --podx-tag-bg: #e4e7f5;
+    --podx-tag-ink: #3f424d;
+    --podx-dot: #9397ab;
+    --podx-dot-quiet: #b2b6ca;
+    --podx-dot-faint: #cfd3e5;
+    --podx-bad: #b3273c;
+    --podx-bad-bg: #fdf0f2;
+    --podx-bad-edge: #f0ccd3;
+    --podx-warn: #8a5a05;
+    --podx-warn-bg: #fdf6e7;
+    --podx-warn-edge: #ecd9ac;
+    --podx-ok: #0b6b4f;
+    --podx-ok-bg: #eef7f3;
+    --podx-ok-edge: #bfdfd2;
+    --podx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --podx-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
+    --podx-scrim: rgba(41, 43, 49, .34);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --podx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --podx-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --podx-s1: 2.8px;
+    --podx-s2: 5.6px;
+    --podx-s3: 8.4px;
+    --podx-s4: 11.2px;
+    --podx-s6: 16.8px;
+    --podx-s8: 22.4px;
+    --podx-r-sm: 4px;
+    --podx-r-md: 8px;
+    --podx-r-lg: 14px;
+
+    color-scheme: var(--podx-scheme);
+}
+
+.dark-theme .podx,
+.dark-theme .podx-overlay,
+.dark-theme .podx-tabs {
+    --podx-bg: #161826;
+    --podx-surface: #232532;
+    --podx-field: #232532;
+    --podx-ink: #e9e9ed;
+    --podx-ink-2: #aeaeb5;
+    --podx-mute: #9999a1;
+    --podx-mute-2: #87878f;
+    --podx-mute-3: #72727d;
+    --podx-faint: #5a5a66;
+    --podx-placeholder: #6b6b77;
+    --podx-divider: rgba(233, 233, 237, .16);
+    --podx-rowline: rgba(233, 233, 237, .08);
+    --podx-hover: rgba(233, 233, 237, .04);
+    --podx-press: rgba(233, 233, 237, .1);
+    --podx-field-edge: rgba(233, 233, 237, .16);
+    --podx-field-edge-hi: rgba(233, 233, 237, .45);
+    --podx-accent: #9184d9;
+    --podx-accent-rgb: 145, 132, 217;
+    --podx-accent-text: #d2cefd;
+    --podx-tag-bg: #3f424d;
+    --podx-tag-ink: #f3f5fe;
+    --podx-dot: #b2b6ca;
+    --podx-dot-quiet: #75798c;
+    --podx-dot-faint: #595d6c;
+    --podx-bad: #e8697d;
+    --podx-bad-bg: #2f2028;
+    --podx-bad-edge: #4a2c35;
+    --podx-warn: #e0b062;
+    --podx-warn-bg: #2c2620;
+    --podx-warn-edge: #4a3d28;
+    --podx-ok: #b6ecd8;
+    --podx-ok-bg: #1e2a26;
+    --podx-ok-edge: #2f4740;
+    --podx-shadow-sm: 0 0 0 1px #3f424d;
+    --podx-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+    --podx-scrim: rgba(10, 11, 18, .62);
+    --podx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --podx-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.podx {
+    min-height: 100vh;
+    background: var(--podx-bg);
+    color: var(--podx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.podx *,
+.podx-overlay * {
+    box-sizing: border-box;
+}
+
+.podx :focus-visible,
+.podx-overlay :focus-visible {
+    outline: 2px solid var(--podx-accent);
+    outline-offset: 2px;
+}
+
+.podx ::selection,
+.podx-overlay ::selection {
+    background: rgba(var(--podx-accent-rgb), .3);
+}
+
+.podx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--podx-divider) 48px,
+            var(--podx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque rather than the design's frosted glass: a translucent bar only hides
+   what passes beneath it while the compositor honours the backdrop blur, and
+   software rendering, a reduced-transparency setting or an offscreen capture
+   all drop the blur. --podx-bg is the page's own ground. */
+
+.podx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--podx-bg);
+}
+
+.podx-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--podx-s6) 32px 0;
+}
+
+.podx-head-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--podx-s8);
+}
+
+.podx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.podx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s3);
+}
+
+.podx-titles-row i {
+    font-size: 17px;
+    color: var(--podx-accent);
+}
+
+.podx-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--podx-ink);
+}
+
+.podx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--podx-mute-2);
+}
+
+.podx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s4);
+}
+
+.podx-count {
+    font-size: 12px;
+    color: var(--podx-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* The crate surfaces carry a count row in the header rather than a stat grid in
+   the body: they are three numbers about the same set, not four separate
+   measures, so they read as a line. */
+.podx-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--podx-s6);
+    margin-top: var(--podx-s4);
+}
+
+.podx-counts-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.podx-counts-value {
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+.podx-counts-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--podx-mute-3);
+}
+
+/* ── Tab bar ───────────────────────────────────────────────────────────── */
+/* Sits inside the sticky header so the three POD surfaces stay one click
+   apart however far the list below has scrolled. */
+
+.podx-tabs {
+    display: flex;
+    gap: var(--podx-s1);
+    align-items: stretch;
+    margin-top: var(--podx-s4);
+    overflow-x: auto;
+    scrollbar-width: none;
+    box-shadow: inset 0 -1px 0 var(--podx-divider);
+}
+
+.podx-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.podx-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--podx-s3) var(--podx-s4);
+    border-bottom: 2px solid transparent;
+    color: var(--podx-mute-2);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color .15s ease, border-color .15s ease;
+}
+
+.podx-tab i {
+    font-size: 15px;
+}
+
+.podx-tab:hover {
+    color: var(--podx-ink);
+}
+
+.podx-tab.is-on {
+    color: var(--podx-accent-text);
+    border-bottom-color: var(--podx-accent);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.podx-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--podx-s6) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--podx-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.podx .podx-btn,
+.podx-overlay .podx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--podx-s2) calc(var(--podx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--podx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--podx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.podx .podx-btn:disabled,
+.podx-overlay .podx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.podx .podx-btn-primary,
+.podx-overlay .podx-btn-primary {
+    color: var(--podx-accent);
+    border-color: var(--podx-accent);
+    letter-spacing: .02em;
+}
+
+.podx .podx-btn-primary:hover:not(:disabled),
+.podx-overlay .podx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--podx-accent-rgb), .12);
+}
+
+.podx .podx-btn-primary:active:not(:disabled),
+.podx-overlay .podx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--podx-accent-rgb), .22);
+}
+
+.podx .podx-btn-secondary,
+.podx-overlay .podx-btn-secondary {
+    border-color: var(--podx-divider);
+}
+
+.podx .podx-btn-secondary:hover:not(:disabled),
+.podx-overlay .podx-btn-secondary:hover:not(:disabled) {
+    background: var(--podx-hover);
+}
+
+.podx .podx-btn-secondary:active:not(:disabled),
+.podx-overlay .podx-btn-secondary:active:not(:disabled) {
+    background: var(--podx-press);
+}
+
+.podx .podx-btn-ghost,
+.podx-overlay .podx-btn-ghost {
+    color: var(--podx-accent);
+    padding-inline: var(--podx-s1);
+}
+
+.podx .podx-btn-ghost:hover:not(:disabled),
+.podx-overlay .podx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--podx-accent-rgb), .1);
+}
+
+.podx .podx-btn-ghost:active:not(:disabled),
+.podx-overlay .podx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--podx-accent-rgb), .18);
+}
+
+.podx .podx-btn-bad,
+.podx-overlay .podx-btn-bad {
+    color: var(--podx-bad);
+    border-color: var(--podx-bad-edge);
+}
+
+.podx .podx-btn-bad:hover:not(:disabled),
+.podx-overlay .podx-btn-bad:hover:not(:disabled) {
+    background: var(--podx-bad-bg);
+}
+
+.podx .podx-btn-sm,
+.podx-overlay .podx-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.podx .podx-btn-icon,
+.podx-overlay .podx-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.podx .podx-btn-icon-sm,
+.podx-overlay .podx-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+/* Icon-only buttons draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that fails to load would
+   leave them reading as dead controls. */
+.podx .podx-btn svg,
+.podx-overlay .podx-btn svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+
+.podx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--podx-surface);
+    border-radius: var(--podx-r-md);
+    box-shadow: var(--podx-shadow-sm);
+    overflow: hidden;
+}
+
+/* Uploading is what this page is for, so its card is the one container given
+   an accent outline — everything else on the page is a record of it. */
+.podx-card.is-primary {
+    box-shadow: 0 0 0 1px var(--podx-accent-line, rgba(var(--podx-accent-rgb), .45)),
+        0 1px 2px rgba(27, 28, 38, .05);
+}
+
+.podx-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s4);
+    padding: var(--podx-s4) var(--podx-s6);
+    min-height: 54px;
+    border-bottom: 1px solid var(--podx-divider);
+    flex-wrap: wrap;
+}
+
+.podx-card-title {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--podx-s2);
+    margin: 0 auto 0 0;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.podx-card-title i {
+    font-size: 16px;
+    color: var(--podx-accent);
+}
+
+.podx-card-body {
+    padding: var(--podx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--podx-s4);
+}
+
+/* ── Segmented control ─────────────────────────────────────────────────── */
+
+.podx-seg {
+    display: inline-flex;
+    padding: 2px;
+    gap: 2px;
+    border: 1px solid var(--podx-field-edge);
+    border-radius: var(--podx-r-md);
+    background: var(--podx-field);
+}
+
+.podx .podx-seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--podx-mute);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--podx-r-md) - 3px);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.podx .podx-seg-btn:hover:not(:disabled) {
+    color: var(--podx-ink);
+    background: var(--podx-hover);
+}
+
+.podx .podx-seg-btn.is-on {
+    color: var(--podx-accent-text);
+    background: rgba(var(--podx-accent-rgb), .13);
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────── */
+
+.podx-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--podx-s4);
+    align-items: end;
+}
+
+.podx-field > label,
+.podx-label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--podx-mute);
+}
+
+.podx-field.is-wide {
+    grid-column: span 2;
+}
+
+.podx .podx-input,
+.podx-overlay .podx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--podx-ink);
+    caret-color: var(--podx-accent);
+    background: var(--podx-field);
+    background-image: none;
+    border: 1px solid var(--podx-field-edge);
+    border-radius: var(--podx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.podx .podx-input:hover,
+.podx-overlay .podx-input:hover {
+    border-color: var(--podx-field-edge-hi);
+}
+
+.podx .podx-input:focus-visible,
+.podx-overlay .podx-input:focus-visible {
+    border-color: var(--podx-accent);
+    outline-offset: 0;
+}
+
+.podx .podx-input::placeholder,
+.podx-overlay .podx-input::placeholder {
+    color: var(--podx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--podx-placeholder);
+}
+
+.podx .podx-input:disabled,
+.podx-overlay .podx-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.podx .podx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.podx .podx-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+}
+
+.dark-theme .podx .podx-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+/* The file input's own button is a browser control, so it is restyled through
+   ::file-selector-button rather than replaced — a custom control would lose
+   the multiple-select the bulk flow depends on. */
+.podx .podx-input[type="file"] {
+    padding: 4px 10px 4px 4px;
+    line-height: 1.6;
+}
+
+.podx .podx-input[type="file"]::file-selector-button {
+    margin-right: var(--podx-s3);
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--podx-accent);
+    background: transparent;
+    border: 1px solid var(--podx-accent);
+    border-radius: var(--podx-r-sm);
+    cursor: pointer;
+}
+
+.podx .podx-input[type="file"]::file-selector-button:hover {
+    background: rgba(var(--podx-accent-rgb), .12);
+}
+
+.podx-hint {
+    font-size: 11.5px;
+    color: var(--podx-mute-3);
+    margin-top: 4px;
+}
+
+.podx-select {
+    position: relative;
+}
+
+.podx .podx-select select.podx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.podx-select .podx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--podx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── Notes and alerts ──────────────────────────────────────────────────── */
+
+.podx-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--podx-s3);
+    padding: var(--podx-s3) var(--podx-s4);
+    border-radius: var(--podx-r-md);
+    background: var(--podx-hover);
+    font-size: 13px;
+    color: var(--podx-ink-2);
+}
+
+.podx-note > i {
+    font-size: 15px;
+    margin-top: 1px;
+    color: var(--podx-mute-2);
+}
+
+.podx-note-body {
+    flex: 1;
+}
+
+.podx-note.is-ok {
+    background: var(--podx-ok-bg);
+    border: 1px solid var(--podx-ok-edge);
+    color: var(--podx-ok);
+}
+
+.podx-note.is-ok > i {
+    color: var(--podx-ok);
+}
+
+.podx-note.is-bad {
+    background: var(--podx-bad-bg);
+    border: 1px solid var(--podx-bad-edge);
+    color: var(--podx-bad);
+}
+
+.podx-note.is-bad > i {
+    color: var(--podx-bad);
+}
+
+.podx-note.is-warn {
+    background: var(--podx-warn-bg);
+    border: 1px solid var(--podx-warn-edge);
+    color: var(--podx-warn);
+}
+
+.podx-note.is-warn > i {
+    color: var(--podx-warn);
+}
+
+.podx-note.is-accent {
+    background: rgba(var(--podx-accent-rgb), .08);
+    border: 1px solid var(--podx-accent);
+    color: var(--podx-ink-2);
+}
+
+.podx-note.is-accent > i {
+    color: var(--podx-accent);
+}
+
+.podx-note code {
+    padding: 1px 5px;
+    border-radius: var(--podx-r-sm);
+    background: var(--podx-hover);
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 12px;
+}
+
+/* ── File chips ────────────────────────────────────────────────────────── */
+
+.podx-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--podx-s2);
+    align-items: center;
+}
+
+.podx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    padding: 3px 9px;
+    border-radius: calc(var(--podx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--podx-tag-bg);
+    color: var(--podx-tag-ink);
+}
+
+.podx-chip-size {
+    color: var(--podx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+.podx-tablewrap {
+    overflow-x: auto;
+}
+
+.podx-table {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.podx-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--podx-mute);
+    padding: var(--podx-s2);
+    white-space: nowrap;
+}
+
+.podx-table td {
+    padding: var(--podx-s2);
+    vertical-align: middle;
+}
+
+.podx-table th:first-child,
+.podx-table td:first-child {
+    padding-left: var(--podx-s6);
+}
+
+.podx-table th:last-child,
+.podx-table td:last-child {
+    padding-right: var(--podx-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.podx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.podx-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--podx-divider) 48px,
+            var(--podx-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.podx-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--podx-rowline) 48px,
+            var(--podx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.podx-table tbody tr:hover {
+    background:
+        linear-gradient(var(--podx-hover), var(--podx-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--podx-rowline) 48px,
+            var(--podx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+/* A table inside a card body sits in a box, so its rules stay solid rather
+   than fading at the ends, and it keeps the box's own padding. */
+.podx-table.is-inset th:first-child,
+.podx-table.is-inset td:first-child {
+    padding-left: var(--podx-s2);
+}
+
+.podx-table.is-inset th:last-child,
+.podx-table.is-inset td:last-child {
+    padding-right: var(--podx-s2);
+}
+
+.podx-table.is-inset thead tr,
+.podx-table.is-inset tbody tr,
+.podx-table.is-inset tfoot tr {
+    background: linear-gradient(var(--podx-rowline), var(--podx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.podx-table.is-inset tbody tr:hover {
+    background:
+        linear-gradient(var(--podx-hover), var(--podx-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(var(--podx-rowline), var(--podx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.podx-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 130px;
+}
+
+.podx-strong {
+    font-weight: 500;
+    color: var(--podx-ink);
+}
+
+.podx-weak {
+    font-size: 11.5px;
+    color: var(--podx-mute-3);
+}
+
+.podx-mono {
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 12px;
+}
+
+.podx-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    border-radius: calc(var(--podx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--podx-tag-bg);
+    color: var(--podx-tag-ink);
+}
+
+/* Bulk status pills. This is the one table in the app where a colour fill is
+   the right call: forty rows are scanned for the handful that went wrong, and
+   a dot beside a word does not survive that scan. */
+.podx-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--podx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--podx-tag-bg);
+    color: var(--podx-tag-ink);
+}
+
+.podx-pill.is-ok {
+    background: var(--podx-ok-bg);
+    border: 1px solid var(--podx-ok-edge);
+    color: var(--podx-ok);
+}
+
+.podx-pill.is-warn {
+    background: var(--podx-warn-bg);
+    border: 1px solid var(--podx-warn-edge);
+    color: var(--podx-warn);
+}
+
+.podx-pill.is-bad {
+    background: var(--podx-bad-bg);
+    border: 1px solid var(--podx-bad-edge);
+    color: var(--podx-bad);
+}
+
+.podx-pill.is-live {
+    background: rgba(var(--podx-accent-rgb), .12);
+    border: 1px solid var(--podx-accent);
+    color: var(--podx-accent-text);
+}
+
+.podx-table tbody tr.is-bad td {
+    color: var(--podx-bad);
+}
+
+.podx-table tbody tr.is-done td {
+    color: var(--podx-mute-2);
+}
+
+.podx-table tbody tr.is-skipped td {
+    color: var(--podx-faint);
+}
+
+.podx-actions {
+    display: inline-flex;
+    gap: var(--podx-s1);
+    justify-content: flex-end;
+    align-items: center;
+}
+
+/* The row the single-upload form is pointed at. It is not a selection in the
+   checkbox sense — it is which record the form above will write to, so it
+   carries the accent rather than a neutral tint. */
+.podx-table tbody tr.is-selected,
+.podx-table tbody tr.is-selected:hover {
+    background:
+        linear-gradient(rgba(var(--podx-accent-rgb), .09), rgba(var(--podx-accent-rgb), .09)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--podx-rowline) 48px,
+            var(--podx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+/* Driver / merchandiser document presence. Two of these sit in one cell and are
+   read as a pair — "both in" or "one still out" — so the off state stays
+   visible rather than being hidden. */
+.podx-flags {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--podx-s1);
+}
+
+.podx-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11.5px;
+    padding: 2px 8px;
+    border-radius: calc(var(--podx-r-md) * .75);
+    white-space: nowrap;
+    border: 1px solid var(--podx-divider);
+    color: var(--podx-mute-3);
+}
+
+.podx-flag i {
+    font-size: 12px;
+}
+
+.podx-flag.is-on {
+    border-color: var(--podx-ok-edge);
+    background: var(--podx-ok-bg);
+    color: var(--podx-ok);
+}
+
+/* A free-text cell that must not push the table wider than the screen. */
+.podx-clip {
+    display: block;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--podx-mute);
+}
+
+.podx-codeblock {
+    margin: 0;
+    padding: var(--podx-s3) var(--podx-s4);
+    border-radius: var(--podx-r-md);
+    border: 1px solid var(--podx-divider);
+    background: var(--podx-hover);
+    color: var(--podx-ink-2);
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+}
+
+.podx-guide {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--podx-s4);
+}
+
+.podx-qty {
+    width: 96px;
+    min-height: 28px;
+    padding: 2px 8px;
+    font-size: 12.5px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-radius: var(--podx-r-sm);
+}
+
+/* ── Status dot ────────────────────────────────────────────────────────── */
+
+.podx-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    font-size: 12.5px;
+    color: var(--podx-mute);
+}
+
+.podx-status .podx-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--podx-dot);
+}
+
+.podx-dot.is-open {
+    background: var(--podx-accent);
+}
+
+.podx-dot.is-closed {
+    background: var(--podx-dot-faint);
+}
+
+/* ── Detail grid ───────────────────────────────────────────────────────── */
+
+.podx-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: var(--podx-s4);
+}
+
+.podx-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--podx-mute-3);
+    margin-bottom: 2px;
+}
+
+.podx-dd {
+    font-size: 13.5px;
+    color: var(--podx-ink);
+}
+
+.podx-dd-sub {
+    font-size: 11.5px;
+    color: var(--podx-mute-3);
+}
+
+.podx-dd-flag {
+    display: block;
+    font-size: 12px;
+    margin-top: 2px;
+    color: var(--podx-warn);
+}
+
+.podx-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--podx-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s2);
+    margin-bottom: var(--podx-s3);
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.podx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--podx-s3);
+    padding: 56px var(--podx-s6);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.podx-empty i {
+    font-size: 22px;
+    color: var(--podx-accent);
+    opacity: .8;
+}
+
+.podx-empty-sub {
+    font-size: 12.5px;
+    color: var(--podx-mute-2);
+    max-width: 42ch;
+}
+
+.podx-skel {
+    height: 11px;
+    border-radius: var(--podx-r-sm);
+    background: var(--podx-rowline);
+    animation: podx-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes podx-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .podx-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.podx-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s4);
+    padding: var(--podx-s4) var(--podx-s6);
+    border-top: 1px solid var(--podx-divider);
+    flex-wrap: wrap;
+}
+
+.podx-foot-range {
+    font-size: 12px;
+    color: var(--podx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.podx-pagesize {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--podx-s2);
+    font-size: 12px;
+    color: var(--podx-mute-3);
+}
+
+.podx .podx-pagesize select.podx-input {
+    width: auto;
+    min-height: 28px;
+    padding: 2px 24px 2px 8px;
+    font-size: 12.5px;
+}
+
+.podx-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s2);
+    margin-left: auto;
+}
+
+.podx-page-label {
+    font-size: 12px;
+    color: var(--podx-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Bulk footer ───────────────────────────────────────────────────────── */
+
+.podx-bulk-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s4);
+    flex-wrap: wrap;
+    padding-top: var(--podx-s3);
+    border-top: 1px solid var(--podx-divider);
+}
+
+.podx-bulk-summary {
+    font-size: 12.5px;
+    color: var(--podx-mute-2);
+    margin-right: auto;
+}
+
+.podx-bulk-summary .is-bad {
+    color: var(--podx-bad);
+}
+
+.podx-bulk-summary .is-skipped {
+    color: var(--podx-mute-3);
+}
+
+.podx-bulk-actions {
+    display: flex;
+    gap: var(--podx-s2);
+    flex-wrap: wrap;
+}
+
+/* ── Overlays: viewer and dialogs ──────────────────────────────────────── */
+/* Both render below the app bar rather than over it: the page container is a
+   stacking context, so an overlay centred on the full viewport is painted
+   over by the topbar however high its z-index. */
+
+.podx-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--podx-ink);
+}
+
+.podx-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--podx-s4);
+    background: var(--podx-scrim);
+}
+
+.podx-dialog {
+    width: min(520px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--podx-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--podx-s4);
+    padding: var(--podx-s6);
+    border-radius: var(--podx-r-lg);
+    background: var(--podx-surface);
+    box-shadow: var(--podx-shadow-lg);
+    font-size: 14px;
+}
+
+.podx-dialog-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s3);
+}
+
+.podx-dialog-title i {
+    font-size: 17px;
+    color: var(--podx-accent);
+}
+
+.podx-dialog-title.is-bad i {
+    color: var(--podx-bad);
+}
+
+.podx-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--podx-s3);
+    overflow-y: auto;
+    font-size: 13.5px;
+    color: var(--podx-ink-2);
+}
+
+.podx-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--podx-s2);
+}
+
+/* The viewer is sized to the artefact, not to a dialog grid: a scanned POD is
+   the thing being read, so it gets the whole frame minus the app bar. */
+.podx-viewer {
+    width: min(1100px, 100%);
+    height: calc(100vh - var(--kf-topbar-h, 74px) - var(--podx-s8));
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--podx-r-lg);
+    background: var(--podx-surface);
+    box-shadow: var(--podx-shadow-lg);
+    overflow: hidden;
+}
+
+.podx-viewer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--podx-s4);
+    padding: var(--podx-s4) var(--podx-s6);
+    border-bottom: 1px solid var(--podx-divider);
+    flex-shrink: 0;
+}
+
+.podx-viewer-name {
+    margin: 0 auto 0 0;
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.podx-viewer-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--podx-s4);
+    background: var(--podx-hover);
+}
+
+.podx-viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: var(--podx-r-sm);
+}
+
+.podx-viewer-pdf {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: var(--podx-r-sm);
+    background: #ffffff;
+}
+
+.podx-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: podx-spin .7s linear infinite;
+}
+
+.podx-spin-lg {
+    width: 22px;
+    height: 22px;
+    color: var(--podx-accent);
+}
+
+@keyframes podx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .podx-spin {
+        animation-duration: 3s;
+    }
+}
+
+.podx-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--podx-s3);
+    padding: 56px var(--podx-s6);
+    font-size: 13px;
+    color: var(--podx-mute-2);
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+    .podx-shell,
+    .podx-body {
+        padding-left: var(--podx-s6);
+        padding-right: var(--podx-s6);
+    }
+
+    .podx-head-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--podx-s4);
+    }
+
+    .podx-head-actions {
+        justify-content: space-between;
+    }
+
+    .podx-field.is-wide {
+        grid-column: span 1;
+    }
+
+    .podx-pager {
+        margin-left: 0;
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .podx-bulk-summary {
+        margin-right: 0;
+        width: 100%;
+    }
+
+    .podx-guide {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,0 +1,1519 @@
+/* ==========================================================================
+   Invoices — Nocturne
+
+   The invoice list (and its van-sales twin at /van-sales-invoices) on the
+   Nocturne design system: a dense, quiet table on a near-neutral blue-grey
+   ground, Inter at 500, 8px radii, outlined buttons, and freestanding rules
+   that fade to transparent over 48px at each end.
+
+   There is no imported design file for this page. The palette and the density
+   scale are copied verbatim from credit-notes.css so the list pages stay one
+   system. What is new here is everything fiscalisation brings with it — the
+   status pill, the REVMax QR card, the raw request/response panel — and the
+   credit-note composer, which is the only place in the app where a table's
+   rows are selected and edited in a dialog.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same two reasons as credit-notes.css: a scoped style block cannot reach
+   native controls the way these selectors need to, and app.css carries global
+   `.dark-theme input/select/textarea` rules that have to be out-specified — so
+   every control carries a class and every control selector is two classes
+   deep, winning regardless of load order.
+   ========================================================================== */
+
+.ivx,
+.ivx-overlay {
+    --ivx-bg: #f4f4f8;
+    --ivx-surface: #ffffff;
+    --ivx-field: #ffffff;
+    --ivx-ink: #1b1c26;
+    --ivx-ink-2: #35374a;
+    --ivx-mute: #4e5164;
+    --ivx-mute-2: #656879;
+    --ivx-mute-3: #7b7e8e;
+    --ivx-faint: #a0a2ae;
+    --ivx-placeholder: #9498a8;
+    --ivx-divider: rgba(27, 28, 38, .14);
+    --ivx-rowline: rgba(27, 28, 38, .09);
+    --ivx-hover: rgba(27, 28, 38, .04);
+    --ivx-press: rgba(27, 28, 38, .09);
+    --ivx-field-edge: #d4d6e2;
+    --ivx-field-edge-hi: #a9adc0;
+    --ivx-accent: #5f52c4;
+    --ivx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --ivx-accent-text: #473d99;
+    --ivx-tag-bg: #e4e7f5;
+    --ivx-tag-ink: #3f424d;
+    --ivx-dot: #9397ab;
+    --ivx-dot-quiet: #b2b6ca;
+    --ivx-dot-faint: #cfd3e5;
+    --ivx-bad: #b3273c;
+    --ivx-bad-bg: #fdf0f2;
+    --ivx-bad-edge: #f0ccd3;
+    --ivx-warn: #8a5a05;
+    --ivx-warn-bg: #fdf6e7;
+    --ivx-warn-edge: #ecd9ac;
+    --ivx-ok: #0b6b4f;
+    --ivx-ok-bg: #eef7f3;
+    --ivx-ok-edge: #bfdfd2;
+    --ivx-code-bg: #f7f7fb;
+    --ivx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --ivx-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
+    --ivx-scrim: rgba(41, 43, 49, .34);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --ivx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --ivx-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --ivx-s1: 2.8px;
+    --ivx-s2: 5.6px;
+    --ivx-s3: 8.4px;
+    --ivx-s4: 11.2px;
+    --ivx-s6: 16.8px;
+    --ivx-s8: 22.4px;
+    --ivx-r-sm: 4px;
+    --ivx-r-md: 8px;
+    --ivx-r-lg: 14px;
+
+    color-scheme: var(--ivx-scheme);
+}
+
+.dark-theme .ivx,
+.dark-theme .ivx-overlay {
+    --ivx-bg: #161826;
+    --ivx-surface: #232532;
+    --ivx-field: #232532;
+    --ivx-ink: #e9e9ed;
+    --ivx-ink-2: #aeaeb5;
+    --ivx-mute: #9999a1;
+    --ivx-mute-2: #87878f;
+    --ivx-mute-3: #72727d;
+    --ivx-faint: #5a5a66;
+    --ivx-placeholder: #6b6b77;
+    --ivx-divider: rgba(233, 233, 237, .16);
+    --ivx-rowline: rgba(233, 233, 237, .08);
+    --ivx-hover: rgba(233, 233, 237, .04);
+    --ivx-press: rgba(233, 233, 237, .1);
+    --ivx-field-edge: rgba(233, 233, 237, .16);
+    --ivx-field-edge-hi: rgba(233, 233, 237, .45);
+    --ivx-accent: #9184d9;
+    --ivx-accent-rgb: 145, 132, 217;
+    --ivx-accent-text: #d2cefd;
+    --ivx-tag-bg: #3f424d;
+    --ivx-tag-ink: #f3f5fe;
+    --ivx-dot: #b2b6ca;
+    --ivx-dot-quiet: #75798c;
+    --ivx-dot-faint: #595d6c;
+    --ivx-bad: #e8697d;
+    --ivx-bad-bg: #2f2028;
+    --ivx-bad-edge: #4a2c35;
+    --ivx-warn: #e0b062;
+    --ivx-warn-bg: #2c2620;
+    --ivx-warn-edge: #4a3d28;
+    --ivx-ok: #b6ecd8;
+    --ivx-ok-bg: #1e2a26;
+    --ivx-ok-edge: #2f4740;
+    --ivx-code-bg: #1b1d29;
+    --ivx-shadow-sm: 0 0 0 1px #3f424d;
+    --ivx-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
+    --ivx-scrim: rgba(10, 11, 18, .62);
+    --ivx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --ivx-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ivx {
+    min-height: 100vh;
+    background: var(--ivx-bg);
+    color: var(--ivx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.ivx *,
+.ivx-overlay * {
+    box-sizing: border-box;
+}
+
+.ivx :focus-visible,
+.ivx-overlay :focus-visible {
+    outline: 2px solid var(--ivx-accent);
+    outline-offset: 2px;
+}
+
+.ivx ::selection,
+.ivx-overlay ::selection {
+    background: rgba(var(--ivx-accent-rgb), .3);
+}
+
+.ivx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--ivx-divider) 48px,
+            var(--ivx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque rather than the design's frosted glass: a translucent bar only hides
+   what passes beneath it while the compositor honours the backdrop blur, and
+   software rendering, a reduced-transparency setting or an offscreen capture
+   all drop the blur. --ivx-bg is the page's own ground, so an opaque bar is
+   indistinguishable from the design at rest. */
+
+.ivx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--ivx-bg);
+}
+
+.ivx-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ivx-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ivx-s8);
+}
+
+.ivx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.ivx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+}
+
+.ivx-titles-row i {
+    font-size: 17px;
+    color: var(--ivx-accent);
+}
+
+.ivx-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--ivx-ink);
+}
+
+.ivx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+}
+
+.ivx-count {
+    font-size: 12px;
+    color: var(--ivx-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.ivx-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ivx-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.ivx .ivx-btn,
+.ivx-overlay .ivx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--ivx-s2) calc(var(--ivx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ivx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ivx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.ivx .ivx-btn:disabled,
+.ivx-overlay .ivx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ivx .ivx-btn-primary,
+.ivx-overlay .ivx-btn-primary {
+    color: var(--ivx-accent);
+    border-color: var(--ivx-accent);
+    letter-spacing: .02em;
+}
+
+.ivx .ivx-btn-primary:hover:not(:disabled),
+.ivx-overlay .ivx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .12);
+}
+
+.ivx .ivx-btn-primary:active:not(:disabled),
+.ivx-overlay .ivx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .22);
+}
+
+.ivx .ivx-btn-secondary,
+.ivx-overlay .ivx-btn-secondary {
+    border-color: var(--ivx-divider);
+}
+
+.ivx .ivx-btn-secondary:hover:not(:disabled),
+.ivx-overlay .ivx-btn-secondary:hover:not(:disabled) {
+    background: var(--ivx-hover);
+}
+
+.ivx .ivx-btn-secondary:active:not(:disabled),
+.ivx-overlay .ivx-btn-secondary:active:not(:disabled) {
+    background: var(--ivx-press);
+}
+
+.ivx .ivx-btn-ghost,
+.ivx-overlay .ivx-btn-ghost {
+    color: var(--ivx-accent);
+    padding-inline: var(--ivx-s1);
+}
+
+.ivx .ivx-btn-ghost:hover:not(:disabled),
+.ivx-overlay .ivx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .1);
+}
+
+.ivx .ivx-btn-ghost:active:not(:disabled),
+.ivx-overlay .ivx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--ivx-accent-rgb), .18);
+}
+
+.ivx .ivx-btn-bad,
+.ivx-overlay .ivx-btn-bad {
+    color: var(--ivx-bad);
+    border-color: var(--ivx-bad-edge);
+}
+
+.ivx .ivx-btn-bad:hover:not(:disabled),
+.ivx-overlay .ivx-btn-bad:hover:not(:disabled) {
+    background: var(--ivx-bad-bg);
+}
+
+.ivx .ivx-btn-sm,
+.ivx-overlay .ivx-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.ivx .ivx-btn-icon,
+.ivx-overlay .ivx-btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+}
+
+.ivx .ivx-btn-icon-sm,
+.ivx-overlay .ivx-btn-icon-sm {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+}
+
+/* Icon-only buttons draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that fails to load would
+   leave them reading as dead controls. */
+.ivx .ivx-btn svg,
+.ivx-overlay .ivx-btn svg {
+    display: block;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* ── Stat row ──────────────────────────────────────────────────────────── */
+
+.ivx-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--ivx-s4);
+}
+
+.ivx-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    background: var(--ivx-surface);
+    border-radius: var(--ivx-r-md);
+    box-shadow: var(--ivx-shadow-sm);
+}
+
+.ivx-stat-mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--ivx-r-md);
+    background: rgba(var(--ivx-accent-rgb), .1);
+    color: var(--ivx-accent);
+    font-size: 16px;
+}
+
+.ivx-stat-mark.is-quiet {
+    background: var(--ivx-hover);
+    color: var(--ivx-mute);
+}
+
+.ivx-stat-value {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+.ivx-stat-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.ivx-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ivx-s4);
+    flex-wrap: wrap;
+}
+
+.ivx-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--ivx-mute);
+}
+
+.ivx .ivx-input,
+.ivx-overlay .ivx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--ivx-ink);
+    caret-color: var(--ivx-accent);
+    background: var(--ivx-field);
+    background-image: none;
+    border: 1px solid var(--ivx-field-edge);
+    border-radius: var(--ivx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.ivx .ivx-input:hover,
+.ivx-overlay .ivx-input:hover {
+    border-color: var(--ivx-field-edge-hi);
+}
+
+.ivx .ivx-input:focus-visible,
+.ivx-overlay .ivx-input:focus-visible {
+    border-color: var(--ivx-accent);
+    outline-offset: 0;
+}
+
+.ivx .ivx-input::placeholder,
+.ivx-overlay .ivx-input::placeholder {
+    color: var(--ivx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--ivx-placeholder);
+}
+
+.ivx .ivx-input:disabled,
+.ivx-overlay .ivx-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.ivx .ivx-input-num,
+.ivx-overlay .ivx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.ivx .ivx-input[type="date"]::-webkit-calendar-picker-indicator,
+.ivx-overlay .ivx-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+}
+
+.dark-theme .ivx .ivx-input[type="date"]::-webkit-calendar-picker-indicator,
+.dark-theme .ivx-overlay .ivx-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.ivx-select {
+    position: relative;
+}
+
+.ivx .ivx-select select.ivx-input,
+.ivx-overlay .ivx-select select.ivx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.ivx-select .ivx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--ivx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.ivx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.ivx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--ivx-surface);
+    border-radius: var(--ivx-r-md);
+    box-shadow: var(--ivx-shadow-sm);
+    overflow: hidden;
+}
+
+.ivx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    min-height: 54px;
+}
+
+.ivx-range {
+    font-size: 13px;
+    color: var(--ivx-mute-2);
+}
+
+/* The quick filter narrows what is already loaded, so it lives on the card's
+   own toolbar rather than in the filter row above, which refetches. */
+.ivx-quick {
+    position: relative;
+    margin-left: auto;
+    width: 240px;
+}
+
+.ivx .ivx-quick .ivx-input {
+    padding-left: 30px;
+}
+
+.ivx-quick > i {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--ivx-mute-3);
+    pointer-events: none;
+}
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+
+.ivx-tablewrap {
+    overflow-x: auto;
+}
+
+.ivx-table {
+    width: 100%;
+    min-width: 1080px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.ivx-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute);
+    padding: var(--ivx-s2);
+    white-space: nowrap;
+}
+
+.ivx-table td {
+    padding: var(--ivx-s2);
+    vertical-align: middle;
+}
+
+.ivx-table th:first-child,
+.ivx-table td:first-child {
+    padding-left: var(--ivx-s6);
+}
+
+.ivx-table th:last-child,
+.ivx-table td:last-child {
+    padding-right: var(--ivx-s6);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ivx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ivx-table thead tr {
+    background: linear-gradient(to right,
+            transparent, var(--ivx-divider) 48px,
+            var(--ivx-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ivx-table tbody tr {
+    background: linear-gradient(to right,
+            transparent, var(--ivx-rowline) 48px,
+            var(--ivx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ivx-table tbody tr:hover {
+    background:
+        linear-gradient(var(--ivx-hover), var(--ivx-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--ivx-rowline) 48px,
+            var(--ivx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.ivx .ivx-link,
+.ivx-overlay .ivx-link {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--ivx-accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.ivx .ivx-link:hover,
+.ivx-overlay .ivx-link:hover {
+    color: var(--ivx-accent-text);
+    text-decoration: underline;
+}
+
+.ivx-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 150px;
+}
+
+.ivx-cust-name {
+    font-weight: 500;
+}
+
+.ivx-cust-code {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--ivx-ink-2);
+}
+
+.ivx-curr {
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 2px 8px;
+    border-radius: calc(var(--ivx-r-md) * .75);
+    white-space: nowrap;
+    background: var(--ivx-tag-bg);
+    color: var(--ivx-tag-ink);
+}
+
+/* Fiscal state is the column this page exists to act on, so it reads as a dot
+   plus a word like every other Nocturne status — not a filled badge. */
+.ivx-fiscal {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.ivx-fiscal .ivx-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--ivx-dot);
+}
+
+.ivx-dot.is-done {
+    background: var(--ivx-ok);
+}
+
+.ivx-dot.is-todo {
+    background: var(--ivx-warn);
+}
+
+.ivx-dot.is-unknown {
+    background: var(--ivx-dot-faint);
+}
+
+.ivx-fiscal-text {
+    color: var(--ivx-mute);
+}
+
+.ivx-fiscal-text.is-todo {
+    color: var(--ivx-warn);
+}
+
+.ivx-rowactions {
+    display: inline-flex;
+    gap: var(--ivx-s1);
+    justify-content: flex-end;
+    align-items: center;
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.ivx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ivx-s3);
+    padding: 56px var(--ivx-s6);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.ivx-empty i {
+    font-size: 22px;
+    color: var(--ivx-accent);
+    opacity: .8;
+}
+
+.ivx-empty-sub {
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+    max-width: 42ch;
+}
+
+.ivx-skel {
+    height: 11px;
+    border-radius: var(--ivx-r-sm);
+    background: var(--ivx-rowline);
+    animation: ivx-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ivx-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ivx-skel {
+        animation: none;
+    }
+}
+
+/* ── Footer / pager ────────────────────────────────────────────────────── */
+
+.ivx-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    border-top: 1px solid var(--ivx-divider);
+    flex-wrap: wrap;
+}
+
+.ivx-foot-range {
+    font-size: 12px;
+    color: var(--ivx-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.ivx-pagesize {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    font-size: 12px;
+    color: var(--ivx-mute-3);
+}
+
+.ivx .ivx-pagesize select.ivx-input {
+    width: auto;
+    min-height: 28px;
+    padding: 2px 24px 2px 8px;
+    font-size: 12.5px;
+}
+
+.ivx-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    margin-left: auto;
+}
+
+.ivx-page-label {
+    font-size: 12px;
+    color: var(--ivx-mute-2);
+    font-variant-numeric: tabular-nums;
+    min-width: 74px;
+    text-align: center;
+}
+
+/* ── Alerts ────────────────────────────────────────────────────────────── */
+
+.ivx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ivx-s3);
+    padding: var(--ivx-s3) var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    font-size: 13px;
+    background: var(--ivx-bad-bg);
+    border: 1px solid var(--ivx-bad-edge);
+    color: var(--ivx-bad);
+}
+
+.ivx-alert.is-ok {
+    background: var(--ivx-ok-bg);
+    border-color: var(--ivx-ok-edge);
+    color: var(--ivx-ok);
+}
+
+.ivx-alert.is-warn {
+    background: var(--ivx-warn-bg);
+    border-color: var(--ivx-warn-edge);
+    color: var(--ivx-warn);
+}
+
+.ivx-alert-body {
+    flex: 1;
+}
+
+/* ── Fiscalisation payload panel ───────────────────────────────────────── */
+/* The raw TransactM request and response for the last fiscalisation run. It is
+   a debugging surface, so it is deliberately quiet: no accent, no fill, and
+   the JSON in a monospaced block that scrolls rather than wraps. */
+
+.ivx-payload {
+    background: var(--ivx-surface);
+    border-radius: var(--ivx-r-md);
+    box-shadow: var(--ivx-shadow-sm);
+    padding: var(--ivx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s4);
+}
+
+.ivx-payload-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ivx-s4);
+}
+
+.ivx-payload-titles {
+    margin-right: auto;
+    min-width: 0;
+}
+
+.ivx-payload-eyebrow {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-payload-title {
+    margin: 2px 0 0;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.ivx-payload-sub {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-payload-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--ivx-s4);
+}
+
+.ivx-payload-caption {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+    margin-bottom: var(--ivx-s2);
+}
+
+.ivx-code {
+    margin: 0;
+    max-height: 260px;
+    overflow: auto;
+    padding: var(--ivx-s3) var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    border: 1px solid var(--ivx-divider);
+    background: var(--ivx-code-bg);
+    color: var(--ivx-ink-2);
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: pre;
+}
+
+/* ── Overlays: drawer and dialogs ──────────────────────────────────────── */
+
+.ivx-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ivx-ink);
+}
+
+.ivx-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    background: var(--ivx-scrim);
+    z-index: 9998;
+}
+
+.ivx-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    width: min(760px, 95vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    background: var(--ivx-surface);
+    box-shadow: var(--ivx-shadow-lg);
+    font-size: 14px;
+}
+
+.ivx-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--ivx-divider);
+}
+
+.ivx-drawer-title {
+    margin: 0 auto 0 0;
+    font-size: 17px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+}
+
+.ivx-drawer-title i {
+    color: var(--ivx-accent);
+    font-size: 15px;
+}
+
+.ivx-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--ivx-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s6);
+}
+
+.ivx-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--ivx-s2);
+    padding: var(--ivx-s4) var(--ivx-s6);
+    border-top: 1px solid var(--ivx-divider);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.ivx-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--ivx-s4);
+}
+
+.ivx-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute-3);
+    margin-bottom: 2px;
+}
+
+.ivx-dd {
+    font-size: 13.5px;
+    color: var(--ivx-ink);
+}
+
+.ivx-sect {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-accent);
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s2);
+    margin-bottom: var(--ivx-s3);
+}
+
+.ivx-note {
+    padding: var(--ivx-s3) var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    background: var(--ivx-hover);
+    font-size: 13px;
+    color: var(--ivx-ink-2);
+}
+
+/* Only for text that arrives with its own line breaks — invoice comments come
+   from SAP as typed. It must not go on `.ivx-note` itself: pre-wrap would then
+   also preserve the Razor source's indentation in every fixed note. */
+.ivx-note.is-prose {
+    white-space: pre-wrap;
+}
+
+.ivx-note.is-warn {
+    background: var(--ivx-warn-bg);
+    border: 1px solid var(--ivx-warn-edge);
+    color: var(--ivx-warn);
+}
+
+/* The credit-note banner is the drawer's one interruption: it changes whether
+   the primary action is allowed at all, so it gets an outline and a link. */
+.ivx-credited {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ivx-s3);
+    padding: var(--ivx-s3) var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    background: var(--ivx-warn-bg);
+    border: 1px solid var(--ivx-warn-edge);
+    font-size: 13px;
+    color: var(--ivx-ink-2);
+}
+
+.ivx-credited > i {
+    color: var(--ivx-warn);
+    font-size: 15px;
+    margin-top: 1px;
+}
+
+.ivx-credited strong {
+    font-weight: 500;
+    color: var(--ivx-ink);
+}
+
+/* ── Fiscal QR card ────────────────────────────────────────────────────── */
+
+.ivx-qr {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s6);
+    padding: var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    border: 1px solid var(--ivx-divider);
+    background: var(--ivx-hover);
+}
+
+/* The QR is generated as a black-on-white SVG, so it keeps a white plate in
+   both schemes — inverting it would stop scanners reading it. */
+.ivx-qr-plate {
+    flex: none;
+    width: 108px;
+    height: 108px;
+    padding: 6px;
+    border-radius: var(--ivx-r-sm);
+    background: #ffffff;
+}
+
+.ivx-qr-plate img {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.ivx-qr-copy p {
+    margin: var(--ivx-s2) 0 0;
+    font-size: 12.5px;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-qr-title {
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+/* ── Line tables ───────────────────────────────────────────────────────── */
+
+.ivx-lines {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.ivx-lines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute);
+    padding: var(--ivx-s2);
+    white-space: nowrap;
+}
+
+.ivx-lines td {
+    padding: var(--ivx-s2);
+    color: var(--ivx-ink-2);
+}
+
+/* A row rule, not a row fill: the strip needs a gradient, because a bare colour
+   in `background` ignores the 1px size and floods the whole row. */
+.ivx-lines thead tr,
+.ivx-lines tbody tr,
+.ivx-lines tfoot tr:first-child {
+    background: linear-gradient(var(--ivx-rowline), var(--ivx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+.ivx-lines tfoot td {
+    color: var(--ivx-ink);
+}
+
+.ivx-linescroll {
+    overflow-x: auto;
+}
+
+.ivx-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--ivx-s4) var(--ivx-s6);
+    margin-top: var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    border: 1px solid var(--ivx-accent);
+    background: rgba(var(--ivx-accent-rgb), .08);
+}
+
+.ivx-total-label {
+    font-size: 13px;
+    color: var(--ivx-mute);
+}
+
+.ivx-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--ivx-accent-text);
+}
+
+/* ── Dialogs ───────────────────────────────────────────────────────────── */
+
+.ivx-dialog-wrap {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--ivx-s4);
+    background: var(--ivx-scrim);
+}
+
+.ivx-dialog {
+    position: relative;
+    width: min(560px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--ivx-s8));
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s4);
+    padding: var(--ivx-s6);
+    border-radius: var(--ivx-r-lg);
+    background: var(--ivx-surface);
+    box-shadow: var(--ivx-shadow-lg);
+    font-size: 14px;
+    overflow: hidden;
+}
+
+.ivx-dialog.is-wide {
+    width: min(900px, 100%);
+}
+
+.ivx-dialog-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s4);
+}
+
+.ivx-dialog-title {
+    margin: 0 auto 0 0;
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.015em;
+    display: flex;
+    align-items: center;
+    gap: var(--ivx-s3);
+}
+
+.ivx-dialog-title i {
+    font-size: 17px;
+    color: var(--ivx-accent);
+}
+
+.ivx-dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ivx-s4);
+    overflow-y: auto;
+}
+
+.ivx-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--ivx-s2);
+}
+
+.ivx-overlay .ivx-textarea {
+    min-height: 88px;
+    resize: vertical;
+    line-height: 1.5;
+    padding: var(--ivx-s2) 10px;
+}
+
+/* ── Credit-note composer ──────────────────────────────────────────────── */
+
+.ivx .ivx-check,
+.ivx-overlay .ivx-check {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: var(--ivx-accent);
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.ivx-overlay .ivx-check:disabled {
+    cursor: not-allowed;
+    opacity: .35;
+}
+
+.ivx-cnlines {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.ivx-cnlines th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ivx-mute);
+    padding: var(--ivx-s2);
+    white-space: nowrap;
+}
+
+.ivx-cnlines td {
+    padding: var(--ivx-s1) var(--ivx-s2);
+    color: var(--ivx-ink-2);
+}
+
+.ivx-cnlines thead tr,
+.ivx-cnlines tbody tr,
+.ivx-cnlines tfoot tr {
+    background: linear-gradient(var(--ivx-rowline), var(--ivx-rowline)) no-repeat bottom / 100% 1px;
+}
+
+/* An unselected line stays visible but recedes — it is still context for what
+   is being credited, not noise to be hidden. */
+.ivx-cnlines tbody tr.is-off td {
+    color: var(--ivx-faint);
+}
+
+.ivx-cnlines tfoot td {
+    color: var(--ivx-ink);
+    font-weight: 500;
+    padding-top: var(--ivx-s3);
+}
+
+.ivx-overlay .ivx-qty {
+    width: 84px;
+    min-height: 26px;
+    padding: 2px 6px;
+    font-size: 12.5px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-radius: var(--ivx-r-sm);
+}
+
+/* The posting overlay covers the composer rather than replacing it: the lines
+   stay behind the scrim so it is clear what is being posted. */
+.ivx-posting {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ivx-s3);
+    padding: var(--ivx-s6);
+    text-align: center;
+    background: color-mix(in srgb, var(--ivx-surface) 94%, transparent);
+}
+
+.ivx-posting h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.ivx-posting p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ivx-mute-2);
+}
+
+.ivx-posting small {
+    font-size: 12px;
+    color: var(--ivx-mute-3);
+}
+
+.ivx-ring {
+    position: relative;
+    width: 96px;
+    height: 96px;
+}
+
+.ivx-ring svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.ivx-ring-track {
+    fill: none;
+    stroke: var(--ivx-rowline);
+    stroke-width: 6;
+}
+
+.ivx-ring-fill {
+    fill: none;
+    stroke: var(--ivx-accent);
+    stroke-width: 6;
+    stroke-linecap: round;
+    transition: stroke-dasharray .3s ease;
+}
+
+.ivx-ring-label {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 17px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--ivx-accent-text);
+}
+
+.ivx-spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: ivx-spin .7s linear infinite;
+}
+
+@keyframes ivx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ivx-spin {
+        animation-duration: 3s;
+    }
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────────── */
+/* Reports the outcome of a credit-note post. It sits above the dialog layer
+   because it outlives the dialog that raised it. */
+
+.ivx-toast {
+    position: fixed;
+    right: var(--ivx-s6);
+    bottom: var(--ivx-s6);
+    z-index: 10001;
+    max-width: min(420px, calc(100vw - var(--ivx-s8)));
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ivx-s3);
+    padding: var(--ivx-s3) var(--ivx-s4);
+    border-radius: var(--ivx-r-md);
+    background: var(--ivx-surface);
+    box-shadow: var(--ivx-shadow-lg);
+    font-size: 13px;
+    color: var(--ivx-ink);
+}
+
+.ivx-toast > i {
+    font-size: 16px;
+    margin-top: 1px;
+    color: var(--ivx-ok);
+}
+
+.ivx-toast.is-bad > i {
+    color: var(--ivx-bad);
+}
+
+.ivx-toast-body {
+    flex: 1;
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .ivx-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .ivx-payload-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 860px) {
+    .ivx-shell,
+    .ivx-body {
+        padding-left: var(--ivx-s6);
+        padding-right: var(--ivx-s6);
+    }
+
+    .ivx-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--ivx-s4);
+    }
+
+    .ivx-head-actions {
+        justify-content: space-between;
+    }
+
+    .ivx-field {
+        flex: 1 1 150px;
+    }
+
+    .ivx-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .ivx-quick {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .ivx-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .ivx-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ivx-qr {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .ivx-pager {
+        margin-left: 0;
+        width: 100%;
+        justify-content: space-between;
+    }
+}
