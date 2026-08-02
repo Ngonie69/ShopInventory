@@ -1,43 +1,35 @@
-@using MudBlazor
+@* One of the three figures the staff dashboard leads with.
 
-<article class="kf-stat-card">
-    <div class="kf-stat-card__body">
-        <span class="kf-icon-box" aria-hidden="true">
-            <MudIcon Icon="@Icon" />
+   The card is read top-down: what it counts, the count, what the count is
+   of, then — under a rule — the two secondary readings, the day-over-day
+   comparison and the money. Only the lead card carries the accent, which is
+   how this design says which figure the page is actually about.
+
+   Direction is drawn as an arrow as well as coloured, so it still reads for
+   anyone who cannot separate the two tints. *@
+
+<article class="dsh-stat @(IsLead ? "dsh-stat-lead" : null)">
+    <div class="dsh-stat-head">
+        <span class="dsh-stat-rule" aria-hidden="true"></span>
+        <span>@Label</span>
+        <span class="dsh-stat-icon">
+            <DashIcon Name="@Icon" Size="17" />
         </span>
-        <div class="kf-stat-card__metrics">
-            <p class="kf-stat-card__label">@Label</p>
-            <div class="kf-stat-card__value">@Value</div>
-            <span class="kf-stat-card__value-label">@ValueLabel</span>
-        </div>
-        @if (Sparkline.Length >= 2)
-        {
-            <svg class="kf-sparkline @(Direction < 0 ? "kf-sparkline--muted" : null)"
-                 viewBox="0 0 @ViewWidth @ViewHeight" preserveAspectRatio="none"
-                 aria-hidden="true" focusable="false">
-                <defs>
-                    <linearGradient id="@_gradientId" x1="0" y1="0" x2="0" y2="1">
-                        <stop class="kf-sparkline__stop-top" offset="0" />
-                        <stop class="kf-sparkline__stop-bottom" offset="1" />
-                    </linearGradient>
-                </defs>
-                <polygon class="kf-sparkline__area" points="@AreaPoints" fill="url(#@_gradientId)" />
-                @* The stroke is exempted from the non-uniform scale so it stays an even 2px. *@
-                <polyline class="kf-sparkline__line" points="@LinePoints" vector-effect="non-scaling-stroke" />
-            </svg>
-        }
     </div>
 
-    <div class="kf-stat-card__footer">
+    <div class="dsh-stat-num">@Value</div>
+    <div class="dsh-stat-sub">@ValueLabel</div>
+
+    <div class="dsh-stat-foot">
         @if (!string.IsNullOrWhiteSpace(Trend))
         {
-            <div class="kf-stat-card__comparison @DirectionClass">
-                <MudIcon Icon="@DirectionIcon" />
+            <span class="dsh-trend @DirectionClass">
+                <DashIcon Name="@DirectionIcon" Size="13" />
                 <strong>@Trend</strong>
                 <span>vs yesterday</span>
-            </div>
+            </span>
         }
-        <div class="kf-stat-card__amount">
+        <div class="dsh-stat-money">
             <strong>@Amount</strong>
             <span>@AmountLabel</span>
         </div>
@@ -48,6 +40,7 @@
     [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
     [Parameter] public string ValueLabel { get; set; } = string.Empty;
+
     /// <summary>Comparison against yesterday. Omit when no comparison is available.</summary>
     [Parameter] public string? Trend { get; set; }
 
@@ -56,64 +49,24 @@
 
     [Parameter, EditorRequired] public string Amount { get; set; } = string.Empty;
     [Parameter] public string AmountLabel { get; set; } = "Total value";
+
+    /// <summary>A <see cref="DashIcon"/> name.</summary>
     [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
 
-    /// <summary>Values 0-100. Omit when the metric has no historical series to plot.</summary>
-    [Parameter] public int[] Sparkline { get; set; } = [];
+    /// <summary>The one card that carries the accent.</summary>
+    [Parameter] public bool IsLead { get; set; }
 
     private string DirectionClass => Direction switch
     {
-        > 0 => "is-positive",
-        < 0 => "is-negative",
-        _ => "is-neutral"
+        > 0 => "dsh-trend-up",
+        < 0 => "dsh-trend-down",
+        _ => "dsh-trend-flat"
     };
 
     private string DirectionIcon => Direction switch
     {
-        > 0 => Icons.Material.Outlined.ArrowUpward,
-        < 0 => Icons.Material.Outlined.ArrowDownward,
-        _ => Icons.Material.Outlined.Remove
+        > 0 => "arrow-up",
+        < 0 => "arrow-down",
+        _ => "flat"
     };
-
-    private const double ViewWidth = 168;
-    private const double ViewHeight = 58;
-
-    // Half the stroke width, so peaks and troughs are not clipped by the viewBox edge.
-    private const double Inset = 2;
-
-    private readonly string _gradientId = $"spark-{Guid.NewGuid():N}";
-
-    private IReadOnlyList<(double X, double Y)> Points
-    {
-        get
-        {
-            if (Sparkline.Length < 2) return [];
-
-            var step = ViewWidth / (Sparkline.Length - 1);
-            var span = ViewHeight - (Inset * 2);
-
-            return Sparkline
-                .Select((value, index) => (
-                    X: index * step,
-                    Y: ViewHeight - Inset - (Math.Clamp(value, 0, 100) / 100d * span)))
-                .ToList();
-        }
-    }
-
-    private string LinePoints => string.Join(
-        ' ',
-        Points.Select(point => FormattableString.Invariant($"{point.X:F2},{point.Y:F2}")));
-
-    private string AreaPoints
-    {
-        get
-        {
-            var points = Points;
-            if (points.Count == 0) return string.Empty;
-
-            return FormattableString.Invariant($"0,{ViewHeight} ")
-                + LinePoints
-                + FormattableString.Invariant($" {ViewWidth},{ViewHeight}");
-        }
-    }
 }

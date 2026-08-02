@@ -1,19 +1,25 @@
-@using MudBlazor
+@* One tile in the dashboard's quick-actions row: a link that says where it
+   goes and what is there. The chevron is decorative — the whole tile is the
+   link, so it carries no label of its own. *@
 
-<a class="kf-quick-action" href="@Href">
-    <span class="kf-quick-action__icon" aria-hidden="true">
-        <MudIcon Icon="@Icon" />
+<a class="dsh-action" href="@Href">
+    <span class="dsh-action-icon">
+        <DashIcon Name="@Icon" Size="17" />
     </span>
-    <span class="kf-quick-action__copy">
+    <span class="dsh-action-copy">
         <strong>@Title</strong>
         <span>@Description</span>
     </span>
-    <MudIcon Class="kf-quick-action__chevron" Icon="@Icons.Material.Filled.ChevronRight" />
+    <span class="dsh-action-chev">
+        <DashIcon Name="chevron" Size="15" />
+    </span>
 </a>
 
 @code {
     [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Description { get; set; } = string.Empty;
     [Parameter, EditorRequired] public string Href { get; set; } = string.Empty;
+
+    /// <summary>A <see cref="DashIcon"/> name.</summary>
     [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
 }
