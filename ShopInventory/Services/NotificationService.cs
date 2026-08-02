@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using ShopInventory.Common.Extensions;
@@ -73,6 +75,11 @@ public class NotificationService : INotificationService
             ActionUrl = normalizedActionUrl,
             CreatedAt = DateTime.UtcNow,
             CreatedBy = "System",
+            // Stored as well as pushed. Until this was persisted the fields only
+            // existed on the SignalR payload, so anything that re-read the
+            // notification from the list — the polling fallback, a page reload,
+            // the notification panel — got the message and nothing else.
+            Data = request.Data is { Count: > 0 } ? JsonSerializer.Serialize(request.Data) : null,
             ExpiresAt = DateTime.UtcNow.AddDays(30) // Auto-expire after 30 days
         };
 
@@ -477,6 +484,9 @@ public class NotificationService : INotificationService
         var message = $"Order {orderNumber} for {customerName} (${docTotal:N2}) submitted from {sourceLabel}" +
                       (createdByUsername != null ? $" by {createdByUsername}" : "");
 
+        // docTotal, sourceLabel and createdBy were only ever spelled out inside the
+        // message. They are carried as fields too so a consumer can lay them out
+        // itself rather than parsing the sentence back apart, as the staff toast does.
         var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["orderId"] = orderId.ToString(),
@@ -485,8 +495,22 @@ public class NotificationService : INotificationService
             ["customerCode"] = customerCode,
             ["customerName"] = customerName,
             ["status"] = status,
-            ["source"] = source
+            ["source"] = source,
+            ["sourceLabel"] = sourceLabel,
+            // A value to be parsed, not a figure to be printed: invariant, and
+            // ungrouped. "N2" would bake en-US thousands separators into a machine
+            // field, which reads correctly only for a consumer permissive enough to
+            // allow them — how the amount is grouped belongs wherever it is
+            // rendered. Invariant matters more than grouping does: a comma-decimal
+            // server would otherwise write "4502,19" and the Web would parse it as
+            // 450219.
+            ["docTotal"] = docTotal.ToString(CultureInfo.InvariantCulture)
         };
+
+        if (!string.IsNullOrWhiteSpace(createdByUsername))
+        {
+            data["createdBy"] = createdByUsername;
+        }
 
         await CreateSalesOrderRoleNotificationIfMissingAsync(orderNumber, title, message, actionUrl, data, "Admin", cancellationToken);
         await CreateSalesOrderRoleNotificationIfMissingAsync(orderNumber, title, message, actionUrl, data, "Cashier", cancellationToken);
@@ -547,6 +571,35 @@ public class NotificationService : INotificationService
         CreatedAt = n.CreatedAt,
         ReadAt = n.ReadAt,
         CreatedBy = n.CreatedBy,
-        Data = data == null ? null : new Dictionary<string, string>(data, StringComparer.OrdinalIgnoreCase)
+        // The create path passes the dictionary it just wrote; every read path
+        // takes it back off the row.
+        Data = data is not null
+            ? new Dictionary<string, string>(data, StringComparer.OrdinalIgnoreCase)
+            : DeserializeData(n.Data)
     };
+
+    /// <summary>
+    /// Reads the stored Data blob back. Anything written before the column existed
+    /// has none, and one malformed row is not worth failing a whole page of
+    /// notifications over — either way the consumer falls back to the message.
+    /// </summary>
+    private static Dictionary<string, string>? DeserializeData(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            return parsed is null
+                ? null
+                : new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }

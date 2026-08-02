@@ -246,15 +246,7 @@
                     var newNotifs = response.Notifications.Where(n => !n.IsRead).Take(newUnread - previousUnread).ToList();
                     foreach (var n in newNotifs)
                     {
-                        await InvokeAsync(() => Snackbar.Add(
-                            $"{n.Title}: {TruncateMessage(n.Message, 80)}",
-                            MapSeverity(n.Type),
-                            config =>
-                            {
-                                config.VisibleStateDuration = 5000;
-                                config.ShowCloseIcon = true;
-                                config.SnackbarVariant = Variant.Filled;
-                            }));
+                        await InvokeAsync(() => ShowNotificationToast(n));
                     }
                 }
 
@@ -351,15 +343,7 @@
                 _unreadCount = response.UnreadCount;
                 _recentNotifications = response.Notifications.Take(5).ToList();
 
-                Snackbar.Add(
-                    $"{visibleNotification.Title}: {TruncateMessage(visibleNotification.Message, 80)}",
-                    MapSeverity(visibleNotification.Type),
-                    config =>
-                    {
-                        config.VisibleStateDuration = 5000;
-                        config.ShowCloseIcon = true;
-                        config.SnackbarVariant = Variant.Filled;
-                    });
+                ShowNotificationToast(visibleNotification);
 
                 StateHasChanged();
             });
@@ -418,8 +402,57 @@
         _ => Severity.Info
     };
 
-    private static string TruncateMessage(string msg, int maxLen) =>
-        msg.Length <= maxLen ? msg : msg[..maxLen] + "...";
+    private const int ToastDurationMs = 8000;
+
+    @* One toast shape for both paths that raise one — the SignalR push and the
+       polling fallback. The whole notification goes to the component, which lays
+       out whichever structured fields the push carried and falls back to the
+       title and message when it carried none. *@
+    private void ShowNotificationToast(NotificationModel notification)
+    {
+        // The handle only exists once Add returns, but the callback closes over the
+        // variable rather than its value, so Dismiss resolves it by the time anyone
+        // can click. Without this the component has no way to close its own toast.
+        Snackbar? handle = null;
+
+        var parameters = new Dictionary<string, object>
+        {
+            [nameof(NotificationToast.Notification)] = notification,
+            [nameof(NotificationToast.DurationMs)] = ToastDurationMs,
+            [nameof(NotificationToast.OnDismiss)] = EventCallback.Factory.Create(this, () =>
+            {
+                if (handle is not null)
+                {
+                    Snackbar.Remove(handle);
+                }
+            }),
+            [nameof(NotificationToast.OnOpen)] = EventCallback.Factory.Create(this, async () =>
+            {
+                if (handle is not null)
+                {
+                    Snackbar.Remove(handle);
+                }
+
+                // Same path the notification panel's rows take, so opening from the
+                // toast also marks it read rather than just navigating.
+                await OnNotificationClick(notification);
+            })
+        };
+
+        handle = Snackbar.Add<NotificationToast>(
+            parameters,
+            MapSeverity(notification.Type),
+            config =>
+            {
+                config.VisibleStateDuration = ToastDurationMs;
+                config.ShowCloseIcon = true;
+                config.SnackbarVariant = Variant.Filled;
+                // MudBlazor lands a toast at 95% by default, which lets the page
+                // read through the card. Set here rather than in CSS: an
+                // !important on opacity would take the fade-in with it.
+                config.MaximumOpacity = 100;
+            });
+    }
 
     private async void OnThemeChanged()
     {

@@ -50,6 +50,13 @@
     --kfn-brand-line: #D99A00;
     --kfn-brand-sub: #B77D00;
 
+    /* Status hues, shared by the notification list and the toasts. Deeper than
+       their dark-theme counterparts: those are read against #1b1e2c, these
+       against white, and each still clears 3:1 there as a graphical object. */
+    --kfn-ok: #3F9B78;
+    --kfn-warn: #C26A33;
+    --kfn-bad: #C24F45;
+
     --kfn-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
 }
 
@@ -78,6 +85,10 @@
     --kfn-brand: oklch(0.84 0.13 85);
     --kfn-brand-line: oklch(0.78 0.13 85);
     --kfn-brand-sub: oklch(0.78 0.11 85);
+
+    --kfn-ok: #5fb894;
+    --kfn-warn: #e5834f;
+    --kfn-bad: #d9695f;
 
     --kfn-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
 }
@@ -528,19 +539,364 @@ html body .staff-drawer.kf-drawer .mud-drawer-content {
 }
 
 .notification-item .ph-warning-circle {
-    color: #e5834f;
+    color: var(--kfn-warn);
 }
 
 .notification-item .ph-x-circle {
-    color: #d9695f;
+    color: var(--kfn-bad);
 }
 
 .notification-item .ph-check-circle {
-    color: #5fb894;
+    color: var(--kfn-ok);
 }
 
 .notification-item .ph-info {
     color: var(--kfn-accent-bright);
+}
+
+/* ---- Toasts ------------------------------------------------
+   MudBlazor's snackbar is the only toast in the app, and every
+   call site takes the Filled variant: a saturated block of colour
+   carrying white text, which was the last surface in the shell
+   that did not look like the shell. Rebuilt here on the same
+   recipe as the notification panel above — chrome ground, hairline
+   border, 10px radius — with severity carried by a leading rail
+   and the icon instead of by the fill.
+
+   MudBlazor.min.css is linked after this file, so a rule that
+   restates one of its declarations has to out-specify it as well
+   as follow it. Hanging these off #mud-snackbar-container, the
+   provider's own id, does that for the whole section. */
+#mud-snackbar-container .mud-snackbar {
+    --kfn-toast-accent: var(--kfn-toast-default, var(--kfn-accent-bright));
+    align-items: flex-start;
+    background: var(--kfn-chrome);
+    border: 1px solid var(--kfn-line);
+    border-radius: 10px;
+    box-shadow: var(--kfn-shadow);
+    color: var(--kfn-text);
+    font-weight: 400;
+    gap: 10px;
+    /* Both bounds fold at narrow widths: min-width beats max-width when they
+       cross, so a phone would otherwise get a toast wider than its viewport. */
+    max-width: min(420px, calc(100vw - 32px));
+    min-width: min(288px, calc(100vw - 32px));
+    padding: 12px 12px 12px 15px;
+}
+
+/* The rail is the sidebar's active marker at toast scale: flush to the left
+   edge, so the border-radius clips against the card's own overflow. */
+#mud-snackbar-container .mud-snackbar::before {
+    background: var(--kfn-toast-accent);
+    border-radius: 3px;
+    bottom: 10px;
+    content: "";
+    left: 0;
+    position: absolute;
+    top: 10px;
+    width: 3px;
+}
+
+#mud-snackbar-container .mud-snackbar.mud-alert-filled-success {
+    --kfn-toast-accent: var(--kfn-ok);
+}
+
+#mud-snackbar-container .mud-snackbar.mud-alert-filled-warning {
+    --kfn-toast-accent: var(--kfn-warn);
+}
+
+#mud-snackbar-container .mud-snackbar.mud-alert-filled-error {
+    --kfn-toast-accent: var(--kfn-bad);
+}
+
+#mud-snackbar-container .mud-snackbar.mud-alert-filled-normal,
+#mud-snackbar-container .mud-snackbar.mud-alert-filled-dark {
+    --kfn-toast-accent: var(--kfn-line-strong);
+}
+
+/* The customer portal is this same design system on a teal accent, and its
+   MudSnackbarProvider is declared above the .cpx shell — so the toast is not
+   inside that scope and cannot read --cpx-accent. Set the no-severity accent
+   from the body instead, where the custom property still inherits down. It is
+   deliberately a *separate* token from --kfn-toast-accent: overriding that one
+   here would out-specify the severity rules above and turn every portal toast
+   teal. Values track --cpx-accent in customer-portal.css. */
+body:has(.customer-shell.cpx) {
+    --kfn-toast-default: #0f766e;
+}
+
+body.dark-theme:has(.customer-shell.cpx) {
+    --kfn-toast-default: #3fb8a6;
+}
+
+/* Icon: sized to the title line and optically nudged onto it, since the row
+   is top-aligned rather than centred now that the card can run to two lines. */
+#mud-snackbar-container .mud-snackbar .mud-snackbar-icon {
+    color: var(--kfn-toast-accent);
+    flex: 0 0 18px;
+    margin: 1px 0 0;
+    opacity: 1;
+    padding: 0;
+}
+
+#mud-snackbar-container .mud-snackbar .mud-snackbar-icon .mud-icon-root {
+    font-size: 18px;
+    height: 18px;
+    margin: 0;
+    width: 18px;
+}
+
+/* The detail card carries enough weight to want a badge rather than a loose
+   glyph. The icon is a sibling of the message slot, not a child of .kf-toast,
+   so the shape has to be recognised from the snackbar down. */
+/* Wider floor than a plain toast: the figures row pins the amount right, and on
+   a shrink-wrapped card that lands too close to the party name to read as a
+   column. Softer corner and more air than the plain shape too — this one is a
+   card someone reads and acts on, not a line of status text. */
+#mud-snackbar-container .mud-snackbar:has(.kf-toast--detail) {
+    border-radius: 14px;
+    gap: 12px;
+    min-width: min(376px, calc(100vw - 32px));
+    padding: 16px 16px 17px 19px;
+}
+
+#mud-snackbar-container .mud-snackbar:has(.kf-toast--detail) .mud-snackbar-icon {
+    align-items: center;
+    background: color-mix(in srgb, var(--kfn-toast-accent) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--kfn-toast-accent) 42%, transparent);
+    border-radius: 10px;
+    flex: 0 0 32px;
+    height: 32px;
+    justify-content: center;
+    margin: 1px 2px 0 0;
+    width: 32px;
+}
+
+/* Message slot. The type here is what a plain-string toast gets — the two-line
+   NotificationToast restates it below for its own title and body. */
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-message {
+    flex: 1 1 auto;
+    font-size: 12.5px;
+    line-height: 1.45;
+    min-width: 0;
+    padding: 0;
+}
+
+#mud-snackbar-container .kf-toast {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Eyebrow row: what kind of thing this is, and how long ago. The label takes the
+   severity hue so the card names its own status in words as well as in colour. */
+#mud-snackbar-container .kf-toast__head {
+    align-items: baseline;
+    display: flex;
+    gap: 8px;
+}
+
+#mud-snackbar-container .kf-toast__eyebrow {
+    color: var(--kfn-toast-accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.4;
+    text-transform: uppercase;
+}
+
+#mud-snackbar-container .kf-toast__time {
+    color: var(--kfn-muted);
+    font-size: 10.5px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+/* The document number is the line someone is actually looking for, so it is the
+   one piece of the card set larger than body copy. Tabular figures keep the
+   digits from shuffling between one order number and the next. */
+#mud-snackbar-container .kf-toast__headline {
+    color: var(--kfn-text);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+    margin-top: 3px;
+}
+
+/* The fallback shape headlines prose, not a reference — same slot, quieter. */
+#mud-snackbar-container .kf-toast__headline--plain {
+    font-size: 12.5px;
+    font-variant-numeric: normal;
+    font-weight: 500;
+    letter-spacing: normal;
+    line-height: 1.35;
+    margin-top: 0;
+}
+
+/* Party and figure share a row, the figure pinned right so a stack of toasts
+   lines its amounts up. */
+#mud-snackbar-container .kf-toast__figures {
+    align-items: baseline;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    margin-top: 5px;
+}
+
+#mud-snackbar-container .kf-toast__party {
+    color: var(--kfn-text-2);
+    font-size: 12.5px;
+    line-height: 1.35;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#mud-snackbar-container .kf-toast__amount {
+    color: var(--kfn-toast-accent);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+#mud-snackbar-container .kf-toast__provenance {
+    color: var(--kfn-muted);
+    font-size: 11.5px;
+    line-height: 1.4;
+    margin-top: 5px;
+}
+
+/* Clamped rather than cut at a character count: the message ends on a word at
+   whatever width the toast actually got, instead of on "submitted from M...". */
+#mud-snackbar-container .kf-toast__body {
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    color: var(--kfn-muted);
+    display: -webkit-box;
+    font-size: 11.5px;
+    line-clamp: 3;
+    line-height: 1.45;
+    overflow: hidden;
+}
+
+/* Actions ---------------------------------------------------
+   Both are outlined: nothing a toast offers is the page's primary action, and a
+   filled button here would outrank whatever the user is actually doing. The
+   open action is the one carrying the accent ring. */
+#mud-snackbar-container .kf-toast__actions {
+    display: flex;
+    gap: 9px;
+    margin-top: 14px;
+}
+
+#mud-snackbar-container .kf-toast__action {
+    background: transparent;
+    border: 1px solid var(--kfn-line-strong);
+    border-radius: 9px;
+    color: var(--kfn-text-2);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1;
+    padding: 9px 15px;
+    transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+
+#mud-snackbar-container .kf-toast__action:hover {
+    background: var(--kfn-raised);
+    border-color: var(--kfn-line-strong);
+    color: var(--kfn-text);
+}
+
+#mud-snackbar-container .kf-toast__action--open {
+    border-color: var(--kfn-accent-line);
+    color: var(--kfn-text);
+}
+
+#mud-snackbar-container .kf-toast__action--open:hover {
+    background: var(--kfn-accent-pill);
+    border-color: var(--kfn-accent);
+}
+
+/* Dismiss timer ---------------------------------------------
+   Sits on the card's bottom edge and empties over the snackbar's own visible
+   duration, which the component passes in as the animation duration. It is the
+   one thing on the card that has to agree with a number set in C#. */
+#mud-snackbar-container .kf-toast__timer {
+    animation-fill-mode: forwards;
+    animation-name: kf-toast-timer;
+    animation-timing-function: linear;
+    background: var(--kfn-toast-accent);
+    border-radius: 0 3px 3px 0;
+    bottom: 0;
+    height: 3px;
+    left: 0;
+    opacity: .8;
+    position: absolute;
+    transform-origin: left center;
+    width: 100%;
+}
+
+@keyframes kf-toast-timer {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0); }
+}
+
+/* A toast that cannot animate should not imply time is passing. */
+@media (prefers-reduced-motion: reduce) {
+    #mud-snackbar-container .kf-toast__timer {
+        display: none;
+    }
+}
+
+/* Close button: the topbar's ghost icon button, not MudBlazor's round one. */
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-action {
+    align-items: flex-start;
+    margin: -3px -3px 0 0;
+    padding-left: 8px;
+}
+
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-action > button {
+    border-radius: 8px;
+    color: var(--kfn-muted);
+    height: 24px;
+    min-height: 24px;
+    min-width: 24px;
+    padding: 0;
+    transition: background .12s ease, color .12s ease;
+    width: 24px;
+}
+
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-action > button:hover {
+    background: var(--kfn-raised-2);
+    color: var(--kfn-text);
+}
+
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-action .mud-icon-button-label {
+    color: inherit;
+}
+
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-action .mud-icon-root {
+    font-size: 15px;
+    height: 15px;
+    margin: 0;
+    width: 15px;
+}
+
+/* MudBlazor measures the top positions from the viewport, which in a 54px
+   chrome band drops the toast on top of the topbar. Measure from the band. */
+#mud-snackbar-container.mud-snackbar-location-top-left,
+#mud-snackbar-container.mud-snackbar-location-top-center,
+#mud-snackbar-container.mud-snackbar-location-top-right,
+#mud-snackbar-container.mud-snackbar-location-top-start,
+#mud-snackbar-container.mud-snackbar-location-top-end {
+    top: calc(var(--kf-topbar-h) + 12px);
 }
 
 .kf-notification-view-all {
@@ -703,7 +1059,8 @@ html body .kf-drawer .kf-sidebar-scroll .nav-bottom-spacer {
 .kf-notification-header button:focus-visible,
 .kf-notification-view-all:focus-visible,
 .kf-sidebar-brand .kf-sidebar-close:focus-visible,
-html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible {
+html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible,
+#mud-snackbar-container .mud-snackbar .mud-snackbar-content-action > button:focus-visible {
     outline: 2px solid var(--kfn-accent) !important;
     outline-offset: 2px !important;
 }
@@ -713,6 +1070,24 @@ html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible {
 }
 
 /* ---- Responsive -------------------------------------------- */
+
+/* app.css floors every .mud-icon-button at 44px on touch so toasts are easy to
+   dismiss. A 44px target inside a 12px-padded two-line card is taller than the
+   card's own copy, so the toast keeps a 34px one — still a comfortable target,
+   and the toast dismisses itself besides. */
+@media (pointer: coarse) {
+    #mud-snackbar-container .mud-snackbar .mud-snackbar-content-action {
+        margin: -8px -8px 0 0;
+    }
+
+    #mud-snackbar-container .mud-snackbar .mud-snackbar-content-action > button {
+        height: 34px;
+        min-height: 34px;
+        min-width: 34px;
+        width: 34px;
+    }
+}
+
 @media (max-width: 1199.98px) {
     .kf-profile-menu {
         padding-left: 10px;
