@@ -8588,8 +8588,19 @@ html.dark-theme {
     overflow-x: hidden;
 }
 
+/* `clip`, not `hidden`: `overflow-x: hidden` computes `overflow-y` up from
+   `visible` to `auto`, which makes this element a scroll container even though
+   it never scrolls (the document does). Every page header seated on the app bar
+   with `position: sticky; top: var(--kf-topbar-h)` then measures that offset
+   from here rather than from the viewport — and because this element already
+   carries `padding-top: var(--kf-topbar-h)` to clear the fixed bar, the bar got
+   counted twice: the headers sat 74px too low, covering the first band of
+   content under them, and never stuck at all. `clip` clips identically without
+   creating a scroll container. The `hidden` above it is the fallback for
+   engines that do not know `clip`. */
 .mud-main-content {
     overflow-x: hidden;
+    overflow-x: clip;
     max-width: 100%;
 }
 
@@ -12372,6 +12383,9 @@ canvas {
         overscroll-behavior-x: none;
     }
 
+    /* `clip` for the same reason as `.mud-main-content` above: on a phone these
+       are the boxes a sticky page header would otherwise measure its offset
+       against. */
     .staff-main,
     .customer-main,
     .staff-shell .mud-main-content,
@@ -12380,6 +12394,7 @@ canvas {
     .customer-content,
     .container-fluid {
         overflow-x: hidden !important;
+        overflow-x: clip !important;
     }
 
     .mud-table-container,
