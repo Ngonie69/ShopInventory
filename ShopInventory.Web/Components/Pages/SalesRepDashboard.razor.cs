@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using ShopInventory.Web.Models;
 using ShopInventory.Web.Services;
 
@@ -18,7 +19,21 @@ public partial class SalesRepDashboard
     [Inject] private ITimesheetService TimesheetService { get; set; } = default!;
     [Inject] private ILogger<SalesRepDashboard> Logger { get; set; } = default!;
 
-    [Parameter] public string Username { get; set; } = string.Empty;
+    /// <summary>
+    /// The rep's first name, already derived by Home — this page never shows the
+    /// raw username, which is an email address for most accounts.
+    /// </summary>
+    [Parameter] public string DisplayName { get; set; } = string.Empty;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthTask { get; set; }
+
+    /// <summary>
+    /// The account name behind <see cref="DisplayName"/>. A first name cannot
+    /// filter an API, so the one call that has to be scoped to this rep — the
+    /// week's visits — reads the authenticated identity instead of being handed
+    /// the name to display.
+    /// </summary>
+    private string? username;
 
     /// <summary>
     /// The ranges the segmented control offers. 14 days is the import's own
@@ -89,29 +104,7 @@ public partial class SalesRepDashboard
         _ => "Good evening"
     };
 
-    /// <summary>
-    /// The username is an account name rather than a person's name, so the
-    /// greeting takes its first token and title-cases it — the same treatment
-    /// <see cref="Home"/> gives the cashier dashboard.
-    /// </summary>
-    private string FirstName
-    {
-        get
-        {
-            var first = Username
-                .Split('@')[0]
-                .Replace('.', ' ')
-                .Replace('_', ' ')
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .FirstOrDefault();
-
-            if (string.IsNullOrWhiteSpace(first)) return "there";
-
-            return first.Length == 1
-                ? first.ToUpperInvariant()
-                : char.ToUpperInvariant(first[0]) + first[1..];
-        }
-    }
+    private string Greeted => string.IsNullOrWhiteSpace(DisplayName) ? "there" : DisplayName;
 
     private string Standfirst
     {
@@ -195,6 +188,12 @@ public partial class SalesRepDashboard
         // The shell paints first and the panels fill in: the order window can
         // reach SAP, and a rep should not watch a blank page while it does.
         if (!firstRender) return;
+
+        if (AuthTask is not null)
+        {
+            username = (await AuthTask).User.Identity?.Name;
+        }
+
         await LoadAsync();
     }
 
@@ -497,7 +496,7 @@ public partial class SalesRepDashboard
     /// </summary>
     private async Task LoadOpenVisitsAsync(int version)
     {
-        if (string.IsNullOrWhiteSpace(Username))
+        if (string.IsNullOrWhiteSpace(username))
         {
             openVisits = null;
             return;
@@ -508,7 +507,7 @@ public partial class SalesRepDashboard
             var response = await TimesheetService.GetTimesheetsAsync(
                 1,
                 VisitFetchSize,
-                username: Username,
+                username: username,
                 fromDate: WeekStart,
                 toDate: Today.AddDays(1).AddSeconds(-1));
 
