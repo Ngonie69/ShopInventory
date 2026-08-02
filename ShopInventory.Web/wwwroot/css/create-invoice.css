@@ -446,8 +446,8 @@
     min-width: 0;
 }
 
-/* The 20px gutter is measured from the app bar, not the viewport top, which
-   sits behind it. */
+/* The 20px gap is measured from the app bar, not the viewport top, or the bar
+   covers the first 54px of the aside once it pins. */
 .civ-aside {
     position: sticky;
     top: calc(var(--kf-topbar-h, 74px) + 20px);

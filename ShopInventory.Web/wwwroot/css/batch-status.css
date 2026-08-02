@@ -165,8 +165,8 @@
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
 
-/* Seated on the app bar, like every other Nocturne page header. `top: 0` would
-   pin it to the viewport, which is behind the fixed bar. */
+/* Seated on the app bar, not the viewport top: the bar is fixed and 74px tall,
+   so a header pinned at 0 parks itself underneath it and disappears. */
 .bsc-header {
     position: sticky;
     top: var(--kf-topbar-h, 74px);

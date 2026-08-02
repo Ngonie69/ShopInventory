@@ -158,13 +158,19 @@
 /* Seated on the app bar rather than the viewport top, so the breadcrumb and
    Refresh stay reachable while the editor scrolls. */
 
+/* Opaque, not frosted. The import draws this bar at 88% over a 10px backdrop
+   blur, and the missing 12% is only hidden while the compositor honours the
+   blur — where it doesn't, the hero's 30px <h1> slides under the bar and stays
+   legible through it, so the title reads twice, sliced by the border below.
+   A bar whose job is to hide what passes beneath it cannot depend on an effect
+   the compositor is free to skip, and `@supports` is no guard: it reports true
+   in exactly those environments. --apr-bg *is* the page ground, so the at-rest
+   look is unchanged in both themes. */
 .apr-head {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    background: color-mix(in srgb, var(--apr-bg) 88%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--apr-bg);
     border-bottom: 1px solid var(--apr-divider);
 }
 
