@@ -1104,6 +1104,16 @@
    accent is the blurple. Composition, spacing and type are taken from it as
    drawn; the palette is the portal's own, for the reason at the top of this
    file.
+
+   The staff sign-in is drawn from the matching design and reads as a sibling,
+   but it is not one. It lives as `.nsi` in an inline <style> block inside
+   Login.razor rather than a module file, and it is a fixed dark scheme —
+   `color-scheme: dark`, one palette, no `.dark-theme` branch. This page is
+   light-first and follows the app toggle. So the two sign-in pages cross a
+   theme boundary when a customer follows "Staff sign-in" or a staff member
+   follows "Customer portal". That is the current state, not an oversight
+   here: changing it means changing the staff page, and nothing in this file
+   can do it.
    ========================================================================== */
 
 .cpx.signin {
