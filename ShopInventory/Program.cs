@@ -584,6 +584,7 @@ try
     // Register invoice queue service for batch posting to SAP
     builder.Services.AddScoped<IInvoiceQueueService, InvoiceQueueService>();
     builder.Services.AddSingleton<IInvoiceFiscalizationQueue, InvoiceFiscalizationQueue>();
+    builder.Services.AddSingleton<IInvoiceFiscalStatusBackfillQueue, InvoiceFiscalStatusBackfillQueue>();
 
     // Register inventory transfer queue service for batch posting to SAP
     builder.Services.AddScoped<IInventoryTransferQueueService, InventoryTransferQueueService>();
@@ -594,6 +595,11 @@ try
     // In-process invoice-fiscalization queue consumer. Stays a plain hosted service: it drains an
     // in-memory Channel populated on this node, which cannot be handed to a clustered scheduler.
     builder.Services.AddHostedService<InvoiceFiscalizationBackgroundService>();
+
+    // Same shape, for the read-back that fills in fiscal status on invoices nobody has looked up
+    // yet. Separate queue and consumer because the two do opposite things: that one fiscalises a
+    // document, this one only asks REVMax what already happened to it.
+    builder.Services.AddHostedService<InvoiceFiscalStatusBackfillService>();
 
     // FetchDailyStockHandler is resolved directly by DailyStockSnapshotJob.
     builder.Services.AddScoped<ShopInventory.Features.DesktopIntegration.Commands.FetchDailyStock.FetchDailyStockHandler>();

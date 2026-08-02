@@ -18,38 +18,35 @@ internal static class InvoiceFiscalTransactionSync
     private const string NotFiscalisedStatus = "Not Fiscalised";
     private const string UnknownStatus = "Unknown";
 
-    public static async Task<int> SyncUnknownInvoicesAsync(
+    /// <summary>
+    /// Hands every invoice whose fiscal status is still unknown to the backfill queue, and reports
+    /// how many were accepted.
+    /// </summary>
+    /// <remarks>
+    /// This used to do the REVMax lookups here, in sequence, inside the caller's request. Each one
+    /// takes around three seconds, and the cap was 100 per page — so a page of invoices nobody had
+    /// looked at before could hold a user for over five minutes, and on 2026-08-02 one held a page
+    /// of 100 for 152 seconds across 46 lookups.
+    ///
+    /// Nothing the page renders depends on the lookup having finished. The status shown comes from
+    /// the local projection, and "Unknown" is the honest answer until the read-back lands; queueing
+    /// makes that a few seconds rather than never, without a user waiting on it.
+    /// </remarks>
+    public static int QueueUnknownInvoicesForBackfill(
         IEnumerable<InvoiceDto>? invoices,
-        IRevmaxClient revmaxClient,
-        ISender sender,
-        ILogger logger,
-        int maxLookups,
-        CancellationToken cancellationToken)
+        IInvoiceFiscalStatusBackfillQueue queue)
     {
-        if (invoices is null || maxLookups <= 0)
+        if (invoices is null)
         {
             return 0;
         }
 
-        var pendingInvoices = invoices
+        return invoices
             .Where(invoice => invoice.DocNum > 0
                 && string.Equals(invoice.FiscalizationStatus, UnknownStatus, StringComparison.OrdinalIgnoreCase))
             .GroupBy(invoice => invoice.DocNum)
             .Select(group => group.First())
-            .Take(maxLookups)
-            .ToList();
-
-        var syncedCount = 0;
-
-        foreach (var invoice in pendingInvoices)
-        {
-            if (await SyncAsync(invoice, revmaxClient, sender, logger, cancellationToken))
-            {
-                syncedCount++;
-            }
-        }
-
-        return syncedCount;
+            .Count(queue.TryQueue);
     }
 
     public static async Task<bool> SyncAsync(
