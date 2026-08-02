@@ -1,0 +1,1328 @@
+/* ==========================================================================
+   Transfer forms — Nocturne
+
+   Dresses both of the module's create forms — /transfer-request/create and
+   /inventory-transfer/create — from one sheet. They are the same document in
+   two moods (one asks for approval before stock moves, the other holds the
+   stock move itself for approval), they are entered from the same list page,
+   and an operator moves between them by the link at the foot of each. A second
+   sheet would be the same 700 lines with a different prefix, and the two would
+   drift. `tfm-` is the shared prefix.
+
+   Both are entered from /inventory-transfers and return there, so the palette
+   is that page's rather than a third one: the #9184d9 blurple accent and its
+   daylight counterpart #6d5fc4, the same #161826 / #232532 dark ground, the
+   same 4/8/14px radii. Only the layout is new, and it follows the Create
+   Invoice form — head with live stats, main column of cards, sticky aside
+   carrying the totals and the submit.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Every control is native HTML dressed by the classes below — no MudBlazor —
+   which means out-specifying app.css's global `.dark-theme input/select/
+   textarea` block. Each control selector is therefore two classes deep
+   (`.tfm .tfm-input`, 0-2-0) and wins over `.dark-theme input` (0-1-1)
+   regardless of load order.
+   ========================================================================== */
+
+.tfm {
+    --tfm-canvas: #f4f4f8;
+    --tfm-surface: #ffffff;
+    --tfm-surface-2: #eeeef4;
+    --tfm-border: #dedee9;
+    --tfm-hairline: #e6e6ef;
+    --tfm-rowline: #ebebf2;
+    --tfm-ink: #22243a;
+    --tfm-ink-2: #4a4c63;
+    --tfm-muted: #6b6d84;
+    --tfm-muted-2: #83859a;
+    --tfm-label: #6b6d84;
+    --tfm-accent: #6d5fc4;
+    /* Accent used as text on a surface has to clear contrast on its own, so
+       light darkens it where dark lightens it. */
+    --tfm-accent-hi: #5546ad;
+    --tfm-accent-rgb: 109, 95, 196;
+    --tfm-field: #ffffff;
+    --tfm-field-edge: #d4d6e2;
+    --tfm-field-edge-hi: #a9adc0;
+    --tfm-placeholder: #9498a8;
+    --tfm-readonly-ink: #4a4c63;
+    --tfm-ghost-edge: #d4d6e2;
+    --tfm-ghost-ink: #4a4c63;
+    --tfm-dashed: #cdcfdd;
+    --tfm-sep: #b4b6c6;
+    --tfm-ok: #1f6b4d;
+    --tfm-ok-rgb: 31, 107, 77;
+    --tfm-ok-ink: #17583f;
+    --tfm-warn: #8a5a12;
+    --tfm-warn-rgb: 138, 90, 18;
+    --tfm-bad: #a52f3c;
+    --tfm-bad-rgb: 165, 47, 60;
+    --tfm-bad-ink: #8d2733;
+    --tfm-solid: #2b2d44;
+    --tfm-solid-hi: #22243a;
+    --tfm-solid-ink: #ffffff;
+    --tfm-on-solid-ring: rgba(255, 255, 255, .3);
+    --tfm-shadow-rgb: 20, 22, 38;
+    --tfm-shadow-a: .14;
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --tfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 2l4.5 4.5L10.5 2' fill='none' stroke='%236b6d84' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --tfm-bloom: radial-gradient(760px 380px at 6% -8%, rgba(109, 95, 196, .10), transparent 70%);
+    --tfm-scheme: light;
+
+    color-scheme: var(--tfm-scheme);
+}
+
+.dark-theme .tfm {
+    --tfm-canvas: #161826;
+    --tfm-surface: #232532;
+    --tfm-surface-2: #2b2e3c;
+    --tfm-border: #3f424d;
+    --tfm-hairline: #343744;
+    --tfm-rowline: #31343f;
+    --tfm-ink: #e9e9ed;
+    --tfm-ink-2: #cfd0da;
+    --tfm-muted: #9397ab;
+    --tfm-muted-2: #7e8196;
+    --tfm-label: #9397ab;
+    --tfm-accent: #9184d9;
+    --tfm-accent-hi: #d2cefd;
+    --tfm-accent-rgb: 145, 132, 217;
+    --tfm-field: #1d1f2c;
+    --tfm-field-edge: rgba(233, 233, 237, .16);
+    --tfm-field-edge-hi: rgba(233, 233, 237, .45);
+    --tfm-placeholder: #6b6b77;
+    --tfm-readonly-ink: #b8bac6;
+    --tfm-ghost-edge: #4a4d59;
+    --tfm-ghost-ink: #c2c4d0;
+    --tfm-dashed: #444754;
+    --tfm-sep: #5b5e6c;
+    --tfm-ok: #7fd6ae;
+    --tfm-ok-rgb: 127, 214, 174;
+    --tfm-ok-ink: #b3e9d1;
+    --tfm-warn: #e5c07b;
+    --tfm-warn-rgb: 229, 192, 123;
+    --tfm-bad: #f0919b;
+    --tfm-bad-rgb: 240, 145, 155;
+    --tfm-bad-ink: #f6bcc3;
+    --tfm-solid: #e9e9ed;
+    --tfm-solid-hi: #ffffff;
+    --tfm-solid-ink: #161826;
+    --tfm-on-solid-ring: rgba(22, 24, 38, .25);
+    --tfm-shadow-rgb: 0, 0, 0;
+    --tfm-shadow-a: .55;
+    --tfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1.5 2l4.5 4.5L10.5 2' fill='none' stroke='%239397ab' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --tfm-bloom: radial-gradient(760px 380px at 6% -8%, rgba(145, 132, 217, .13), transparent 70%);
+    --tfm-scheme: dark;
+}
+
+.tfm {
+    background: var(--tfm-bloom), var(--tfm-canvas);
+    color: var(--tfm-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; inside this page that would flatten the accent,
+   warning and error colours on WebKit, so hand the fill back to `color`. */
+.tfm,
+.tfm * {
+    -webkit-text-fill-color: currentColor;
+    box-sizing: border-box;
+}
+
+.tfm ::selection {
+    background: rgba(var(--tfm-accent-rgb), .25);
+}
+
+.tfm :focus-visible {
+    outline: 2px solid var(--tfm-accent);
+    outline-offset: 2px;
+}
+
+.tfm-shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 22px 32px 56px;
+}
+
+.tfm-spacer {
+    flex: 1;
+}
+
+/* ── Breadcrumb strip ───────────────────────────────────────────────────── */
+.tfm-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--tfm-muted-2);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.tfm-crumbs a {
+    color: var(--tfm-muted);
+    text-decoration: none;
+}
+
+.tfm-crumbs a:hover {
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-crumb-sep {
+    color: var(--tfm-sep);
+}
+
+.tfm-crumb-now {
+    color: var(--tfm-ink);
+}
+
+.tfm-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border: 1px solid var(--tfm-border);
+    border-radius: 999px;
+    background: var(--tfm-surface);
+    color: var(--tfm-muted);
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+
+.tfm-pill .tfm-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+}
+
+.tfm-pill.is-ready {
+    border-color: rgba(var(--tfm-ok-rgb), .35);
+    background: rgba(var(--tfm-ok-rgb), .08);
+    color: var(--tfm-ok);
+}
+
+.tfm-pill.is-loading {
+    border-color: rgba(var(--tfm-warn-rgb), .35);
+    background: rgba(var(--tfm-warn-rgb), .08);
+    color: var(--tfm-warn);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.tfm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border: 1px solid var(--tfm-ghost-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tfm-ghost-ink);
+    font-family: inherit;
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.tfm-btn:hover:not(:disabled) {
+    border-color: var(--tfm-accent);
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-btn:active:not(:disabled) {
+    background: rgba(var(--tfm-accent-rgb), .1);
+}
+
+.tfm-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.tfm-btn-accent {
+    padding: 6px 12px;
+    border-color: var(--tfm-accent);
+    background: rgba(var(--tfm-accent-rgb), .08);
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-btn-accent:hover:not(:disabled) {
+    background: rgba(var(--tfm-accent-rgb), .16);
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-btn-solid {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    background: var(--tfm-solid);
+    color: var(--tfm-solid-ink);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background .15s;
+}
+
+.tfm-btn-solid:hover:not(:disabled) {
+    background: var(--tfm-solid-hi);
+}
+
+.tfm-btn-solid:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.tfm-btn-wide {
+    width: 100%;
+    padding: 11px;
+    border-radius: 8px;
+    font-size: 12px;
+    letter-spacing: .06em;
+}
+
+.tfm-btn-danger:hover:not(:disabled) {
+    border-color: var(--tfm-bad);
+    color: var(--tfm-bad);
+    background: transparent;
+}
+
+.tfm-gap-sm {
+    margin-top: 8px;
+}
+
+/* Drawn inline rather than set from the icon font: the glyph is this button's
+   whole label, so a font that fails to arrive would leave an empty square with
+   no way to tell it from a dead control. The path is Phosphor's `x` at 256. */
+.tfm-btn-x {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--tfm-ghost-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--tfm-muted-2);
+    cursor: pointer;
+    line-height: 1;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.tfm-btn-x svg {
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+    display: block;
+}
+
+.tfm-btn-x:hover:not(:disabled) {
+    border-color: var(--tfm-bad);
+    color: var(--tfm-bad);
+    background: rgba(var(--tfm-bad-rgb), .08);
+}
+
+.tfm-btn-x:disabled {
+    opacity: .35;
+    cursor: not-allowed;
+}
+
+/* ── Page head ──────────────────────────────────────────────────────────── */
+.tfm-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--tfm-hairline);
+}
+
+.tfm-head-main {
+    flex: 1;
+    min-width: 280px;
+}
+
+.tfm-kicker {
+    font-size: 10px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--tfm-accent-hi);
+    margin-bottom: 8px;
+}
+
+.tfm-head-main h1 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    color: var(--tfm-ink);
+}
+
+.tfm-head-main p {
+    margin: 7px 0 0;
+    font-size: 13px;
+    color: var(--tfm-muted);
+}
+
+.tfm-stats {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+.tfm-stat {
+    padding: 0 22px;
+    border-left: 1px solid var(--tfm-hairline);
+}
+
+.tfm-stat:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.tfm-stat:last-child {
+    padding-right: 0;
+}
+
+.tfm-stat-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--tfm-muted-2);
+    margin-bottom: 5px;
+}
+
+.tfm-stat-v {
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm-stat-v.is-accent {
+    color: var(--tfm-accent-hi);
+}
+
+/* ── Step indicator ─────────────────────────────────────────────────────────
+   Only the direct transfer carries this: it posts real stock, so it is worth
+   showing the operator how far through they are. The request form is short
+   enough not to need it. */
+.tfm-steps {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+    padding: 12px 16px;
+    border: 1px solid var(--tfm-border);
+    border-radius: 12px;
+    background: var(--tfm-surface);
+}
+
+.tfm-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--tfm-muted-2);
+    font-size: 12.5px;
+}
+
+.tfm-step-n {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--tfm-border);
+    background: var(--tfm-surface-2);
+    color: var(--tfm-muted-2);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.tfm-step.is-active {
+    color: var(--tfm-ink);
+}
+
+.tfm-step.is-active .tfm-step-n {
+    border-color: var(--tfm-accent);
+    background: rgba(var(--tfm-accent-rgb), .12);
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-step.is-done {
+    color: var(--tfm-ink-2);
+}
+
+.tfm-step.is-done .tfm-step-n {
+    border-color: rgba(var(--tfm-ok-rgb), .4);
+    background: rgba(var(--tfm-ok-rgb), .14);
+    color: var(--tfm-ok);
+}
+
+/* Capped rather than free-growing: left to `flex: 1` on a 1440px shell the rail
+   pushes the last step against the right edge, which reads as a layout accident
+   rather than as a progress indicator. */
+.tfm-step-sep {
+    flex: 1;
+    min-width: 16px;
+    max-width: 120px;
+    height: 1px;
+    background: var(--tfm-border);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.tfm-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 322px;
+    gap: 20px;
+    align-items: start;
+    margin-top: 22px;
+}
+
+.tfm-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+/* The 20px gap is measured from the app bar, not the viewport top, or the bar
+   covers the first 54px of the aside once it pins. */
+.tfm-aside {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 20px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.tfm-card {
+    background: var(--tfm-surface);
+    border: 1px solid var(--tfm-border);
+    border-radius: 14px;
+}
+
+.tfm-card-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--tfm-border);
+}
+
+.tfm-card-hd > i {
+    font-size: 16px;
+    color: var(--tfm-accent);
+}
+
+/* A whole card header that toggles its body. It is a real <button> so it is
+   reachable from the keyboard, which a click-handled <div> would not be. */
+.tfm-card-hd.is-toggle {
+    width: 100%;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tfm-card-hd.is-toggle:hover {
+    background: rgba(var(--tfm-accent-rgb), .04);
+}
+
+.tfm-card-hd.is-collapsed {
+    border-bottom-color: transparent;
+}
+
+.tfm-card-hd h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--tfm-ink);
+}
+
+.tfm-count {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--tfm-surface-2);
+    color: var(--tfm-ghost-ink);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm-note {
+    font-size: 11px;
+    color: var(--tfm-muted-2);
+}
+
+.tfm-card-bd {
+    padding: 18px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+.tfm-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px 16px;
+}
+
+.tfm-span2 {
+    grid-column: span 2;
+}
+
+.tfm-span4 {
+    grid-column: span 4;
+}
+
+.tfm-lab {
+    display: block;
+    min-width: 0;
+}
+
+.tfm-lab-t {
+    display: block;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--tfm-label);
+    margin-bottom: 6px;
+}
+
+.tfm-req {
+    color: var(--tfm-bad);
+}
+
+.tfm .tfm-input,
+.tfm .tfm-select,
+.tfm .tfm-area {
+    width: 100%;
+    background: var(--tfm-field);
+    border: 1px solid var(--tfm-field-edge);
+    border-radius: 8px;
+    padding: 9px 11px;
+    color: var(--tfm-ink);
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.35;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s;
+}
+
+.tfm .tfm-select {
+    padding-right: 28px;
+    background-image: var(--tfm-caret);
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.tfm .tfm-area {
+    min-height: 62px;
+    resize: vertical;
+}
+
+.tfm .tfm-input:hover:not(:disabled):not([readonly]),
+.tfm .tfm-select:hover:not(:disabled),
+.tfm .tfm-area:hover:not(:disabled) {
+    border-color: var(--tfm-field-edge-hi);
+}
+
+.tfm .tfm-input:focus,
+.tfm .tfm-select:focus,
+.tfm .tfm-area:focus {
+    border-color: var(--tfm-accent);
+    outline: none;
+}
+
+.tfm .tfm-input::placeholder,
+.tfm .tfm-area::placeholder {
+    color: var(--tfm-placeholder);
+    -webkit-text-fill-color: var(--tfm-placeholder);
+    opacity: 1;
+}
+
+.tfm .tfm-input:disabled,
+.tfm .tfm-select:disabled,
+.tfm .tfm-area:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.tfm .tfm-input.is-bad,
+.tfm .tfm-select.is-bad {
+    border-color: var(--tfm-bad);
+}
+
+.tfm-field-err {
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--tfm-bad);
+}
+
+.tfm-field-meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 38px;
+    font-size: 13px;
+    color: var(--tfm-readonly-ink);
+    line-height: 1.4;
+}
+
+.tfm-field-meta i {
+    color: var(--tfm-muted-2);
+    flex-shrink: 0;
+}
+
+.tfm-field-meta small {
+    color: var(--tfm-muted-2);
+    font-size: 11.5px;
+}
+
+/* ── Route strip ────────────────────────────────────────────────────────── */
+.tfm-route {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin: 16px 18px 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--tfm-border);
+    border-radius: 10px;
+    background: rgba(var(--tfm-accent-rgb), .05);
+}
+
+.tfm-route-end {
+    min-width: 0;
+}
+
+.tfm-route-k {
+    font-size: 9.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--tfm-muted-2);
+    margin-bottom: 3px;
+}
+
+.tfm-route-v {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--tfm-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm-route-v.is-empty {
+    color: var(--tfm-muted-2);
+    font-weight: 400;
+}
+
+.tfm-route-sub {
+    font-size: 11.5px;
+    color: var(--tfm-muted);
+}
+
+.tfm-route-arrow {
+    color: var(--tfm-accent);
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+/* ── Combobox (item picker) ─────────────────────────────────────────────── */
+.tfm-combo {
+    position: relative;
+}
+
+.tfm-combo-clear {
+    position: absolute;
+    top: 50%;
+    right: 7px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--tfm-muted-2);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.tfm-combo-clear:hover {
+    color: var(--tfm-bad);
+}
+
+.tfm-drop {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--tfm-surface);
+    border: 1px solid var(--tfm-border);
+    border-radius: 8px;
+    box-shadow: 0 18px 44px rgba(var(--tfm-shadow-rgb), var(--tfm-shadow-a));
+}
+
+.tfm-drop.is-wide {
+    min-width: 340px;
+}
+
+.tfm-drop-i {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 11px;
+    border: none;
+    border-bottom: 1px solid var(--tfm-rowline);
+    background: transparent;
+    color: var(--tfm-ink-2);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tfm-drop-i:last-child {
+    border-bottom: none;
+}
+
+.tfm-drop-i:hover,
+.tfm-drop-i.is-sel {
+    background: rgba(var(--tfm-accent-rgb), .1);
+    color: var(--tfm-ink);
+}
+
+.tfm-drop-code {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm-drop-sub {
+    display: block;
+    font-size: 11px;
+    color: var(--tfm-muted-2);
+}
+
+.tfm-drop-uom {
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--tfm-border);
+    background: var(--tfm-surface-2);
+    color: var(--tfm-muted);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.tfm-drop-empty {
+    padding: 10px 11px;
+    font-size: 12px;
+    color: var(--tfm-muted-2);
+}
+
+/* ── Line items ─────────────────────────────────────────────────────────── */
+.tfm-lines {
+    overflow-x: auto;
+    padding: 0 18px 18px;
+}
+
+/* `overflow-x: auto` also clips vertically, which would cut the item picker
+   off at the bottom of the table. While a picker is open the clip is lifted;
+   at the widths where the rows fit nothing overflows either way. */
+.tfm-lines.is-picking {
+    overflow: visible;
+}
+
+.tfm-lines-inner {
+    min-width: 780px;
+}
+
+.tfm-row {
+    display: grid;
+    grid-template-columns: 24px minmax(150px, 220px) minmax(140px, 1fr) 58px 104px 108px 26px;
+    gap: 10px;
+    align-items: center;
+    padding: 9px 0;
+    border-top: 1px solid var(--tfm-rowline);
+}
+
+.tfm-row.is-head {
+    padding: 12px 0 9px;
+    border-top: none;
+    align-items: end;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--tfm-muted-2);
+}
+
+.tfm-r {
+    text-align: right;
+}
+
+.tfm-n {
+    font-size: 11px;
+    color: var(--tfm-muted-2);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.tfm .tfm-cell {
+    padding: 8px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm .tfm-num {
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm-desc {
+    font-size: 12.5px;
+    color: var(--tfm-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tfm-desc.is-empty {
+    color: var(--tfm-muted-2);
+}
+
+.tfm-uom {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--tfm-border);
+    background: var(--tfm-surface-2);
+    color: var(--tfm-muted);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.tfm-uom.is-decimal {
+    border-color: rgba(var(--tfm-accent-rgb), .35);
+    background: rgba(var(--tfm-accent-rgb), .1);
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-stock {
+    font-size: 12.5px;
+    color: var(--tfm-ink-2);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.tfm-stock small {
+    display: block;
+    font-size: 10px;
+    color: var(--tfm-muted-2);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.tfm-stock.is-short {
+    color: var(--tfm-warn);
+}
+
+.tfm-stock.is-idle {
+    color: var(--tfm-muted-2);
+}
+
+.tfm-row-err {
+    grid-column: 2 / -1;
+    font-size: 11px;
+    color: var(--tfm-bad);
+}
+
+.tfm-addline {
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px;
+    border: 1px dashed var(--tfm-dashed);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--tfm-muted);
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+}
+
+.tfm-addline:hover {
+    border-color: var(--tfm-accent);
+    color: var(--tfm-accent-hi);
+}
+
+.tfm-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 34px 0;
+    font-size: 12.5px;
+    color: var(--tfm-muted);
+}
+
+/* ── Totals panel ───────────────────────────────────────────────────────── */
+.tfm-total-card {
+    padding: 18px;
+}
+
+.tfm-total-hd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.tfm-total-k {
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--tfm-label);
+}
+
+.tfm-total-v {
+    font-size: 38px;
+    font-weight: 500;
+    color: var(--tfm-accent-hi);
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tfm-total-sub {
+    font-size: 12px;
+    color: var(--tfm-muted);
+    margin-top: 4px;
+    margin-bottom: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Pre-flight checks ──────────────────────────────────────────────────── */
+.tfm-panel {
+    padding: 16px 18px;
+}
+
+.tfm-panel-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 13px;
+}
+
+.tfm-panel-hd i {
+    font-size: 15px;
+    color: var(--tfm-accent);
+}
+
+.tfm-panel-t {
+    font-size: 12px;
+    letter-spacing: .04em;
+    color: var(--tfm-ink);
+}
+
+.tfm-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.tfm-checks-i {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12.5px;
+    color: var(--tfm-ink-2);
+}
+
+.tfm-checks-i.is-no {
+    color: var(--tfm-muted-2);
+}
+
+.tfm-checks-ic {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(var(--tfm-ok-rgb), .14);
+    color: var(--tfm-ok);
+    /* The stroke weight of the glyph, not a filled variant: Phosphor's `ph-fill
+       ph-check` is a filled tile with a knocked-out tick, which at this size
+       reads as a solid blob rather than as a tick. */
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.tfm-checks-i.is-no .tfm-checks-ic {
+    background: var(--tfm-surface-2);
+    color: var(--tfm-muted-2);
+}
+
+/* ── Notes, alerts, errors ──────────────────────────────────────────────── */
+.tfm-info-note {
+    display: flex;
+    gap: 9px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--tfm-border);
+    background: rgba(var(--tfm-accent-rgb), .04);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--tfm-muted);
+}
+
+.tfm-info-note > i {
+    font-size: 14px;
+    color: var(--tfm-accent);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.tfm-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.tfm-alert > i {
+    font-size: 15px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.tfm-alert.is-ok {
+    border: 1px solid rgba(var(--tfm-ok-rgb), .35);
+    background: rgba(var(--tfm-ok-rgb), .07);
+    color: var(--tfm-ok-ink);
+}
+
+.tfm-alert.is-ok > i {
+    color: var(--tfm-ok);
+}
+
+.tfm-alert.is-err {
+    border: 1px solid rgba(var(--tfm-bad-rgb), .35);
+    background: rgba(var(--tfm-bad-rgb), .07);
+    color: var(--tfm-bad-ink);
+}
+
+.tfm-alert.is-err > i {
+    color: var(--tfm-bad);
+}
+
+.tfm-alert.is-warn {
+    border: 1px solid rgba(var(--tfm-warn-rgb), .35);
+    background: rgba(var(--tfm-warn-rgb), .08);
+    color: var(--tfm-warn);
+}
+
+.tfm-alert.is-warn > i {
+    color: var(--tfm-warn);
+}
+
+/* Sits inside a card body rather than at page level, so it carries no margin. */
+.tfm-alert.is-inline {
+    margin-top: 0;
+    margin-bottom: 14px;
+    font-size: 12px;
+}
+
+.tfm-alert-bd {
+    flex: 1;
+    min-width: 0;
+}
+
+.tfm-alert-x {
+    border: none;
+    background: transparent;
+    color: inherit;
+    opacity: .55;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.tfm-alert-x:hover {
+    opacity: 1;
+}
+
+.tfm-err-panel {
+    margin-bottom: 12px;
+    padding: 11px 13px;
+    border: 1px solid rgba(var(--tfm-bad-rgb), .3);
+    border-radius: 8px;
+    background: rgba(var(--tfm-bad-rgb), .06);
+}
+
+.tfm-err-panel-t {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--tfm-bad);
+    margin-bottom: 6px;
+}
+
+.tfm-err-panel ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--tfm-bad-ink);
+}
+
+/* The cross-link between the two forms, at the foot of the aside. */
+.tfm-aside-foot {
+    text-align: center;
+    font-size: 11.5px;
+    color: var(--tfm-muted-2);
+}
+
+/* On its own line: at the aside's 322px the question and the link together wrap
+   mid-phrase, breaking the link's own words across lines. */
+.tfm-aside-foot a {
+    display: block;
+    margin-top: 3px;
+    color: var(--tfm-accent-hi);
+    text-decoration: none;
+}
+
+.tfm-aside-foot a:hover {
+    text-decoration: underline;
+}
+
+/* ── Spinner ────────────────────────────────────────────────────────────── */
+.tfm-spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(var(--tfm-accent-rgb), .25);
+    border-top-color: var(--tfm-accent);
+    border-radius: 50%;
+    display: inline-block;
+    animation: tfm-spin .7s linear infinite;
+    flex-shrink: 0;
+}
+
+.tfm-spin.on-solid {
+    border-color: var(--tfm-on-solid-ring);
+    border-top-color: var(--tfm-solid-ink);
+}
+
+@keyframes tfm-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow viewports ───────────────────────────────────────────────────────
+   The design is a desktop workspace and carries no breakpoints of its own;
+   these keep it usable below the 1440px shell without changing any values. */
+@media (max-width: 1120px) {
+    .tfm-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tfm-aside {
+        position: static;
+    }
+}
+
+@media (max-width: 900px) {
+    .tfm-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tfm-span4 {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 720px) {
+    .tfm-shell {
+        padding: 18px 16px 44px;
+    }
+
+    .tfm-head-main h1 {
+        font-size: 24px;
+    }
+
+    .tfm-stats {
+        gap: 12px 0;
+    }
+
+    .tfm-stat {
+        padding: 0 16px;
+    }
+
+    .tfm-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .tfm-span2,
+    .tfm-span4 {
+        grid-column: span 1;
+    }
+}

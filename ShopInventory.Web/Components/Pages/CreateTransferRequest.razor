@@ -1,426 +1,553 @@
 @page "/transfer-request/create"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using ShopInventory.Web.Data
 @attribute [Authorize(Roles = UserRoles.InventoryTransferRoles)]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
+@inject IWarehouseStockCacheService StockCacheService
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateTransferRequest> Logger
 @inject AuthenticationStateProvider AuthStateProvider
-@inject IAppSettingsProvider AppSettings
 @rendermode InteractiveServer
 
 <PageTitle>Create Transfer Request - Shop Inventory</PageTitle>
 
-<style>
-    .transfer-page {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
+@* Styles live in wwwroot/css/transfer-request.css (linked from App.razor). The
+   page borrows the Inventory Transfers palette — it is entered from that page
+   and returns to it — and follows the app's theme toggle like every other page.
 
-    .transfer-card {
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-        border: none;
-        overflow: hidden;
-    }
+   Every control here is native HTML: the MudBlazor autocompletes and date
+   pickers this page was built from are gone, so the design's own field
+   treatment applies without fighting MudBlazor's stylesheet. *@
 
-    .transfer-card .card-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        padding: 1rem 1.25rem;
-    }
+<div class="tfm">
+    <div class="tfm-shell">
 
-    .transfer-card .card-header h5 {
-        margin: 0;
-        font-weight: 600;
-    }
-
-    .summary-card {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: white;
-    }
-
-    .summary-card .card-header {
-        background: transparent;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    .btn-create-transfer {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border: none;
-        padding: 0.75rem 1.5rem;
-        font-weight: 600;
-        transition: transform 0.2s, box-shadow 0.2s;
-    }
-
-    .btn-create-transfer:hover:not(:disabled) {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-
-    .line-card {
-        background: #ffffff;
-        border: 1px solid #e9ecef;
-        border-radius: 10px;
-        padding: 1rem;
-        margin-bottom: 0.75rem;
-        transition: box-shadow 0.2s, border-color 0.2s;
-    }
-
-    .line-card:hover {
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        border-color: #667eea;
-    }
-
-    .line-card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.75rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 1px solid #f0f0f0;
-    }
-
-    .line-number {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-
-    .btn-remove-line {
-        color: #dc3545;
-        border: 1px solid #dc3545;
-        background: transparent;
-        padding: 0.25rem 0.6rem;
-        border-radius: 6px;
-        transition: all 0.2s;
-        font-size: 0.85rem;
-    }
-
-    .btn-remove-line:hover {
-        background: #dc3545;
-        color: white;
-        transform: scale(1.05);
-    }
-
-    .btn-remove-line:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
-    .btn-add-line {
-        border: 2px dashed #667eea;
-        color: #667eea;
-        background: transparent;
-        padding: 0.75rem 1.25rem;
-        border-radius: 8px;
-        transition: all 0.2s;
-    }
-
-    .btn-add-line:hover {
-        background: rgba(102, 126, 234, 0.1);
-        border-color: #764ba2;
-        color: #764ba2;
-    }
-</style>
-
-<div class="transfer-page">
-    <div class="container-fluid">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-                <h2 class="mb-1"><i class="bi bi-file-earmark-plus me-2"></i>Create Transfer Request</h2>
-                <p class="text-muted mb-0">Request stock transfer between warehouses (requires approval)</p>
-            </div>
-            <a href="/inventory-transfers" class="btn btn-outline-secondary">
-                <i class="bi bi-arrow-left me-1"></i>Back to Transfers
-            </a>
+        <!-- ── Breadcrumb strip ───────────────────────────────────────── -->
+        <div class="tfm-crumbs">
+            <a href="/inventory-transfers">Inventory transfers</a>
+            <span class="tfm-crumb-sep">/</span>
+            <span class="tfm-crumb-now">New request</span>
+            <span class="tfm-spacer"></span>
+            @if (isLoadingMasterData)
+            {
+                <span class="tfm-pill is-loading">
+                    <span class="tfm-spin"></span>Loading master data&hellip;
+                </span>
+            }
+            else
+            {
+                <span class="tfm-pill is-ready">
+                    <span class="tfm-dot"></span>@cachedProducts.Count.ToString("N0") items &middot;
+                    @cachedWarehouses.Count warehouses
+                </span>
+            }
+            <a href="/inventory-transfers" class="tfm-btn"><i class="ph ph-arrow-left"></i>Back</a>
         </div>
 
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <i class="bi bi-exclamation-triangle me-2"></i>@errorMessage
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small" />
+        <!-- ── Head ───────────────────────────────────────────────────── -->
+        <div class="tfm-head">
+            <div class="tfm-head-main">
+                <div class="tfm-kicker">Warehousing</div>
+                <h1>Create transfer request</h1>
+                <p>Request stock movement between warehouses &middot; goes to approval before any stock moves</p>
             </div>
-        }
-
-        @if (!string.IsNullOrEmpty(successMessage))
-        {
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                <i class="bi bi-check-circle me-2"></i>@successMessage
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null"
-                               Size="Size.Small" />
-            </div>
-        }
-
-        <div class="row">
-            <!-- Main Form -->
-            <div class="col-lg-8">
-                <!-- Header Info Card -->
-                <div class="card transfer-card mb-4">
-                    <div class="card-header">
-                        <h5><i class="bi bi-info-circle me-2"></i>Transfer Request Details</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">From Warehouse *</label>
-                                @if (isLoadingWarehouses)
-                                {
-                                    <div class="d-flex align-items-center">
-                                        <span class="spinner-border spinner-border-sm me-2"></span>
-                                        <span class="text-muted">Loading warehouses...</span>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <MudAutocomplete T="WarehouseDto" @bind-Value="selectedFromWarehouse"
-                                                     Label="Select source warehouse..." SearchFunc="SearchWarehousesAsync"
-                                                     ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                                     Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                     ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                     DebounceInterval="150" Class="mt-0">
-                                        <ItemTemplate>
-                                            <div class="d-flex flex-column">
-                                                <span class="fw-semibold">@context.WarehouseCode</span>
-                                                <small class="text-muted">@context.WarehouseName</small>
-                                            </div>
-                                        </ItemTemplate>
-                                    </MudAutocomplete>
-                                }
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">To Warehouse *</label>
-                                @if (isLoadingWarehouses)
-                                {
-                                    <div class="d-flex align-items-center">
-                                        <span class="spinner-border spinner-border-sm me-2"></span>
-                                        <span class="text-muted">Loading warehouses...</span>
-                                    </div>
-                                }
-                                else
-                                {
-                                    <MudAutocomplete T="WarehouseDto" @bind-Value="selectedToWarehouse"
-                                                     Label="Select destination warehouse..." SearchFunc="SearchWarehousesAsync"
-                                                     ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                                     Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                     ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                     DebounceInterval="150" Class="mt-0">
-                                        <ItemTemplate>
-                                            <div class="d-flex flex-column">
-                                                <span class="fw-semibold">@context.WarehouseCode</span>
-                                                <small class="text-muted">@context.WarehouseName</small>
-                                            </div>
-                                        </ItemTemplate>
-                                    </MudAutocomplete>
-                                }
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Document Date</label>
-                                <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Due Date</label>
-                                <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                               DateFormat="@AppSettings.DateFormat" Editable="true" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Requester Name</label>
-                                <input type="text" class="form-control" @bind="requesterName"
-                                       placeholder="Enter your name" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Requester Email</label>
-                                <input type="email" class="form-control" @bind="requesterEmail"
-                                       placeholder="Enter your email" />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Comments</label>
-                                <textarea class="form-control" rows="2" @bind="comments"
-                                          placeholder="Add any notes or comments..."></textarea>
-                            </div>
-                        </div>
+            <div class="tfm-stats">
+                <div class="tfm-stat">
+                    <div class="tfm-stat-k">Lines</div>
+                    <div class="tfm-stat-v">@CompletedLineCount</div>
+                </div>
+                <div class="tfm-stat">
+                    <div class="tfm-stat-k">Total quantity</div>
+                    <div class="tfm-stat-v is-accent">@TotalQuantity.ToString("N2")</div>
+                </div>
+                <div class="tfm-stat">
+                    <div class="tfm-stat-k">Route</div>
+                    <div class="tfm-stat-v">
+                        @(selectedFromWarehouse?.WarehouseCode ?? "—") &rarr;
+                        @(selectedToWarehouse?.WarehouseCode ?? "—")
                     </div>
                 </div>
+            </div>
+        </div>
 
-                <!-- Line Items Card -->
-                <div class="card transfer-card mb-4">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>Transfer Items</h5>
-                        <span class="badge bg-light text-dark">@lines.Count item(s)</span>
+        <!-- ── Alerts ─────────────────────────────────────────────────── -->
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+            <div class="tfm-alert is-ok" role="status">
+                <i class="ph-fill ph-check-circle"></i>
+                <div class="tfm-alert-bd">
+                    @successMessage
+                    <a href="/inventory-transfers" class="tfm-btn tfm-gap-sm">
+                        <i class="ph ph-list-checks"></i>View transfer requests
+                    </a>
+                </div>
+                <button type="button" class="tfm-alert-x" @onclick="() => successMessage = null"
+                        aria-label="Dismiss">
+                    <i class="ph ph-x"></i>
+                </button>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="tfm-alert is-err" role="alert">
+                <i class="ph-fill ph-warning-octagon"></i>
+                <div class="tfm-alert-bd">@errorMessage</div>
+                <button type="button" class="tfm-alert-x" @onclick="() => errorMessage = null"
+                        aria-label="Dismiss">
+                    <i class="ph ph-x"></i>
+                </button>
+            </div>
+        }
+
+        <div class="tfm-grid">
+            <div class="tfm-main">
+
+                <!-- ── Request details ────────────────────────────────── -->
+                <section class="tfm-card">
+                    <div class="tfm-card-hd">
+                        <i class="ph ph-info"></i>
+                        <h2>Request details</h2>
                     </div>
-                    <div class="card-body">
-                        @if (isLoadingProducts)
-                        {
-                            <div class="text-center py-4">
-                                <div class="spinner-border text-primary" role="status"></div>
-                                <p class="mt-2 text-muted">Loading products...</p>
-                            </div>
-                        }
-                        else
-                        {
-                            @foreach (var line in lines)
+                    <div class="tfm-card-bd tfm-fields">
+                        <label class="tfm-lab tfm-span2">
+                            <span class="tfm-lab-t">From warehouse <span class="tfm-req">*</span></span>
+                            <select class="tfm-select @(FromWarehouseError is not null ? "is-bad" : "")"
+                                    value="@selectedFromWarehouse?.WarehouseCode"
+                                    @onchange="e => OnFromWarehouseChangedAsync(e.Value?.ToString())"
+                                    disabled="@isLoadingMasterData">
+                                <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select source warehouse…")</option>
+                                @foreach (var warehouse in cachedWarehouses)
+                                {
+                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                }
+                            </select>
+                            @if (FromWarehouseError is not null)
                             {
-                                var index = lines.IndexOf(line);
-                                <div class="line-card">
-                                    <div class="line-card-header">
-                                        <div class="d-flex align-items-center">
-                                            <div class="line-number me-2">@(index + 1)</div>
-                                            <span class="text-muted small">Line Item</span>
-                                        </div>
-                                        <MudButton Class="btn-remove-line" OnClick="() => RemoveLine(line)"
-                                                   title="Remove line item">
-                                            <i class="bi bi-trash me-1"></i>Remove
-                                        </MudButton>
-                                    </div>
-                                    <div class="row g-3">
-                                        <div class="col-md-8">
-                                            <label class="form-label small">Product *</label>
-                                            <MudAutocomplete T="ProductDto" Value="line.SelectedProduct"
-                                                             ValueChanged="(p) => OnProductSelected(line, p)" Label="Search product..."
-                                                             SearchFunc="SearchProductsAsync"
-                                                             ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
-                                                             Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                             ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                             DebounceInterval="150">
-                                                <ItemTemplate>
-                                                    <div class="d-flex flex-column">
-                                                        <span class="fw-semibold">@context.ItemCode</span>
-                                                        <small class="text-muted">@context.ItemName</small>
-                                                        @if (context.QuantityInStock > 0)
+                                <div class="tfm-field-err">@FromWarehouseError</div>
+                            }
+                        </label>
+
+                        <label class="tfm-lab tfm-span2">
+                            <span class="tfm-lab-t">To warehouse <span class="tfm-req">*</span></span>
+                            <select class="tfm-select @(ToWarehouseError is not null ? "is-bad" : "")"
+                                    value="@selectedToWarehouse?.WarehouseCode"
+                                    @onchange="e => OnToWarehouseChanged(e.Value?.ToString())"
+                                    disabled="@isLoadingMasterData">
+                                <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select destination warehouse…")</option>
+                                @foreach (var warehouse in cachedWarehouses)
+                                {
+                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                }
+                            </select>
+                            @if (ToWarehouseError is not null)
+                            {
+                                <div class="tfm-field-err">@ToWarehouseError</div>
+                            }
+                        </label>
+
+                        <label class="tfm-lab">
+                            <span class="tfm-lab-t">Document date</span>
+                            <input type="date" class="tfm-input" @bind="docDate" />
+                        </label>
+
+                        <label class="tfm-lab">
+                            <span class="tfm-lab-t">Due date</span>
+                            <input type="date" class="tfm-input" @bind="dueDate" />
+                        </label>
+
+                        @* Read-only, not an input: the API overwrites both fields with the signed-in
+                           user's own name and email before it builds the SAP document, so an editable
+                           box here would quietly discard whatever was typed into it. *@
+                        <div class="tfm-lab tfm-span2">
+                            <span class="tfm-lab-t">Requested by</span>
+                            <div class="tfm-field-meta">
+                                <i class="ph ph-user-circle"></i>
+                                <span>
+                                    @(string.IsNullOrWhiteSpace(requesterName) ? "Signed-in user" : requesterName)
+                                    @if (!string.IsNullOrWhiteSpace(requesterEmail))
+                                    {
+                                        <small>&middot; @requesterEmail</small>
+                                    }
+                                </span>
+                            </div>
+                        </div>
+
+                        <label class="tfm-lab tfm-span4">
+                            <span class="tfm-lab-t">Comments</span>
+                            <textarea class="tfm-area" rows="2" @bind="comments"
+                                      placeholder="Reason for the request, reference numbers, anything the approver should know…"></textarea>
+                        </label>
+                    </div>
+
+                    <div class="tfm-route">
+                        <div class="tfm-route-end">
+                            <div class="tfm-route-k">From</div>
+                            <div class="tfm-route-v @(selectedFromWarehouse is null ? "is-empty" : "")">
+                                @(selectedFromWarehouse?.WarehouseCode ?? "Not selected")
+                            </div>
+                            @if (selectedFromWarehouse is not null)
+                            {
+                                <div class="tfm-route-sub">@selectedFromWarehouse.WarehouseName</div>
+                            }
+                        </div>
+                        <i class="ph ph-arrow-right tfm-route-arrow"></i>
+                        <div class="tfm-route-end">
+                            <div class="tfm-route-k">To</div>
+                            <div class="tfm-route-v @(selectedToWarehouse is null ? "is-empty" : "")">
+                                @(selectedToWarehouse?.WarehouseCode ?? "Not selected")
+                            </div>
+                            @if (selectedToWarehouse is not null)
+                            {
+                                <div class="tfm-route-sub">@selectedToWarehouse.WarehouseName</div>
+                            }
+                        </div>
+                        <span class="tfm-spacer"></span>
+                        <span class="tfm-note">Stock is shown for the source warehouse</span>
+                    </div>
+                </section>
+
+                <!-- ── Transfer items ─────────────────────────────────── -->
+                <section class="tfm-card">
+                    <div class="tfm-card-hd">
+                        <i class="ph ph-list-dashes"></i>
+                        <h2>Transfer items</h2>
+                        <span class="tfm-count">@lines.Count</span>
+                        <span class="tfm-spacer"></span>
+                        <button type="button" class="tfm-btn tfm-btn-accent" @onclick="AddLine">
+                            <i class="ph ph-plus"></i>Add line
+                        </button>
+                    </div>
+
+                    <div class="tfm-lines @(lines.Any(l => l.ShowDropdown) ? "is-picking" : "")">
+                        <div class="tfm-lines-inner">
+                            <div class="tfm-row is-head">
+                                <div></div>
+                                <div>Item <span class="tfm-req">*</span></div>
+                                <div>Description</div>
+                                <div>Unit</div>
+                                <div class="tfm-r">Quantity <span class="tfm-req">*</span></div>
+                                <div class="tfm-r">In stock</div>
+                                <div></div>
+                            </div>
+
+                            @if (isLoadingMasterData)
+                            {
+                                <div class="tfm-loading">
+                                    <span class="tfm-spin"></span>Loading products and warehouses&hellip;
+                                </div>
+                            }
+                            else
+                            {
+                                @for (var i = 0; i < lines.Count; i++)
+                                {
+                                    var index = i;
+                                    var line = lines[index];
+                                    var lineError = hasAttemptedSubmit ? DescribeLineProblem(line) : null;
+
+                                    @* Keyed on the line itself: without it, removing a row leaves
+                                       the following rows' inputs holding the values of the rows
+                                       they were diffed against. *@
+                                    <div class="tfm-row" @key="line">
+                                        <div class="tfm-n">@(index + 1)</div>
+
+                                        <div class="tfm-combo">
+                                            <input class="tfm-input tfm-cell @(lineError is not null && line.SelectedProduct is null ? "is-bad" : "")"
+                                                   value="@line.ItemCode"
+                                                   @oninput="e => OnItemInput(line, e.Value?.ToString())"
+                                                   @onfocus="() => OnItemFocus(line)"
+                                                   @onblur="() => line.ShowDropdown = false"
+                                                   placeholder="Search item…" autocomplete="off" />
+                                            @if (line.ShowDropdown)
+                                            {
+                                                <div class="tfm-drop is-wide">
+                                                    @if (!line.Matches.Any())
+                                                    {
+                                                        <div class="tfm-drop-empty">No items match that search.</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var product in line.Matches)
                                                         {
-                                                            <small class="text-success">Stock:
-                                                                @context.QuantityInStock.ToString("N0")</small>
-                                                            }
-                                                        </div>
-                                                    </ItemTemplate>
-                                                </MudAutocomplete>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="form-label small">Quantity *</label>
-                                                <input type="number" class="form-control" @bind="line.Quantity" min="0.01"
-                                                       step="0.01" placeholder="0.00" />
-                                            </div>
+                                                            <button type="button" class="tfm-drop-i"
+                                                                    @onmousedown:preventDefault="true"
+                                                                    @onclick="() => SelectProductAsync(line, product)">
+                                                                <span>
+                                                                    <span class="tfm-drop-code">@product.ItemCode</span>
+                                                                    <span class="tfm-drop-sub">@Truncate(product.ItemName, 40)</span>
+                                                                </span>
+                                                                @if (!string.IsNullOrWhiteSpace(product.UoM))
+                                                                {
+                                                                    <span class="tfm-drop-uom">@product.UoM</span>
+                                                                }
+                                                            </button>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
                                         </div>
+
+                                        <div class="tfm-desc @(line.SelectedProduct is null ? "is-empty" : "")"
+                                             title="@line.SelectedProduct?.ItemName">
+                                            @(line.SelectedProduct?.ItemName ?? "—")
+                                        </div>
+
+                                        <div>
+                                            @if (!string.IsNullOrWhiteSpace(line.UoMCode))
+                                            {
+                                                <span class="tfm-uom @(AllowsDecimalQuantity(line.UoMCode) ? "is-decimal" : "")"
+                                                      title="@(AllowsDecimalQuantity(line.UoMCode) ? "Fractional quantities allowed" : "Whole numbers only")">
+                                                    @line.UoMCode
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="tfm-uom">—</span>
+                                            }
+                                        </div>
+
+                                        @* Committed on every keystroke, not on change: the summary, the
+                                           pre-flight checks and the line's own validation all read this
+                                           value, and on `change` alone they lag a field the user is
+                                           still looking at. *@
+                                        <input type="number" min="0" step="@QuantityStep(line)"
+                                               class="tfm-input tfm-num @(lineError is not null && line.SelectedProduct is not null ? "is-bad" : "")"
+                                               value="@line.QuantityText"
+                                               @oninput="e => OnQuantityInput(line, e.Value?.ToString())"
+                                               placeholder="0" />
+
+                                        <div class="tfm-stock @StockClass(line)">
+                                            @if (line.SelectedProduct is null || selectedFromWarehouse is null)
+                                            {
+                                                <span>—</span>
+                                            }
+                                            else if (line.IsLoadingStock)
+                                            {
+                                                <span class="tfm-spin"></span>
+                                            }
+                                            else
+                                            {
+                                                @line.StockInSource.ToString("N2")
+                                                <small>@selectedFromWarehouse.WarehouseCode</small>
+                                            }
+                                        </div>
+
+                                        <button type="button" class="tfm-btn-x" title="Remove line"
+                                                aria-label="Remove line @(index + 1)"
+                                                disabled="@(lines.Count <= 1)"
+                                                @onclick="() => RemoveLine(line)">
+                                            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                            </svg>
+                                        </button>
+
+                                        @if (lineError is not null)
+                                        {
+                                            <div class="tfm-row-err">@lineError</div>
+                                        }
                                     </div>
                                 }
 
-                                <div class="text-center mt-3">
-                                    <MudButton Class="btn-add-line" OnClick="AddLine">
-                                        <i class="bi bi-plus-lg me-1"></i>Add Item
-                                    </MudButton>
-                                </div>
+                                <button type="button" class="tfm-addline" @onclick="AddLine">
+                                    <i class="ph ph-plus"></i>Add another line
+                                </button>
                             }
                         </div>
                     </div>
-                </div>
-
-                <!-- Summary Sidebar -->
-                <div class="col-lg-4">
-                    <!-- Summary Card -->
-                    <div class="card summary-card mb-4">
-                        <div class="card-header">
-                            <h5 class="mb-0"><i class="bi bi-calculator me-2"></i>Summary</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span>From Warehouse:</span>
-                                <strong>@(selectedFromWarehouse?.WarehouseCode ?? "-")</strong>
-                            </div>
-                            <div class="d-flex justify-content-between mb-2">
-                                <span>To Warehouse:</span>
-                                <strong>@(selectedToWarehouse?.WarehouseCode ?? "-")</strong>
-                            </div>
-                            <hr class="my-2 opacity-50" />
-                            <div class="d-flex justify-content-between mb-2">
-                                <span>Total Items:</span>
-                                <strong>@lines.Count</strong>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <span>Total Quantity:</span>
-                                <strong>@lines.Sum(l => l.Quantity).ToString("N2")</strong>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Actions Card -->
-                    <div class="card action-card">
-                        <div class="card-body">
-                            <MudButton Class="btn-create-transfer w-100 text-white mb-3" OnClick="SubmitTransferRequest"
-                                       Disabled="@(isSubmitting || !IsFormValid())">
-                                @if (isSubmitting)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                    <span>Creating...</span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-send me-2"></i>
-                                    <span>Create Transfer Request</span>
-                                }
-                            </MudButton>
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="w-100" OnClick="ClearForm"
-                                       Disabled="@isSubmitting">
-                                <i class="bi bi-x-circle me-1"></i>Clear Form
-                            </MudButton>
-                        </div>
-                    </div>
-
-                    <!-- Info Card -->
-                    <div class="card mt-4">
-                        <div class="card-body">
-                            <h6><i class="bi bi-info-circle text-primary me-2"></i>About Transfer Requests</h6>
-                            <p class="text-muted small mb-0">
-                                Transfer requests are draft documents that require approval before stock is actually
-                                transferred.
-                                Once approved, the request will be converted to an inventory transfer.
-                            </p>
-                        </div>
-                    </div>
-                </div>
+                </section>
             </div>
+
+            <!-- ── Aside ──────────────────────────────────────────────── -->
+            <aside class="tfm-aside">
+
+                <div class="tfm-card tfm-total-card">
+                    <div class="tfm-total-hd">
+                        <span class="tfm-total-k">Total quantity</span>
+                    </div>
+                    <div class="tfm-total-v">@TotalQuantity.ToString("N2")</div>
+                    <div class="tfm-total-sub">
+                        @CompletedLineCount line(s) &middot;
+                        @(selectedFromWarehouse?.WarehouseCode ?? "—") &rarr; @(selectedToWarehouse?.WarehouseCode ?? "—")
+                    </div>
+
+                    @* Listed rather than enforced by disabling the button: a disabled submit gives
+                       the operator nothing to act on, and the reasons below are the whole answer. *@
+                    @if (hasAttemptedSubmit && ValidationSummary.Any())
+                    {
+                        <div class="tfm-err-panel">
+                            <div class="tfm-err-panel-t">
+                                <i class="ph ph-warning"></i>Please fix the following
+                            </div>
+                            <ul>
+                                @foreach (var problem in ValidationSummary)
+                                {
+                                    <li>@problem</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+
+                    <button type="button" class="tfm-btn-solid" @onclick="SubmitTransferRequest"
+                            disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="tfm-spin on-solid"></span>
+                            <span>Creating&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph-fill ph-paper-plane-tilt"></i>
+                            <span>Create transfer request</span>
+                        }
+                    </button>
+                    <button type="button" class="tfm-btn tfm-btn-wide tfm-btn-danger tfm-gap-sm"
+                            @onclick="ClearForm" disabled="@isSubmitting">
+                        <i class="ph ph-arrow-counter-clockwise"></i>Clear form
+                    </button>
+                </div>
+
+                <div class="tfm-card tfm-panel">
+                    <div class="tfm-panel-hd">
+                        <i class="ph ph-shield-check"></i>
+                        <span class="tfm-panel-t">Pre-flight checks</span>
+                        <span class="tfm-spacer"></span>
+                        <span class="tfm-note">@PassedCheckCount/3</span>
+                    </div>
+                    <div class="tfm-checks">
+                        <div class="tfm-checks-i @(HasRoute ? "" : "is-no")">
+                            <span class="tfm-checks-ic">
+                                <i class="ph @(HasRoute ? "ph-check" : "ph-minus")"></i>
+                            </span>
+                            <span>Source and destination chosen</span>
+                        </div>
+                        <div class="tfm-checks-i @(HasCompletedLine ? "" : "is-no")">
+                            <span class="tfm-checks-ic">
+                                <i class="ph @(HasCompletedLine ? "ph-check" : "ph-minus")"></i>
+                            </span>
+                            <span>At least one item with a quantity</span>
+                        </div>
+                        <div class="tfm-checks-i @(QuantitiesValid ? "" : "is-no")">
+                            <span class="tfm-checks-ic">
+                                <i class="ph @(QuantitiesValid ? "ph-check" : "ph-minus")"></i>
+                            </span>
+                            <span>Quantities valid for their units</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tfm-info-note">
+                    <i class="ph ph-info"></i>
+                    <span>
+                        A transfer request is a draft — no stock moves when you submit it. It goes to the
+                        approval process, and once approved it is converted into an inventory transfer.
+                    </span>
+                </div>
+            </aside>
         </div>
     </div>
+</div>
 
 @code {
-    // State
-    private bool isLoadingWarehouses = true;
-    private bool isLoadingProducts = true;
-    private bool isSubmitting = false;
+    // SAP rejects fractional quantities for every unit except KG, and the API enforces that in
+    // ShopInventory.Common.Validation.UomQuantityValidation before the document is built. The rule
+    // is mirrored here so the operator is told at the field instead of by a failed round trip.
+    private const string DecimalUnit = "KG";
+
+    // ── State ───────────────────────────────────────────
+    private bool isLoadingMasterData = true;
+    private bool isSubmitting;
     private string? errorMessage;
     private string? successMessage;
 
-    // Warehouses
     private List<WarehouseDto> cachedWarehouses = new();
+    private List<ProductDto> cachedProducts = new();
+
     private WarehouseDto? selectedFromWarehouse;
     private WarehouseDto? selectedToWarehouse;
 
-    // Products
-    private List<ProductDto> cachedProducts = new();
-
-    // Form fields
     private DateTime? docDate = DateTime.Today;
     private DateTime? dueDate;
     private string? comments;
     private string? requesterName;
     private string? requesterEmail;
 
-    // Line items
     private List<TransferLineItem> lines = new() { new TransferLineItem() };
 
-    private bool _hasLoadedData = false;
+    /// <summary>
+    /// Validation is shown from the first submit attempt onwards, never before: the form opens
+    /// empty, and a panel headed "please fix the following" on an untouched form is noise. After
+    /// an attempt it tracks live, so entries disappear as they are fixed.
+    /// </summary>
+    private bool hasAttemptedSubmit;
 
+    private bool _hasLoadedData;
+
+    // ── Derived ─────────────────────────────────────────
+    private IEnumerable<TransferLineItem> CompletedLines =>
+        lines.Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity > 0);
+
+    private int CompletedLineCount => CompletedLines.Count();
+
+    private decimal TotalQuantity => CompletedLines.Sum(l => l.Quantity);
+
+    private bool HasRoute => selectedFromWarehouse is not null
+        && selectedToWarehouse is not null
+        && !string.Equals(selectedFromWarehouse.WarehouseCode, selectedToWarehouse.WarehouseCode,
+            StringComparison.OrdinalIgnoreCase);
+
+    private bool HasCompletedLine => CompletedLineCount > 0;
+
+    private bool QuantitiesValid => lines.All(line => DescribeLineProblem(line) is null);
+
+    private int PassedCheckCount =>
+        (HasRoute ? 1 : 0) + (HasCompletedLine ? 1 : 0) + (QuantitiesValid ? 1 : 0);
+
+    private string? FromWarehouseError =>
+        hasAttemptedSubmit && selectedFromWarehouse is null ? "Choose a source warehouse." : null;
+
+    private string? ToWarehouseError
+    {
+        get
+        {
+            if (!hasAttemptedSubmit)
+                return null;
+            if (selectedToWarehouse is null)
+                return "Choose a destination warehouse.";
+            if (selectedFromWarehouse is not null && !HasRoute)
+                return "Must be different from the source warehouse.";
+            return null;
+        }
+    }
+
+    /// <summary>Everything standing between the form and a submit, in the order it appears.</summary>
+    private List<string> ValidationSummary
+    {
+        get
+        {
+            var problems = new List<string>();
+
+            if (selectedFromWarehouse is null)
+                problems.Add("Choose a source warehouse.");
+            if (selectedToWarehouse is null)
+                problems.Add("Choose a destination warehouse.");
+            if (selectedFromWarehouse is not null && selectedToWarehouse is not null && !HasRoute)
+                problems.Add("Source and destination must be different warehouses.");
+            if (!HasCompletedLine)
+                problems.Add("Add at least one item with a quantity.");
+
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var problem = DescribeLineProblem(lines[i]);
+                if (problem is not null)
+                    problems.Add($"Line {i + 1}: {problem}");
+            }
+
+            return problems;
+        }
+    }
+
+    // ── Load ────────────────────────────────────────────
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && !_hasLoadedData)
@@ -433,11 +560,25 @@
 
     private async Task LoadInitialDataAsync()
     {
-        // Load sequentially to avoid EF Core DbContext concurrency issues
-        // (LoadUserInfoAsync doesn't use DbContext so it could run in parallel,
-        // but sequential is safer and the perf difference is negligible)
-        await LoadWarehousesAsync();
-        await LoadProductsAsync();
+        // Sequentially: both cache reads go through the same EF Core DbContext, which cannot
+        // serve two queries at once.
+        try
+        {
+            cachedWarehouses = await CacheService.GetWarehousesAsync();
+            cachedProducts = await CacheService.GetProductsAsync();
+            Logger.LogInformation("Loaded {Warehouses} warehouses and {Products} products",
+                cachedWarehouses.Count, cachedProducts.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load master data for the transfer request form");
+            errorMessage = "We couldn't load warehouses and products. Reload the page to try again.";
+        }
+        finally
+        {
+            isLoadingMasterData = false;
+        }
+
         await LoadUserInfoAsync();
     }
 
@@ -459,107 +600,221 @@
         }
     }
 
-    private async Task LoadWarehousesAsync()
+    // ── Warehouses ──────────────────────────────────────
+    private async Task OnFromWarehouseChangedAsync(string? warehouseCode)
     {
-        try
+        selectedFromWarehouse = FindWarehouse(warehouseCode);
+
+        // Stock is reported per warehouse, so every line's figure is stale the moment the
+        // source changes.
+        foreach (var line in lines)
         {
-            isLoadingWarehouses = true;
-            cachedWarehouses = await CacheService.GetWarehousesAsync();
-            Logger.LogInformation("Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
+            line.StockInSource = 0;
+            line.HasStockFigure = false;
         }
-        catch (Exception ex)
+
+        await RefreshStockForAllLinesAsync();
+    }
+
+    private void OnToWarehouseChanged(string? warehouseCode) =>
+        selectedToWarehouse = FindWarehouse(warehouseCode);
+
+    private WarehouseDto? FindWarehouse(string? warehouseCode) =>
+        string.IsNullOrWhiteSpace(warehouseCode)
+            ? null
+            : cachedWarehouses.FirstOrDefault(w =>
+                string.Equals(w.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase));
+
+    // ── Item picker ─────────────────────────────────────
+    private void OnItemFocus(TransferLineItem line)
+    {
+        line.Matches = SearchProducts(line.ItemCode);
+        line.ShowDropdown = true;
+    }
+
+    private void OnItemInput(TransferLineItem line, string? searchText)
+    {
+        line.ItemCode = searchText;
+        line.Matches = SearchProducts(searchText);
+        line.ShowDropdown = true;
+
+        // Typing past a chosen item drops the selection: the code in the box is no longer the
+        // product whose unit and stock are on the row.
+        if (line.SelectedProduct is not null
+            && !string.Equals(line.SelectedProduct.ItemCode, searchText, StringComparison.OrdinalIgnoreCase))
         {
-            Logger.LogError(ex, "Failed to load warehouses");
-            errorMessage = "Failed to load warehouses";
-        }
-        finally
-        {
-            isLoadingWarehouses = false;
+            line.SelectedProduct = null;
+            line.UoMCode = null;
+            line.HasStockFigure = false;
+            line.StockInSource = 0;
         }
     }
 
-    private async Task LoadProductsAsync()
-    {
-        try
-        {
-            isLoadingProducts = true;
-            cachedProducts = await CacheService.GetProductsAsync();
-            Logger.LogInformation("Loaded {Count} products", cachedProducts?.Count ?? 0);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Failed to load products");
-            errorMessage = "Failed to load products";
-        }
-        finally
-        {
-            isLoadingProducts = false;
-        }
-    }
-
-    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken
-    cancellationToken)
+    private List<ProductDto> SearchProducts(string? searchText)
     {
         if (string.IsNullOrWhiteSpace(searchText))
-        {
-            return cachedWarehouses.Take(20);
-        }
-
-        return cachedWarehouses
-        .Where(w =>
-        (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Take(20);
-    }
-
-    private async Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(searchText))
-        {
-            return cachedProducts.Take(20);
-        }
+            return cachedProducts.Take(20).ToList();
 
         return cachedProducts
-        .Where(p =>
-        (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Take(20);
+            .Where(p =>
+                (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+            .Take(20)
+            .ToList();
     }
 
-    private void OnProductSelected(TransferLineItem line, ProductDto? product)
+    private async Task SelectProductAsync(TransferLineItem line, ProductDto product)
     {
         line.SelectedProduct = product;
-        line.ItemCode = product?.ItemCode;
+        line.ItemCode = product.ItemCode;
+        line.UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim();
+        line.ShowDropdown = false;
+
+        await RefreshStockAsync(line);
     }
 
-    private void AddLine()
+    // ── Stock ───────────────────────────────────────────
+    private async Task RefreshStockForAllLinesAsync()
     {
-        lines.Add(new TransferLineItem());
+        foreach (var line in lines.Where(l => l.SelectedProduct is not null))
+        {
+            await RefreshStockAsync(line);
+        }
     }
+
+    /// <summary>
+    /// Reads the line's stock in the source warehouse, and takes the unit of measure from the same
+    /// response when the product cache has none — the API rejects a fractional quantity it cannot
+    /// match to a unit, so this is the second chance to find one.
+    /// </summary>
+    private async Task RefreshStockAsync(TransferLineItem line)
+    {
+        var warehouseCode = selectedFromWarehouse?.WarehouseCode;
+        var itemCode = line.SelectedProduct?.ItemCode;
+        if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
+            return;
+
+        var product = line.SelectedProduct;
+        line.IsLoadingStock = true;
+
+        try
+        {
+            var stockByItem = await StockCacheService.GetStockForItemsAsync(
+                warehouseCode, [itemCode], CancellationToken.None);
+
+            // Drop a late response if the source warehouse or the line's product has moved on.
+            if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)
+                || !ReferenceEquals(line.SelectedProduct, product))
+                return;
+
+            if (stockByItem.TryGetValue(itemCode, out var stock))
+            {
+                line.StockInSource = stock.QuantityInStock;
+                line.HasStockFigure = true;
+                if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
+                    line.UoMCode = stock.UoM.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to read stock for {ItemCode} in {Warehouse}", itemCode, warehouseCode);
+        }
+        finally
+        {
+            line.IsLoadingStock = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string StockClass(TransferLineItem line)
+    {
+        if (line.SelectedProduct is null || selectedFromWarehouse is null || !line.HasStockFigure)
+            return "is-idle";
+
+        return line.Quantity > line.StockInSource ? "is-short" : string.Empty;
+    }
+
+    // ── Lines ───────────────────────────────────────────
+    private void AddLine() => lines.Add(new TransferLineItem());
 
     private void RemoveLine(TransferLineItem line)
     {
+        if (lines.Count <= 1)
+            return;
+
         lines.Remove(line);
     }
 
-    private bool IsFormValid()
+    private void OnQuantityInput(TransferLineItem line, string? value)
     {
-        return selectedFromWarehouse != null
-        && selectedToWarehouse != null
-        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
-        && lines.Any(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
+        line.QuantityText = value;
+        line.Quantity = decimal.TryParse(value, out var quantity) ? quantity : 0m;
     }
 
+    private static bool AllowsDecimalQuantity(string? uomCode) =>
+        string.Equals(uomCode?.Trim(), DecimalUnit, StringComparison.OrdinalIgnoreCase);
+
+    private string QuantityStep(TransferLineItem line) =>
+        AllowsDecimalQuantity(line.UoMCode) ? "0.001" : "1";
+
+    /// <summary>
+    /// What is wrong with a line, phrased for the operator, or null when it is fine. A line nobody
+    /// has touched is fine — it is the spare row at the bottom of the table, not a mistake.
+    /// </summary>
+    private string? DescribeLineProblem(TransferLineItem line)
+    {
+        var hasItem = !string.IsNullOrWhiteSpace(line.ItemCode);
+
+        if (!hasItem && line.Quantity <= 0)
+            return null;
+
+        if (!hasItem)
+            return "choose an item, or clear the quantity.";
+
+        if (line.SelectedProduct is null)
+            return $"\"{line.ItemCode}\" isn't a known item — pick one from the list.";
+
+        if (line.Quantity <= 0)
+            return "enter a quantity greater than zero.";
+
+        if (line.Quantity == decimal.Truncate(line.Quantity))
+            return null;
+
+        // Fractional from here down. The API resolves the unit from a Products table that nothing
+        // in the API populates, so a fractional quantity sent without a unit is always rejected.
+        if (string.IsNullOrWhiteSpace(line.UoMCode))
+            return $"{line.Quantity} needs a unit of measure and this item has none cached — enter a whole number instead.";
+
+        if (!AllowsDecimalQuantity(line.UoMCode))
+            return $"{line.Quantity} isn't valid for {line.UoMCode} — only {DecimalUnit} items transfer in fractions.";
+
+        return null;
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        return value.Length <= maxLength ? value : value[..maxLength] + "…";
+    }
+
+    // ── Submit ──────────────────────────────────────────
     private async Task SubmitTransferRequest()
     {
-        if (!IsFormValid())
+        errorMessage = null;
+        successMessage = null;
+        hasAttemptedSubmit = true;
+
+        var problems = ValidationSummary;
+        if (problems.Any())
         {
-            errorMessage = "Please fill in all required fields";
+            errorMessage = problems.Count == 1
+                ? problems[0]
+                : $"{problems.Count} things need fixing before this request can be created.";
             return;
         }
 
-        errorMessage = null;
-        successMessage = null;
         isSubmitting = true;
 
         try
@@ -573,33 +828,36 @@
                 Comments = comments,
                 RequesterName = requesterName,
                 RequesterEmail = requesterEmail,
-                Lines = lines
-            .Where(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0)
-            .Select(l => new CreateTransferRequestLineDto
-            {
-                ItemCode = l.ItemCode,
-                Quantity = l.Quantity,
-                FromWarehouseCode = selectedFromWarehouse!.WarehouseCode,
-                ToWarehouseCode = selectedToWarehouse!.WarehouseCode
-            })
-            .ToList()
+                Lines = CompletedLines
+                    .Select(l => new CreateTransferRequestLineDto
+                    {
+                        ItemCode = l.ItemCode,
+                        Quantity = l.Quantity,
+                        // Without this the API falls back to its own Products table, which is
+                        // never populated, and rejects every fractional quantity it sees.
+                        UoMCode = l.UoMCode,
+                        FromWarehouseCode = selectedFromWarehouse!.WarehouseCode,
+                        ToWarehouseCode = selectedToWarehouse!.WarehouseCode
+                    })
+                    .ToList()
             };
 
-            Logger.LogInformation("Creating transfer request with {LineCount} lines", request.Lines.Count);
+            Logger.LogInformation("Creating transfer request {From}->{To} with {LineCount} lines",
+                request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
             var (success, message, transferRequest) = await TransferService.CreateTransferRequestAsync(request);
 
             if (success)
             {
-                successMessage = $"Transfer request #{transferRequest?.DocNum} created successfully!";
+                successMessage = $"Transfer request #{transferRequest?.DocNum} created and sent for approval.";
                 Logger.LogInformation("Transfer request created: DocNum={DocNum}", transferRequest?.DocNum);
-
-                // Clear form after successful creation
                 ClearForm();
             }
             else
             {
-                errorMessage = message;
+                errorMessage = string.IsNullOrWhiteSpace(message)
+                    ? "We couldn't create this transfer request. Please try again."
+                    : message;
                 Logger.LogWarning("Transfer request creation failed: {Message}", message);
             }
         }
@@ -621,14 +879,28 @@
         docDate = DateTime.Today;
         dueDate = null;
         comments = null;
+        hasAttemptedSubmit = false;
         lines = new List<TransferLineItem> { new TransferLineItem() };
     }
 
-    // Helper class for line items
     private class TransferLineItem
     {
         public ProductDto? SelectedProduct { get; set; }
         public string? ItemCode { get; set; }
         public decimal Quantity { get; set; }
+
+        /// <summary>
+        /// What is in the box, kept apart from <see cref="Quantity"/> so a half-typed "0." or a
+        /// cleared field is not rewritten under the cursor on the next render.
+        /// </summary>
+        public string? QuantityText { get; set; }
+
+        public string? UoMCode { get; set; }
+        public decimal StockInSource { get; set; }
+        public bool HasStockFigure { get; set; }
+        public bool IsLoadingStock { get; set; }
+
+        public bool ShowDropdown { get; set; }
+        public List<ProductDto> Matches { get; set; } = new();
     }
 }

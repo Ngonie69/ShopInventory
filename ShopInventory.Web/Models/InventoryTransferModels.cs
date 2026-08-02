@@ -139,6 +139,15 @@ public class CreateInventoryTransferLineDto
 {
     public string? ItemCode { get; set; }
     public decimal Quantity { get; set; }
+
+    /// <summary>
+    /// Unit of measure for the line. The API validates fractional quantities against it — both the
+    /// line quantity and each FEFO-allocated batch quantity — and resolves it from its own Products
+    /// table when the client leaves it null, a table nothing populates. An unsent UoM therefore
+    /// rejects every decimal quantity. Send it from the product cache.
+    /// </summary>
+    public string? UoMCode { get; set; }
+
     public string? FromWarehouseCode { get; set; }
     public string? ToWarehouseCode { get; set; }
 }
@@ -292,6 +301,14 @@ public class CreateTransferRequestLineDto
 {
     public string? ItemCode { get; set; }
     public decimal Quantity { get; set; }
+
+    /// <summary>
+    /// Unit of measure for the line. The API validates fractional quantities against it, and
+    /// resolves it from its own Products table when the client leaves it null — a table nothing
+    /// populates, so an unsent UoM rejects every decimal quantity. Send it from the product cache.
+    /// </summary>
+    public string? UoMCode { get; set; }
+
     public string? FromWarehouseCode { get; set; }
     public string? ToWarehouseCode { get; set; }
 }
