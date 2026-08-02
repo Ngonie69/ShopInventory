@@ -1,11 +1,18 @@
 /* ==========================================================================
    Settings — Nocturne
    The imported design (Settings.dc.html + _ds/nocturne .../styles.css) is a
-   single dark scheme, so this module paints its own ground and does not follow
-   the app's light/dark toggle — same arrangement as create-invoice.css.
+   single dark scheme, and its values are the dark block below, unmodified.
+   The page still follows the app's light/dark toggle: a page that painted its
+   own dark ground regardless left the light theme showing a dark slab inside
+   light chrome, which is what the shell's own Nocturne palette
+   (nocturne-shell.css) exists to avoid. The light values here are that
+   palette's --kfn-* light scale, so the page and the chrome around it agree.
 
-   Every token below is copied from the design system's styles.css; every
-   measurement below comes from Settings.dc.html.
+   Every measurement below comes from Settings.dc.html.
+
+   Colour flows through four channel tokens (--stg-*-rgb) rather than literal
+   rgba(), so every wash, hover film and hairline mixed from them flips with the
+   theme from one declaration instead of being restated twice.
 
    Rules live in a plain stylesheet rather than a scoped Razor <style> block
    because app.css carries global `.dark-theme input/select/button` rules that
@@ -19,10 +26,23 @@
     --stg-surface: #232532;
     --stg-text: #e9e9ed;
     --stg-accent: #9184d9;
-    --stg-divider: rgba(233, 233, 237, .16);
+
+    /* Channels for the mixes below. Everything tinted — dividers, hover films,
+       washes, rings — is struck from one of these four. */
+    --stg-text-rgb: 233, 233, 237;
+    --stg-accent-rgb: 145, 132, 217;
+    --stg-danger-rgb: 232, 105, 125;
+    --stg-warn-rgb: 224, 164, 74;
+
+    --stg-divider: rgba(var(--stg-text-rgb), .16);
 
     --stg-neutral-800: #3f424d;
     --stg-neutral-900: #292b31;
+
+    /* Floating menus are lifted off the card, so they take the raised ground —
+       which is above the card in the dark scheme and below it in the light one,
+       hence its own token rather than a reuse of --stg-neutral-900. */
+    --stg-menu-bg: #292b31;
 
     --stg-accent-100: #f5f4ff;
     --stg-accent-300: #d2cefd;
@@ -37,11 +57,13 @@
     --stg-warn: #e0a44a;
 
     /* Text at the mixes the design applies over and over. */
-    --stg-t-70: rgba(233, 233, 237, .70);
-    --stg-t-60: rgba(233, 233, 237, .60);
-    --stg-t-52: rgba(233, 233, 237, .52);
-    --stg-t-45: rgba(233, 233, 237, .45);
-    --stg-t-40: rgba(233, 233, 237, .40);
+    --stg-t-70: rgba(var(--stg-text-rgb), .70);
+    --stg-t-60: rgba(var(--stg-text-rgb), .60);
+    --stg-t-52: rgba(var(--stg-text-rgb), .52);
+    --stg-t-45: rgba(var(--stg-text-rgb), .45);
+    --stg-t-40: rgba(var(--stg-text-rgb), .40);
+
+    --stg-scrim: rgba(41, 43, 49, .72);
 
     --stg-space-1: 2.8px;
     --stg-space-2: 5.6px;
@@ -69,6 +91,75 @@
     border-radius: 12px;
 }
 
+/* ── Light theme ────────────────────────────────────────────────────────────
+   Values are nocturne-shell.css's --kfn-* light scale, so the page reads as the
+   same design as the topbar and sidebar around it. Dark is the base above, not
+   this block's else-branch: the theme class is written by the blocking script in
+   App.razor's <head>, but if it ever fails to run the page still lands on the
+   design as imported rather than on a half-applied light one.
+
+   Only what actually differs is restated. Dividers, films, washes and rings all
+   mix from the channel tokens and flip with them.
+
+   Both selectors are set together by that script and by app.js's toggle; the
+   pair mirrors how nocturne-shell.css keys its own themes. */
+[data-theme="light"] .stg,
+.light-theme .stg {
+    --stg-bg: #f2f3f9;
+    /* Cards are raised off the ground, and in a light scheme raised means
+       nearer white — the inverse of the dark scheme, where it means nearer the
+       page's own ground. */
+    --stg-surface: #ffffff;
+    --stg-text: #171a2d;
+    /* The accent is a text colour as often as a fill here (active nav item,
+       primary button label, tag borders), so this is the shell's deeper
+       --kfn-accent-bright rather than its --kfn-accent: 6.8:1 on the card. */
+    --stg-accent: #5a4bb6;
+
+    --stg-text-rgb: 23, 26, 45;
+    --stg-accent-rgb: 90, 75, 182;
+    /* Nocturne's red and amber are pitched to carry on a dark ground and drop
+       to ~3:1 on a white one, so both are taken down to their light-scheme
+       equivalents: 5.3:1 and 5.1:1 on the card. */
+    --stg-danger-rgb: 194, 51, 74;
+    --stg-warn-rgb: 161, 92, 0;
+
+    --stg-neutral-800: #e1e3ef;
+    --stg-neutral-900: #edeef6;
+    --stg-menu-bg: #ffffff;
+
+    --stg-accent-100: #3a3363;
+    --stg-accent-300: #4b3da3;
+    --stg-accent-400: #6a5cc4;
+    --stg-accent-800: #d6cff7;
+    --stg-accent-900: #efecfc;
+
+    --stg-danger: #c2334a;
+    --stg-danger-dim: #f6dde1;
+    --stg-warn: #a15c00;
+
+    /* Lifted from the dark alphas: ink thinned on a light ground loses contrast
+       faster than light thinned on a dark one, so matching the design's mixes by
+       number would read a full step fainter than the design does. These hold the
+       weight instead — the body mix (--stg-t-52) lands at 6:1 on the card. */
+    --stg-t-70: rgba(var(--stg-text-rgb), .78);
+    --stg-t-60: rgba(var(--stg-text-rgb), .70);
+    --stg-t-52: rgba(var(--stg-text-rgb), .62);
+    --stg-t-45: rgba(var(--stg-text-rgb), .56);
+    --stg-t-40: rgba(var(--stg-text-rgb), .50);
+
+    /* The dark scheme rings cards in opaque grey and drops deep black shadows;
+       neither survives on white, so the ring is thinned ink and the lift is a
+       soft slate shadow. */
+    --stg-shadow-sm: 0 0 0 1px rgba(var(--stg-text-rgb), .09);
+    --stg-shadow-md: 0 0 0 1px rgba(var(--stg-text-rgb), .10), 0 6px 18px rgba(15, 23, 42, .12);
+    --stg-shadow-lg: 0 0 0 1px rgba(var(--stg-text-rgb), .10), 0 16px 40px rgba(15, 23, 42, .18);
+
+    --stg-scrim: rgba(15, 23, 42, .38);
+
+    color-scheme: light;
+}
+
 /* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
    theme for an iOS input fix; inside this page that would flatten the accent
    and danger colours on WebKit, so hand the fill back to `color`. */
@@ -79,7 +170,7 @@
 }
 
 .stg ::selection {
-    background: rgba(145, 132, 217, .30);
+    background: rgba(var(--stg-accent-rgb), .30);
 }
 
 .stg :focus {
@@ -279,7 +370,7 @@
 }
 
 .stg-nav-item:hover {
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--stg-text-rgb), .06);
 }
 
 .stg-nav-item::before {
@@ -351,14 +442,14 @@
     border-radius: var(--stg-radius-md);
     background: var(--stg-accent-900);
     color: var(--stg-accent);
-    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .35);
+    box-shadow: inset 0 0 0 1px rgba(var(--stg-accent-rgb), .35);
     font-size: 16px;
 }
 
 .stg-section-icon-danger {
-    background: rgba(232, 105, 125, .14);
+    background: rgba(var(--stg-danger-rgb), .14);
     color: var(--stg-danger);
-    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .35);
+    box-shadow: inset 0 0 0 1px rgba(var(--stg-danger-rgb), .35);
 }
 
 .stg-section-text {
@@ -517,7 +608,7 @@
 }
 
 .stg .stg-input:hover {
-    border-color: rgba(233, 233, 237, .45);
+    border-color: rgba(var(--stg-text-rgb), .45);
 }
 
 .stg .stg-input:focus-visible {
@@ -544,7 +635,7 @@
 }
 
 .stg .stg-select option {
-    background: var(--stg-neutral-900);
+    background: var(--stg-menu-bg);
     color: var(--stg-text);
 }
 
@@ -627,7 +718,7 @@
 
 .stg-combo-clear:hover {
     color: var(--stg-text);
-    background: rgba(233, 233, 237, .08);
+    background: rgba(var(--stg-text-rgb), .08);
 }
 
 .stg-combo-menu {
@@ -638,7 +729,7 @@
     right: 0;
     padding: var(--stg-space-2);
     border-radius: var(--stg-radius-md);
-    background: var(--stg-neutral-900);
+    background: var(--stg-menu-bg);
     box-shadow: var(--stg-shadow-md);
     display: flex;
     flex-direction: column;
@@ -664,7 +755,7 @@
 }
 
 .stg-combo-item:hover {
-    background: rgba(145, 132, 217, .16);
+    background: rgba(var(--stg-accent-rgb), .16);
 }
 
 .stg-combo-item i {
@@ -689,7 +780,7 @@
 .stg-combo-empty {
     padding: var(--stg-space-3);
     font-size: 12.5px;
-    color: rgba(233, 233, 237, .5);
+    color: var(--stg-t-52);
 }
 
 /* Switch — the design system has no boolean control, so this is built from its
@@ -719,7 +810,7 @@
     flex: none;
     border-radius: 9px;
     border: 1px solid var(--stg-divider);
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--stg-text-rgb), .06);
     transition: background .18s, border-color .18s;
 }
 
@@ -731,7 +822,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: rgba(233, 233, 237, .55);
+    background: rgba(var(--stg-text-rgb), .55);
     transition: transform .18s, background .18s;
 }
 
@@ -740,7 +831,7 @@
 }
 
 .stg-switch input:checked + .stg-switch-track {
-    background: rgba(145, 132, 217, .28);
+    background: rgba(var(--stg-accent-rgb), .28);
     border-color: var(--stg-accent);
 }
 
@@ -826,11 +917,11 @@
 }
 
 .stg .stg-btn-primary:hover:not(:disabled) {
-    background: rgba(145, 132, 217, .12);
+    background: rgba(var(--stg-accent-rgb), .12);
 }
 
 .stg .stg-btn-primary:active:not(:disabled) {
-    background: rgba(145, 132, 217, .22);
+    background: rgba(var(--stg-accent-rgb), .22);
 }
 
 .stg .stg-btn-secondary {
@@ -838,11 +929,11 @@
 }
 
 .stg .stg-btn-secondary:hover:not(:disabled) {
-    background: rgba(233, 233, 237, .07);
+    background: rgba(var(--stg-text-rgb), .07);
 }
 
 .stg .stg-btn-secondary:active:not(:disabled) {
-    background: rgba(233, 233, 237, .14);
+    background: rgba(var(--stg-text-rgb), .14);
 }
 
 .stg .stg-btn-ghost {
@@ -851,7 +942,7 @@
 }
 
 .stg .stg-btn-ghost:hover:not(:disabled) {
-    background: rgba(145, 132, 217, .10);
+    background: rgba(var(--stg-accent-rgb), .10);
 }
 
 .stg .stg-btn-danger {
@@ -860,7 +951,7 @@
 }
 
 .stg .stg-btn-danger:hover:not(:disabled) {
-    background: rgba(232, 105, 125, .12);
+    background: rgba(var(--stg-danger-rgb), .12);
 }
 
 .stg .stg-btn-icon {
@@ -899,27 +990,27 @@
 }
 
 .stg-alert-success {
-    background: rgba(145, 132, 217, .12);
+    background: rgba(var(--stg-accent-rgb), .12);
     color: var(--stg-accent-300);
-    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .32);
+    box-shadow: inset 0 0 0 1px rgba(var(--stg-accent-rgb), .32);
 }
 
 .stg-alert-error {
-    background: rgba(232, 105, 125, .10);
+    background: rgba(var(--stg-danger-rgb), .10);
     color: var(--stg-danger);
-    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .32);
+    box-shadow: inset 0 0 0 1px rgba(var(--stg-danger-rgb), .32);
 }
 
 .stg-alert-info {
-    background: rgba(233, 233, 237, .05);
+    background: rgba(var(--stg-text-rgb), .05);
     color: var(--stg-t-70);
     box-shadow: inset 0 0 0 1px var(--stg-divider);
 }
 
 .stg-alert-warn {
-    background: rgba(224, 164, 74, .10);
+    background: rgba(var(--stg-warn-rgb), .10);
     color: var(--stg-warn);
-    box-shadow: inset 0 0 0 1px rgba(224, 164, 74, .28);
+    box-shadow: inset 0 0 0 1px rgba(var(--stg-warn-rgb), .28);
 }
 
 .stg-alert-close {
@@ -941,7 +1032,7 @@
 
 .stg-alert-close:hover {
     opacity: 1;
-    background: rgba(233, 233, 237, .10);
+    background: rgba(var(--stg-text-rgb), .10);
 }
 
 /* ── Stat strip ─────────────────────────────────────────────────────────── */
@@ -1029,7 +1120,7 @@
     gap: 6px;
     padding: 3px var(--stg-space-3);
     border-radius: 6px;
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--stg-text-rgb), .06);
     box-shadow: inset 0 0 0 1px var(--stg-divider);
     font-size: 12.5px;
     max-width: 100%;
@@ -1070,12 +1161,12 @@
 
 .stg-chip-btn:hover {
     color: var(--stg-text);
-    background: rgba(233, 233, 237, .10);
+    background: rgba(var(--stg-text-rgb), .10);
 }
 
 .stg-chip-btn-danger:hover {
     color: var(--stg-danger);
-    background: rgba(232, 105, 125, .12);
+    background: rgba(var(--stg-danger-rgb), .12);
 }
 
 .stg-empty {
@@ -1126,11 +1217,11 @@
 }
 
 .stg-list-row:hover {
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--stg-text-rgb), .06);
 }
 
 .stg-list-row.selected {
-    background: rgba(145, 132, 217, .14);
+    background: rgba(var(--stg-accent-rgb), .14);
 }
 
 .stg-list-row-body {
@@ -1182,7 +1273,7 @@
 }
 
 .stg-sync-card-all {
-    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .35);
+    box-shadow: inset 0 0 0 1px rgba(var(--stg-accent-rgb), .35);
 }
 
 .stg-sync-icon {
@@ -1310,7 +1401,7 @@
     display: grid;
     place-items: center;
     padding: var(--stg-space-4);
-    background: rgba(41, 43, 49, .72);
+    background: var(--stg-scrim);
     backdrop-filter: blur(2px);
 }
 
@@ -1339,7 +1430,7 @@
 
 .stg-dialog-body {
     font-size: 14px;
-    color: rgba(233, 233, 237, .85);
+    color: rgba(var(--stg-text-rgb), .85);
     overflow: auto;
 }
 
@@ -1381,7 +1472,7 @@
 
 .stg-dialog-close:hover {
     color: var(--stg-text);
-    background: rgba(233, 233, 237, .08);
+    background: rgba(var(--stg-text-rgb), .08);
 }
 
 .stg-form-grid {
@@ -1418,7 +1509,7 @@
     height: 18px;
     flex: none;
     border-radius: 50%;
-    border: 2px solid rgba(233, 233, 237, .2);
+    border: 2px solid rgba(var(--stg-text-rgb), .2);
     border-top-color: var(--stg-accent);
     animation: stg-spin .8s linear infinite;
 }
