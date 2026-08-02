@@ -1,630 +1,466 @@
 @page "/pod-dashboard"
 @using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Authorization
+@using ShopInventory.Web.Common
+@using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
-@using ShopInventory.Web.Services
-@attribute [Authorize(Roles = "Admin,Cashier,PodOperator,Driver,SalesRep")]
-@inject IPodService PodService
-@inject NavigationManager Navigation
-@inject IJSRuntime JS
-@inject AuthenticationStateProvider AuthenticationStateProvider
+@attribute [Authorize(Roles = UserRoles.PodRoles)]
 @rendermode InteractiveServer
 
-<PageTitle>@DashboardTitle - Shop Inventory</PageTitle>
+<PageTitle>@(isOperator ? "Section POD Dashboard" : "POD Dashboard") - Kefalos Cheese</PageTitle>
 
-<div class="container-fluid fade-in staff-dashboard staff-shell">
-    @* Hero Header *@
-    <div class="podd-hero">
-        <div class="podd-hero-content">
-            <div>
-                <h2 class="podd-hero-title">
-                    <span class="podd-hero-icon">
-                        <i class="bi bi-speedometer2"></i>
-                    </span>
-                    @DashboardTitle
-                </h2>
-                <p class="podd-hero-subtitle">
-                    @if (dashboard != null)
+@* The POD operator's workspace, on the Nocturne system the sales-rep dashboard
+   uses — wwwroot/css/pod-dashboard.css carries the light and dark palettes and
+   follows the app's theme toggle like every other page.
+
+   Two figures come from different places and are counted on different clocks,
+   which is why they are labelled the way they are: the upload counts and the
+   activity chart are the API's, whose days are UTC, while the compliance window
+   is the invoice report read over local dates. They are never added together.
+
+   Everything on this page is read once per window. The header states when, so
+   an operator watching uploads land knows how old the figures are. *@
+
+<div class="pdo">
+
+    <header>
+        <div class="pdo-shell">
+            <div class="pdo-titles">
+                <div class="pdo-kicker">@Kicker</div>
+                <h1 class="pdo-title">@Greeting, @Greeted</h1>
+                <p class="pdo-sub">@Standfirst</p>
+            </div>
+            <div class="pdo-head-actions">
+                <div class="pdo-seg" role="group" aria-label="Reporting window">
+                    @foreach (var option in RangeOptions)
                     {
-                        <text>@DashboardSubtitle</text>
+                        <button type="button"
+                                class="pdo-seg-opt @(option == rangeDays ? "is-on" : null)"
+                                aria-pressed="@(option == rangeDays)"
+                                disabled="@isLoading"
+                                @onclick="() => SelectRange(option)">
+                            @($"{option}d")
+                        </button>
+                    }
+                </div>
+                <button type="button" class="pdo-btn pdo-btn-quiet" disabled="@isLoading" @onclick="LoadAsync">
+                    <i class="ph ph-arrows-clockwise @(isLoading ? "is-spinning" : null)" aria-hidden="true"></i>
+                    @if (readAt is { } stamp && !isLoading)
+                    {
+                        @($"Read {stamp:HH:mm}")
                     }
                     else
                     {
-                        <text>@EmptyDashboardSubtitle</text>
+                        @("Reading…")
                     }
-                </p>
+                </button>
+                <a class="pdo-btn pdo-btn-primary" href="/pods">
+                    <i class="ph ph-upload-simple" aria-hidden="true"></i>Upload a POD
+                </a>
             </div>
-            @if (dashboard != null)
-            {
-                <div class="d-flex gap-2 align-items-center flex-wrap">
-                    <span class="podd-stat-pill podd-pill-today">
-                        <i class="bi bi-calendar-day me-1"></i>
-                        @dashboard.UploadsToday today
-                    </span>
-                    <span class="podd-stat-pill podd-pill-total">
-                        <i class="bi bi-cloud-arrow-up me-1"></i>
-                        @dashboard.TotalUploads total
-                    </span>
-                    <button class="podd-refresh-btn" @onclick="LoadDashboard" disabled="@isLoading">
-                        <i class="bi bi-arrow-clockwise @(isLoading ? "spin" : "")"></i>
-                    </button>
-                </div>
-            }
         </div>
-    </div>
+        <div class="pdo-rule"></div>
+    </header>
 
-    @if (isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border" style="width: 2.5rem; height: 2.5rem; color: #667eea;" role="status"></div>
-            <p class="mt-3 text-muted">Loading your dashboard...</p>
-        </div>
-    }
-    else if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="alert alert-danger d-flex align-items-center gap-2" role="alert">
-            <i class="bi bi-exclamation-triangle-fill"></i>
-            @errorMessage
-        </div>
-    }
-    else if (dashboard != null)
-    {
-        @* Stat Cards *@
-        <div class="row g-3 mb-4">
-            <div class="col-6 col-lg-3">
-                <div class="podd-stat-card podd-stat-today">
-                    <div class="podd-stat-icon-box">
-                        <i class="bi bi-calendar-check"></i>
-                    </div>
-                    <div>
-                        <div class="podd-stat-label">Today</div>
-                        <div class="podd-stat-value">@dashboard.UploadsToday</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-lg-3">
-                <div class="podd-stat-card podd-stat-week">
-                    <div class="podd-stat-icon-box">
-                        <i class="bi bi-calendar-week"></i>
-                    </div>
-                    <div>
-                        <div class="podd-stat-label">This Week</div>
-                        <div class="podd-stat-value">@dashboard.UploadsThisWeek</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-lg-3">
-                <div class="podd-stat-card podd-stat-month">
-                    <div class="podd-stat-icon-box">
-                        <i class="bi bi-calendar-range"></i>
-                    </div>
-                    <div>
-                        <div class="podd-stat-label">This Month</div>
-                        <div class="podd-stat-value">@dashboard.UploadsThisMonth</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-6 col-lg-3">
-                <div class="podd-stat-card podd-stat-total">
-                    <div class="podd-stat-icon-box">
-                        <i class="bi bi-cloud-arrow-up-fill"></i>
-                    </div>
-                    <div>
-                        <div class="podd-stat-label">All Time</div>
-                        <div class="podd-stat-value">@dashboard.TotalUploads</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <div class="pdo-body">
 
-        @* Secondary Stats Row *@
-        <div class="row g-3 mb-4">
-            <div class="col-md-6">
-                <div class="podd-info-card">
-                    <div class="podd-info-row">
-                        <div class="podd-info-item">
-                            <i class="bi bi-receipt text-primary"></i>
-                            <div>
-                                <div class="podd-info-label">Unique Invoices</div>
-                                <div class="podd-info-value">@dashboard.UniqueInvoicesCovered</div>
-                            </div>
-                        </div>
-                        <div class="podd-info-item">
-                            <i class="bi bi-hdd text-info"></i>
-                            <div>
-                                <div class="podd-info-label">Total File Size</div>
-                                <div class="podd-info-value">@dashboard.TotalFileSizeFormatted</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="podd-info-card">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-semibold small">Daily Avg (30d)</span>
-                        <span class="podd-info-value">@DailyAverage.ToString("N1")</span>
-                    </div>
-                    @if (dashboard.TotalUploads > 0)
-                    {
-                        <div class="progress" style="height: 8px; border-radius: 6px;">
-                            <div class="progress-bar" role="progressbar"
-                                 style="width: @Math.Min(100, DailyAverage * 10).ToString("N0")%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 6px;">
-                            </div>
-                        </div>
-                    }
-                </div>
-            </div>
-        </div>
-
-        @* Activity Chart (simple bar chart via CSS) *@
-        @if (dashboard.DailyUploads.Any())
+        @if (uploadsFailed || complianceFailed)
         {
-            <div class="podd-chart-card mb-4">
-                <div class="podd-chart-header">
-                    <h6 class="mb-0"><i class="bi bi-bar-chart-line me-2"></i>Upload Activity (Last 30 Days)</h6>
-                    <span class="text-muted small">@dashboard.DailyUploads.Sum(d => d.Count) uploads</span>
-                </div>
-                <div class="podd-chart-body">
-                    <div class="podd-chart">
-                        @{
-                            var maxCount = dashboard.DailyUploads.Max(d => d.Count);
-                            var maxHeight = maxCount > 0 ? maxCount : 1;
-                        }
-                        @foreach (var day in dashboard.DailyUploads)
-                        {
-                            var heightPct = maxHeight > 0 ? (day.Count * 100.0 / maxHeight) : 0;
-                            <div class="podd-chart-bar-wrap" title="@day.Date: @day.Count uploads">
-                                <div class="podd-chart-bar" style="height: @Math.Max(2, heightPct)%;">
-                                    @if (day.Count > 0)
-                                    {
-                                        <span class="podd-chart-bar-label">@day.Count</span>
-                                    }
-                                </div>
-                                <span class="podd-chart-day">@day.Date[..3]</span>
-                            </div>
-                        }
-                    </div>
+            <div class="pdo-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div>
+                    @if (uploadsFailed && complianceFailed)
+                    {
+                        <text>Neither the upload figures nor the compliance window could be read. Nothing on this page is current.</text>
+                    }
+                    else if (uploadsFailed)
+                    {
+                        <text>The upload figures and the activity chart could not be read. The compliance panels are current.</text>
+                    }
+                    else
+                    {
+                        <text>The compliance window could not be read, so coverage and the outstanding list are unavailable. The upload figures are current.</text>
+                    }
                 </div>
             </div>
         }
 
-        @* Recent Uploads *@
-        <div class="podd-table-card">
-            <div class="podd-table-header">
-                <h6 class="mb-0"><i class="bi bi-clock-history me-2"></i>@RecentUploadsTitle</h6>
-                <button class="btn btn-sm btn-outline-primary" @onclick="GoToPods">
-                    View All <i class="bi bi-arrow-right ms-1"></i>
-                </button>
+        @* Figures read "—" until their numbers are in, rather than showing a
+           zero that is about to jump. *@
+        <section class="pdo-kpis" aria-label="Key figures">
+            <div class="pdo-kpi">
+                <div class="pdo-kpi-top">
+                    <span class="pdo-kpi-label">@TodayLabel</span>
+                    <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
+                </div>
+                <div class="pdo-kpi-fig">
+                    <span class="pdo-kpi-value">@Figure(uploads?.UploadsToday)</span>
+                    <span class="pdo-kpi-unit">files</span>
+                </div>
+                <div class="pdo-kpi-foot">
+                    @if (uploads is { } today)
+                    {
+                        <span>@today.UploadsThisWeek.ToString("N0") this week</span>
+                    }
+                </div>
             </div>
-            <div class="table-responsive">
-                <table class="table table-hover mb-0 align-middle podd-table">
-                    <thead>
-                        <tr>
-                            <th>File</th>
-                            <th>Invoice</th>
-                            <th>Customer</th>
-                            <th>Size</th>
-                            <th>Uploaded</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (dashboard.RecentUploads.Any())
-                        {
-                            @foreach (var upload in dashboard.RecentUploads)
+
+            <div class="pdo-kpi">
+                <div class="pdo-kpi-top">
+                    <span class="pdo-kpi-label">@($"Coverage {rangeDays}d")</span>
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                </div>
+                <div class="pdo-kpi-fig">
+                    <span class="pdo-kpi-value">@(coverage is { Total: > 0 } done ? $"{done.Percent:0}%" : "—")</span>
+                </div>
+                <div class="pdo-kpi-foot">
+                    <span>@CoverageNote</span>
+                </div>
+            </div>
+
+            <div class="pdo-kpi @(coverage is { Outstanding: > 0 } ? "is-risk" : null)">
+                <div class="pdo-kpi-top">
+                    <span class="pdo-kpi-label">Missing proof</span>
+                    <i class="ph ph-clipboard-text" aria-hidden="true"></i>
+                </div>
+                <div class="pdo-kpi-fig">
+                    <span class="pdo-kpi-value">@Figure(coverage?.Outstanding)</span>
+                    <span class="pdo-kpi-unit">deliveries</span>
+                </div>
+                <div class="pdo-kpi-foot">
+                    <span>@OutstandingNote</span>
+                </div>
+            </div>
+
+            <div class="pdo-kpi">
+                <div class="pdo-kpi-top">
+                    <span class="pdo-kpi-label">@(isOperator ? "Uploading" : "Invoices covered")</span>
+                    <i class="ph @(isOperator ? "ph-users-three" : "ph-receipt")" aria-hidden="true"></i>
+                </div>
+                <div class="pdo-kpi-fig">
+                    <span class="pdo-kpi-value">@(isOperator ? Figure(UploaderFigure) : Figure(uploads?.UniqueInvoicesCovered))</span>
+                    <span class="pdo-kpi-unit">@(isOperator ? "people" : "all time")</span>
+                </div>
+                <div class="pdo-kpi-foot">
+                    <span>@(isOperator ? UploaderNote : CoveredNote)</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="pdo-split">
+
+            <div class="pdo-col">
+
+                <section class="pdo-card" aria-label="Upload activity">
+                    <div class="pdo-chart-head">
+                        <div>
+                            <span class="pdo-card-title">Upload activity</span>
+                            <span class="pdo-card-sub">
+                                Files a day, last @rangeDays days · @(isOperator ? "the whole section" : "your uploads")
+                            </span>
+                        </div>
+                        <div class="pdo-chart-total">
+                            <span class="pdo-chart-total-value">@Figure(uploads?.UploadsThisMonth)</span>
+                            <span class="pdo-card-note">this month</span>
+                        </div>
+                    </div>
+
+                    @if (bars.Count == 0)
+                    {
+                        <div class="pdo-empty">@(isLoading ? "Loading activity…" : "No upload activity to chart.")</div>
+                    }
+                    else
+                    {
+                        <div class="pdo-plot">
+                            <div class="pdo-gridline is-top"></div>
+                            <div class="pdo-gridline is-mid"></div>
+                            <div class="pdo-gridline is-low"></div>
+                            <div class="pdo-baseline"></div>
+                            @if (axisMax > 0)
                             {
-                                <tr>
-                                    <td>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <span class="podd-file-icon @GetFileIconClass(upload.FileName)">
-                                                <i class="bi @GetFileIcon(upload.FileName)"></i>
-                                            </span>
-                                            <span class="small fw-medium text-truncate" style="max-width: 200px;">@upload.FileName</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span class="podd-docnum">@(upload.InvoiceDocNum > 0 ? upload.InvoiceDocNum.ToString() : $"#{upload.InvoiceDocEntry}")</span>
-                                    </td>
-                                    <td>
-                                        <span class="text-truncate d-inline-block" style="max-width: 180px;">@(upload.CardName ?? "—")</span>
-                                    </td>
-                                    <td class="text-muted small">@upload.FileSizeFormatted</td>
-                                    <td class="text-muted small">@FormatTimeAgo(upload.UploadedAt)</td>
-                                </tr>
+                                <span class="pdo-ytick is-top">@axisMax</span>
+                                <span class="pdo-ytick is-mid">@(axisMax * 2 / 3)</span>
+                                <span class="pdo-ytick is-low">@(axisMax / 3)</span>
                             }
+                            @foreach (var bar in bars)
+                            {
+                                <div class="pdo-bar @bar.BandClass" style="height:@bar.Height" title="@bar.Label"></div>
+                            }
+                        </div>
+
+                        <div class="pdo-xaxis">
+                            <span>@chartStart</span>
+                            <span>@chartMid</span>
+                            <span>Today</span>
+                        </div>
+                    }
+                </section>
+
+                @* The operator's actual queue. Oldest first, because the age of
+                   a delivery without proof is the whole problem — each row
+                   opens the POD page on that invoice, ready to upload. *@
+                <section class="pdo-card" aria-label="Deliveries missing proof">
+                    <div class="pdo-card-head">
+                        <span class="pdo-card-title">Missing proof</span>
+                        <a class="pdo-link pdo-card-note" href="/pod-report">
+                            @(coverage is { Outstanding: > OutstandingShown } more
+                                ? $"View all {more.Outstanding:N0}"
+                                : "Open the report")
+                        </a>
+                    </div>
+
+                    @* The column strip only appears once there are rows under
+                       it — an empty list here is good news, not a table with
+                       nothing in it. *@
+                    @if (outstanding.Count > 0)
+                    {
+                        <div class="pdo-rows-head" aria-hidden="true">
+                            <span>Invoice</span>
+                            <span>Customer</span>
+                            <span class="pdo-row-value">Value</span>
+                            <span>Raised</span>
+                            <span class="pdo-row-age">Waiting</span>
+                        </div>
+                    }
+
+                    @if (outstanding.Count == 0)
+                    {
+                        <div class="pdo-empty">
+                            @if (isLoading)
+                            {
+                                <text>Loading the outstanding list…</text>
+                            }
+                            else if (complianceFailed)
+                            {
+                                <text>The compliance window could not be read.</text>
+                            }
+                            else if (coverage is { Total: 0 })
+                            {
+                                <text>No invoices were raised in the last @rangeDays days.</text>
+                            }
+                            else
+                            {
+                                <text>Every delivery in the last @rangeDays days has its proof.</text>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var item in outstanding)
+                        {
+                            <a class="pdo-row" href="@ChaseHref(item)">
+                                <span class="pdo-row-id">@InvoiceLabel(item)</span>
+                                <span class="pdo-row-name">@CustomerLabel(item)</span>
+                                <span class="pdo-row-value">@Money(item.DocTotal, item.DocCurrency)</span>
+                                <span class="pdo-row-raised">@RaisedOn(item.DocDate)</span>
+                                <span class="pdo-row-age">
+                                    <span class="pdo-tag @WaitingTone(item.DocDate)">@WaitingFor(item.DocDate)</span>
+                                </span>
+                            </a>
+                        }
+                    }
+                </section>
+
+                <section class="pdo-card" aria-label="Recent uploads">
+                    <div class="pdo-card-head">
+                        <span class="pdo-card-title">@(isOperator ? "Recent section uploads" : "Your recent uploads")</span>
+                        <a class="pdo-link pdo-card-note" href="/pods">View all</a>
+                    </div>
+
+                    @if (uploads is null || uploads.RecentUploads.Count == 0)
+                    {
+                        <div class="pdo-empty">
+                            @(isLoading ? "Loading uploads…"
+                                : uploadsFailed ? "The upload figures could not be read."
+                                : "Nothing has been uploaded yet.")
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="pdo-uploads">
+                            @foreach (var upload in uploads.RecentUploads)
+                            {
+                                <div class="pdo-upload">
+                                    <span class="pdo-upload-icon @FileTone(upload.FileName)">
+                                        <i class="ph @FileIcon(upload.FileName)" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="pdo-upload-body">
+                                        <span class="pdo-upload-name" title="@upload.FileName">@upload.FileName</span>
+                                        <span class="pdo-upload-note">
+                                            @(upload.InvoiceDocNum > 0 ? $"Invoice {upload.InvoiceDocNum}" : $"Doc #{upload.InvoiceDocEntry}")
+                                            @if (!string.IsNullOrWhiteSpace(upload.CardName))
+                                            {
+                                                <text> · @upload.CardName</text>
+                                            }
+                                        </span>
+                                    </span>
+                                    <span class="pdo-upload-size">@upload.FileSizeFormatted</span>
+                                    <span class="pdo-upload-age">@AgeFromUtc(upload.UploadedAt)</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+            </div>
+
+            <div class="pdo-col">
+
+                <section class="pdo-card" aria-label="Delivery proof">
+                    <div class="pdo-card-head">
+                        <span class="pdo-card-title">Delivery proof</span>
+                        <span class="pdo-card-note">Last @rangeDays days</span>
+                    </div>
+
+                    @if (coverage is { Total: > 0 } proof)
+                    {
+                        <div class="pdo-proof">
+                            <div class="pdo-proof-fig">
+                                <span class="pdo-proof-value">@($"{proof.Percent:0}")<small>%</small></span>
+                                <span class="pdo-proof-cap">uploaded, @($"{proof.OnTimePercent:0}")% within 24h</span>
+                            </div>
+
+                            <div class="pdo-meter" role="img"
+                                 aria-label="@($"{proof.OnTime} on time, {proof.Late} late, {proof.Outstanding} outstanding")">
+                                <div class="pdo-meter-on" style="width:@Percent(proof.OnTime, proof.Total)"></div>
+                                <div class="pdo-meter-late" style="width:@Percent(proof.Late, proof.Total)"></div>
+                                <div class="pdo-meter-out" style="width:@Percent(proof.Outstanding, proof.Total)"></div>
+                            </div>
+
+                            <div class="pdo-legend">
+                                <div class="pdo-legend-row">
+                                    <span>Uploaded within 24h</span><span>@proof.OnTime.ToString("N0")</span>
+                                </div>
+                                <div class="pdo-legend-row">
+                                    <span>Late upload</span><span>@proof.Late.ToString("N0")</span>
+                                </div>
+                                <div class="pdo-legend-row @(proof.Outstanding > 0 ? "is-risk" : null)">
+                                    <span>Still outstanding</span><span>@proof.Outstanding.ToString("N0")</span>
+                                </div>
+                            </div>
+
+                            @* What these figures cover, said plainly. The
+                               generated location is only known for invoices
+                               raised by a mapped SAP user, so a section reading
+                               states what it had to leave out. *@
+                            <div class="pdo-scope">
+                                <i class="ph ph-funnel" aria-hidden="true"></i>
+                                <span>
+                                    @ScopeNote@(unattributed > 0
+                                        ? $" · {unattributed:N0} invoices carry no section and are not counted"
+                                        : null)
+                                </span>
+                            </div>
+
+                            <a class="pdo-btn pdo-btn-primary pdo-btn-block" href="/pod-report">
+                                Open the POD report
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="pdo-empty">
+                            @(isLoading ? "Loading delivery proof…"
+                                : complianceFailed ? "Delivery proof is unavailable."
+                                : $"No invoices were raised in the last {rangeDays} days.")
+                        </div>
+                    }
+                </section>
+
+                @if (isOperator)
+                {
+                    <section class="pdo-card" aria-label="Who is uploading">
+                        <div class="pdo-card-head">
+                            <span class="pdo-card-title">Who is uploading</span>
+                            <span class="pdo-card-note">@(uploaderCount > UploaderRanking ? $"Top {UploaderRanking} of {uploaderCount:N0}" : $"Last {rangeDays} days")</span>
+                        </div>
+
+                        @if (uploaders.Count == 0)
+                        {
+                            <div class="pdo-empty">
+                                @(isLoading ? "Loading uploaders…"
+                                    : complianceFailed ? "Unavailable."
+                                    : SectionScoped
+                                        ? $"Nobody at {SectionLabel} uploaded in the last {rangeDays} days."
+                                        : $"Nothing was uploaded in the last {rangeDays} days.")
+                            </div>
                         }
                         else
                         {
-                            <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">
-                                    <i class="bi bi-inbox me-2"></i>No uploads yet — go upload some PODs!
-                                </td>
-                            </tr>
+                            <div class="pdo-people">
+                                @foreach (var person in uploaders)
+                                {
+                                    <div class="pdo-person">
+                                        <div class="pdo-person-row">
+                                            <span class="pdo-person-name" title="@person.Name">@person.Name</span>
+                                            <span class="pdo-person-count">@person.Files.ToString("N0")</span>
+                                        </div>
+                                        <div class="pdo-person-track">
+                                            <div class="pdo-person-fill" style="width:@person.Width"></div>
+                                        </div>
+                                        <div class="pdo-person-note">
+                                            @person.Invoices.ToString("N0") @(person.Invoices == 1 ? "invoice" : "invoices")
+                                            @if (person.Latest is { } latest)
+                                            {
+                                                <text> · last @AgeFromUtc(latest)</text>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(person.Role) &&
+                                                 !string.Equals(person.Role, UserRoles.Driver, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <text> · @person.Role</text>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
                         }
-                    </tbody>
-                </table>
+                    </section>
+                }
+
+                <section class="pdo-card" aria-label="Totals">
+                    <div class="pdo-card-head">
+                        <span class="pdo-card-title">@(isOperator ? "Section totals" : "Your totals")</span>
+                        <span class="pdo-card-note">All time</span>
+                    </div>
+
+                    @if (uploads is { } totals)
+                    {
+                        <div class="pdo-totals">
+                            <div class="pdo-total">
+                                <span>This week</span><span>@totals.UploadsThisWeek.ToString("N0")</span>
+                            </div>
+                            <div class="pdo-total">
+                                <span>This month</span><span>@totals.UploadsThisMonth.ToString("N0")</span>
+                            </div>
+                            <div class="pdo-total">
+                                <span>Files uploaded</span><span>@totals.TotalUploads.ToString("N0")</span>
+                            </div>
+                            <div class="pdo-total">
+                                <span>Invoices covered</span><span>@totals.UniqueInvoicesCovered.ToString("N0")</span>
+                            </div>
+                            <div class="pdo-total">
+                                <span>Stored</span><span>@totals.TotalFileSizeFormatted</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="pdo-empty">
+                            @(isLoading ? "Loading totals…" : "Totals are unavailable.")
+                        </div>
+                    }
+                </section>
             </div>
         </div>
-    }
+
+        <section class="pdo-steps" aria-label="Recommended workflow">
+            @foreach (var step in Steps)
+            {
+                <div class="pdo-step">
+                    <span class="pdo-step-n">Step @step.Number</span>
+                    <span class="pdo-step-title">@step.Title</span>
+                    <span class="pdo-step-body">@step.Body</span>
+                    <a class="pdo-link" href="@step.Href">@step.Cta →</a>
+                </div>
+            }
+        </section>
+    </div>
 </div>
-
-<style>
-    /* ── Hero ── */
-    .podd-hero {
-        background: linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%);
-        border-radius: 16px;
-        padding: 1.5rem 1.75rem;
-        margin-bottom: 1.25rem;
-        color: #fff;
-    }
-    .podd-hero-content {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
-    }
-    .podd-hero-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    .podd-hero-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 44px;
-        height: 44px;
-        background: rgba(255,255,255,0.15);
-        border-radius: 12px;
-        font-size: 1.25rem;
-    }
-    .podd-hero-subtitle {
-        margin: 0.25rem 0 0;
-        opacity: 0.85;
-        font-size: 0.9rem;
-    }
-    .podd-stat-pill {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.35rem 0.85rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-    .podd-pill-today { background: rgba(76,175,80,0.25); color: #a5d6a7; }
-    .podd-pill-total { background: rgba(255,255,255,0.2); color: #fff; }
-    .podd-refresh-btn {
-        background: rgba(255,255,255,0.15);
-        border: 1px solid rgba(255,255,255,0.25);
-        color: #fff;
-        border-radius: 8px;
-        width: 36px;
-        height: 36px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background 0.15s;
-    }
-    .podd-refresh-btn:hover { background: rgba(255,255,255,0.25); }
-    .podd-refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    @@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    .spin { animation: spin 0.8s linear infinite; }
-
-    /* ── Stat Cards ── */
-    .podd-stat-card {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 1.25rem;
-        border-radius: 14px;
-        color: #fff;
-        min-height: 90px;
-        transition: transform 0.15s, box-shadow 0.15s;
-    }
-    .podd-stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    }
-    .podd-stat-today { background: linear-gradient(135deg, #1b5e20, #388e3c); }
-    .podd-stat-week { background: linear-gradient(135deg, #0d47a1, #1976d2); }
-    .podd-stat-month { background: linear-gradient(135deg, #4a148c, #7b1fa2); }
-    .podd-stat-total { background: linear-gradient(135deg, #1a237e, #3949ab); }
-    .podd-stat-icon-box {
-        width: 48px;
-        height: 48px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(255,255,255,0.2);
-        border-radius: 12px;
-        font-size: 1.3rem;
-        flex-shrink: 0;
-    }
-    .podd-stat-label {
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        opacity: 0.85;
-    }
-    .podd-stat-value {
-        font-size: 1.75rem;
-        font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        line-height: 1.2;
-    }
-
-    /* ── Info Cards ── */
-    .podd-info-card {
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 14px;
-        padding: 1.25rem;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
-        height: 100%;
-    }
-    .podd-info-row {
-        display: flex;
-        gap: 2rem;
-    }
-    .podd-info-item {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-    .podd-info-item > i {
-        font-size: 1.5rem;
-    }
-    .podd-info-label {
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--text-muted, #6c757d);
-    }
-    .podd-info-value {
-        font-size: 1.15rem;
-        font-weight: 700;
-        font-family: 'Space Grotesk', sans-serif;
-        color: var(--text-primary, #000);
-    }
-
-    /* ── Chart ── */
-    .podd-chart-card {
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 14px;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
-        overflow: hidden;
-    }
-    .podd-chart-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-        background: var(--card-header-bg, #f8f9fa);
-    }
-    .podd-chart-body {
-        padding: 1.25rem;
-        overflow-x: auto;
-    }
-    .podd-chart {
-        display: flex;
-        align-items: flex-end;
-        gap: 3px;
-        height: 160px;
-        min-width: 600px;
-    }
-    .podd-chart-bar-wrap {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        height: 100%;
-        justify-content: flex-end;
-    }
-    .podd-chart-bar {
-        width: 100%;
-        max-width: 22px;
-        background: linear-gradient(180deg, #667eea, #764ba2);
-        border-radius: 4px 4px 0 0;
-        position: relative;
-        transition: height 0.3s ease;
-        min-height: 2px;
-    }
-    .podd-chart-bar-label {
-        position: absolute;
-        top: -18px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 0.65rem;
-        font-weight: 600;
-        color: var(--text-secondary, #4a4a4a);
-        white-space: nowrap;
-    }
-    .podd-chart-day {
-        font-size: 0.6rem;
-        color: var(--text-muted, #8a8a8a);
-        margin-top: 4px;
-        writing-mode: vertical-lr;
-        text-orientation: mixed;
-        transform: rotate(180deg);
-        height: 24px;
-    }
-
-    /* ── Recent Uploads Table ── */
-    .podd-table-card {
-        background: var(--card-bg, #fff);
-        border: 1px solid var(--border-color, #e2e8f0);
-        border-radius: 14px;
-        box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.06));
-        overflow: hidden;
-    }
-    .podd-table-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid var(--border-color, #e2e8f0);
-        background: var(--card-header-bg, #f8f9fa);
-    }
-    .podd-table thead th {
-        background: var(--card-header-bg, #f8f9fa);
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--text-muted, #6c757d);
-        font-weight: 600;
-        padding: 0.6rem 1rem;
-        border-bottom: 2px solid var(--border-color, #e2e8f0);
-    }
-    .podd-table tbody td {
-        padding: 0.65rem 1rem;
-        font-size: 0.88rem;
-        vertical-align: middle;
-    }
-    .podd-docnum {
-        font-weight: 600;
-        font-family: 'Space Grotesk', monospace;
-        color: #3949ab;
-    }
-    .podd-file-icon {
-        width: 32px;
-        height: 32px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 8px;
-        font-size: 0.9rem;
-        flex-shrink: 0;
-    }
-    .podd-file-icon.pdf { background: #fce4ec; color: #c62828; }
-    .podd-file-icon.image { background: #e3f2fd; color: #1565c0; }
-    .podd-file-icon.other { background: #f3e5f5; color: #6a1b9a; }
-
-    /* ── Dark Theme ── */
-    .dark-theme .podd-info-card,
-    .dark-theme .podd-chart-card,
-    .dark-theme .podd-table-card {
-        background: var(--card-bg);
-        border-color: var(--border-color);
-    }
-    .dark-theme .podd-chart-header,
-    .dark-theme .podd-table-header,
-    .dark-theme .podd-table thead th {
-        background: var(--card-header-bg);
-    }
-    .dark-theme .podd-docnum {
-        color: #90caf9;
-    }
-
-    /* ── Responsive ── */
-    @@media (max-width: 768px) {
-        .podd-hero { padding: 1.25rem; }
-        .podd-hero-title { font-size: 1.2rem; }
-        .podd-stat-value { font-size: 1.4rem; }
-        .podd-info-row { flex-direction: column; gap: 1rem; }
-        .podd-chart { min-width: 500px; height: 120px; }
-    }
-</style>
-
-@code {
-    private PodDashboardModel? dashboard;
-    private bool isLoading = true;
-    private bool isPodOperator;
-    private string? errorMessage;
-
-    private string DashboardTitle => isPodOperator ? "Section POD Dashboard" : "My POD Dashboard";
-    private string DashboardSubtitle => dashboard == null
-        ? EmptyDashboardSubtitle
-        : isPodOperator
-            ? $"Welcome back, {dashboard.Username} — here's your section's POD activity"
-            : $"Welcome back, {dashboard.Username} — here's your upload activity";
-    private string EmptyDashboardSubtitle => isPodOperator
-        ? "Section proof of delivery upload stats"
-        : "Personal proof of delivery upload stats";
-    private string RecentUploadsTitle => isPodOperator ? "Recent Section Uploads" : "Recent Uploads";
-
-    private double DailyAverage => dashboard?.DailyUploads.Any() == true
-        ? dashboard.DailyUploads.Average(d => d.Count)
-        : 0;
-
-    protected override async Task OnInitializedAsync()
-    {
-        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        isPodOperator = authState.User.IsInRole("PodOperator");
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        await base.OnAfterRenderAsync(firstRender);
-
-        if (!firstRender)
-            return;
-
-        await LoadDashboard();
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task LoadDashboard()
-    {
-        isLoading = true;
-        errorMessage = null;
-        try
-        {
-            dashboard = await PodService.GetPodDashboardAsync();
-            if (dashboard == null)
-                errorMessage = "Failed to load dashboard. Please try again.";
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error loading dashboard: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
-
-    private void GoToPods()
-    {
-        Navigation.NavigateTo("/pods");
-    }
-
-    private static string FormatTimeAgo(DateTime uploadedAt)
-    {
-        var diff = DateTime.UtcNow - uploadedAt;
-        if (diff.TotalMinutes < 1) return "Just now";
-        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
-        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
-        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
-        return uploadedAt.ToString("dd MMM yyyy");
-    }
-
-    private static string GetFileIcon(string fileName)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".pdf" => "bi-file-earmark-pdf",
-            ".jpg" or ".jpeg" or ".png" or ".webp" => "bi-file-earmark-image",
-            _ => "bi-file-earmark"
-        };
-    }
-
-    private static string GetFileIconClass(string fileName)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".pdf" => "pdf",
-            ".jpg" or ".jpeg" or ".png" or ".webp" => "image",
-            _ => "other"
-        };
-    }
-}
