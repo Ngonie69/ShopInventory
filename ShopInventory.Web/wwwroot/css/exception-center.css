@@ -114,9 +114,11 @@
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
 
+/* Seated on the app bar, like every other Nocturne page header. `top: 0` would
+   pin it to the viewport, which is behind the fixed bar. */
 .exc-header {
     position: sticky;
-    top: 0;
+    top: var(--kf-topbar-h, 74px);
     z-index: 30;
     backdrop-filter: blur(10px);
     background: rgba(22, 24, 38, .88);
