@@ -1,6 +1,7 @@
 @page "/inventory-transfer/create"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using ShopInventory.Web.Data
 @attribute [Authorize(Roles = UserRoles.InventoryTransferRoles)]
 @inject IInventoryTransferService TransferService
 @inject IMasterDataCacheService CacheService
@@ -8,1420 +9,646 @@
 @inject NavigationManager NavigationManager
 @inject ILogger<CreateInventoryTransfer> Logger
 @inject IJSRuntime JS
-@using ShopInventory.Web.Data
 @inject AuthenticationStateProvider AuthStateProvider
-@inject IAppSettingsProvider AppSettings
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Create Inventory Transfer - Shop Inventory</PageTitle>
 
-<style>
-    .transfer-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Breadcrumb / Header ─────────────────────────── */
-    .page-header {
-        margin-bottom: 1.5rem;
-    }
-
-    .page-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-
-    .breadcrumb-nav {
-        font-size: 0.85rem;
-        color: #6c757d;
-    }
-
-    .breadcrumb-nav a {
-        color: #0d6efd;
-        text-decoration: none;
-    }
-
-    /* ── Step Indicator ───────────────────────────────── */
-    .step-indicator {
-        display: flex;
-        gap: 0;
-        margin-bottom: 1.75rem;
-        background: #fff;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
-    }
-
-    .step-item {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        gap: 0.65rem;
-        padding: 0.85rem 1.25rem;
-        font-size: 0.88rem;
-        font-weight: 500;
-        color: #9ca3af;
-        background: #fff;
-        border-bottom: 3px solid transparent;
-        transition: all .25s;
-    }
-
-    .step-item.active {
-        color: #0d6efd;
-        border-bottom-color: #0d6efd;
-        background: #f0f6ff;
-    }
-
-    .step-item.completed {
-        color: #059669;
-        border-bottom-color: #059669;
-        background: #f0fdf4;
-    }
-
-    .step-number {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-        font-size: 0.8rem;
-        background: #e5e7eb;
-        color: #9ca3af;
-        flex-shrink: 0;
-        transition: all .25s;
-    }
-
-    .step-item.active .step-number {
-        background: #0d6efd;
-        color: #fff;
-    }
-
-    .step-item.completed .step-number {
-        background: #059669;
-        color: #fff;
-    }
-
-    /* ── Cards ────────────────────────────────────────── */
-    .section-card {
-        background: #fff;
-        border-radius: 12px;
-        box-shadow: 0 1px 6px rgba(0, 0, 0, .06);
-        border: 1px solid #e5e7eb;
-        margin-bottom: 1.25rem;
-        overflow: hidden;
-        transition: box-shadow .2s;
-    }
-
-    .section-card:hover {
-        box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
-    }
-
-    .section-card .card-header {
-        background: #fff;
-        border-bottom: 1px solid #f0f0f0;
-        padding: 0.9rem 1.25rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .section-card .card-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1rem;
-        color: #1a1a2e;
-    }
-
-    .section-card .card-header .header-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.9rem;
-    }
-
-    .header-icon.blue {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .header-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .header-icon.amber {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .header-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .section-card .card-body {
-        padding: 1.25rem;
-    }
-
-    /* ── Warehouse Selectors ─────────────────────────── */
-    .warehouse-visual {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 0.75rem 0;
-    }
-
-    .warehouse-box {
-        flex: 1;
-        background: #f8fafc;
-        border: 2px dashed #d1d5db;
-        border-radius: 10px;
-        padding: 1rem;
-        text-align: center;
-        transition: all .2s;
-        min-height: 100px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-
-    .warehouse-box.filled {
-        border-style: solid;
-        border-color: #0d6efd;
-        background: #f0f6ff;
-    }
-
-    .warehouse-box.filled.destination {
-        border-color: #059669;
-        background: #f0fdf4;
-    }
-
-    .warehouse-box .wh-label {
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: #6b7280;
-        margin-bottom: 0.5rem;
-    }
-
-    .warehouse-box .wh-code {
-        font-size: 1.15rem;
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-
-    .warehouse-box .wh-name {
-        font-size: 0.8rem;
-        color: #6b7280;
-    }
-
-    .transfer-arrow {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.25rem;
-        color: #9ca3af;
-        flex-shrink: 0;
-    }
-
-    .transfer-arrow i {
-        font-size: 1.5rem;
-        color: #0d6efd;
-    }
-
-    .transfer-arrow span {
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    /* ── Line Items ──────────────────────────────────── */
-    .line-item-card {
-        background: #fafbfb;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 0.75rem;
-        transition: all .2s;
-        position: relative;
-    }
-
-    .line-item-card:hover {
-        border-color: #93c5fd;
-        box-shadow: 0 2px 8px rgba(59, 130, 246, .08);
-    }
-
-    .line-item-card.has-product {
-        border-left: 3px solid #0d6efd;
-        background: #fff;
-    }
-
-    .line-item-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.75rem;
-    }
-
-    .line-badge {
-        background: #e5e7eb;
-        color: #4b5563;
-        padding: 0.2rem 0.65rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-
-    .line-item-card.has-product .line-badge {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .btn-remove-line {
-        color: #9ca3af;
-        border: none;
-        background: none;
-        padding: 0.35rem;
-        border-radius: 6px;
-        transition: all .2s;
-        cursor: pointer;
-        font-size: 1rem;
-    }
-
-    .btn-remove-line:hover:not(:disabled) {
-        background: #fee2e2;
-        color: #dc2626;
-    }
-
-    .btn-remove-line:disabled {
-        opacity: 0.3;
-        cursor: not-allowed;
-    }
-
-    .product-preview {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.5rem 0.75rem;
-        background: #f0f6ff;
-        border-radius: 8px;
-        margin-top: 0.5rem;
-    }
-
-    .product-preview .product-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
-        background: #dbeafe;
-        color: #2563eb;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.9rem;
-        flex-shrink: 0;
-    }
-
-    .product-preview .product-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .product-preview .product-name {
-        font-weight: 600;
-        font-size: 0.85rem;
-        color: #1a1a2e;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .product-preview .product-stock {
-        font-size: 0.75rem;
-        color: #6b7280;
-    }
-
-    .product-preview .product-stock .in-stock {
-        color: #059669;
-        font-weight: 600;
-    }
-
-    .product-preview .product-stock .low-stock {
-        color: #d97706;
-        font-weight: 600;
-    }
-
-    .btn-add-item {
-        width: 100%;
-        border: 2px dashed #d1d5db;
-        color: #6b7280;
-        background: #fafbfb;
-        padding: 0.85rem 1.25rem;
-        border-radius: 10px;
-        transition: all .2s;
-        font-weight: 500;
-        cursor: pointer;
-    }
-
-    .btn-add-item:hover {
-        border-color: #93c5fd;
-        color: #2563eb;
-        background: #f0f6ff;
-    }
-
-    /* ── Summary Sidebar ─────────────────────────────── */
-    .summary-section {
-        position: sticky;
-        top: 1.5rem;
-    }
-
-    .summary-stat {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.55rem 0;
-        border-bottom: 1px solid #f3f4f6;
-        font-size: 0.88rem;
-    }
-
-    .summary-stat:last-child {
-        border-bottom: none;
-    }
-
-    .summary-stat .stat-label {
-        color: #6b7280;
-    }
-
-    .summary-stat .stat-value {
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .validation-checklist {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    }
-
-    .validation-checklist li {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.35rem 0;
-        font-size: 0.82rem;
-    }
-
-    .validation-checklist .check-icon {
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.65rem;
-        flex-shrink: 0;
-    }
-
-    .check-icon.pass {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .check-icon.fail {
-        background: #fee2e2;
-        color: #dc2626;
-    }
-
-    /* ── Execute Button ──────────────────────────────── */
-    .btn-execute {
-        background: linear-gradient(135deg, #2563eb, #3b82f6);
-        border: none;
-        color: #fff;
-        padding: 0.85rem 1.5rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: 0.95rem;
-        width: 100%;
-        transition: all .25s;
-        box-shadow: 0 2px 8px rgba(37, 99, 235, .25);
-    }
-
-    .btn-execute:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 16px rgba(37, 99, 235, .35);
-        background: linear-gradient(135deg, #1d4ed8, #2563eb);
-    }
-
-    .btn-execute:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: none;
-    }
-
-    .btn-execute:active:not(:disabled) {
-        transform: translateY(0);
-    }
-
-    /* ── Alert Banners ───────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: 0.85rem 1.15rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-        font-size: 0.88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .alert-banner.success {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-    }
-
-    .alert-banner .alert-icon {
-        font-size: 1.1rem;
-        flex-shrink: 0;
-        margin-top: 1px;
-    }
-
-    .alert-banner .alert-body {
-        flex: 1;
-    }
-
-    .alert-banner .alert-title {
-        font-weight: 600;
-        margin-bottom: 0.15rem;
-    }
-
-    .alert-banner .alert-close {
-        background: none;
-        border: none;
-        color: inherit;
-        opacity: 0.5;
-        cursor: pointer;
-        padding: 0.25rem;
-        font-size: 1rem;
-    }
-
-    .alert-banner .alert-close:hover {
-        opacity: 1;
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-8px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    /* ── Info hint ────────────────────────────────────── */
-    .info-hint {
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        border-radius: 8px;
-        padding: 0.65rem 0.85rem;
-        font-size: 0.8rem;
-        color: #1e40af;
-        display: flex;
-        align-items: start;
-        gap: 0.5rem;
-    }
-
-    /* ── Responsive ──────────────────────────────────── */
-    @@media (max-width: 768px) {
-        .warehouse-visual {
-            flex-direction: column;
-        }
-
-        .transfer-arrow {
-            transform: rotate(90deg);
-        }
-
-        .step-item span.step-text {
-            display: none;
-        }
-    }
-
-    /* ── Dark Mode Overrides ─────────────────────────── */
-    .dark-theme .transfer-page {
-        background: #0f172a;
-    }
-
-    .dark-theme .page-header h2 {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .breadcrumb-nav {
-        color: #94a3b8;
-    }
-
-    .dark-theme .breadcrumb-nav a {
-        color: #60a5fa;
-    }
-
-    /* Step indicator */
-    .dark-theme .step-indicator {
-        background: #1e293b;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
-    }
-
-    .dark-theme .step-item {
-        background: #1e293b;
-        color: #64748b;
-    }
-
-    .dark-theme .step-item.active {
-        color: #60a5fa;
-        background: rgba(59, 130, 246, .1);
-    }
-
-    .dark-theme .step-item.completed {
-        color: #34d399;
-        background: rgba(52, 211, 153, .08);
-    }
-
-    .dark-theme .step-number {
-        background: #334155;
-        color: #64748b;
-    }
-
-    .dark-theme .step-item.active .step-number {
-        background: #2563eb;
-        color: #fff;
-    }
-
-    .dark-theme .step-item.completed .step-number {
-        background: #059669;
-        color: #fff;
-    }
-
-    /* Cards */
-    .dark-theme .section-card {
-        background: #1e293b;
-        border-color: #334155;
-        box-shadow: 0 1px 6px rgba(0, 0, 0, .25);
-    }
-
-    .dark-theme .section-card:hover {
-        box-shadow: 0 4px 16px rgba(0, 0, 0, .35);
-    }
-
-    .dark-theme .section-card .card-header {
-        background: #1e293b;
-        border-bottom-color: #334155;
-    }
-
-    .dark-theme .section-card .card-header h5 {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .header-icon.blue {
-        background: rgba(37, 99, 235, .15);
-        color: #60a5fa;
-    }
-
-    .dark-theme .header-icon.green {
-        background: rgba(5, 150, 105, .15);
-        color: #34d399;
-    }
-
-    .dark-theme .header-icon.amber {
-        background: rgba(217, 119, 6, .15);
-        color: #fbbf24;
-    }
-
-    .dark-theme .header-icon.purple {
-        background: rgba(124, 58, 237, .15);
-        color: #a78bfa;
-    }
-
-    /* Warehouse visual */
-    .dark-theme .warehouse-box {
-        background: #0f172a;
-        border-color: #475569;
-    }
-
-    .dark-theme .warehouse-box.filled {
-        border-color: #3b82f6;
-        background: rgba(59, 130, 246, .08);
-    }
-
-    .dark-theme .warehouse-box.filled.destination {
-        border-color: #10b981;
-        background: rgba(16, 185, 129, .08);
-    }
-
-    .dark-theme .warehouse-box .wh-label {
-        color: #94a3b8;
-    }
-
-    .dark-theme .warehouse-box .wh-code {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .warehouse-box .wh-name {
-        color: #94a3b8;
-    }
-
-    .dark-theme .transfer-arrow {
-        color: #64748b;
-    }
-
-    .dark-theme .transfer-arrow i {
-        color: #3b82f6;
-    }
-
-    /* Form controls */
-    .dark-theme .form-label {
-        color: #cbd5e1;
-    }
-
-    .dark-theme .form-control,
-    .dark-theme .form-select {
-        background: #0f172a;
-        border-color: #475569;
-        color: #e2e8f0;
-    }
-
-    .dark-theme .form-control::placeholder {
-        color: #64748b;
-    }
-
-    .dark-theme .form-control:focus {
-        background: #0f172a;
-        border-color: #3b82f6;
-        color: #e2e8f0;
-        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, .15);
-    }
-
-    /* Line items */
-    .dark-theme .line-item-card {
-        background: #0f172a;
-        border-color: #334155;
-    }
-
-    .dark-theme .line-item-card:hover {
-        border-color: #475569;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
-    }
-
-    .dark-theme .line-item-card.has-product {
-        border-left-color: #3b82f6;
-        background: #1e293b;
-    }
-
-    .dark-theme .line-badge {
-        background: #334155;
-        color: #94a3b8;
-    }
-
-    .dark-theme .line-item-card.has-product .line-badge {
-        background: rgba(37, 99, 235, .15);
-        color: #60a5fa;
-    }
-
-    .dark-theme .btn-remove-line {
-        color: #64748b;
-    }
-
-    .dark-theme .btn-remove-line:hover:not(:disabled) {
-        background: rgba(239, 68, 68, .15);
-        color: #f87171;
-    }
-
-    .dark-theme .product-preview {
-        background: rgba(59, 130, 246, .08);
-    }
-
-    .dark-theme .product-preview .product-icon {
-        background: rgba(37, 99, 235, .2);
-        color: #60a5fa;
-    }
-
-    .dark-theme .product-preview .product-name {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .product-preview .product-stock {
-        color: #94a3b8;
-    }
-
-    .dark-theme .btn-add-item {
-        border-color: #475569;
-        color: #94a3b8;
-        background: #0f172a;
-    }
-
-    .dark-theme .btn-add-item:hover {
-        border-color: #3b82f6;
-        color: #60a5fa;
-        background: rgba(59, 130, 246, .08);
-    }
-
-    /* Summary sidebar */
-    .dark-theme .summary-stat {
-        border-bottom-color: #334155;
-    }
-
-    .dark-theme .summary-stat .stat-label {
-        color: #94a3b8;
-    }
-
-    .dark-theme .summary-stat .stat-value {
-        color: #e2e8f0;
-    }
-
-    /* Validation checklist */
-    .dark-theme .validation-checklist li {
-        color: #cbd5e1;
-    }
-
-    .dark-theme .check-icon.pass {
-        background: rgba(5, 150, 105, .2);
-        color: #34d399;
-    }
-
-    .dark-theme .check-icon.fail {
-        background: rgba(239, 68, 68, .15);
-        color: #f87171;
-    }
-
-    /* Alert banners */
-    .dark-theme .alert-banner.error {
-        background: rgba(239, 68, 68, .1);
-        border-color: rgba(239, 68, 68, .25);
-        color: #fca5a5;
-    }
-
-    .dark-theme .alert-banner.success {
-        background: rgba(16, 185, 129, .1);
-        border-color: rgba(16, 185, 129, .25);
-        color: #6ee7b7;
-    }
-
-    /* Info hint */
-    .dark-theme .info-hint {
-        background: rgba(59, 130, 246, .08);
-        border-color: rgba(59, 130, 246, .2);
-        color: #93c5fd;
-    }
-
-    /* Execute button keeps its gradient — just tweak disabled */
-    .dark-theme .btn-execute:disabled {
-        opacity: 0.35;
-    }
-
-    /* MudBlazor overrides in dark context */
-    .dark-theme .mud-input-outlined .mud-input-outlined-border {
-        border-color: #475569 !important;
-    }
-
-    .dark-theme .mud-input.mud-input-outlined {
-        color: #e2e8f0 !important;
-    }
-
-    .dark-theme .mud-input-label {
-        color: #94a3b8 !important;
-    }
-
-    .dark-theme .mud-input-slot,
-    .dark-theme .mud-input>input {
-        color: #e2e8f0 !important;
-    }
-
-    .dark-theme .mud-autocomplete .mud-menu .mud-list {
-        background: #1e293b !important;
-    }
-
-    /* Text & link overrides */
-    .dark-theme .text-muted {
-        color: #64748b !important;
-    }
-
-    .dark-theme .transfer-page a.btn-outline-secondary {
-        border-color: #475569;
-        color: #cbd5e1;
-    }
-
-    .dark-theme .transfer-page a.btn-outline-secondary:hover {
-        background: #334155;
-        color: #e2e8f0;
-    }
-
-    .dark-theme .transfer-page a.btn-link {
-        color: #60a5fa;
-    }
-</style>
-
-<div class="transfer-page">
-    <div class="container-fluid">
-
-        <!-- Page Header -->
-        <div class="page-header">
-            <div class="breadcrumb-nav mb-1">
-                <a href="/inventory-transfers">Inventory Transfers</a>
-                <span class="mx-1">/</span>
-                <span>Create Transfer</span>
+@* Styles live in wwwroot/css/transfer-forms.css (linked from App.razor), shared with
+   /transfer-request/create — the two forms are the same document in two moods, so they
+   are dressed from one sheet. Every control is native HTML: the MudBlazor autocompletes
+   and date pickers this page was built from are gone. *@
+
+<div class="tfm">
+    <div class="tfm-shell">
+
+        <!-- ── Breadcrumb strip ───────────────────────────────────────── -->
+        <div class="tfm-crumbs">
+            <a href="/inventory-transfers">Inventory transfers</a>
+            <span class="tfm-crumb-sep">/</span>
+            <span class="tfm-crumb-now">New transfer</span>
+            <span class="tfm-spacer"></span>
+            @if (isLoadingMasterData)
+            {
+                <span class="tfm-pill is-loading">
+                    <span class="tfm-spin"></span>Loading master data&hellip;
+                </span>
+            }
+            else if (isLoadingStock)
+            {
+                <span class="tfm-pill is-loading">
+                    <span class="tfm-spin"></span>Updating stock for @selectedFromWarehouse?.WarehouseCode&hellip;
+                </span>
+            }
+            else
+            {
+                <span class="tfm-pill is-ready">
+                    <span class="tfm-dot"></span>@cachedProducts.Count.ToString("N0") items &middot;
+                    @cachedWarehouses.Count warehouses
+                </span>
+            }
+            <a href="/inventory-transfers" class="tfm-btn"><i class="ph ph-arrow-left"></i>Back</a>
+        </div>
+
+        <!-- ── Head ───────────────────────────────────────────────────── -->
+        <div class="tfm-head">
+            <div class="tfm-head-main">
+                <div class="tfm-kicker">Warehousing</div>
+                <h1>New inventory transfer</h1>
+                <p>Moves stock between warehouses &middot; held for approval, then posts to SAP</p>
             </div>
-            <div class="d-flex justify-content-between align-items-center">
-                <h2 class="mb-0"><i class="bi bi-arrow-left-right me-2 text-primary"></i>New Inventory Transfer</h2>
-                <a href="/inventory-transfers" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-arrow-left me-1"></i>Back
-                </a>
+            <div class="tfm-stats">
+                <div class="tfm-stat">
+                    <div class="tfm-stat-k">Items</div>
+                    <div class="tfm-stat-v">@CompletedLineCount</div>
+                </div>
+                <div class="tfm-stat">
+                    <div class="tfm-stat-k">Total quantity</div>
+                    <div class="tfm-stat-v is-accent">@TotalQuantity.ToString("N2")</div>
+                </div>
+                <div class="tfm-stat">
+                    <div class="tfm-stat-k">Route</div>
+                    <div class="tfm-stat-v">
+                        @(selectedFromWarehouse?.WarehouseCode ?? "—") &rarr;
+                        @(selectedToWarehouse?.WarehouseCode ?? "—")
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Alerts -->
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="alert-banner error">
-                <i class="bi bi-exclamation-octagon-fill alert-icon"></i>
-                <div class="alert-body">
-                    <div class="alert-title">Transfer Failed</div>
-                    <div>@errorMessage</div>
+        <!-- ── Steps ──────────────────────────────────────────────────── -->
+        <div class="tfm-steps">
+            @foreach (var step in Steps)
+            {
+                <div class="tfm-step @StepClass(step.Number)">
+                    <span class="tfm-step-n">
+                        @if (IsStepCompleted(step.Number))
+                        {
+                            <i class="ph ph-check"></i>
+                        }
+                        else
+                        {
+                            @step.Number
+                        }
+                    </span>
+                    <span>@step.Label</span>
                 </div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small"
-                               Class="alert-close" />
-            </div>
-        }
+                @if (step.Number < Steps.Length)
+                {
+                    <span class="tfm-step-sep"></span>
+                }
+            }
+        </div>
+
+        <!-- ── Alerts ─────────────────────────────────────────────────── -->
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="alert-banner success">
-                <i class="bi bi-check-circle-fill alert-icon"></i>
-                <div class="alert-body">
-                    <div class="alert-title">Success</div>
-                    <div>@successMessage</div>
-                </div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small"
-                               Class="alert-close" />
+            <div class="tfm-alert is-ok" role="status">
+                <i class="ph-fill ph-check-circle"></i>
+                <div class="tfm-alert-bd">@successMessage</div>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="tfm-alert is-err" role="alert">
+                <i class="ph-fill ph-warning-octagon"></i>
+                <div class="tfm-alert-bd">@errorMessage</div>
+                <button type="button" class="tfm-alert-x" @onclick="() => errorMessage = null"
+                        aria-label="Dismiss">
+                    <i class="ph ph-x"></i>
+                </button>
             </div>
         }
 
-        <!-- Step Indicator -->
-        <div class="step-indicator">
-            <div class="step-item @(StepClass(1))">
-                <div class="step-number">@(IsStepCompleted(1) ? "✓" : "1")</div>
-                <span class="step-text">Select Warehouses</span>
-            </div>
-            <div class="step-item @(StepClass(2))">
-                <div class="step-number">@(IsStepCompleted(2) ? "✓" : "2")</div>
-                <span class="step-text">Add Items</span>
-            </div>
-            <div class="step-item @(StepClass(3))">
-                <div class="step-number">@(IsStepCompleted(3) ? "✓" : "3")</div>
-                <span class="step-text">Review &amp; Execute</span>
-            </div>
-        </div>
+        <div class="tfm-grid">
+            <div class="tfm-main">
 
-        <div class="row g-4">
-            <!-- Main Column -->
-            <div class="col-lg-8">
+                <!-- ── Warehouses ─────────────────────────────────────── -->
+                <section class="tfm-card">
+                    <div class="tfm-card-hd">
+                        <i class="ph ph-buildings"></i>
+                        <h2>Warehouses</h2>
+                    </div>
+                    <div class="tfm-card-bd tfm-fields">
+                        <label class="tfm-lab tfm-span2">
+                            <span class="tfm-lab-t">From warehouse <span class="tfm-req">*</span></span>
+                            <select class="tfm-select @(FromWarehouseError is not null ? "is-bad" : "")"
+                                    value="@selectedFromWarehouse?.WarehouseCode"
+                                    @onchange="e => OnFromWarehouseChangedAsync(e.Value?.ToString())"
+                                    disabled="@isLoadingMasterData">
+                                <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select source warehouse…")</option>
+                                @foreach (var warehouse in cachedWarehouses)
+                                {
+                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                }
+                            </select>
+                            @if (FromWarehouseError is not null)
+                            {
+                                <div class="tfm-field-err">@FromWarehouseError</div>
+                            }
+                        </label>
 
-                <!-- Warehouse Selection Card -->
-                <div class="section-card">
-                    <div class="card-header">
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="header-icon blue"><i class="bi bi-building"></i></div>
-                            <h5>Warehouse Selection</h5>
-                        </div>
-                        @if (selectedFromWarehouse != null && selectedToWarehouse != null
-                                                                        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse?.WarehouseCode)
-                        {
-                            <span class="badge bg-success-subtle text-success"><i
-                                class="bi bi-check-lg me-1"></i>Complete</span>
+                        <label class="tfm-lab tfm-span2">
+                            <span class="tfm-lab-t">To warehouse <span class="tfm-req">*</span></span>
+                            <select class="tfm-select @(ToWarehouseError is not null ? "is-bad" : "")"
+                                    value="@selectedToWarehouse?.WarehouseCode"
+                                    @onchange="e => OnToWarehouseChanged(e.Value?.ToString())"
+                                    disabled="@isLoadingMasterData">
+                                <option value="">@(isLoadingMasterData ? "Loading warehouses…" : "Select destination warehouse…")</option>
+                                @foreach (var warehouse in cachedWarehouses)
+                                {
+                                    <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                                }
+                            </select>
+                            @if (ToWarehouseError is not null)
+                            {
+                                <div class="tfm-field-err">@ToWarehouseError</div>
+                            }
+                        </label>
+
+                        <label class="tfm-lab tfm-span4">
+                            <span class="tfm-lab-t">Reason for transfer <span class="tfm-req">*</span></span>
+                            <textarea class="tfm-area @(ReasonError is not null ? "is-bad" : "")" rows="2"
+                                      @bind="transferReason" @bind:event="oninput"
+                                      placeholder="e.g. Stock replenishment, customer order fulfilment, warehouse rebalancing…"></textarea>
+                            @if (ReasonError is not null)
+                            {
+                                <div class="tfm-field-err">@ReasonError</div>
+                            }
+                        </label>
+                    </div>
+
+                    <div class="tfm-route">
+                        <div class="tfm-route-end">
+                            <div class="tfm-route-k">From</div>
+                            <div class="tfm-route-v @(selectedFromWarehouse is null ? "is-empty" : "")">
+                                @(selectedFromWarehouse?.WarehouseCode ?? "Not selected")
+                            </div>
+                            @if (selectedFromWarehouse is not null)
+                            {
+                                <div class="tfm-route-sub">@selectedFromWarehouse.WarehouseName</div>
                             }
                         </div>
-                        <div class="card-body">
-                            @if (isLoadingWarehouses)
+                        <i class="ph ph-arrow-right tfm-route-arrow"></i>
+                        <div class="tfm-route-end">
+                            <div class="tfm-route-k">To</div>
+                            <div class="tfm-route-v @(selectedToWarehouse is null ? "is-empty" : "")">
+                                @(selectedToWarehouse?.WarehouseCode ?? "Not selected")
+                            </div>
+                            @if (selectedToWarehouse is not null)
                             {
-                                <div class="text-center py-4">
-                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                                    <span class="text-muted">Loading warehouses…</span>
+                                <div class="tfm-route-sub">@selectedToWarehouse.WarehouseName</div>
+                            }
+                        </div>
+                        <span class="tfm-spacer"></span>
+                        <span class="tfm-note">Stock is shown for the source warehouse</span>
+                    </div>
+                </section>
+
+                <!-- ── Document details ───────────────────────────────── -->
+                <section class="tfm-card">
+                    <button type="button"
+                            class="tfm-card-hd is-toggle @(showDocDetails ? "" : "is-collapsed")"
+                            @onclick="() => showDocDetails = !showDocDetails"
+                            aria-expanded="@showDocDetails">
+                        <i class="ph ph-calendar-blank"></i>
+                        <h2>Document details</h2>
+                        <span class="tfm-note">Dates and notes &middot; optional</span>
+                        <span class="tfm-spacer"></span>
+                        <i class="ph @(showDocDetails ? "ph-caret-up" : "ph-caret-down")"></i>
+                    </button>
+                    @if (showDocDetails)
+                    {
+                        <div class="tfm-card-bd tfm-fields">
+                            <label class="tfm-lab tfm-span2">
+                                <span class="tfm-lab-t">Document date</span>
+                                <input type="date" class="tfm-input" @bind="docDate" />
+                            </label>
+                            <label class="tfm-lab tfm-span2">
+                                <span class="tfm-lab-t">Due date</span>
+                                <input type="date" class="tfm-input" @bind="dueDate" />
+                            </label>
+                            <label class="tfm-lab tfm-span4">
+                                <span class="tfm-lab-t">Comments</span>
+                                <textarea class="tfm-area" rows="2" @bind="comments"
+                                          placeholder="Optional notes for this transfer…"></textarea>
+                            </label>
+                        </div>
+                    }
+                </section>
+
+                <!-- ── Transfer items ─────────────────────────────────── -->
+                <section class="tfm-card">
+                    <div class="tfm-card-hd">
+                        <i class="ph ph-list-dashes"></i>
+                        <h2>Transfer items</h2>
+                        <span class="tfm-count">@lines.Count</span>
+                        <span class="tfm-spacer"></span>
+                        <button type="button" class="tfm-btn tfm-btn-accent" @onclick="AddLine">
+                            <i class="ph ph-plus"></i>Add line
+                        </button>
+                    </div>
+
+                    @if (selectedFromWarehouse is null && !isLoadingMasterData)
+                    {
+                        <div class="tfm-card-bd">
+                            <div class="tfm-alert is-warn is-inline">
+                                <i class="ph ph-info"></i>
+                                <div class="tfm-alert-bd">
+                                    Choose a source warehouse first — item stock is read from it, and picking
+                                    items before then would show figures from nowhere.
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="tfm-lines @(lines.Any(l => l.ShowDropdown) ? "is-picking" : "")">
+                        <div class="tfm-lines-inner">
+                            <div class="tfm-row is-head">
+                                <div></div>
+                                <div>Item <span class="tfm-req">*</span></div>
+                                <div>Description</div>
+                                <div>Unit</div>
+                                <div class="tfm-r">Quantity <span class="tfm-req">*</span></div>
+                                <div class="tfm-r">In stock</div>
+                                <div></div>
+                            </div>
+
+                            @if (isLoadingMasterData)
+                            {
+                                <div class="tfm-loading">
+                                    <span class="tfm-spin"></span>Loading products and warehouses&hellip;
                                 </div>
                             }
                             else
                             {
-                                <!-- Visual warehouse display -->
-                                <div class="warehouse-visual mb-3">
-                                    <div class="warehouse-box @(selectedFromWarehouse != null ? "filled" : "")">
-                                        <div class="wh-label"><i class="bi bi-box-arrow-right me-1"></i>Source</div>
-                                        @if (selectedFromWarehouse != null)
-                                        {
-                                            <div class="wh-code">@selectedFromWarehouse.WarehouseCode</div>
-                                            <div class="wh-name">@selectedFromWarehouse.WarehouseName</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="text-muted small">Not selected</div>
-                                        }
-                                    </div>
-                                    <div class="transfer-arrow">
-                                        <i class="bi bi-arrow-right-circle-fill"></i>
-                                        <span>Transfer</span>
-                                    </div>
-                                    <div class="warehouse-box @(selectedToWarehouse != null ? "filled destination" : "")">
-                                        <div class="wh-label"><i class="bi bi-box-arrow-in-right me-1"></i>Destination</div>
-                                        @if (selectedToWarehouse != null)
-                                        {
-                                            <div class="wh-code">@selectedToWarehouse.WarehouseCode</div>
-                                            <div class="wh-name">@selectedToWarehouse.WarehouseName</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="text-muted small">Not selected</div>
-                                        }
-                                    </div>
-                                </div>
-
-                                @if (selectedFromWarehouse != null && selectedToWarehouse != null
-                                                                                        && selectedFromWarehouse.WarehouseCode == selectedToWarehouse.WarehouseCode)
+                                @for (var i = 0; i < lines.Count; i++)
                                 {
-                                    <div class="info-hint mb-3" style="background:#fef2f2; border-color:#fecaca; color:#991b1b;">
-                                        <i class="bi bi-exclamation-triangle-fill"></i>
-                                        <span>Source and destination warehouse cannot be the same.</span>
+                                    var index = i;
+                                    var line = lines[index];
+                                    var lineError = hasAttemptedSubmit
+                                        ? DescribeLineProblem(line)
+                                        : DescribeQuantityProblem(line);
+
+                                    <div class="tfm-row" @key="line.Id">
+                                        <div class="tfm-n">@(index + 1)</div>
+
+                                        <div class="tfm-combo">
+                                            <input class="tfm-input tfm-cell @(lineError is not null && line.SelectedProduct is null ? "is-bad" : "")"
+                                                   value="@line.ItemCode"
+                                                   @oninput="e => OnItemInput(line, e.Value?.ToString())"
+                                                   @onfocus="() => OnItemFocus(line)"
+                                                   @onblur="() => line.ShowDropdown = false"
+                                                   placeholder="Search item…" autocomplete="off"
+                                                   disabled="@(selectedFromWarehouse is null)" />
+                                            @if (line.ShowDropdown)
+                                            {
+                                                <div class="tfm-drop is-wide">
+                                                    @if (!line.Matches.Any())
+                                                    {
+                                                        <div class="tfm-drop-empty">No items match that search.</div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var product in line.Matches)
+                                                        {
+                                                            <button type="button" class="tfm-drop-i"
+                                                                    @onmousedown:preventDefault="true"
+                                                                    @onclick="() => SelectProductAsync(line, product)">
+                                                                <span>
+                                                                    <span class="tfm-drop-code">@product.ItemCode</span>
+                                                                    <span class="tfm-drop-sub">@Truncate(product.ItemName, 40)</span>
+                                                                </span>
+                                                                @if (!string.IsNullOrWhiteSpace(product.UoM))
+                                                                {
+                                                                    <span class="tfm-drop-uom">@product.UoM</span>
+                                                                }
+                                                            </button>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+
+                                        <div class="tfm-desc @(line.SelectedProduct is null ? "is-empty" : "")"
+                                             title="@line.SelectedProduct?.ItemName">
+                                            @(line.SelectedProduct?.ItemName ?? "—")
+                                        </div>
+
+                                        <div>
+                                            @if (!string.IsNullOrWhiteSpace(line.UoMCode))
+                                            {
+                                                <span class="tfm-uom @(AllowsDecimalQuantity(line.UoMCode) ? "is-decimal" : "")"
+                                                      title="@(AllowsDecimalQuantity(line.UoMCode) ? "Fractional quantities allowed" : "Whole numbers only")">
+                                                    @line.UoMCode
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="tfm-uom">—</span>
+                                            }
+                                        </div>
+
+                                        @* step follows the item's unit: whole numbers for everything except KG,
+                                           the only unit SAP accepts a fraction of. *@
+                                        <input type="number" min="0" step="@QuantityStep(line)"
+                                               class="tfm-input tfm-num @(lineError is not null && line.SelectedProduct is not null ? "is-bad" : "")"
+                                               value="@line.QuantityText"
+                                               @oninput="e => OnQuantityInput(line, e.Value?.ToString())"
+                                               placeholder="0" />
+
+                                        <div class="tfm-stock @StockClass(line)">
+                                            @if (line.SelectedProduct is null || selectedFromWarehouse is null)
+                                            {
+                                                <span>—</span>
+                                            }
+                                            else if (line.IsLoadingStock)
+                                            {
+                                                <span class="tfm-spin"></span>
+                                            }
+                                            else
+                                            {
+                                                @line.StockInSource.ToString("N2")
+                                                <small>@selectedFromWarehouse.WarehouseCode</small>
+                                            }
+                                        </div>
+
+                                        <button type="button" class="tfm-btn-x" title="Remove line"
+                                                aria-label="Remove line @(index + 1)"
+                                                disabled="@(lines.Count <= 1)"
+                                                @onclick="() => RemoveLine(line)">
+                                            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                            </svg>
+                                        </button>
+
+                                        @if (lineError is not null)
+                                        {
+                                            <div class="tfm-row-err">@lineError</div>
+                                        }
+                                        else if (ExceedsStock(line))
+                                        {
+                                            <div class="tfm-row-err" style="color:var(--tfm-warn);">
+                                                Only @line.StockInSource.ToString("N2") in
+                                                @selectedFromWarehouse?.WarehouseCode — the transfer will be short.
+                                            </div>
+                                        }
                                     </div>
                                 }
 
-                                <div class="row g-3">
-                                    <div class="col-md-6">
-                                        <label class="form-label fw-semibold small">From Warehouse <span
-                                            class="text-danger">*</span></label>
-                                            <MudAutocomplete T="WarehouseDto" Value="selectedFromWarehouse"
-                                                             ValueChanged="OnFromWarehouseChanged" Label="Search source warehouse…"
-                                                             SearchFunc="SearchWarehousesAsync"
-                                                             ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                                             Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                             ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                             DebounceInterval="150" Class="mt-0">
-                                                <ItemTemplate>
-                                                    <div class="d-flex flex-column py-1">
-                                                        <span class="fw-semibold">@context.WarehouseCode</span>
-                                                        <small class="text-muted">@context.WarehouseName</small>
-                                                    </div>
-                                                </ItemTemplate>
-                                            </MudAutocomplete>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label fw-semibold small">To Warehouse <span
-                                                class="text-danger">*</span></label>
-                                                <MudAutocomplete T="WarehouseDto" @bind-Value="selectedToWarehouse"
-                                                                 Label="Search destination warehouse…" SearchFunc="SearchWarehousesAsync"
-                                                                 ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                                                 Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                 ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                                 DebounceInterval="150" Class="mt-0">
-                                                    <ItemTemplate>
-                                                        <div class="d-flex flex-column py-1">
-                                                            <span class="fw-semibold">@context.WarehouseCode</span>
-                                                            <small class="text-muted">@context.WarehouseName</small>
-                                                        </div>
-                                                    </ItemTemplate>
-                                                </MudAutocomplete>
-                                            </div>
-                                        </div>
+                                <button type="button" class="tfm-addline" @onclick="AddLine">
+                                    <i class="ph ph-plus"></i>Add another line
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </section>
+            </div>
 
-                                        <!-- Reason for Transfer -->
-                                        <div class="mt-3">
-                                            <label class="form-label fw-semibold small">Reason for Transfer <span
-                                                class="text-danger">*</span></label>
-                                                <textarea class="form-control form-control-sm" rows="2" @bind="transferReason"
-                                                          placeholder="e.g. Stock replenishment, customer order fulfilment, warehouse rebalancing…"></textarea>
-                                            </div>
-                                        }
-                                    </div>
-                                </div>
+            <!-- ── Aside ──────────────────────────────────────────────── -->
+            <aside class="tfm-aside">
 
-                                <!-- Document Details (Collapsible) -->
-                                <div class="section-card">
-                                    <div class="card-header" role="button" @onclick="() => showDocDetails = !showDocDetails"
-                                         style="cursor:pointer;">
-                                        <div class="d-flex align-items-center gap-2">
-                                            <div class="header-icon purple"><i class="bi bi-calendar-event"></i></div>
-                                            <h5>Document Details</h5>
-                                        </div>
-                                        <i class="bi @(showDocDetails ? "bi-chevron-up" : "bi-chevron-down") text-muted"></i>
-                                    </div>
-                                    @if (showDocDetails)
-                                    {
-                                        <div class="card-body">
-                                            <div class="row g-3">
-                                                <div class="col-md-6">
-                                                    <label class="form-label fw-semibold small">Document Date</label>
-                                                    <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label class="form-label fw-semibold small">Due Date</label>
-                                                    <MudDatePicker @bind-Date="dueDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
-                                                </div>
-                                                <div class="col-12">
-                                                    <label class="form-label fw-semibold small">Comments / Notes</label>
-                                                    <textarea class="form-control form-control-sm" rows="2" @bind="comments"
-                                                              placeholder="Optional notes for this transfer…"></textarea>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    }
-                                </div>
+                <div class="tfm-card tfm-total-card">
+                    <div class="tfm-total-hd">
+                        <span class="tfm-total-k">Total quantity</span>
+                    </div>
+                    <div class="tfm-total-v">@TotalQuantity.ToString("N2")</div>
+                    <div class="tfm-total-sub">
+                        @CompletedLineCount line(s) &middot;
+                        @(selectedFromWarehouse?.WarehouseCode ?? "—") &rarr; @(selectedToWarehouse?.WarehouseCode ?? "—")
+                        &middot; @((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))
+                    </div>
 
-                                <!-- Line Items Card -->
-                                <div class="section-card">
-                                    <div class="card-header">
-                                        <div class="d-flex align-items-center gap-2">
-                                            <div class="header-icon green"><i class="bi bi-list-check"></i></div>
-                                            <h5>Transfer Items</h5>
-                                        </div>
-                                        <div class="d-flex align-items-center gap-2">
-                                            @if (isLoadingStock)
-                                            {
-                                                <span class="badge bg-warning-subtle text-warning">
-                                                    <span class="spinner-border spinner-border-sm me-1"
-                                                          style="width:0.65rem;height:0.65rem;"></span>
-                                                    Updating stock…
-                                                </span>
-                                            }
-                                            <span class="badge bg-primary-subtle text-primary">@lines.Count item(s)</span>
-                                        </div>
-                                    </div>
-                                    <div class="card-body">
-                                        @if (isLoadingProducts)
-                                        {
-                                            <div class="text-center py-4">
-                                                <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                                                <span class="text-muted">Loading products…</span>
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            @foreach (var line in lines)
-                                            {
-                                                var currentLine = line;
-                                                var index = lines.IndexOf(currentLine);
-                                                <div @key="currentLine.Id"
-                                                     class="line-item-card @(currentLine.SelectedProduct != null ? "has-product" : "")">
-                                                    <div class="line-item-header">
-                                                        <span class="line-badge">Item @(index + 1)</span>
-                                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
-                                                                       OnClick="() => RemoveLine(currentLine)" Disabled="@(lines.Count <= 1)"
-                                                                       title="Remove item" Size="Size.Small" Class="btn-remove-line" />
-                                                    </div>
+                    @* Listed rather than enforced by disabling the button: a disabled submit gives
+                       the operator nothing to act on, and the reasons below are the whole answer. *@
+                    @if (hasAttemptedSubmit && ValidationSummary.Any())
+                    {
+                        <div class="tfm-err-panel">
+                            <div class="tfm-err-panel-t">
+                                <i class="ph ph-warning"></i>Please fix the following
+                            </div>
+                            <ul>
+                                @foreach (var problem in ValidationSummary)
+                                {
+                                    <li>@problem</li>
+                                }
+                            </ul>
+                        </div>
+                    }
 
-                                                    <div class="row g-3 align-items-end">
-                                                        <div class="col-md-8">
-                                                            <label class="form-label small text-muted mb-1">Product <span
-                                                                class="text-danger">*</span></label>
-                                                                <MudAutocomplete T="ProductDto" Value="currentLine.SelectedProduct"
-                                                                                 ValueChanged="(p) => OnProductSelected(currentLine, p)"
-                                                                                 Label="Search by code or name…" SearchFunc="SearchProductsAsync"
-                                                                                 ToStringFunc="@(p => p == null ? string.Empty : $"{p.ItemCode} - {p.ItemName}")"
-                                                                                 Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                                                 ResetValueOnEmptyText="true" ShowProgressIndicator="true" MaxItems="20"
-                                                                                 DebounceInterval="150">
-                                                                    <ItemTemplate>
-                                                                        <div class="d-flex justify-content-between align-items-center py-1 w-100">
-                                                                            <div class="d-flex flex-column">
-                                                                                <span class="fw-semibold"
-                                                                                      style="font-size:0.88rem;">@context.ItemCode</span>
-                                                                                <small class="text-muted">@context.ItemName</small>
-                                                                            </div>
-                                                                            @if (isLoadingStock)
-                                                                            {
-                                                                                <span class="badge bg-secondary-subtle text-secondary ms-2"
-                                                                                      style="font-size:0.7rem;">
-                                                                                    Stock loading…
-                                                                                </span>
-                                                                            }
-                                                                            else if (context.QuantityInStock > 0)
-                                                                            {
-                                                                                <span class="badge bg-success-subtle text-success ms-2"
-                                                                                      style="font-size:0.7rem;">
-                                                                                    @context.QuantityInStock.ToString("N0") in stock
-                                                                                </span>
-                                                                            }
-                                                                            else
-                                                                            {
-                                                                                <span class="badge bg-danger-subtle text-danger ms-2"
-                                                                                      style="font-size:0.7rem;">
-                                                                                    No stock
-                                                                                </span>
-                                                                            }
-                                                                        </div>
-                                                                    </ItemTemplate>
-                                                                </MudAutocomplete>
-                                                            </div>
-                                                            <div class="col-md-4">
-                                                                <label class="form-label small text-muted mb-1">Quantity <span
-                                                                    class="text-danger">*</span></label>
-                                                                    <input type="number" class="form-control form-control-sm"
-                                                                           value="@currentLine.Quantity"
-                                                                           @oninput="(e) => OnQuantityChanged(currentLine, e)" min="0.01" step="0.01"
-                                                                           placeholder="0.00" style="font-weight:600;" />
-                                                                </div>
-                                                            </div>
+                    <button type="button" class="tfm-btn-solid" @onclick="SubmitTransfer"
+                            disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="tfm-spin on-solid"></span>
+                            <span>Submitting&hellip;</span>
+                        }
+                        else
+                        {
+                            <i class="ph-fill ph-paper-plane-tilt"></i>
+                            <span>Submit for approval</span>
+                        }
+                    </button>
+                    <button type="button" class="tfm-btn tfm-btn-wide tfm-btn-danger tfm-gap-sm"
+                            @onclick="ClearForm" disabled="@isSubmitting">
+                        <i class="ph ph-arrow-counter-clockwise"></i>Reset form
+                    </button>
+                </div>
 
-                                                            @if (currentLine.SelectedProduct != null)
-                                                            {
-                                                                <div class="product-preview">
-                                                                    <div class="product-icon"><i class="bi bi-box-seam"></i></div>
-                                                                    <div class="product-info">
-                                                                        <div class="product-name">@currentLine.SelectedProduct.ItemName</div>
-                                                                        <div class="product-stock">
-                                                                            In Stock:
-                                                                            @if (isLoadingStock)
-                                                                            {
-                                                                                <span class="text-muted">Loading…</span>
-                                                                            }
-                                                                            else if (currentLine.SelectedProduct.QuantityInStock > 0)
-                                                                            {
-                                                                                <span
-                                                                                    class="@(currentLine.Quantity > currentLine.SelectedProduct.QuantityInStock ? "low-stock" : "in-stock")">
-                                                                                    @currentLine.SelectedProduct.QuantityInStock.ToString("N0")
-                                                                                </span>
-                                                                                @if (currentLine.Quantity > 0 && currentLine.Quantity >
-                                                                                                                                                                                                        currentLine.SelectedProduct.QuantityInStock)
-                                                                                {
-                                                                                    <span class="text-danger ms-2">
-                                                                                        <i class="bi bi-exclamation-triangle-fill"></i> Exceeds stock
-                                                                                    </span>
-                                                                                }
-                                                                            }
-                                                                            else
-                                                                            {
-                                                                                <span class="text-danger fw-semibold">0 (No stock)</span>
-                                                                            }
-                                                                            @if (!string.IsNullOrEmpty(currentLine.SelectedProduct.UoM))
-                                                                            {
-                                                                                <span class="text-muted ms-2">@currentLine.SelectedProduct.UoM</span>
-                                                                            }
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    }
+                <div class="tfm-card tfm-panel">
+                    <div class="tfm-panel-hd">
+                        <i class="ph ph-shield-check"></i>
+                        <span class="tfm-panel-t">Pre-flight checks</span>
+                        <span class="tfm-spacer"></span>
+                        <span class="tfm-note">@Checks.Count(c => c.Passed)/@Checks.Length</span>
+                    </div>
+                    <div class="tfm-checks">
+                        @foreach (var check in Checks)
+                        {
+                            <div class="tfm-checks-i @(check.Passed ? "" : "is-no")">
+                                <span class="tfm-checks-ic">
+                                    <i class="ph @(check.Passed ? "ph-check" : "ph-minus")"></i>
+                                </span>
+                                <span>@check.Label</span>
+                            </div>
+                        }
+                    </div>
+                </div>
 
-                                                    <MudButton Class="btn-add-item" OnClick="AddLine">
-                                                        <i class="bi bi-plus-circle me-2"></i>Add Another Item
-                                                    </MudButton>
-                                                }
-                                            </div>
-                                        </div>
-                                    </div>
+                <div class="tfm-info-note">
+                    <i class="ph ph-info"></i>
+                    <span>
+                        This transfer is held for approval and cannot post to SAP until every required
+                        stage has approved it. Stock does not move when you submit.
+                    </span>
+                </div>
 
-                                    <!-- Sidebar -->
-                                    <div class="col-lg-4">
-                                        <div class="summary-section">
-
-                                            <!-- Validation Checklist -->
-                                            <div class="section-card">
-                                                <div class="card-header">
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <div class="header-icon amber"><i class="bi bi-shield-check"></i></div>
-                                                        <h5>Validation</h5>
-                                                    </div>
-                                                </div>
-                                                <div class="card-body">
-                                                    <ul class="validation-checklist">
-                                                        <li>
-                                                            <div class="check-icon @(selectedFromWarehouse != null ? "pass" : "fail")">
-                                                                <i class="bi @(selectedFromWarehouse != null ? "bi-check" : "bi-x")"></i>
-                                                            </div>
-                                                            <span>Source warehouse selected</span>
-                                                        </li>
-                                                        <li>
-                                                            <div class="check-icon @(selectedToWarehouse != null ? "pass" : "fail")">
-                                                                <i class="bi @(selectedToWarehouse != null ? "bi-check" : "bi-x")"></i>
-                                                            </div>
-                                                            <span>Destination warehouse selected</span>
-                                                        </li>
-                                                        <li>
-                                                            @{
-                                                                var warehousesDifferent = selectedFromWarehouse != null && selectedToWarehouse !=
-                                                                null
-                                                                && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode;
-                                                                var warehouseCheckNA = selectedFromWarehouse == null || selectedToWarehouse == null;
-                                                            }
-                                                            <div
-                                                                class="check-icon @(warehouseCheckNA ? "fail" : (warehousesDifferent ? "pass" : "fail"))">
-                                                                <i
-                                                                class="bi @(warehouseCheckNA ? "bi-dash" : (warehousesDifferent ? "bi-check" : "bi-x"))"></i>
-                                                            </div>
-                                                            <span>Warehouses are different</span>
-                                                        </li>
-                                                        <li>
-                                                            <div class="check-icon @(AllLinesHaveProduct() ? "pass" : "fail")">
-                                                                <i class="bi @(AllLinesHaveProduct() ? "bi-check" : "bi-x")"></i>
-                                                            </div>
-                                                            <span>All items have products</span>
-                                                        </li>
-                                                        <li>
-                                                            <div class="check-icon @(AllLinesHaveValidQuantity() ? "pass" : "fail")">
-                                                                <i class="bi @(AllLinesHaveValidQuantity() ? "bi-check" : "bi-x")"></i>
-                                                            </div>
-                                                            <span>All quantities are valid</span>
-                                                        </li>
-                                                        <li>
-                                                            <div
-                                                                class="check-icon @(!string.IsNullOrWhiteSpace(transferReason) ? "pass" : "fail")">
-                                                                <i
-                                                                class="bi @(!string.IsNullOrWhiteSpace(transferReason) ? "bi-check" : "bi-x")"></i>
-                                                            </div>
-                                                            <span>Reason for transfer provided</span>
-                                                        </li>
-                                                    </ul>
-                                                </div>
-                                            </div>
-
-                                            <!-- Transfer Summary -->
-                                            <div class="section-card">
-                                                <div class="card-header">
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        <div class="header-icon blue"><i class="bi bi-receipt"></i></div>
-                                                        <h5>Summary</h5>
-                                                    </div>
-                                                </div>
-                                                <div class="card-body">
-                                                    <div class="summary-stat">
-                                                        <span class="stat-label">From</span>
-                                                        <span class="stat-value">@(selectedFromWarehouse?.WarehouseCode ?? "—")</span>
-                                                    </div>
-                                                    <div class="summary-stat">
-                                                        <span class="stat-label">To</span>
-                                                        <span class="stat-value">@(selectedToWarehouse?.WarehouseCode ?? "—")</span>
-                                                    </div>
-                                                    <div class="summary-stat">
-                                                        <span class="stat-label">Items</span>
-                                                        <span class="stat-value">@ValidLineCount()</span>
-                                                    </div>
-                                                    <div class="summary-stat">
-                                                        <span class="stat-label">Total Qty</span>
-                                                        <span class="stat-value">@lines.Where(l => l.Quantity > 0).Sum(l =>
-                                                                                                                                                            l.Quantity).ToString("N2")</span>
-                                                        </div>
-                                                        <div class="summary-stat">
-                                                            <span class="stat-label">Doc Date</span>
-                                                            <span class="stat-value">@((docDate ?? DateTime.Today).ToString("dd MMM yyyy"))</span>
-                                                        </div>
-                                                        @if (!string.IsNullOrWhiteSpace(transferReason))
-                                                        {
-                                                            <div class="summary-stat">
-                                                                <span class="stat-label">Reason</span>
-                                                                <span class="stat-value" style="white-space:normal;">@transferReason</span>
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                </div>
-
-                                                <!-- Actions -->
-                                                <div class="section-card">
-                                                    <div class="card-body">
-                                                        @if (!string.IsNullOrEmpty(errorMessage))
-                                                        {
-                                                            <div class="alert-banner error mb-3">
-                                                                <i class="bi bi-exclamation-octagon-fill alert-icon"></i>
-                                                                <div class="alert-body">
-                                                                    <div class="alert-title">Transfer Failed</div>
-                                                                    <div style="white-space:pre-wrap;">@errorMessage</div>
-                                                                </div>
-                                                            </div>
-                                                        }
-                                                        <MudButton Class="btn-execute" OnClick="SubmitTransfer"
-                                                                   Disabled="@(isSubmitting || !IsFormValid())">
-                                                            @if (isSubmitting)
-                                                            {
-                                                                <span class="spinner-border spinner-border-sm me-2"></span>
-                                                                <span>Submitting for Approval…</span>
-                                                            }
-                                                            else
-                                                            {
-                                                                <i class="bi bi-send-fill me-2"></i>
-                                                                <span>Submit for Approval</span>
-                                                            }
-                                                        </MudButton>
-
-                                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="w-100 mt-2"
-                                                                   Size="Size.Small" OnClick="ClearForm" Disabled="@isSubmitting">
-                                                            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Form
-                                                        </MudButton>
-
-                                                        <div class="info-hint mt-3">
-                                                            <i class="bi bi-info-circle-fill flex-shrink-0"></i>
-                                                            <span>This transfer will be submitted for approval and cannot post to SAP until all required stages approve it.</span>
-                                                        </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <!-- Alt action -->
-                                                    <div class="text-center mt-3">
-                                                        <span class="text-muted small">Need approval first?</span>
-                                                        <a href="/transfer-request/create" class="btn btn-link btn-sm p-0 ms-1">
-                                                            Create Transfer Request <i class="bi bi-arrow-right"></i>
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                <div class="tfm-aside-foot">
+                    Need approval before the stock moves?
+                    <a href="/transfer-request/create">Create a transfer request</a>
+                </div>
+            </aside>
+        </div>
+    </div>
+</div>
 
 @code {
+    // SAP rejects fractional quantities for every unit except KG, and the API enforces that in
+    // ShopInventory.Common.Validation.UomQuantityValidation — against the line quantity and against
+    // each FEFO-allocated batch — before the document is built. Mirrored here so the operator is
+    // told at the field instead of by a failed round trip.
+    private const string DecimalUnit = "KG";
+
     // ── State ───────────────────────────────────────────
-    private bool isLoadingWarehouses = true;
-    private bool isLoadingProducts = true;
-    private bool isSubmitting = false;
-    // Stable idempotency key for this transfer entry; reused across retries so a lost-response
-    // retry is deduplicated. The page navigates away on success, so each new transfer gets a fresh key.
-    private readonly string clientRequestId = Guid.NewGuid().ToString("N");
-    private bool showDocDetails = false;
+    private bool isLoadingMasterData = true;
+    private bool isLoadingStock;
+    private bool isSubmitting;
+    private bool showDocDetails;
     private string? errorMessage;
     private string? successMessage;
 
-    // ── Warehouses ──────────────────────────────────────
+    // Stable idempotency key for this transfer entry; reused across retries so a lost-response
+    // retry is deduplicated. The page navigates away on success, so each new transfer gets a fresh key.
+    private readonly string clientRequestId = Guid.NewGuid().ToString("N");
+
     private List<WarehouseDto> cachedWarehouses = new();
-    private WarehouseDto? selectedFromWarehouse;
-    private WarehouseDto? selectedToWarehouse;
+    private List<ProductDto> cachedProducts = new();
     private HashSet<string> assignedWarehouseCodes = new(StringComparer.OrdinalIgnoreCase);
 
-    // ── Products ────────────────────────────────────────
-    private List<ProductDto> cachedProducts = new();
-    private bool isLoadingStock = false;
+    private WarehouseDto? selectedFromWarehouse;
+    private WarehouseDto? selectedToWarehouse;
 
-    // ── Form ────────────────────────────────────────────
     private DateTime? docDate = DateTime.Today;
     private DateTime? dueDate;
     private string? comments;
     private string? transferReason;
 
-    // ── Lines ───────────────────────────────────────────
     private List<TransferLineItem> lines = new() { new TransferLineItem() };
-    private bool _hasLoadedData = false;
 
-    private async Task ScrollToTopAsync()
+    /// <summary>
+    /// The source warehouse's stock, by item code. Held here rather than written onto the cached
+    /// ProductDto objects: that cache is shared across every circuit, so merging one user's
+    /// warehouse figures into it would show them to everyone else.
+    /// </summary>
+    private readonly Dictionary<string, ProductDto> stockBySource = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Validation is shown from the first submit attempt onwards, never before: the form opens
+    /// empty, and a panel headed "please fix the following" on an untouched form is noise. After
+    /// an attempt it tracks live, so entries disappear as they are fixed. The fractional-quantity
+    /// message is the exception — it is shown as soon as the value is typed, because it is about
+    /// one field the operator is looking at rather than about the form being incomplete.
+    /// </summary>
+    private bool hasAttemptedSubmit;
+
+    private bool _hasLoadedData;
+
+    private static readonly (int Number, string Label)[] Steps =
+    [
+        (1, "Warehouses"),
+        (2, "Items"),
+        (3, "Review")
+    ];
+
+    // ── Derived ─────────────────────────────────────────
+    private IEnumerable<TransferLineItem> CompletedLines =>
+        lines.Where(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity > 0);
+
+    private int CompletedLineCount => CompletedLines.Count();
+
+    private decimal TotalQuantity => CompletedLines.Sum(l => l.Quantity);
+
+    private bool HasRoute => selectedFromWarehouse is not null
+        && selectedToWarehouse is not null
+        && !string.Equals(selectedFromWarehouse.WarehouseCode, selectedToWarehouse.WarehouseCode,
+            StringComparison.OrdinalIgnoreCase);
+
+    private bool HasReason => !string.IsNullOrWhiteSpace(transferReason);
+
+    private bool HasCompletedLine => CompletedLineCount > 0;
+
+    private bool LinesValid => lines.All(line => DescribeLineProblem(line) is null);
+
+    private (string Label, bool Passed)[] Checks =>
+    [
+        ("Source and destination chosen", HasRoute),
+        ("Reason for transfer given", HasReason),
+        ("At least one item with a quantity", HasCompletedLine),
+        ("Quantities valid for their units", LinesValid)
+    ];
+
+    private string? FromWarehouseError =>
+        hasAttemptedSubmit && selectedFromWarehouse is null ? "Choose a source warehouse." : null;
+
+    private string? ToWarehouseError
     {
-        try { await JS.InvokeVoidAsync("window.scrollTo", 0, 0); } catch { }
+        get
+        {
+            if (!hasAttemptedSubmit)
+                return null;
+            if (selectedToWarehouse is null)
+                return "Choose a destination warehouse.";
+            if (selectedFromWarehouse is not null && !HasRoute)
+                return "Must be different from the source warehouse.";
+            return null;
+        }
+    }
+
+    private string? ReasonError =>
+        hasAttemptedSubmit && !HasReason ? "Say why the stock is moving — approvers rely on this." : null;
+
+    /// <summary>Everything standing between the form and a submit, in the order it appears.</summary>
+    private List<string> ValidationSummary
+    {
+        get
+        {
+            var problems = new List<string>();
+
+            if (selectedFromWarehouse is null)
+                problems.Add("Choose a source warehouse.");
+            if (selectedToWarehouse is null)
+                problems.Add("Choose a destination warehouse.");
+            if (selectedFromWarehouse is not null && selectedToWarehouse is not null && !HasRoute)
+                problems.Add("Source and destination must be different warehouses.");
+            if (!HasReason)
+                problems.Add("Give a reason for the transfer.");
+            if (!HasCompletedLine)
+                problems.Add("Add at least one item with a quantity.");
+
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var problem = DescribeLineProblem(lines[i]);
+                if (problem is not null)
+                    problems.Add($"Line {i + 1}: {problem}");
+            }
+
+            return problems;
+        }
+    }
+
+    // ── Steps ───────────────────────────────────────────
+    private bool IsStepCompleted(int step) => step switch
+    {
+        1 => HasRoute && HasReason,
+        2 => HasCompletedLine && LinesValid,
+        3 => false,
+        _ => false
+    };
+
+    private string StepClass(int step)
+    {
+        if (IsStepCompleted(step))
+            return "is-done";
+
+        // The first unfinished step is the one being worked on.
+        for (var i = 1; i <= Steps.Length; i++)
+        {
+            if (!IsStepCompleted(i))
+                return i == step ? "is-active" : string.Empty;
+        }
+
+        return string.Empty;
     }
 
     // ── Lifecycle ───────────────────────────────────────
@@ -1437,314 +664,356 @@
 
     private async Task LoadInitialDataAsync()
     {
-        // Load sequentially to avoid EF Core DbContext concurrency issues
-        await LoadWarehousesAsync();
-        await LoadProductsAsync();
-
-        // Auto-select From warehouse for StockController/DepotController
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = authState.User;
-        assignedWarehouseCodes = user.FindAll("warehouse")
-            .Select(claim => claim.Value)
-            .Where(code => !string.IsNullOrWhiteSpace(code))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
-        var assignedWarehouse = assignedWarehouseCodes.FirstOrDefault();
-
-        if (!string.IsNullOrEmpty(assignedWarehouse) &&
-            (role == "StockController" || role == "DepotController"))
-        {
-            selectedFromWarehouse = cachedWarehouses.FirstOrDefault(w => w.WarehouseCode == assignedWarehouse);
-            if (!string.IsNullOrEmpty(selectedFromWarehouse?.WarehouseCode))
-            {
-                ResetProductStockQuantities();
-                _ = LoadAndMergeStockAsync(selectedFromWarehouse.WarehouseCode);
-            }
-        }
-    }
-
-    private async Task LoadWarehousesAsync()
-    {
+        // Sequentially: both cache reads go through the same EF Core DbContext, which cannot
+        // serve two queries at once.
         try
         {
-            isLoadingWarehouses = true;
             cachedWarehouses = await CacheService.GetWarehousesAsync();
-            Logger.LogInformation("Loaded {Count} warehouses", cachedWarehouses?.Count ?? 0);
+            cachedProducts = await CacheService.GetProductsAsync();
+            Logger.LogInformation("Loaded {Warehouses} warehouses and {Products} products",
+                cachedWarehouses.Count, cachedProducts.Count);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load warehouses");
-            errorMessage = $"Failed to load warehouses: {ex.Message}";
+            Logger.LogError(ex, "Failed to load master data for the inventory transfer form");
+            errorMessage = "We couldn't load warehouses and products. Reload the page to try again.";
         }
         finally
         {
-            isLoadingWarehouses = false;
+            isLoadingMasterData = false;
         }
+
+        await PreselectAssignedWarehouseAsync();
     }
 
-    private async Task LoadProductsAsync(string? warehouseCode = null)
+    /// <summary>
+    /// A stock or depot controller works out of one warehouse, so the source is chosen for them
+    /// from their `warehouse` claim.
+    /// </summary>
+    private async Task PreselectAssignedWarehouseAsync()
     {
         try
         {
-            isLoadingProducts = true;
-            cachedProducts = await CacheService.GetProductsAsync();
-            Logger.LogInformation("Loaded {Count} products from cache", cachedProducts?.Count ?? 0);
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+
+            assignedWarehouseCodes = user.FindAll("warehouse")
+                .Select(claim => claim.Value)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var role = user.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+            var assignedWarehouse = assignedWarehouseCodes.FirstOrDefault();
+
+            if (string.IsNullOrEmpty(assignedWarehouse)
+                || (role != "StockController" && role != "DepotController"))
+                return;
+
+            selectedFromWarehouse = FindWarehouse(assignedWarehouse);
+            if (selectedFromWarehouse is not null)
+                await LoadStockForSourceAsync();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to load products");
-            errorMessage = $"Failed to load products: {ex.Message}";
-        }
-        finally
-        {
-            isLoadingProducts = false;
-        }
-
-        // If warehouse specified, merge stock quantities in background
-        if (!string.IsNullOrEmpty(warehouseCode))
-        {
-            _ = LoadAndMergeStockAsync(warehouseCode);
+            Logger.LogWarning(ex, "Failed to preselect the assigned warehouse");
         }
     }
 
-    private async Task LoadAndMergeStockAsync(string warehouseCode)
+    // ── Warehouses ──────────────────────────────────────
+    private async Task OnFromWarehouseChangedAsync(string? warehouseCode)
     {
+        selectedFromWarehouse = FindWarehouse(warehouseCode);
+
+        // Stock is a property of the source, so every figure on screen is stale the moment it
+        // changes. The lines themselves are kept — the operator picked those items on purpose, and
+        // the new figures are re-read below rather than making them start over.
+        foreach (var line in lines)
+        {
+            line.StockInSource = 0;
+            line.HasStockFigure = false;
+        }
+
+        await LoadStockForSourceAsync();
+
+        foreach (var line in lines.Where(l => l.SelectedProduct is not null))
+        {
+            ApplyStockFromCache(line);
+        }
+    }
+
+    private void OnToWarehouseChanged(string? warehouseCode) =>
+        selectedToWarehouse = FindWarehouse(warehouseCode);
+
+    private WarehouseDto? FindWarehouse(string? warehouseCode) =>
+        string.IsNullOrWhiteSpace(warehouseCode)
+            ? null
+            : cachedWarehouses.FirstOrDefault(w =>
+                string.Equals(w.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Pulls the source warehouse's stock into <see cref="stockBySource"/>.</summary>
+    private async Task LoadStockForSourceAsync()
+    {
+        stockBySource.Clear();
+
+        var warehouseCode = selectedFromWarehouse?.WarehouseCode;
+        if (string.IsNullOrWhiteSpace(warehouseCode))
+            return;
+
         try
         {
             isLoadingStock = true;
             StateHasChanged();
 
             var stockResponse = await StockCacheService.GetAllCachedStockAsync(warehouseCode);
-            if (stockResponse?.Products != null && cachedProducts != null)
+            if (stockResponse?.Products is null)
+                return;
+
+            // Ignore a late response if the source moved on while it was in flight.
+            if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            foreach (var product in stockResponse.Products.Where(p => !string.IsNullOrEmpty(p.ItemCode)))
             {
-                var stockLookup = stockResponse.Products
-                .Where(p => !string.IsNullOrEmpty(p.ItemCode))
-                .ToDictionary(p => p.ItemCode!, StringComparer.OrdinalIgnoreCase);
-
-                foreach (var product in cachedProducts)
-                {
-                    if (!string.IsNullOrEmpty(product.ItemCode) && stockLookup.TryGetValue(product.ItemCode, out var stockProduct))
-                    {
-                        ApplyStock(product, stockProduct);
-                    }
-                }
-
-                Logger.LogInformation("Merged stock quantities for {Count} items from warehouse {Warehouse}",
-                stockLookup.Count, warehouseCode);
+                stockBySource[product.ItemCode!] = product;
             }
+
+            Logger.LogInformation("Loaded stock for {Count} items in warehouse {Warehouse}",
+                stockBySource.Count, warehouseCode);
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to load stock for warehouse {Warehouse}, product list still usable", warehouseCode);
+            Logger.LogWarning(ex, "Failed to load stock for warehouse {Warehouse}; the item list is still usable",
+                warehouseCode);
         }
         finally
         {
             isLoadingStock = false;
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
     }
 
-    private async Task OnFromWarehouseChanged(WarehouseDto? warehouse)
+    // ── Item picker ─────────────────────────────────────
+    private void OnItemFocus(TransferLineItem line)
     {
-        selectedFromWarehouse = warehouse;
+        line.Matches = SearchProducts(line.ItemCode);
+        line.ShowDropdown = true;
+    }
 
-        // Clear existing line selections since stock data is changing
-        foreach (var line in lines)
+    private void OnItemInput(TransferLineItem line, string? searchText)
+    {
+        line.ItemCode = searchText;
+        line.Matches = SearchProducts(searchText);
+        line.ShowDropdown = true;
+
+        // Typing past a chosen item drops the selection: the code in the box is no longer the
+        // product whose unit and stock are on the row.
+        if (line.SelectedProduct is not null
+            && !string.Equals(line.SelectedProduct.ItemCode, searchText, StringComparison.OrdinalIgnoreCase))
         {
             line.SelectedProduct = null;
-            line.ItemCode = null;
-            line.Quantity = 0;
+            line.UoMCode = null;
+            line.HasStockFigure = false;
+            line.StockInSource = 0;
         }
-
-        ResetProductStockQuantities();
-
-        // Merge stock quantities for the selected warehouse (non-blocking)
-        if (!string.IsNullOrEmpty(warehouse?.WarehouseCode))
-        {
-            _ = LoadAndMergeStockAsync(warehouse.WarehouseCode);
-        }
-
-        StateHasChanged();
     }
 
-    // ── Search helpers ──────────────────────────────────
-    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken ct)
+    private List<ProductDto> SearchProducts(string? searchText)
     {
         if (string.IsNullOrWhiteSpace(searchText))
-            return cachedWarehouses.Take(20);
+            return cachedProducts.Take(20).ToList();
 
-        return cachedWarehouses
-        .Where(w =>
-        (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Take(20);
+        return cachedProducts
+            .Where(p =>
+                (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
+            .Take(20)
+            .ToList();
     }
 
-    private Task<IEnumerable<ProductDto>> SearchProductsAsync(string searchText, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-
-        var products = string.IsNullOrWhiteSpace(searchText)
-            ? cachedProducts.Take(20).ToList()
-            : cachedProducts
-                .Where(p =>
-                    (p.ItemCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                    (p.ItemName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-                .Take(20)
-                .ToList();
-
-        // Product matching is entirely local. Never make the autocomplete wait for SAP stock:
-        // stock is merged when the source warehouse changes and refreshed after selection.
-        return Task.FromResult<IEnumerable<ProductDto>>(products);
-    }
-
-    // ── Line item management ────────────────────────────
-    private Task OnProductSelected(TransferLineItem line, ProductDto? product)
+    private async Task SelectProductAsync(TransferLineItem line, ProductDto product)
     {
         line.SelectedProduct = product;
-        line.ItemCode = product?.ItemCode;
+        line.ItemCode = product.ItemCode;
+        line.UoMCode = string.IsNullOrWhiteSpace(product.UoM) ? null : product.UoM.Trim();
+        line.ShowDropdown = false;
 
-        // Complete the selection immediately. A stale-cache SAP lookup can take tens of seconds,
-        // so refresh it in the background instead of blocking the MudAutocomplete callback.
-        if (product != null && !isLoadingStock)
-        {
-            _ = RefreshSelectedProductStockAsync(line, product);
-        }
+        ApplyStockFromCache(line);
 
-        StateHasChanged();
-        return Task.CompletedTask;
+        // The warehouse-wide load is a cache read and can be stale for an item that just moved,
+        // so confirm this one against the service.
+        await RefreshStockAsync(line);
     }
 
-    private async Task RefreshSelectedProductStockAsync(TransferLineItem line, ProductDto product)
+    // ── Stock ───────────────────────────────────────────
+    private void ApplyStockFromCache(TransferLineItem line)
+    {
+        var itemCode = line.SelectedProduct?.ItemCode;
+        if (string.IsNullOrWhiteSpace(itemCode) || !stockBySource.TryGetValue(itemCode, out var stock))
+            return;
+
+        line.StockInSource = stock.QuantityInStock;
+        line.HasStockFigure = true;
+        if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
+            line.UoMCode = stock.UoM.Trim();
+    }
+
+    /// <summary>
+    /// Reads the line's stock in the source warehouse, and takes the unit of measure from the same
+    /// response when the product cache has none — the API rejects a fractional quantity it cannot
+    /// match to a unit, so this is the second chance to find one.
+    /// </summary>
+    private async Task RefreshStockAsync(TransferLineItem line)
     {
         var warehouseCode = selectedFromWarehouse?.WarehouseCode;
-        var itemCode = product.ItemCode;
+        var itemCode = line.SelectedProduct?.ItemCode;
         if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(itemCode))
             return;
+
+        var product = line.SelectedProduct;
+        line.IsLoadingStock = true;
 
         try
         {
             var stockByItem = await StockCacheService.GetStockForItemsAsync(
-                warehouseCode,
-                [itemCode],
-                CancellationToken.None);
+                warehouseCode, [itemCode], CancellationToken.None);
 
-            // Ignore a late response if the user changed the source warehouse or product.
+            // Drop a late response if the source warehouse or the line's product has moved on.
             if (!string.Equals(selectedFromWarehouse?.WarehouseCode, warehouseCode, StringComparison.OrdinalIgnoreCase)
                 || !ReferenceEquals(line.SelectedProduct, product))
                 return;
 
-            if (stockByItem.TryGetValue(itemCode, out var stockProduct))
-                ApplyStock(product, stockProduct);
-
-            await InvokeAsync(StateHasChanged);
+            if (stockByItem.TryGetValue(itemCode, out var stock))
+            {
+                line.StockInSource = stock.QuantityInStock;
+                line.HasStockFigure = true;
+                stockBySource[itemCode] = stock;
+                if (string.IsNullOrWhiteSpace(line.UoMCode) && !string.IsNullOrWhiteSpace(stock.UoM))
+                    line.UoMCode = stock.UoM.Trim();
+            }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex,
-                "Failed to refresh stock for item {ItemCode} in warehouse {Warehouse}",
-                itemCode,
-                warehouseCode);
+            Logger.LogWarning(ex, "Failed to read stock for {ItemCode} in {Warehouse}", itemCode, warehouseCode);
         }
-    }
-
-    private static void ApplyStock(ProductDto product, ProductDto stockProduct)
-    {
-        product.QuantityInStock = stockProduct.QuantityInStock;
-        product.QuantityAvailable = stockProduct.QuantityAvailable;
-        product.QuantityCommitted = stockProduct.QuantityCommitted;
-        product.QuantityOnStock = stockProduct.QuantityOnStock;
-        product.UoM = stockProduct.UoM ?? product.UoM;
-    }
-
-    private void ResetProductStockQuantities()
-    {
-        foreach (var product in cachedProducts)
+        finally
         {
-            product.QuantityInStock = 0;
-            product.QuantityAvailable = 0;
-            product.QuantityCommitted = 0;
-            product.QuantityOnStock = 0;
+            line.IsLoadingStock = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 
-    private void OnQuantityChanged(TransferLineItem line, ChangeEventArgs e)
+    private bool ExceedsStock(TransferLineItem line) =>
+        line.SelectedProduct is not null
+        && selectedFromWarehouse is not null
+        && line.HasStockFigure
+        && line.Quantity > line.StockInSource;
+
+    private string StockClass(TransferLineItem line)
     {
-        if (decimal.TryParse(e.Value?.ToString(), out var qty))
-            line.Quantity = qty;
-        else
-            line.Quantity = 0;
+        if (line.SelectedProduct is null || selectedFromWarehouse is null || !line.HasStockFigure)
+            return "is-idle";
+
+        return ExceedsStock(line) ? "is-short" : string.Empty;
     }
 
-    private void AddLine()
-    {
-        lines.Add(new TransferLineItem());
-    }
+    // ── Lines ───────────────────────────────────────────
+    private void AddLine() => lines.Add(new TransferLineItem());
 
     private void RemoveLine(TransferLineItem line)
     {
-        if (lines.Count > 1)
-            lines.Remove(line);
+        if (lines.Count <= 1)
+            return;
+
+        lines.Remove(line);
     }
 
-    // ── Validation helpers ──────────────────────────────
-    private bool AllLinesHaveProduct() => lines.Count > 0 && lines.All(l => !string.IsNullOrEmpty(l.ItemCode));
-    private bool AllLinesHaveValidQuantity() => lines.Count > 0 && lines.All(l => l.Quantity > 0);
-    private int ValidLineCount() => lines.Count(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
-
-    private string BuildComments()
+    private void OnQuantityInput(TransferLineItem line, string? value)
     {
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(transferReason))
-            parts.Add($"Reason: {transferReason.Trim()}");
-        if (!string.IsNullOrWhiteSpace(comments))
-            parts.Add(comments.Trim());
-        return string.Join(" | ", parts);
+        line.QuantityText = value;
+        line.Quantity = decimal.TryParse(value, out var quantity) ? quantity : 0m;
     }
 
-    private bool IsFormValid()
+    // ── Validation ──────────────────────────────────────
+    private static bool AllowsDecimalQuantity(string? uomCode) =>
+        string.Equals(uomCode?.Trim(), DecimalUnit, StringComparison.OrdinalIgnoreCase);
+
+    private string QuantityStep(TransferLineItem line) =>
+        AllowsDecimalQuantity(line.UoMCode) ? "0.001" : "1";
+
+    /// <summary>
+    /// Why a fractional quantity on this line would be rejected, or null. Split out from
+    /// <see cref="DescribeLineProblem"/> because it is shown before the first submit attempt: it is
+    /// about a value the operator just typed, not about the form being unfinished.
+    /// </summary>
+    private string? DescribeQuantityProblem(TransferLineItem line)
     {
-        return selectedFromWarehouse != null
-        && selectedToWarehouse != null
-        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
-        && !string.IsNullOrWhiteSpace(transferReason)
-        && lines.Count > 0
-        && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0);
+        if (line.Quantity <= 0 || line.Quantity == decimal.Truncate(line.Quantity))
+            return null;
+
+        // The API resolves the unit from a Products table that nothing in the API populates, so a
+        // fractional quantity sent without a unit is always rejected.
+        if (string.IsNullOrWhiteSpace(line.UoMCode))
+            return $"{line.Quantity} needs a unit of measure and this item has none cached — enter a whole number instead.";
+
+        if (!AllowsDecimalQuantity(line.UoMCode))
+            return $"{line.Quantity} isn't valid for {line.UoMCode} — only {DecimalUnit} items transfer in fractions.";
+
+        return null;
     }
 
-    // ── Step indicator helpers ──────────────────────────
-    private bool IsStepCompleted(int step) => step switch
+    /// <summary>
+    /// What is wrong with a line, phrased for the operator, or null when it is fine. A line nobody
+    /// has touched is fine — it is the spare row at the bottom of the table, not a mistake.
+    /// </summary>
+    private string? DescribeLineProblem(TransferLineItem line)
     {
-        1 => selectedFromWarehouse != null && selectedToWarehouse != null
-        && selectedFromWarehouse.WarehouseCode != selectedToWarehouse.WarehouseCode
-        && !string.IsNullOrWhiteSpace(transferReason),
-        2 => lines.Count > 0 && lines.All(l => !string.IsNullOrEmpty(l.ItemCode) && l.Quantity > 0),
-        3 => false,
-        _ => false
-    };
+        var hasItem = !string.IsNullOrWhiteSpace(line.ItemCode);
 
-    private string StepClass(int step)
+        if (!hasItem && line.Quantity <= 0)
+            return null;
+
+        if (!hasItem)
+            return "choose an item, or clear the quantity.";
+
+        if (line.SelectedProduct is null)
+            return $"\"{line.ItemCode}\" isn't a known item — pick one from the list.";
+
+        if (line.Quantity <= 0)
+            return "enter a quantity greater than zero.";
+
+        return DescribeQuantityProblem(line);
+    }
+
+    private static string Truncate(string? value, int maxLength)
     {
-        if (IsStepCompleted(step)) return "completed";
-        for (int i = 1; i <= 3; i++)
-        {
-            if (!IsStepCompleted(i)) return i == step ? "active" : "";
-        }
-        return "";
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        return value.Length <= maxLength ? value : value[..maxLength] + "…";
+    }
+
+    private async Task ScrollToTopAsync()
+    {
+        try { await JS.InvokeVoidAsync("window.scrollTo", 0, 0); } catch { }
     }
 
     // ── Submit ──────────────────────────────────────────
     private async Task SubmitTransfer()
     {
-        if (!IsFormValid())
+        errorMessage = null;
+        successMessage = null;
+        hasAttemptedSubmit = true;
+
+        var problems = ValidationSummary;
+        if (problems.Any())
         {
-            errorMessage = "Please complete all required fields before submitting.";
+            errorMessage = problems.Count == 1
+                ? problems[0]
+                : $"{problems.Count} things need fixing before this transfer can be submitted.";
             return;
         }
 
         isSubmitting = true;
-        errorMessage = null;
-        successMessage = null;
 
         try
         {
@@ -1757,17 +1026,23 @@
                 Comments = BuildComments(),
                 ClientRequestId = clientRequestId,
 
-                Lines = lines.Select(l => new CreateInventoryTransferLineDto
-                {
-                    ItemCode = l.ItemCode,
-                    Quantity = l.Quantity,
-                    FromWarehouseCode = selectedFromWarehouse.WarehouseCode,
-                    ToWarehouseCode = selectedToWarehouse.WarehouseCode
-                }).ToList()
+                Lines = CompletedLines
+                    .Select(l => new CreateInventoryTransferLineDto
+                    {
+                        ItemCode = l.ItemCode,
+                        Quantity = l.Quantity,
+                        // Without this the API falls back to its own Products table, which is never
+                        // populated, and rejects every fractional quantity it sees — the line's own
+                        // and every batch it allocates.
+                        UoMCode = l.UoMCode,
+                        FromWarehouseCode = selectedFromWarehouse!.WarehouseCode,
+                        ToWarehouseCode = selectedToWarehouse!.WarehouseCode
+                    })
+                    .ToList()
             };
 
             Logger.LogInformation("Submitting inventory transfer: From={From}, To={To}, Lines={Lines}",
-            request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
+                request.FromWarehouse, request.ToWarehouse, request.Lines.Count);
 
             var (success, message, transfer, pendingTransfer) = await TransferService.CreateInventoryTransferAsync(request);
 
@@ -1777,20 +1052,19 @@
                 {
                     var pendingStage = pendingTransfer.ApprovalStages.FirstOrDefault(stage => stage.Status == "Pending");
                     successMessage = pendingStage is null
-                    ? "Transfer submitted for approval. It will post to SAP once approved. Redirecting…"
-                    : $"Transfer submitted for approval — waiting on {pendingStage.StageName}. Redirecting…";
+                        ? "Transfer submitted for approval. It will post to SAP once approved. Redirecting…"
+                        : $"Transfer submitted for approval — waiting on {pendingStage.StageName}. Redirecting…";
                     Logger.LogInformation("Inventory transfer submitted for approval: PendingId={PendingId}", pendingTransfer.Id);
                 }
                 else
                 {
                     successMessage = $"Transfer #{transfer?.DocNum} created successfully! Redirecting…";
                     Logger.LogInformation("Inventory transfer created: DocNum={DocNum}, DocEntry={DocEntry}",
-                    transfer?.DocNum, transfer?.DocEntry);
+                        transfer?.DocNum, transfer?.DocEntry);
                 }
 
-                // Audit log: transfer submitted
                 await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer",
-                transfer?.DocNum.ToString() ?? pendingTransfer?.Id.ToString());
+                    transfer?.DocNum.ToString() ?? pendingTransfer?.Id.ToString());
 
                 StateHasChanged();
                 await Task.Delay(1500);
@@ -1798,9 +1072,10 @@
             }
             else
             {
-                errorMessage = message;
+                errorMessage = string.IsNullOrWhiteSpace(message)
+                    ? "We couldn't submit this transfer. Please try again."
+                    : message;
                 Logger.LogWarning("Failed to create inventory transfer: {Message}", message);
-                // Audit log: transfer creation failed
                 await AuditService.LogAsync(AuditActions.CreateTransfer, "InventoryTransfer", null, null, false, message);
                 StateHasChanged();
                 await ScrollToTopAsync();
@@ -1819,6 +1094,16 @@
         }
     }
 
+    private string BuildComments()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(transferReason))
+            parts.Add($"Reason: {transferReason.Trim()}");
+        if (!string.IsNullOrWhiteSpace(comments))
+            parts.Add(comments.Trim());
+        return string.Join(" | ", parts);
+    }
+
     private void ClearForm()
     {
         selectedFromWarehouse = null;
@@ -1827,18 +1112,33 @@
         dueDate = null;
         comments = null;
         transferReason = null;
-        lines = new() { new TransferLineItem() };
+        hasAttemptedSubmit = false;
+        showDocDetails = false;
         errorMessage = null;
         successMessage = null;
-        showDocDetails = false;
+        stockBySource.Clear();
+        lines = new List<TransferLineItem> { new TransferLineItem() };
     }
 
-    // ── Inner class ─────────────────────────────────────
     private class TransferLineItem
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid Id { get; } = Guid.NewGuid();
         public ProductDto? SelectedProduct { get; set; }
         public string? ItemCode { get; set; }
         public decimal Quantity { get; set; }
+
+        /// <summary>
+        /// What is in the box, kept apart from <see cref="Quantity"/> so a half-typed "0." or a
+        /// cleared field is not rewritten under the cursor on the next render.
+        /// </summary>
+        public string? QuantityText { get; set; }
+
+        public string? UoMCode { get; set; }
+        public decimal StockInSource { get; set; }
+        public bool HasStockFigure { get; set; }
+        public bool IsLoadingStock { get; set; }
+
+        public bool ShowDropdown { get; set; }
+        public List<ProductDto> Matches { get; set; } = new();
     }
 }
