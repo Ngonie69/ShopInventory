@@ -1,33 +1,46 @@
 @using ShopInventory.Web.Models
 
-<section class="kf-activity-card" aria-labelledby="@HeadingId">
-    <header class="kf-activity-card__header">
-        <div class="kf-activity-card__title">
-            <span class="kf-panel-icon" aria-hidden="true">
-                <MudIcon Icon="@TableIcon" />
-            </span>
-            <h2 id="@HeadingId">@Title</h2>
-        </div>
-        <a href="@ViewAllHref">View all <span aria-hidden="true">›</span></a>
+@* Recent invoices or recent payments — the two halves of the dashboard's
+   activity row.
+
+   A real <table>, not a CSS grid: five columns of genuinely tabular data,
+   read rather than clicked. Below the table's own minimum the panel scrolls
+   horizontally rather than collapsing into cards — five columns is a short
+   enough row to swipe, and the two panels have already stacked by then.
+
+   The status badge lives here rather than in a component of its own: it has
+   exactly two states on this page, and both belong to the table that draws
+   them. *@
+
+<section class="dsh-panel" aria-labelledby="@HeadingId">
+    <header class="dsh-panel-head">
+        <span class="dsh-panel-icon">
+            <DashIcon Name="@TableIcon" Size="15" />
+        </span>
+        <h2 id="@HeadingId">@Title</h2>
+        <a class="dsh-panel-link" href="@ViewAllHref">
+            View all
+            <DashIcon Name="chevron" Size="13" />
+        </a>
     </header>
 
     @if (IsLoading)
     {
-        <div class="kf-table-state" role="status">
-            <span class="kf-spinner" aria-hidden="true"></span>
-            Loading @Title.ToLowerInvariant()…
+        <div class="dsh-state" role="status">
+            <span class="dsh-spin" aria-hidden="true"></span>
+            <span>Loading @Title.ToLowerInvariant()&#8230;</span>
         </div>
     }
-    else if (Kind == ActivityKind.Invoices && Invoices?.Any() == true)
+    else if (Kind == ActivityKind.Invoices && Invoices?.Count > 0)
     {
-        <div class="kf-table-scroll">
-            <table class="kf-activity-table">
+        <div class="dsh-scroll">
+            <table class="dsh-table">
                 <thead>
                     <tr>
                         <th scope="col">Doc #</th>
                         <th scope="col">Customer</th>
                         <th scope="col">Date</th>
-                        <th scope="col">Total</th>
+                        <th scope="col" class="dsh-th-money">Total</th>
                         <th scope="col">Status</th>
                     </tr>
                 </thead>
@@ -35,28 +48,30 @@
                     @foreach (var invoice in Invoices.Take(5))
                     {
                         <tr>
-                            <td><span class="kf-doc-chip kf-doc-chip--gold">INV-@invoice.DocNum</span></td>
+                            <td class="dsh-doc">INV-@invoice.DocNum</td>
                             @* Long trading names are ellipsised, so keep the full value reachable. *@
-                            <td class="kf-customer-cell" title="@invoice.CardName">@invoice.CardName</td>
-                            <td>@FormatDate(invoice.DocDate)</td>
-                            <td class="kf-money">@invoice.DocCurrency @invoice.DocTotal.ToString("N2")</td>
-                            <td><StatusBadge Text="@InvoiceStatus(invoice)" Tone="@InvoiceTone(invoice)" /></td>
+                            <td class="dsh-name" title="@invoice.CardName">@invoice.CardName</td>
+                            <td class="dsh-when">@FormatDate(invoice.DocDate)</td>
+                            <td class="dsh-money">@invoice.DocCurrency @invoice.DocTotal.ToString("N2")</td>
+                            <td>
+                                <span class="dsh-tag @(IsPaid(invoice) ? "dsh-tag-ok" : null)">@InvoiceStatus(invoice)</span>
+                            </td>
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
     }
-    else if (Kind == ActivityKind.Payments && Payments?.Any() == true)
+    else if (Kind == ActivityKind.Payments && Payments?.Count > 0)
     {
-        <div class="kf-table-scroll">
-            <table class="kf-activity-table">
+        <div class="dsh-scroll">
+            <table class="dsh-table">
                 <thead>
                     <tr>
                         <th scope="col">Doc #</th>
                         <th scope="col">Customer</th>
                         <th scope="col">Date</th>
-                        <th scope="col">Amount</th>
+                        <th scope="col" class="dsh-th-money">Amount</th>
                         <th scope="col">Method</th>
                     </tr>
                 </thead>
@@ -64,11 +79,11 @@
                     @foreach (var payment in Payments.Take(5))
                     {
                         <tr>
-                            <td><span class="kf-doc-chip kf-doc-chip--teal">PAY-@payment.DocNum</span></td>
-                            <td class="kf-customer-cell" title="@payment.CardName">@payment.CardName</td>
-                            <td>@FormatDate(payment.DocDate)</td>
-                            <td class="kf-money">@payment.DocCurrency @payment.DocTotal.ToString("N2")</td>
-                            <td><StatusBadge Text="@PaymentMethod(payment)" Tone="neutral" /></td>
+                            <td class="dsh-doc">PAY-@payment.DocNum</td>
+                            <td class="dsh-name" title="@payment.CardName">@payment.CardName</td>
+                            <td class="dsh-when">@FormatDate(payment.DocDate)</td>
+                            <td class="dsh-money">@payment.DocCurrency @payment.DocTotal.ToString("N2")</td>
+                            <td><span class="dsh-tag">@PaymentMethod(payment)</span></td>
                         </tr>
                     }
                 </tbody>
@@ -77,7 +92,7 @@
     }
     else
     {
-        <div class="kf-table-state">No recent @Title.ToLowerInvariant()</div>
+        <div class="dsh-state">No recent @Title.ToLowerInvariant()</div>
     }
 </section>
 
@@ -92,19 +107,18 @@
     [Parameter] public bool IsLoading { get; set; }
 
     private string HeadingId => $"activity-{Kind.ToString().ToLowerInvariant()}";
-    private string TableIcon => Kind == ActivityKind.Invoices
-        ? Icons.Material.Outlined.ReceiptLong
-        : Icons.Material.Outlined.Payments;
+
+    private string TableIcon => Kind == ActivityKind.Invoices ? "receipt" : "card";
 
     private static string FormatDate(string? value) =>
         DateTime.TryParse(value, out var date) ? date.ToString("dd MMM yyyy") : value ?? "—";
 
-    private static string InvoiceStatus(InvoiceDto invoice) =>
-        invoice.DocTotal > 0 && invoice.PaidToDate >= invoice.DocTotal ? "Paid" :
-        string.Equals(invoice.DocStatus, "C", StringComparison.OrdinalIgnoreCase) ? "Closed" : "Open";
+    private static bool IsPaid(InvoiceDto invoice) =>
+        invoice.DocTotal > 0 && invoice.PaidToDate >= invoice.DocTotal;
 
-    private static string InvoiceTone(InvoiceDto invoice) =>
-        InvoiceStatus(invoice) == "Paid" ? "success" : "neutral";
+    private static string InvoiceStatus(InvoiceDto invoice) =>
+        IsPaid(invoice) ? "Paid" :
+        string.Equals(invoice.DocStatus, "C", StringComparison.OrdinalIgnoreCase) ? "Closed" : "Open";
 
     private static string PaymentMethod(IncomingPaymentDto payment) =>
         payment.CashSum > 0 ? "Cash" :

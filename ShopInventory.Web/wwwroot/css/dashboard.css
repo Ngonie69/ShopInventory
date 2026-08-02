@@ -1,0 +1,1011 @@
+/* ==========================================================================
+   Dashboard — Nocturne
+
+   The landing page at / and /dashboard, rebuilt on the same system as
+   business-partners.css, driver-shop-access.css and approval-process.css:
+   a near-neutral blue-grey ground, Inter at 500, 8px/14px radii, outlined
+   buttons, and an accent used as a line, a tint and a mark rather than a
+   flood.
+
+   Token names and values are deliberately identical to those three files so
+   the pages stay one system; the only addition is the --dsh-ok-* triple, for
+   the one status this page reports as good news ("Paid"). Light is the base
+   and `.dark-theme` the override, matching the order App.razor's pre-paint
+   script stamps the class in, so neither scheme flashes.
+
+   Two dashboards share this sheet. The staff one leads with three figures
+   and reads down into recent activity; the sales-rep one at the same route
+   has no figures to lead with — a rep sees orders, not takings — so it leads
+   with the modules it can open. Both use the same header, hero, panel and
+   button rules, which is the point of them sharing a file.
+
+   Rules live here rather than in an inline Razor <style> block for the same
+   reason as the sibling pages: app.css carries global `.dark-theme` rules
+   that have to be out-specified, so every control carries a class and every
+   control selector is two classes deep, winning regardless of load order.
+   Headings are pinned to Nocturne's 500 because Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would otherwise bolden them past the weight
+   this system allows.
+
+   Icons are drawn inline in the markup rather than from the Phosphor font:
+   the dashboard is the first page a session paints, and a webfont that has
+   not arrived yet would leave the figures headed by empty boxes.
+   ========================================================================== */
+
+.dsh {
+    --dsh-bg: #f4f4f8;
+    --dsh-surface: #ffffff;
+    --dsh-wash: #ffffff;
+    --dsh-ink: #1b1c26;
+    --dsh-ink-2: #35374a;
+    --dsh-mute: #4e5164;
+    --dsh-mute-2: #656879;
+    --dsh-mute-3: #7b7e8e;
+    --dsh-faint: #a0a2ae;
+    --dsh-divider: rgba(27, 28, 38, .14);
+    --dsh-rule: rgba(27, 28, 38, .08);
+    --dsh-hover: rgba(27, 28, 38, .04);
+    --dsh-press: rgba(27, 28, 38, .09);
+    --dsh-field-bg: rgba(27, 28, 38, .04);
+    --dsh-field-edge: #d4d6e2;
+    --dsh-field-edge-hi: #a9adc0;
+    --dsh-accent: #5f52c4;
+    --dsh-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-200/300 (a pale lavender); on paper the same role has to
+       be the deep end of the ramp instead (#5f52c4 is 3.0:1 on white — enough
+       for chrome, not for text). */
+    --dsh-accent-text: #473d99;
+    --dsh-accent-ink: #ffffff;
+    /* The one good-news status this page reports. */
+    --dsh-ok-bg: #e9f6ee;
+    --dsh-ok-edge: #a8d3ba;
+    --dsh-ok-ink: #1c5e39;
+    --dsh-thumb: #c8cad6;
+    --dsh-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --dsh-s1: 2.8px;
+    --dsh-s2: 5.6px;
+    --dsh-s3: 8.4px;
+    --dsh-s4: 11.2px;
+    --dsh-s6: 16.8px;
+    --dsh-s8: 22.4px;
+    --dsh-r-sm: 4px;
+    --dsh-r-md: 8px;
+    --dsh-r-lg: 14px;
+
+    color-scheme: var(--dsh-scheme);
+}
+
+.dark-theme .dsh {
+    --dsh-bg: #161826;
+    --dsh-surface: #232532;
+    --dsh-wash: rgba(35, 37, 50, .6);
+    --dsh-ink: #e9e9ed;
+    --dsh-ink-2: #e4e7f5;
+    --dsh-mute: #cfd3e5;
+    --dsh-mute-2: #b2b6ca;
+    --dsh-mute-3: #9397ab;
+    --dsh-faint: #75798c;
+    --dsh-divider: rgba(233, 233, 237, .16);
+    --dsh-rule: rgba(243, 245, 254, .07);
+    --dsh-hover: rgba(243, 245, 254, .04);
+    --dsh-press: rgba(243, 245, 254, .1);
+    --dsh-field-bg: rgba(243, 245, 254, .05);
+    --dsh-field-edge: rgba(233, 233, 237, .16);
+    --dsh-field-edge-hi: rgba(233, 233, 237, .45);
+    --dsh-accent: #9184d9;
+    --dsh-accent-rgb: 145, 132, 217;
+    --dsh-accent-text: #d2cefd;
+    --dsh-accent-ink: #f5f4ff;
+    --dsh-ok-bg: rgba(30, 92, 58, .32);
+    --dsh-ok-edge: #4d8465;
+    --dsh-ok-ink: #b6e3c8;
+    --dsh-thumb: #3f424d;
+    --dsh-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.dsh {
+    min-height: 100vh;
+    background: var(--dsh-bg);
+    color: var(--dsh-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dsh * {
+    box-sizing: border-box;
+}
+
+.dsh :focus-visible {
+    outline: 2px solid var(--dsh-accent);
+    outline-offset: 2px;
+}
+
+.dsh ::selection {
+    background: rgba(var(--dsh-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.dsh h1,
+.dsh h2,
+.dsh h3,
+.dsh h4 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.dsh p {
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the create action
+   and the load time stay reachable once the activity tables scroll. */
+
+.dsh-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: color-mix(in srgb, var(--dsh-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--dsh-divider);
+}
+
+.dsh-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s6);
+}
+
+.dsh-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--dsh-mute-3);
+}
+
+.dsh-crumb-sep {
+    color: var(--dsh-faint);
+}
+
+.dsh-crumb-now {
+    color: var(--dsh-ink-2);
+}
+
+.dsh-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s4);
+}
+
+/* The load time, not a decoration: it is stamped when the figures land and
+   it is what the refresh action re-stamps. */
+.dsh-synced {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--dsh-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh-synced-dot {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--dsh-accent);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.dsh .dsh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--dsh-s2) calc(var(--dsh-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--dsh-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--dsh-r-md);
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dsh .dsh-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dsh .dsh-btn svg {
+    display: block;
+    flex: none;
+}
+
+.dsh .dsh-btn-primary {
+    color: var(--dsh-accent);
+    border-color: var(--dsh-accent);
+    letter-spacing: .02em;
+}
+
+.dsh .dsh-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--dsh-accent-rgb), .12);
+    color: var(--dsh-accent);
+}
+
+.dsh .dsh-btn-primary:active:not(:disabled) {
+    background: rgba(var(--dsh-accent-rgb), .22);
+}
+
+.dsh .dsh-btn-ghost {
+    color: var(--dsh-accent);
+}
+
+.dsh .dsh-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--dsh-accent-rgb), .1);
+    color: var(--dsh-accent);
+}
+
+.dsh .dsh-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--dsh-accent-rgb), .18);
+}
+
+.dsh .dsh-btn-quiet {
+    color: var(--dsh-mute-2);
+    border-color: var(--dsh-divider);
+}
+
+.dsh .dsh-btn-quiet:hover:not(:disabled) {
+    color: var(--dsh-ink);
+    border-color: var(--dsh-field-edge-hi);
+    background: var(--dsh-hover);
+}
+
+.dsh .dsh-btn-lg {
+    height: 36px;
+    font-size: 13px;
+    padding-inline: var(--dsh-s6);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.dsh-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.dsh-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.dsh-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dsh-accent-text);
+    margin-bottom: 9px;
+}
+
+.dsh-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.dsh-hero p {
+    font-size: 13.5px;
+    color: var(--dsh-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* Today's date, spelled out — the figures below are all "today", so the page
+   says once which day that is rather than repeating it on every card. */
+.dsh-date {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    padding: 7px 14px;
+    border: 1px solid var(--dsh-divider);
+    border-radius: 999px;
+    font-size: 12.5px;
+    color: var(--dsh-mute-2);
+    white-space: nowrap;
+}
+
+.dsh-date svg {
+    flex: none;
+    color: var(--dsh-mute-3);
+}
+
+/* ── The figures ───────────────────────────────────────────────────────── */
+
+.dsh-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--dsh-s4);
+}
+
+.dsh-stat {
+    display: flex;
+    flex-direction: column;
+    padding: var(--dsh-s6) 18px var(--dsh-s4);
+    border: 1px solid var(--dsh-divider);
+    border-radius: var(--dsh-r-lg);
+    background: var(--dsh-surface);
+    min-width: 0;
+}
+
+/* Only the first card carries the accent — the design's way of saying which
+   figure the page is actually about. */
+.dsh-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--dsh-accent-rgb), .12), transparent 62%),
+        var(--dsh-surface);
+}
+
+.dsh-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--dsh-mute-2);
+}
+
+.dsh-stat-lead .dsh-stat-head {
+    color: var(--dsh-accent-text);
+}
+
+.dsh-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--dsh-mute-3);
+}
+
+.dsh-stat-lead .dsh-stat-rule {
+    background: var(--dsh-accent);
+}
+
+.dsh-stat-icon {
+    margin-left: auto;
+    flex: none;
+    color: var(--dsh-faint);
+}
+
+.dsh-stat-lead .dsh-stat-icon {
+    color: var(--dsh-accent);
+}
+
+.dsh-stat-num {
+    margin-top: var(--dsh-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--dsh-mute-2);
+}
+
+/* The foot carries the two secondary readings — the comparison and the
+   money — under a rule, so the headline figure keeps the card's top half to
+   itself. */
+.dsh-stat-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--dsh-s4);
+    margin-top: var(--dsh-s6);
+    padding-top: var(--dsh-s3);
+    border-top: 1px solid var(--dsh-rule);
+    flex-wrap: wrap;
+}
+
+.dsh-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--dsh-mute-2);
+    white-space: nowrap;
+}
+
+.dsh-trend strong {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Direction is carried by the arrow as well as the colour, so it survives
+   both a monochrome print and a red-green confusion. */
+.dsh-trend-up strong,
+.dsh-trend-up svg {
+    color: var(--dsh-ok-ink);
+}
+
+.dsh-trend-down strong,
+.dsh-trend-down svg {
+    color: var(--dsh-mute);
+}
+
+.dsh-trend svg {
+    flex: none;
+}
+
+.dsh-stat-money {
+    margin-left: auto;
+    text-align: right;
+    min-width: 0;
+}
+
+.dsh-stat-money strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--dsh-ink);
+}
+
+.dsh-stat-money span {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--dsh-faint);
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 200px rather than a
+   filled card — the design's one gradient. */
+
+.dsh-panels {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--dsh-s6);
+    align-items: start;
+}
+
+.dsh-panel {
+    border: 1px solid var(--dsh-divider);
+    border-radius: var(--dsh-r-lg);
+    background: linear-gradient(to bottom, var(--dsh-wash), transparent 200px);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.dsh-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s4);
+    padding: var(--dsh-s4) var(--dsh-s8);
+    flex-wrap: wrap;
+}
+
+.dsh-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.dsh-panel-icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: var(--dsh-r-md);
+    background: rgba(var(--dsh-accent-rgb), .12);
+    color: var(--dsh-accent);
+}
+
+.dsh .dsh-panel-link {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12.5px;
+    color: var(--dsh-accent-text);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color .14s;
+}
+
+.dsh .dsh-panel-link:hover {
+    color: var(--dsh-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* ── Activity tables ───────────────────────────────────────────────────── */
+/* Real tables, not a CSS grid: five columns of genuinely tabular data, and
+   the row is read rather than clicked. */
+
+.dsh-scroll {
+    overflow-x: auto;
+}
+
+.dsh-table {
+    width: 100%;
+    min-width: 520px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.dsh-table th {
+    padding: 0 var(--dsh-s4) var(--dsh-s3);
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dsh-mute-3);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.dsh-table th:first-child,
+.dsh-table td:first-child {
+    padding-left: var(--dsh-s8);
+}
+
+.dsh-table th:last-child,
+.dsh-table td:last-child {
+    padding-right: var(--dsh-s8);
+}
+
+.dsh-table td {
+    padding: 11px var(--dsh-s4);
+    border-top: 1px solid var(--dsh-rule);
+    color: var(--dsh-mute);
+    vertical-align: middle;
+}
+
+.dsh-table tbody tr {
+    transition: background-color .12s ease;
+}
+
+.dsh-table tbody tr:hover {
+    background: var(--dsh-hover);
+}
+
+.dsh-doc {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--dsh-accent-text);
+    white-space: nowrap;
+}
+
+/* Long trading names are ellipsised rather than allowed to set the column
+   width; the full value stays reachable through the cell's title. */
+.dsh-name {
+    max-width: 0;
+    width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--dsh-ink);
+}
+
+.dsh-when {
+    white-space: nowrap;
+    color: var(--dsh-mute-2);
+}
+
+.dsh-money {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--dsh-ink);
+}
+
+.dsh-th-money {
+    text-align: right;
+}
+
+.dsh-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border: 1px solid var(--dsh-divider);
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--dsh-mute-2);
+    white-space: nowrap;
+}
+
+.dsh-tag-ok {
+    border-color: var(--dsh-ok-edge);
+    background: var(--dsh-ok-bg);
+    color: var(--dsh-ok-ink);
+}
+
+/* ── Quick actions ─────────────────────────────────────────────────────── */
+
+.dsh-quick {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--dsh-s4);
+}
+
+/* The row sits inside a panel, so it takes the panel's own gutters. */
+.dsh-panel > .dsh-quick {
+    padding: 0 var(--dsh-s8) var(--dsh-s8);
+}
+
+.dsh .dsh-action {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s4);
+    padding: var(--dsh-s4) var(--dsh-s6);
+    border: 1px solid var(--dsh-divider);
+    border-radius: var(--dsh-r-lg);
+    background: var(--dsh-surface);
+    color: inherit;
+    text-decoration: none;
+    min-width: 0;
+    transition: border-color .15s, background-color .15s;
+}
+
+.dsh .dsh-action:hover {
+    border-color: rgba(var(--dsh-accent-rgb), .45);
+    background:
+        linear-gradient(155deg, rgba(var(--dsh-accent-rgb), .1), transparent 70%),
+        var(--dsh-surface);
+}
+
+.dsh-action-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+    color: var(--dsh-accent);
+    transition: background-color .15s;
+}
+
+.dsh .dsh-action:hover .dsh-action-icon {
+    background: rgba(var(--dsh-accent-rgb), .14);
+}
+
+.dsh-action-copy {
+    min-width: 0;
+}
+
+.dsh-action-copy strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dsh-ink);
+}
+
+.dsh-action-copy span {
+    display: block;
+    font-size: 12px;
+    color: var(--dsh-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-action-chev {
+    margin-left: auto;
+    flex: none;
+    color: var(--dsh-faint);
+    transition: color .15s, transform .15s;
+}
+
+.dsh .dsh-action:hover .dsh-action-chev {
+    color: var(--dsh-accent);
+    transform: translateX(2px);
+}
+
+/* ── The sales-rep variant ─────────────────────────────────────────────── */
+/* Five modules rather than three figures: a rep's dashboard is a way in, not
+   a reading. The tiles are the same object as .dsh-action one size up, so
+   the two dashboards do not diverge into two vocabularies. */
+
+.dsh-modules {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--dsh-s4);
+}
+
+.dsh .dsh-module {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-s3);
+    padding: var(--dsh-s6) 18px;
+    border: 1px solid var(--dsh-divider);
+    border-radius: var(--dsh-r-lg);
+    background: var(--dsh-surface);
+    color: inherit;
+    text-decoration: none;
+    min-width: 0;
+    transition: border-color .15s, background-color .15s;
+}
+
+.dsh .dsh-module:hover {
+    border-color: rgba(var(--dsh-accent-rgb), .45);
+    background:
+        linear-gradient(155deg, rgba(var(--dsh-accent-rgb), .1), transparent 62%),
+        var(--dsh-surface);
+}
+
+.dsh-module-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-s3);
+}
+
+.dsh-module-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+    color: var(--dsh-accent);
+    transition: background-color .15s;
+}
+
+.dsh .dsh-module:hover .dsh-module-icon {
+    background: rgba(var(--dsh-accent-rgb), .14);
+}
+
+.dsh-module-tag {
+    margin-left: auto;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--dsh-mute-3);
+    white-space: nowrap;
+}
+
+.dsh-module h3 {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.dsh-module p {
+    font-size: 12.5px;
+    color: var(--dsh-mute-2);
+    text-wrap: pretty;
+}
+
+.dsh-module-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: auto;
+    padding-top: var(--dsh-s3);
+    font-size: 12.5px;
+    color: var(--dsh-accent-text);
+}
+
+.dsh-module-open svg {
+    flex: none;
+    transition: transform .15s;
+}
+
+.dsh .dsh-module:hover .dsh-module-open svg {
+    transform: translateX(2px);
+}
+
+/* The workflow: three steps, numbered, in the panel's own wash. */
+.dsh-steps {
+    display: grid;
+    gap: var(--dsh-s3);
+    padding: 0 var(--dsh-s8) var(--dsh-s8);
+}
+
+.dsh-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--dsh-s4);
+    align-items: start;
+    padding: var(--dsh-s4) var(--dsh-s6);
+    border: 1px solid var(--dsh-rule);
+    border-radius: var(--dsh-r-md);
+    background: var(--dsh-field-bg);
+}
+
+.dsh-step-n {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    flex: none;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--dsh-accent-rgb), .45);
+    background: rgba(var(--dsh-accent-rgb), .12);
+    color: var(--dsh-accent-text);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh-step h3 {
+    font-size: 13.5px;
+    margin-bottom: 2px;
+}
+
+.dsh-step p {
+    font-size: 12.5px;
+    color: var(--dsh-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.dsh-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dsh-s3);
+    padding: 48px var(--dsh-s6);
+    font-size: 13px;
+    color: var(--dsh-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.dsh-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: dsh-spin .7s linear infinite;
+}
+
+@keyframes dsh-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dsh-spin {
+        animation-duration: 2.4s;
+    }
+
+    .dsh .dsh-action:hover .dsh-action-chev,
+    .dsh .dsh-module:hover .dsh-module-open svg {
+        transform: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.dsh-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.dsh-scroll::-webkit-scrollbar-thumb {
+    background: var(--dsh-thumb);
+    border-radius: 8px;
+}
+
+.dsh-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1240px) {
+    .dsh-quick {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1100px) {
+    /* Two tables side by side stop fitting before the figures do, so they
+       stack first and the figures hold their row a while longer. */
+    .dsh-panels {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dsh-modules {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .dsh-head-inner,
+    .dsh-body {
+        padding-inline: 18px;
+    }
+
+    .dsh-body {
+        padding-top: 22px;
+    }
+
+    .dsh-stats {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .dsh-hero h1 {
+        font-size: 25px;
+    }
+
+    .dsh-table th:first-child,
+    .dsh-table td:first-child {
+        padding-left: var(--dsh-s6);
+    }
+
+    .dsh-table th:last-child,
+    .dsh-table td:last-child {
+        padding-right: var(--dsh-s6);
+    }
+
+    .dsh-panel-head,
+    .dsh-steps,
+    .dsh-panel > .dsh-quick {
+        padding-inline: var(--dsh-s6);
+    }
+}
+
+@media (max-width: 620px) {
+    .dsh-quick,
+    .dsh-modules {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* The breadcrumb's parent is the sidebar's own label — on a phone it is
+       repetition the header cannot afford, so only the page's own name stays. */
+    .dsh-crumbs > :not(.dsh-crumb-now) {
+        display: none;
+    }
+
+    .dsh-head-meta {
+        gap: var(--dsh-s2);
+    }
+
+    .dsh-synced {
+        display: none;
+    }
+}
