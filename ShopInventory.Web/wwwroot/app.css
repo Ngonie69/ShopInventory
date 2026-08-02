@@ -1227,9 +1227,26 @@ html, body {
     color: var(--text-primary);
     line-height: 1.6;
     max-width: 100%;
-    overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+}
+
+/* The root's overflow propagates to the viewport, so `html` is what actually
+   suppresses a horizontal page scrollbar. `body` gets `clip` instead of
+   `hidden` because the two differ in one way that matters here: `hidden` makes
+   the box a scroll container, and a `position: sticky` descendant sticks inside
+   its nearest scroll container, not the viewport. Since body never scrolls,
+   `hidden` leaves every sticky page header with nothing to stick to. `clip`
+   clips exactly the same overflow without creating a scroll container. The
+   `hidden` preceding each `clip` below is the fallback for engines that do not
+   know `clip` (Safari < 16), which keep today's behaviour. */
+html {
+    overflow-x: hidden;
+}
+
+body {
+    overflow-x: hidden;
+    overflow-x: clip;
 }
 
 /* Smooth Theme Transitions */
@@ -1839,11 +1856,19 @@ a:hover {
     display: inline;
 }
 
+/* `clip` rather than `hidden` on both, for the reason given on `body` above:
+   these two wrap every routed page, so `hidden` made them scroll containers
+   that never scroll, and a page's sticky header stuck to them instead of to the
+   viewport. `.staff-container` is the closest such ancestor, so it was the one
+   pages actually landed on — a header asking for `top: var(--kf-topbar-h)` got
+   seated 74px below the container's top edge, which is already below the app
+   bar, and came down on top of the page's own heading. */
 .staff-main {
     position: relative;
     background: linear-gradient(180deg, #f5f1e9 0%, #f8fafc 45%, #f1f5f9 100%);
     min-height: 100vh;
     overflow-x: hidden;
+    overflow-x: clip;
 }
 
 .staff-container {
@@ -1851,6 +1876,7 @@ a:hover {
     z-index: 1;
     max-width: 100%;
     overflow-x: hidden;
+    overflow-x: clip;
 }
 
 .staff-drawer {
@@ -8584,12 +8610,19 @@ html.dark-theme {
 }
 
 /* MudBlazor Layout Fixes */
+/* `clip`, not `hidden` — see the note on `body`. This is the shell every page
+   sits inside, so it is the last box that could capture a sticky header. */
 .mud-layout {
     overflow-x: hidden;
+    overflow-x: clip;
 }
 
+/* `clip`, not `hidden` — see the note on `body`. This is the outermost of the
+   three boxes wrapping a routed page, so `hidden` here would go on capturing
+   sticky headers even once the inner two stopped. */
 .mud-main-content {
     overflow-x: hidden;
+    overflow-x: clip;
     max-width: 100%;
 }
 
@@ -12255,20 +12288,31 @@ canvas {
 }
 
 @media (max-width: 767.98px) {
-    html,
-    body {
+    html {
         overflow-x: hidden;
     }
 
+    /* `clip`, matching the base rule — `hidden` would make body a scroll
+       container again and strand every sticky header on phones. */
     body {
+        overflow-x: hidden;
+        overflow-x: clip;
         overscroll-behavior-x: none;
     }
 
+    /* Split from the rest of the list because the staff shell's three page
+       wrappers have to stay `clip` at phone widths too — see the note on
+       `body`. `hidden` here would put every sticky page header back on top of
+       its own heading on phones only. */
     .staff-main,
-    .customer-main,
     .staff-shell .mud-main-content,
+    .staff-container {
+        overflow-x: hidden !important;
+        overflow-x: clip !important;
+    }
+
+    .customer-main,
     .customer-shell .mud-main-content,
-    .staff-container,
     .customer-content,
     .container-fluid {
         overflow-x: hidden !important;

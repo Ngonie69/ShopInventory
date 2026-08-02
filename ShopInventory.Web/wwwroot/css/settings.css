@@ -106,9 +106,11 @@
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
 
+/* Seated on the app bar, not the viewport top: the bar is fixed and 74px tall,
+   so a header pinned at 0 parks itself underneath it and disappears. */
 .stg-header {
     position: sticky;
-    top: 0;
+    top: var(--kf-topbar-h, 74px);
     z-index: 30;
     backdrop-filter: blur(10px);
     background: rgba(22, 24, 38, .88);
@@ -216,9 +218,12 @@
 
 /* ── Sidebar ────────────────────────────────────────────────────────────── */
 
+/* Below the stuck header, not the app bar: the 92px of clearance is measured
+   from the bar the same way .stg-header is, which clears the header's ~82px and
+   leaves the gutter the rail on the sibling pages has. */
 .stg-nav {
     position: sticky;
-    top: 92px;
+    top: calc(var(--kf-topbar-h, 74px) + 92px);
     display: flex;
     flex-direction: column;
     align-items: stretch;

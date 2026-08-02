@@ -166,13 +166,15 @@
 /* Seated on the app bar rather than the viewport top, so the search and the
    sync action stay reachable while 2,000 rows scroll past. */
 
+/* Opaque, not frosted — same reason as .apr-head in approval-process.css: the
+   frosted bar's missing 12% lets the page title read straight through it
+   wherever the compositor skips the blur. --bp-bg is the page ground, so the
+   at-rest look is unchanged. */
 .bp-head {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    background: color-mix(in srgb, var(--bp-bg) 88%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--bp-bg);
     border-bottom: 1px solid var(--bp-divider);
 }
 
