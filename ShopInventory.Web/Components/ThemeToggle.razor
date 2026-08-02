@@ -1,5 +1,4 @@
 @using ShopInventory.Web.Services
-@using MudBlazor
 @inject IThemeService ThemeService
 @inject IJSRuntime JS
 @implements IDisposable
@@ -7,7 +6,7 @@
 <button class="kf-icon-button kf-theme-toggle" type="button" @onclick="ToggleTheme"
         aria-label="@AccessibleLabel" title="@AccessibleLabel" aria-pressed="@isDarkMode">
     <span class="kf-theme-toggle__icon" aria-hidden="true">
-        <MudIcon Icon="@(isDarkMode ? Icons.Material.Outlined.LightMode : Icons.Material.Outlined.DarkMode)" />
+        <i class="ph @(isDarkMode ? "ph-sun" : "ph-moon")"></i>
     </span>
 </button>
 
