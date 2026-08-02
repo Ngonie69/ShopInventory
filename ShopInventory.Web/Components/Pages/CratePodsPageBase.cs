@@ -886,22 +886,33 @@ public abstract class CratePodsPageBase : CrateTrackingPageBase
                pod.Attachments.Any(attachment => attachment.FileName.Contains(term, StringComparison.OrdinalIgnoreCase));
     }
 
-    protected static string GetTransactionStatusTone(string status)
+    /// <summary>
+    /// Nocturne pill modifier for a crate transaction's status. "Matched" is the settled,
+    /// nothing-to-do state; the GRV states are the ones someone has to act on.
+    /// </summary>
+    protected static string GetStatusPillClass(string status)
     {
         return status switch
         {
-            "Matched" => "crpod-status-success",
-            "GrvRaised" => "crpod-status-danger",
-            "VariancePendingGrv" => "crpod-status-danger",
-            _ => "crpod-status-pending"
+            "Matched" => "is-ok",
+            "GrvRaised" => "is-bad",
+            "VariancePendingGrv" => "is-bad",
+            _ => "is-warn"
         };
     }
 
-    protected static string GetSubmissionRoleTone(string submissionRole)
+    /// <summary>
+    /// Row modifier for a bulk-mapping row, mirroring the product POD table: a failed row is
+    /// the one being scanned for, an uploaded or skipped row recedes.
+    /// </summary>
+    protected static string? GetCrateBulkRowClass(BulkCrateFileStatus status)
     {
-        return string.Equals(submissionRole, "Merchandiser", StringComparison.OrdinalIgnoreCase)
-            ? "crpod-role-merch"
-            : "crpod-role-driver";
+        return status switch
+        {
+            BulkCrateFileStatus.Error => "is-bad",
+            BulkCrateFileStatus.Uploaded => "is-done",
+            _ => null
+        };
     }
 
     protected static bool CanPreviewAttachment(string? mimeType)

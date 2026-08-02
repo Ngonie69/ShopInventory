@@ -17,1568 +17,449 @@
 @inject IAuditService AuditService
 @rendermode InteractiveServer
 
-<PageTitle>@(IsVanSalesView ? "Van Sales Invoices - Shop Inventory" : "Invoices - Shop Inventory")</PageTitle>
-
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .inv-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .inv-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .inv-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .inv-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .inv-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .inv-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .inv-header-actions {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-    }
-
-    .btn-inv-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        text-decoration: none;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-    }
-
-    .btn-inv-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-        color: #fff;
-    }
-
-    /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        min-width: 0;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: box-shadow .2s;
-    }
-
-    .stat-card:hover {
-        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.blue {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-icon.amber {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.2;
-    }
-
-    .stat-info {
-        min-width: 0;
-    }
-
-    .stat-info .stat-label {
-        font-size: .78rem;
-        color: #6b7280;
-        font-weight: 500;
-        overflow-wrap: anywhere;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        margin-bottom: 1.25rem;
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 160px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-actions-row {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-search:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .inv-table-wrap {
-        border-radius: 10px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-    }
-
-    .customer-info {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .customer-info .name {
-        font-weight: 600;
-        font-size: .88rem;
-        color: #1a1a2e;
-    }
-
-    .customer-info .code {
-        font-size: .78rem;
-        color: #9ca3af;
-    }
-
-    .doc-num-cell {
-        font-weight: 700;
-        color: #667eea;
-        font-size: .92rem;
-    }
-
-    .amount-cell {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-size: .92rem;
-    }
-
-    .vat-cell {
-        color: #6b7280;
-        font-size: .88rem;
-    }
-
-    .currency-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .2rem;
-        padding: .15rem .55rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-badge.open {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.closed {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .status-badge.partial {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .status-badge.fiscalised {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .status-badge.not-fiscalised {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .status-badge.unknown {
-        background: #e5e7eb;
-        color: #475569;
-    }
-
-    /* ── Alerts ──────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.success-alert {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .alert-banner.warn-alert {
-        background: #fffbeb;
-        border: 1px solid #fde68a;
-        color: #92400e;
-    }
-
-    .alert-banner.info-alert {
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        color: #1e40af;
-    }
-
-    .alert-banner .alert-body {
-        flex: 1;
-    }
-
-    .alert-banner .alert-close {
-        background: none;
-        border: none;
-        color: inherit;
-        opacity: .45;
-        cursor: pointer;
-        padding: .2rem;
-        font-size: 1rem;
-    }
-
-    .alert-banner .alert-close:hover {
-        opacity: 1;
-    }
-
-    .inv-fiscal-json-panel {
-        background: var(--light-color);
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        margin-bottom: 1rem;
-        overflow: hidden;
-        box-shadow: var(--shadow-sm);
-    }
-
-    .inv-fiscal-json-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
-        background: var(--primary-light);
-        border-bottom: 1px solid var(--border-color);
-    }
-
-    .inv-fiscal-json-eyebrow {
-        font-size: .72rem;
-        font-weight: 700;
-        letter-spacing: .08em;
-        text-transform: uppercase;
-        color: var(--text-secondary);
-        margin-bottom: .2rem;
-    }
-
-    .inv-fiscal-json-header h6 {
-        margin: 0;
-        font-size: 1rem;
-        font-weight: 700;
-        color: var(--text-primary);
-    }
-
-    .inv-fiscal-json-header p {
-        margin: .2rem 0 0;
-        font-size: .82rem;
-        color: var(--text-secondary);
-    }
-
-    .inv-fiscal-json-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-        gap: 1rem;
-        padding: 1rem 1.25rem 1.25rem;
-    }
-
-    .inv-fiscal-json-card {
-        min-width: 0;
-    }
-
-    .inv-fiscal-json-caption {
-        font-size: .75rem;
-        font-weight: 700;
-        color: var(--text-secondary);
-        margin-bottom: .45rem;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-    }
-
-    .inv-fiscal-json-code {
-        margin: 0;
-        padding: .9rem 1rem;
-        border-radius: 10px;
-        background: #0f172a;
-        color: #e2e8f0;
-        border: 1px solid rgba(148, 163, 184, .25);
-        font-size: .78rem;
-        line-height: 1.5;
-        max-height: 420px;
-        overflow: auto;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font-family: 'Cascadia Code', 'Fira Code', monospace;
-    }
-
-    /* ── Empty State ─────────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-        margin-bottom: 1rem;
-    }
-
-    /* ── Invoice Detail Drawer ───────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-        flex-wrap: wrap;
-    }
-
-    /* Detail Grid */
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .2rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .inv-fiscal-qr-card {
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        padding: 1rem;
-        margin-bottom: 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
-    }
-
-    .inv-fiscal-qr-image-wrap {
-        width: 116px;
-        height: 116px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: .45rem;
-        border-radius: 12px;
-        background: #fff;
-        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
-    }
-
-    .inv-fiscal-qr-image {
-        width: 100%;
-        height: 100%;
-        display: block;
-    }
-
-    .inv-fiscal-qr-copy {
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: .35rem;
-    }
-
-    .inv-fiscal-qr-label {
-        font-size: .72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: .55px;
-        color: #4f46e5;
-    }
-
-    .inv-fiscal-qr-title {
-        font-size: 1rem;
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-
-    .inv-fiscal-qr-copy p {
-        margin: 0;
-        color: #6b7280;
-        font-size: .86rem;
-        line-height: 1.45;
-    }
-
-    .detail-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    /* Lines Table */
-    .lines-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-    }
-
-    .lines-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .lines-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    /* Total Banner */
-    .total-banner {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 1.25rem;
-    }
-
-    .total-banner .total-label {
-        font-size: .9rem;
-        font-weight: 500;
-    }
-
-    .total-banner .total-value {
-        font-size: 1.4rem;
-        font-weight: 700;
-    }
-
-    /* Credit Note Warning */
-    .cn-warning {
-        background: #fffbeb;
-        border: 1px solid #fde68a;
-        border-radius: 10px;
-        padding: .85rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .cn-warning-icon {
-        color: #d97706;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-        margin-top: .1rem;
-    }
-
-    .cn-warning-body {
-        flex: 1;
-        font-size: .88rem;
-        color: #92400e;
-    }
-
-    .cn-warning-body strong {
-        color: #78350f;
-    }
-
-    .cn-view-link {
-        background: none;
-        border: none;
-        color: #d97706;
-        font-weight: 600;
-        cursor: pointer;
-        padding: 0;
-        font-size: .85rem;
-        text-decoration: underline;
-    }
-
-    .cn-view-link:hover {
-        color: #b45309;
-    }
-
-    /* ── Credit Note Modal ───────────────────────────── */
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .cn-modal-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .5);
-        z-index: 10000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        animation: fadeIn .2s ease;
-        padding: 1rem;
-    }
-
-    .cn-modal {
-        background: #fff;
-        border-radius: 14px;
-        width: min(700px, 95vw);
-        max-height: calc(90vh - var(--kf-topbar-h, 74px));
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
-        animation: scaleIn .25s ease;
-    }
-
-    .cn-modal-header {
-        padding: 1.15rem 1.5rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .cn-modal-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1rem;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .cn-modal-header .btn-close-modal {
-        background: #f3f4f6;
-        border: none;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        color: #6b7280;
-        transition: all .15s;
-        font-size: .9rem;
-    }
-
-    .cn-modal-header .btn-close-modal:hover {
-        background: #e5e7eb;
-        color: #374151;
-    }
-
-    .cn-modal-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .cn-modal-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-    }
-
-    .btn-warning-action {
-        background: linear-gradient(135deg, #f59e0b, #d97706);
-        border: none;
-        color: #fff;
-        padding: .5rem 1.25rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-warning-action:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(217, 119, 6, .3);
-    }
-
-    .btn-warning-action:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-        box-shadow: none;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.25rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f9fafb;
-    }
-
-    /* Credit note line selection table */
-    .cn-lines-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .cn-lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .55rem .65rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .cn-lines-table td {
-        padding: .5rem .65rem;
-        border-bottom: 1px solid #f3f4f6;
-    }
-
-    .cn-lines-table tr.selected-row {
-        background: #fef3c7;
-    }
-
-    .cn-lines-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #fffbeb;
-        font-weight: 700;
-    }
-
-    .cn-qty-input {
-        width: 72px;
-        padding: .3rem .5rem;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: .85rem;
-        text-align: right;
-    }
-
-    .cn-qty-input:focus {
-        outline: none;
-        border-color: #f59e0b;
-        box-shadow: 0 0 0 2px rgba(245, 158, 11, .2);
-    }
-
-    .cn-qty-input:disabled {
-        background: #f3f4f6;
-        color: #9ca3af;
-    }
-
-    /* Progress overlay */
-    .cn-progress-overlay {
-        position: absolute;
-        inset: 0;
-        background: rgba(255, 255, 255, .95);
-        z-index: 10;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        border-radius: 14px;
-    }
-
-    .progress-ring-wrap {
-        position: relative;
-        margin-bottom: 1rem;
-    }
-
-    .progress-ring-wrap .ring-label {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 1.3rem;
-        font-weight: 700;
-        color: #d97706;
-    }
-
-    .progress-dots {
-        display: flex;
-        justify-content: center;
-        gap: .4rem;
-        margin-bottom: .75rem;
-    }
-
-    .progress-dots .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        animation: pulse 1.2s infinite;
-    }
-
-    .progress-dots .dot:nth-child(1) {
-        background: #667eea;
-        animation-delay: 0s;
-    }
-
-    .progress-dots .dot:nth-child(2) {
-        background: #f59e0b;
-        animation-delay: .2s;
-    }
-
-    .progress-dots .dot:nth-child(3) {
-        background: #059669;
-        animation-delay: .4s;
-    }
-
-    /* ── Toast ───────────────────────────────────────── */
-    .toast-banner {
-        position: fixed;
-        bottom: 1.5rem;
-        right: 1.5rem;
-        z-index: 10100;
-        min-width: 320px;
-        max-width: 420px;
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        box-shadow: 0 8px 30px rgba(0, 0, 0, .15);
-        animation: slideUp .3s ease;
-    }
-
-    .toast-banner.success {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-    }
-
-    .toast-banner.error {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .toast-banner .toast-icon {
-        font-size: 1.1rem;
-        flex-shrink: 0;
-        margin-top: .1rem;
-    }
-
-    .toast-banner .toast-body {
-        flex: 1;
-        font-size: .88rem;
-        font-weight: 500;
-    }
-
-    .toast-banner .toast-close {
-        background: none;
-        border: none;
-        color: inherit;
-        opacity: .45;
-        cursor: pointer;
-        font-size: .9rem;
-    }
-
-    .toast-banner .toast-close:hover {
-        opacity: 1;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@keyframes slideUp {
-        from {
-            opacity: 0;
-            transform: translateY(12px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@keyframes scaleIn {
-        from {
-            opacity: 0;
-            transform: scale(.95);
-        }
-
-        to {
-            opacity: 1;
-            transform: scale(1);
-        }
-    }
-
-    @@keyframes pulse {
-
-        0%,
-        100% {
-            opacity: .3;
-            transform: scale(.8);
-        }
-
-        50% {
-            opacity: 1;
-            transform: scale(1);
-        }
-    }
-
-    /* ── Responsive ──────────────────────────────────── */
-    @@media (max-width:768px) {
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .stat-card {
-            padding: 1rem;
-        }
-
-        .stat-info .stat-value {
-            font-size: 1.15rem;
-        }
-
-        .detail-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .inv-fiscal-qr-card {
-            flex-direction: column;
-            align-items: flex-start;
-        }
-
-        .inv-header {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .85rem;
-        }
-
-        .inv-header-actions,
-        .inv-header-actions .btn-inv-gradient {
-            width: 100%;
-        }
-
-        .filter-bar {
-            padding: .85rem;
-        }
-
-        .filter-bar .filter-field {
-            min-width: 100%;
-            flex: 1 1 100%;
-        }
-
-        .filter-actions-row {
-            width: 100%;
-            flex-direction: column;
-            align-items: stretch;
-        }
-
-        .filter-actions-row>* {
-            width: 100%;
-            justify-content: center;
-        }
-
-        .inv-table-wrap .mud-table-toolbar {
-            flex-direction: column;
-            align-items: stretch;
-            gap: .75rem;
-        }
-
-        .inv-table-wrap .mud-table-toolbar .mud-input-control {
-            width: 100%;
-        }
-    }
-
-    @@media (max-width: 640px) {
-        .stat-row {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
-<div class="inv-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="inv-header">
-            <div class="inv-header-left">
-                <div class="inv-header-icon"><i class="bi bi-receipt"></i></div>
-                <div>
-                    <h2>@(IsVanSalesView ? "Van Sales Invoices" : "Invoices")</h2>
-                    <p>@(IsVanSalesView ? "View invoices generated by the sales-person van-sales flow" : "View and manage web-created sales invoices")</p>
+<PageTitle>@(IsVanSalesView ? "Van Sales Invoices" : "Invoices") - Shop Inventory</PageTitle>
+
+@* Nocturne, carried by wwwroot/css/invoices.css (linked from App.razor) in both
+   schemes, following the app's theme toggle like every other page. The palette
+   and density scale are credit-notes.css's, unchanged, so this page and the
+   credit notes it raises read as one system.
+
+   Icon-only buttons draw their glyph inline rather than from the Phosphor font:
+   the glyph is their whole label, so a font that fails to load would leave them
+   reading as dead controls. *@
+
+<div class="ivx">
+
+    <header class="ivx-head">
+        <div class="ivx-shell">
+            <div class="ivx-titles">
+                <div class="ivx-titles-row">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>
+                    <h1 class="ivx-title">@(IsVanSalesView ? "Van Sales Invoices" : "Invoices")</h1>
                 </div>
+                <p class="ivx-sub">
+                    @(IsVanSalesView
+                        ? "Invoices generated by the sales-person van-sales flow"
+                        : "View and manage web-created sales invoices")
+                </p>
             </div>
-            @if (!IsVanSalesView)
-            {
-                <div class="inv-header-actions">
-                    <a href="/invoices/create" class="btn-inv-gradient">
-                        <i class="bi bi-plus-lg"></i> Create Invoice
+            <div class="ivx-head-actions">
+                <span class="ivx-count">@LoadedCount.ToString("N0") invoices</span>
+                @if (!IsVanSalesView)
+                {
+                    <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
+                        <i class="ph ph-plus" aria-hidden="true"></i>Create invoice
                     </a>
-                </div>
-            }
+                }
+            </div>
         </div>
+        <div class="ivx-rule"></div>
+    </header>
 
-        <!-- ━━━ Alerts ━━━ -->
+    <div class="ivx-body">
+
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div class="alert-body">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => errorMessage = null"
-                               Size="Size.Small" />
+            <div class="ivx-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="ivx-alert-body">@errorMessage</div>
+                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
             </div>
         }
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="alert-banner success-alert">
-                <i class="bi bi-check-circle-fill"></i>
-                <div class="alert-body">@successMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="() => successMessage = null"
-                               Size="Size.Small" />
+            <div class="ivx-alert is-ok" role="status">
+                <i class="ph ph-check-circle" aria-hidden="true"></i>
+                <div class="ivx-alert-body">@successMessage</div>
+                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon-sm" title="Dismiss"
+                        aria-label="Dismiss message" @onclick="() => successMessage = null">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
             </div>
         }
+
         @if (HasLatestFiscalizationPayload)
         {
-            <div class="inv-fiscal-json-panel">
-                <div class="inv-fiscal-json-header">
+            <section class="ivx-payload">
+                <div class="ivx-payload-head">
+                    <div class="ivx-payload-titles">
+                        <div class="ivx-payload-eyebrow">Most recent TransactM payload</div>
+                        <h2 class="ivx-payload-title">Invoice #@(latestFiscalizationInvoiceNumber ?? "Unknown")</h2>
+                        <p class="ivx-payload-sub">Captured from the last fiscalisation request sent from this page.</p>
+                    </div>
+                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Dismiss"
+                            aria-label="Dismiss payload" @onclick="ClearLatestFiscalizationPayload">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </button>
+                </div>
+                <div class="ivx-payload-grid">
                     <div>
-                        <div class="inv-fiscal-json-eyebrow">Most Recent TransactM Payload</div>
-                        <h6>Invoice #@(latestFiscalizationInvoiceNumber ?? "Unknown")</h6>
-                        <p>Captured from the last invoice fiscalisation request sent from this page.</p>
+                        <div class="ivx-payload-caption">Request JSON</div>
+                        <pre class="ivx-code">@(latestFiscalizationRequestJson ?? "No raw request returned.")</pre>
                     </div>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="alert-close" OnClick="ClearLatestFiscalizationPayload"
-                                   Size="Size.Small" />
-                </div>
-                <div class="inv-fiscal-json-grid">
-                    <div class="inv-fiscal-json-card">
-                        <div class="inv-fiscal-json-caption">Request JSON</div>
-                        <pre class="inv-fiscal-json-code">@(latestFiscalizationRequestJson ?? "No raw request returned.")</pre>
-                    </div>
-                    <div class="inv-fiscal-json-card">
-                        <div class="inv-fiscal-json-caption">Response JSON</div>
-                        <pre class="inv-fiscal-json-code">@(latestFiscalizationResponseJson ?? "No raw response returned.")</pre>
+                    <div>
+                        <div class="ivx-payload-caption">Response JSON</div>
+                        <pre class="ivx-code">@(latestFiscalizationResponseJson ?? "No raw response returned.")</pre>
                     </div>
                 </div>
-            </div>
+            </section>
         }
 
-        <!-- ━━━ Stat Cards ━━━ -->
-        <div class="stat-row">
-            <div class="stat-card">
-                <div class="stat-icon purple"><i class="bi bi-receipt-cutoff"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@(invoices?.Count ?? 0)</div>
-                    <div class="stat-label">Invoices Loaded</div>
+        @* Counted over what is loaded, not over the whole ledger — the labels say so. *@
+        <section class="ivx-stats" aria-label="Invoice totals">
+            <div class="ivx-stat">
+                <span class="ivx-stat-mark" aria-hidden="true"><i class="ph ph-receipt"></i></span>
+                <div>
+                    <div class="ivx-stat-value">@LoadedCount.ToString("N0")</div>
+                    <div class="ivx-stat-label">Invoices loaded</div>
                 </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon blue"><i class="bi bi-cash-coin"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@((invoices?.Sum(i => i.DocTotal) ?? 0).ToString("N0"))</div>
-                    <div class="stat-label">Total Value</div>
+            <div class="ivx-stat">
+                <span class="ivx-stat-mark" aria-hidden="true"><i class="ph ph-coins"></i></span>
+                <div>
+                    <div class="ivx-stat-value">@((invoices?.Sum(i => i.DocTotal) ?? 0).ToString("N0"))</div>
+                    <div class="ivx-stat-label">Total value</div>
                 </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon amber"><i class="bi bi-people-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@(invoices?.Select(i => i.CardCode).Distinct().Count() ?? 0)</div>
-                    <div class="stat-label">Unique Customers</div>
+            <div class="ivx-stat">
+                <span class="ivx-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-users-three"></i></span>
+                <div>
+                    <div class="ivx-stat-value">@(invoices?.Select(i => i.CardCode).Distinct().Count() ?? 0)</div>
+                    <div class="ivx-stat-label">Unique customers</div>
                 </div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon green"><i class="bi bi-percent"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@((invoices?.Sum(i => i.VatSum) ?? 0).ToString("N0"))</div>
-                    <div class="stat-label">Total VAT</div>
+            <div class="ivx-stat">
+                <span class="ivx-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-percent"></i></span>
+                <div>
+                    <div class="ivx-stat-value">@((invoices?.Sum(i => i.VatSum) ?? 0).ToString("N0"))</div>
+                    <div class="ivx-stat-label">Total VAT</div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Doc Number</label>
-                <MudNumericField T="int?" @bind-Value="docNumSearch" @bind-Value:after="OnDocNumChanged"
-                                 Placeholder="e.g. 123" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
-                                 Immediate="true" Class="mt-0" />
+        <section class="ivx-filters">
+            <div class="ivx-field" style="width:140px">
+                <label for="ivx-f-doc">Doc number</label>
+                <input id="ivx-f-doc" class="ivx-input ivx-input-num" type="number" placeholder="e.g. 123"
+                       @bind="docNumSearch" @bind:event="oninput" @bind:after="OnDocNumChanged" />
             </div>
-            <div class="filter-field">
-                <label>Customer Code</label>
-                <MudTextField T="string" @bind-Value="customerCode" @bind-Value:after="OnCustomerCodeChanged"
-                              Placeholder="e.g. C001" Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
-                              Immediate="true" Class="mt-0" />
+            <div class="ivx-field" style="width:180px">
+                <label for="ivx-f-customer">Customer code</label>
+                <input id="ivx-f-customer" class="ivx-input" type="text" placeholder="e.g. C001"
+                       @bind="customerCode" @bind:event="oninput" @bind:after="OnCustomerCodeChanged" />
             </div>
-            <div class="filter-field">
-                <label>Fiscal Status</label>
-                <MudSelect T="string" @bind-Value="fiscalStatusFilter" Variant="Variant.Outlined" Margin="Margin.Dense"
-                           Clearable="true" Placeholder="All Fiscal States" Class="mt-0">
-                    <MudSelectItem T="string" Value="@("Fiscalised")">Fiscalised</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("Not Fiscalised")">Not Fiscalised</MudSelectItem>
-                    <MudSelectItem T="string" Value="@("Unknown")">Unknown</MudSelectItem>
-                </MudSelect>
+            <div class="ivx-field" style="width:170px">
+                <label for="ivx-f-fiscal">Fiscal status</label>
+                <div class="ivx-select">
+                    @* Refetches rather than filtering in place: the fiscal status is part of what
+                       LoadInvoices counts as "filtered", and that widens the fetch from 100 rows to
+                       5000. Narrowing the loaded 100 instead would quietly hide the rest. *@
+                    <select id="ivx-f-fiscal" class="ivx-input" @bind="fiscalStatusFilter" @bind:after="ApplyFilter">
+                        <option value="">All fiscal states</option>
+                        <option value="Fiscalised">Fiscalised</option>
+                        <option value="Not Fiscalised">Not Fiscalised</option>
+                        <option value="Unknown">Unknown</option>
+                    </select>
+                    <span class="ivx-caret" aria-hidden="true"></span>
+                </div>
             </div>
-            <div class="filter-field">
-                <label>From Date</label>
-                <FlexibleDatePicker Label="From" @bind-Date="fromDate" Variant="Variant.Outlined" />
+            <div class="ivx-field" style="width:140px">
+                <label for="ivx-f-from">From date</label>
+                <input id="ivx-f-from" class="ivx-input ivx-input-num" type="date" @bind="fromDate" />
             </div>
-            <div class="filter-field">
-                <label>To Date</label>
-                <FlexibleDatePicker Label="To" @bind-Date="toDate" Variant="Variant.Outlined" />
+            <div class="ivx-field" style="width:140px">
+                <label for="ivx-f-to">To date</label>
+                <input id="ivx-f-to" class="ivx-input ivx-input-num" type="date" @bind="toDate" />
             </div>
-            <div class="filter-actions-row">
-                <MudButton Class="btn-search" OnClick="ApplyFilter" Disabled="@isLoading">
-                    @if (isLoading)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-search"></i>
-                    }
-                    Search
-                </MudButton>
-                <MudButton Class="btn-clear" OnClick="ClearFilter"><i class="bi bi-x-lg"></i> Clear</MudButton>
+            <div class="ivx-filter-actions">
+                <button type="button" class="ivx-btn ivx-btn-ghost" @onclick="ClearFilter" disabled="@isLoading">
+                    Clear
+                </button>
+                <button type="button" class="ivx-btn ivx-btn-secondary" @onclick="ApplyFilter" disabled="@isLoading">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>@(isLoading ? "Searching…" : "Search")
+                </button>
             </div>
-        </div>
+        </section>
 
-        <!-- ━━━ Table ━━━ -->
-        @if (isLoading)
-        {
-            <div class="empty-state">
-                <div class="spinner-border text-primary" role="status"
-                     style="width:2.5rem;height:2.5rem;color:#667eea !important;"></div>
-                <p class="mt-3 text-muted">Loading invoices…</p>
+        <section class="ivx-card">
+
+            <div class="ivx-toolbar">
+                <span class="ivx-range">@RangeLabel</span>
+                <div class="ivx-quick">
+                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                    <input class="ivx-input" type="search" placeholder="Quick filter…" aria-label="Quick filter"
+                           @bind="_searchString" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                </div>
             </div>
-        }
-        else if (invoices?.Any() == true)
-        {
-            <div class="inv-table-wrap">
-                <MudTable @ref="@_table" Items="@invoices" RowsPerPage="@_pageSize" Hover="true" Dense="true"
-                          Breakpoint="Breakpoint.Sm" LoadingProgressColor="Color.Primary"
-                          Filter="new Func<InvoiceDto, bool>(_quickFilter)" OnRowClick="@OnInvoiceRowClicked" T="InvoiceDto"
-                          Elevation="0">
-                    <ToolBarContent>
-                        <MudText Typo="Typo.subtitle1" Style="font-weight:600; color:#1a1a2e;">
-                            <i class="bi bi-list-ul me-1"></i> @invoices.Count invoice(s)
-                        </MudText>
-                        <MudSpacer />
-                        <MudTextField @bind-Value="_searchString" Placeholder="Quick filter…" Adornment="Adornment.Start"
-                                      AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"
-                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" />
-                    </ToolBarContent>
-                    <HeaderContent>
-                        <MudTh>Doc #</MudTh>
-                        <MudTh>Customer</MudTh>
-                        <MudTh>Date</MudTh>
-                        <MudTh>Due Date</MudTh>
-                        <MudTh>Fiscal</MudTh>
-                        <MudTh>Currency</MudTh>
-                        <MudTh Style="text-align:right">VAT</MudTh>
-                        <MudTh Style="text-align:right">Total</MudTh>
-                        <MudTh Style="width:140px;text-align:center;">Action</MudTh>
-                        <MudTh Style="width:60px;text-align:center;">View</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Doc #">
-                            <span class="doc-num-cell">#@context.DocNum</span>
-                        </MudTd>
-                        <MudTd DataLabel="Customer">
-                            <div class="customer-info">
-                                <span class="name">@context.CardName</span>
-                                <span class="code">@context.CardCode</span>
-                            </div>
-                        </MudTd>
-                        <MudTd DataLabel="Date">@FormatDate(context.DocDate)</MudTd>
-                        <MudTd DataLabel="Due Date">@FormatDate(context.DocDueDate)</MudTd>
-                        <MudTd DataLabel="Fiscal">
-                            <span
-                            class="status-badge @GetFiscalStatusClass(context.FiscalizationStatus)">@context.FiscalizationStatus</span>
-                        </MudTd>
-                        <MudTd DataLabel="Currency"><span class="currency-badge">@context.DocCurrency</span></MudTd>
-                        <MudTd DataLabel="VAT" Style="text-align:right"><span
-                            class="vat-cell">@context.VatSum.ToString("N2")</span></MudTd>
-                            <MudTd DataLabel="Total" Style="text-align:right"><span
-                                class="amount-cell">@context.DocTotal.ToString("N2")</span></MudTd>
-                                <MudTd DataLabel="Action" Style="text-align:center;">
-                                    @if (CanFiscalize(context) || IsInvoiceFiscalizeBusy(context.DocEntry))
+
+            <div class="ivx-tablewrap">
+                <table class="ivx-table">
+                    <thead>
+                        <tr>
+                            <th>Doc #</th>
+                            <th>Customer</th>
+                            <th>Date</th>
+                            <th>Due date</th>
+                            <th>Fiscal</th>
+                            <th>Currency</th>
+                            <th class="ivx-num">VAT</th>
+                            <th class="ivx-num">Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 9; skeletonCell++)
                                     {
-                                        <div @onclick:stopPropagation="true">
-                                            <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
-                                                       Disabled="@isFiscalizingInvoice"
-                                                       OnClick="@(() => FiscalizeInvoiceAsync(context))">
-                                                @if (IsInvoiceFiscalizeBusy(context.DocEntry))
-                                                {
-                                                    <span class="spinner-border spinner-border-sm"></span>
-                                                    <span>Fiscalising...</span>
-                                                }
-                                                else
-                                                {
-                                                    <i class="bi bi-receipt-cutoff me-1"></i>
-                                                    <span>Fiscalise</span>
-                                                }
-                                            </MudButton>
-                                        </div>
+                                        <td><div class="ivx-skel"></div></td>
                                     }
-                                </MudTd>
-                                <MudTd DataLabel="View" Style="text-align:center;">
-                                    <div @onclick:stopPropagation="true">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Visibility" Size="Size.Small" Color="Color.Primary"
-                                                       OnClick="@(() => ViewInvoice(context.DocEntry))" />
-                                    </div>
-                                </MudTd>
-                            </RowTemplate>
-                            <PagerContent>
-                                <div class="pager-row">
-                                    <div class="page-size-wrap">
-                                        <span>Show</span>
-                                        <select @bind="_pageSize">
-                                            <option value="10">10</option>
-                                            <option value="25">25</option>
-                                            <option value="50">50</option>
-                                            <option value="100">100</option>
-                                            <option value="200">200</option>
-                                        </select>
-                                        <span>per page</span>
-                                    </div>
-                                    <MudPagination SelectedChanged="PageChanged"
-                                                   Count="@((_table.GetFilteredItemsCount() + _table.RowsPerPage - 1) / _table.RowsPerPage)"
-                                                   Class="pa-4" />
-                                </div>
-                            </PagerContent>
-                        </MudTable>
-                    </div>
-                }
-        else if (!isLoading)
-                {
-                    <div class="empty-state">
-                        <div class="empty-icon"><i class="bi bi-receipt"></i></div>
-                        <h6>No Invoices Found</h6>
-                        <p>No invoices match your filters. Try adjusting your search criteria.</p>
-                        <a href="/invoices/create" class="btn-inv-gradient"><i class="bi bi-plus-lg"></i> Create Invoice</a>
-                    </div>
-                }
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var invoice in PageRows)
+                            {
+                                <tr @key="invoice.DocEntry">
+                                    <td>
+                                        <button type="button" class="ivx-link" @onclick="() => ViewInvoice(invoice.DocEntry)">
+                                            #@invoice.DocNum
+                                        </button>
+                                    </td>
+                                    <td>
+                                        <span class="ivx-cust">
+                                            <span class="ivx-cust-name">@invoice.CardName</span>
+                                            <span class="ivx-cust-code">@invoice.CardCode</span>
+                                        </span>
+                                    </td>
+                                    <td class="ivx-date">@FormatDate(invoice.DocDate)</td>
+                                    <td class="ivx-date">@FormatDate(invoice.DocDueDate)</td>
+                                    <td>
+                                        <span class="ivx-fiscal">
+                                            <span class="ivx-dot @GetFiscalDotClass(invoice.FiscalizationStatus)" aria-hidden="true"></span>
+                                            <span class="ivx-fiscal-text @GetFiscalTextClass(invoice.FiscalizationStatus)">
+                                                @invoice.FiscalizationStatus
+                                            </span>
+                                        </span>
+                                    </td>
+                                    <td class="ivx-curr">@invoice.DocCurrency</td>
+                                    <td class="ivx-num">@invoice.VatSum.ToString("N2")</td>
+                                    <td class="ivx-num">@invoice.DocTotal.ToString("N2")</td>
+                                    <td>
+                                        <span class="ivx-rowactions">
+                                            @if (CanFiscalize(invoice) || IsInvoiceFiscalizeBusy(invoice.DocEntry))
+                                            {
+                                                <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-sm"
+                                                        disabled="@isFiscalizingInvoice"
+                                                        @onclick="() => FiscalizeInvoiceAsync(invoice)">
+                                                    @if (IsInvoiceFiscalizeBusy(invoice.DocEntry))
+                                                    {
+                                                        <span class="ivx-spin" aria-hidden="true"></span>
+                                                        <span>Fiscalising…</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span>Fiscalise</span>
+                                                    }
+                                                </button>
+                                            }
+                                            <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon-sm"
+                                                    title="View invoice" aria-label="View invoice @invoice.DocNum"
+                                                    @onclick="() => ViewInvoice(invoice.DocEntry)">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
+                                            </button>
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
             </div>
-        </div>
 
-        <!-- ━━━ Invoice Detail Drawer ━━━ -->
-        @if (selectedInvoice != null && !showCreateCreditNoteModal && !showExistingCreditNotesModal)
-        {
-            <div class="modal-backdrop-custom" @onclick="CloseModal"></div>
-            <div class="detail-drawer">
-                <div class="drawer-header">
-                    <h5><i class="bi bi-receipt me-2"></i>Invoice #@selectedInvoice.DocNum</h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal"
-                                   Size="Size.Small" />
+            @if (!isLoading && FilteredCount == 0)
+            {
+                <div class="ivx-empty">
+                    <i class="ph ph-funnel-simple" aria-hidden="true"></i>
+                    <span>No invoices found</span>
+                    <span class="ivx-empty-sub">No invoices match your filters. Try widening the dates or clearing the search.</span>
+                    @if (!IsVanSalesView)
+                    {
+                        <a class="ivx-btn ivx-btn-primary" href="/invoices/create">
+                            <i class="ph ph-plus" aria-hidden="true"></i>Create invoice
+                        </a>
+                    }
                 </div>
-                <div class="drawer-body">
-                    <!-- Credit Note Warning -->
-                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
-                    {
-                        <div class="cn-warning">
-                            <i class="bi bi-exclamation-triangle-fill cn-warning-icon"></i>
-                            <div class="cn-warning-body">
-                                <strong>@GetActiveCreditNoteCount() credit note(s)</strong> totaling
-                                <strong>@GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency</strong>
-                                already exist for this invoice.
-                                @if (IsSelectedInvoiceFullyCredited())
-                                {
-                                    <span> This invoice has been fully credited, so new credit notes are disabled.</span>
-                                }
-                                <MudButton Class="cn-view-link" OnClick="ShowExistingCreditNotes">View Details</MudButton>
-                            </div>
-                        </div>
-                    }
+            }
 
-                    <!-- Detail Grid -->
-                    <div class="detail-grid">
-                        <div class="detail-item">
-                            <div class="detail-label">Customer</div>
-                            <div class="detail-value">@selectedInvoice.CardName</div>
+            <div class="ivx-foot">
+                <span class="ivx-foot-range">@RangeLabel</span>
+                <span class="ivx-pagesize">
+                    <span>Rows</span>
+                    <span class="ivx-select">
+                        <select class="ivx-input" aria-label="Rows per page" @bind="_pageSize" @bind:after="ResetToFirstPage">
+                            @foreach (var size in PageSizeOptions)
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                        <span class="ivx-caret" aria-hidden="true"></span>
+                    </span>
+                </span>
+                <div class="ivx-pager">
+                    <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-icon" title="Previous page"
+                            aria-label="Previous page" disabled="@(displayPage <= 1)"
+                            @onclick="() => GoToDisplayPage(displayPage - 1)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+                    </button>
+                    <span class="ivx-page-label">Page @displayPage / @DisplayPageCount</span>
+                    <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-icon" title="Next page"
+                            aria-label="Next page" disabled="@(displayPage >= DisplayPageCount)"
+                            @onclick="() => GoToDisplayPage(displayPage + 1)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+@if (selectedInvoice != null && !showCreateCreditNoteModal && !showExistingCreditNotesModal)
+{
+    var fiscalQrCodeImageSrc = BuildFiscalQrCodeImageSrc(selectedInvoice.FiscalQrCode);
+    <div class="ivx-overlay">
+        <div class="ivx-scrim" @onclick="CloseModal"></div>
+        <aside class="ivx-drawer" aria-label="Invoice detail">
+            <div class="ivx-drawer-head">
+                <h2 class="ivx-drawer-title">
+                    <i class="ph ph-receipt" aria-hidden="true"></i>Invoice #@selectedInvoice.DocNum
+                </h2>
+                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close"
+                        aria-label="Close details" @onclick="CloseModal">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
+            </div>
+            <div class="ivx-drawer-body">
+
+                @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                {
+                    <div class="ivx-credited">
+                        <i class="ph ph-warning" aria-hidden="true"></i>
+                        <div>
+                            <strong>@GetActiveCreditNoteCount() credit note(s)</strong> totalling
+                            <strong>@GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency</strong>
+                            already exist for this invoice.
+                            @if (IsSelectedInvoiceFullyCredited())
+                            {
+                                <span>It has been fully credited, so new credit notes are disabled.</span>
+                            }
+                            <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm" @onclick="ShowExistingCreditNotes">
+                                View details
+                            </button>
                         </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Customer Code</div>
-                            <div class="detail-value">@selectedInvoice.CardCode</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Document Date</div>
-                            <div class="detail-value">@FormatDate(selectedInvoice.DocDate)</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Due Date</div>
-                            <div class="detail-value">@FormatDate(selectedInvoice.DocDueDate)</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Doc Entry</div>
-                            <div class="detail-value">@selectedInvoice.DocEntry</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Currency</div>
-                            <div class="detail-value">@selectedInvoice.DocCurrency</div>
-                        </div>
-                        <div class="detail-item">
-                            <div class="detail-label">Fiscal Status</div>
-                            <div class="detail-value"><span
-                                class="status-badge @GetFiscalStatusClass(selectedInvoice.FiscalizationStatus)">@selectedInvoice.FiscalizationStatus</span>
-                            </div>
-                        </div>
-                        @if (selectedInvoice.FiscalReceiptGlobalNo.HasValue)
-                        {
-                            <div class="detail-item">
-                                <div class="detail-label">Fiscal Receipt #</div>
-                                <div class="detail-value">@selectedInvoice.FiscalReceiptGlobalNo</div>
-                            </div>
-                        }
-                        @if (!string.IsNullOrEmpty(selectedInvoice.NumAtCard))
-                        {
-                            <div class="detail-item">
-                                <div class="detail-label">Reference</div>
-                                <div class="detail-value">@selectedInvoice.NumAtCard</div>
-                            </div>
-                        }
-                        @if (!string.IsNullOrEmpty(selectedInvoice.Comments))
-                        {
-                            <div class="detail-item">
-                                <div class="detail-label">Comments</div>
-                                <div class="detail-value" style="font-weight:400;">@selectedInvoice.Comments</div>
-                            </div>
-                        }
                     </div>
+                }
 
-                    @{
-                        var fiscalQrCodeImageSrc = BuildFiscalQrCodeImageSrc(selectedInvoice.FiscalQrCode);
-                    }
-                    @if (!string.IsNullOrWhiteSpace(fiscalQrCodeImageSrc))
+                <div class="ivx-grid">
+                    <div>
+                        <div class="ivx-dt">Customer</div>
+                        <div class="ivx-dd">@selectedInvoice.CardName</div>
+                    </div>
+                    <div>
+                        <div class="ivx-dt">Customer code</div>
+                        <div class="ivx-dd">@selectedInvoice.CardCode</div>
+                    </div>
+                    <div>
+                        <div class="ivx-dt">Document date</div>
+                        <div class="ivx-dd">@FormatDate(selectedInvoice.DocDate)</div>
+                    </div>
+                    <div>
+                        <div class="ivx-dt">Due date</div>
+                        <div class="ivx-dd">@FormatDate(selectedInvoice.DocDueDate)</div>
+                    </div>
+                    <div>
+                        <div class="ivx-dt">Doc entry</div>
+                        <div class="ivx-dd">@selectedInvoice.DocEntry</div>
+                    </div>
+                    <div>
+                        <div class="ivx-dt">Currency</div>
+                        <div class="ivx-dd">@selectedInvoice.DocCurrency</div>
+                    </div>
+                    <div>
+                        <div class="ivx-dt">Fiscal status</div>
+                        <div class="ivx-dd">
+                            <span class="ivx-fiscal">
+                                <span class="ivx-dot @GetFiscalDotClass(selectedInvoice.FiscalizationStatus)" aria-hidden="true"></span>
+                                <span class="ivx-fiscal-text @GetFiscalTextClass(selectedInvoice.FiscalizationStatus)">
+                                    @selectedInvoice.FiscalizationStatus
+                                </span>
+                            </span>
+                        </div>
+                    </div>
+                    @if (selectedInvoice.FiscalReceiptGlobalNo.HasValue)
                     {
-                        <div class="inv-fiscal-qr-card">
-                            <div class="inv-fiscal-qr-image-wrap">
-                                <img class="inv-fiscal-qr-image" src="@fiscalQrCodeImageSrc" alt="REVMax fiscal QR code" />
-                            </div>
-                            <div class="inv-fiscal-qr-copy">
-                                <span class="inv-fiscal-qr-label">REVMax QR Code</span>
-                                <div class="inv-fiscal-qr-title">Scan to verify this fiscal receipt</div>
-                                <p>The same QR code is used for the drawer preview, downloaded PDF, and print output for invoice #@selectedInvoice.DocNum.</p>
-                            </div>
+                        <div>
+                            <div class="ivx-dt">Fiscal receipt #</div>
+                            <div class="ivx-dd">@selectedInvoice.FiscalReceiptGlobalNo</div>
                         </div>
                     }
-
-                    <!-- Invoice Lines -->
-                    @if (selectedInvoice.Lines?.Any() == true)
+                    @if (!string.IsNullOrEmpty(selectedInvoice.NumAtCard))
                     {
-                        <div class="detail-section-title"><i class="bi bi-list-check" style="color:#667eea;"></i> Invoice Lines</div>
-                        <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; margin-bottom:1rem;">
-                            <table class="lines-table">
+                        <div>
+                            <div class="ivx-dt">Reference</div>
+                            <div class="ivx-dd">@selectedInvoice.NumAtCard</div>
+                        </div>
+                    }
+                </div>
+
+                @if (!string.IsNullOrEmpty(selectedInvoice.Comments))
+                {
+                    <div>
+                        <div class="ivx-sect"><i class="ph ph-chat-text" aria-hidden="true"></i>Comments</div>
+                        <div class="ivx-note is-prose">@selectedInvoice.Comments</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(fiscalQrCodeImageSrc))
+                {
+                    <div class="ivx-qr">
+                        <div class="ivx-qr-plate">
+                            <img src="@fiscalQrCodeImageSrc" alt="REVMax fiscal QR code" />
+                        </div>
+                        <div class="ivx-qr-copy">
+                            <div class="ivx-dt">REVMax QR code</div>
+                            <div class="ivx-qr-title">Scan to verify this fiscal receipt</div>
+                            <p>
+                                The same code is used for this preview, the downloaded PDF and the print
+                                output for invoice #@selectedInvoice.DocNum.
+                            </p>
+                        </div>
+                    </div>
+                }
+
+                @if (selectedInvoice.Lines?.Any() == true)
+                {
+                    <div>
+                        <div class="ivx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Invoice lines</div>
+                        <div class="ivx-linescroll">
+                            <table class="ivx-lines">
                                 <thead>
                                     <tr>
                                         <th>#</th>
-                                        <th>Item Code</th>
+                                        <th>Item</th>
                                         <th>Description</th>
                                         <th>Warehouse</th>
-                                        <th style="text-align:right;">Qty</th>
-                                        <th style="text-align:right;">Price</th>
-                                        <th style="text-align:right;">Disc %</th>
-                                        <th style="text-align:right;">Total</th>
+                                        <th class="ivx-num">Qty</th>
+                                        <th class="ivx-num">Price</th>
+                                        <th class="ivx-num">Disc %</th>
+                                        <th class="ivx-num">Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1586,258 +467,274 @@
                                     {
                                         <tr>
                                             <td>@line.LineNum</td>
-                                            <td><strong>@line.ItemCode</strong></td>
+                                            <td><span class="ivx-cust-name">@line.ItemCode</span></td>
                                             <td>@line.ItemDescription</td>
                                             <td>@line.WarehouseCode</td>
-                                            <td style="text-align:right;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                            <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                            @* Up to six decimals so a special-price discount reads the same here as in SAP (5.714286%), without the trailing zeros a six-scale decimal prints raw *@
-                                            <td style="text-align:right;">@line.DiscountPercent.ToString("0.0####")%</td>
-                                            <td style="text-align:right; font-weight:600;">@line.LineTotal.ToString("N2")</td>
+                                            <td class="ivx-num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                            <td class="ivx-num">@line.UnitPrice.ToString("N2")</td>
+                                            @* Up to six decimals so a special-price discount reads the same here as in
+                                               SAP (5.714286%), without the trailing zeros a six-scale decimal prints raw *@
+                                            <td class="ivx-num">@line.DiscountPercent.ToString("0.0####")%</td>
+                                            <td class="ivx-num">@line.LineTotal.ToString("N2")</td>
                                         </tr>
                                     }
                                 </tbody>
                                 <tfoot>
                                     <tr>
-                                        <td colspan="7" style="text-align:right; font-weight:600; color:#6b7280;">VAT</td>
-                                        <td style="text-align:right; font-weight:600;">@selectedInvoice.VatSum.ToString("N2")</td>
+                                        <td colspan="7" class="ivx-num">VAT</td>
+                                        <td class="ivx-num">@selectedInvoice.VatSum.ToString("N2")</td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
-                    }
-
-                    <!-- Total Banner -->
-                    <div class="total-banner">
-                        <span class="total-label">Invoice Total</span>
-                        <span class="total-value">@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</span>
                     </div>
-                </div>
-                <div class="drawer-footer">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="DownloadInvoicePdf"
-                               Disabled="@isPdfLoading">
-                        <i class="bi bi-download me-1"></i> Download PDF
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="PrintInvoicePdf" Disabled="@isPdfLoading">
-                        <i class="bi bi-printer me-1"></i> Print
-                    </MudButton>
-                    <MudButton Class="btn-warning-action" OnClick="OpenCreateCreditNoteModal"
-                               Disabled="@IsSelectedInvoiceFullyCredited()">
-                        <i class="bi bi-file-earmark-minus"></i> @(IsSelectedInvoiceFullyCredited() ? "Fully Credited" : "Create Credit Note")
-                    </MudButton>
-                    <MudButton Class="btn-secondary-action" OnClick="CloseModal"><i class="bi bi-x-lg me-1"></i>Close</MudButton>
+                }
+
+                <div class="ivx-total">
+                    <span class="ivx-total-label">Invoice total</span>
+                    <span class="ivx-total-value">@selectedInvoice.DocCurrency @selectedInvoice.DocTotal.ToString("N2")</span>
                 </div>
             </div>
-        }
+            <div class="ivx-drawer-foot">
+                <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isPdfLoading" @onclick="DownloadInvoicePdf">
+                    @if (isPdfLoading)
+                    {
+                        <span class="ivx-spin" aria-hidden="true"></span>
+                        <span>Preparing…</span>
+                    }
+                    else
+                    {
+                        <span>Download PDF</span>
+                    }
+                </button>
+                <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isPdfLoading" @onclick="PrintInvoicePdf">
+                    Print
+                </button>
+                <button type="button" class="ivx-btn ivx-btn-primary" @onclick="OpenCreateCreditNoteModal"
+                        disabled="@IsSelectedInvoiceFullyCredited()">
+                    @(IsSelectedInvoiceFullyCredited() ? "Fully credited" : "Create credit note")
+                </button>
+                <button type="button" class="ivx-btn ivx-btn-secondary" @onclick="CloseModal">Close</button>
+            </div>
+        </aside>
+    </div>
+}
 
-        <!-- ━━━ Existing Credit Notes Modal ━━━ -->
-        @if (showExistingCreditNotesModal && existingCreditNotes != null)
-        {
-            <div class="cn-modal-overlay" @onclick="() => showExistingCreditNotesModal = false">
-                <div class="cn-modal" @onclick:stopPropagation="true">
-                    <div class="cn-modal-header">
-                        <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Credit Notes — Invoice
-                            #@selectedInvoice?.DocNum</h5>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal"
-                                           OnClick="() => showExistingCreditNotesModal = false" Size="Size.Small" />
+@if (showExistingCreditNotesModal && existingCreditNotes != null)
+{
+    <div class="ivx-overlay">
+        <div class="ivx-dialog-wrap" @onclick="() => showExistingCreditNotesModal = false">
+            <div class="ivx-dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="ivx-cnlist-title"
+                 @onclick:stopPropagation="true">
+                <div class="ivx-dialog-head">
+                    <h2 class="ivx-dialog-title" id="ivx-cnlist-title">
+                        <i class="ph ph-file-minus" aria-hidden="true"></i>
+                        Credit notes — invoice #@selectedInvoice?.DocNum
+                    </h2>
+                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                            @onclick="() => showExistingCreditNotesModal = false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </button>
+                </div>
+                <div class="ivx-dialog-body">
+                    <div class="ivx-note">
+                        <span class="ivx-dt">Active total credited</span>
+                        @GetActiveCreditedAmount().ToString("N2") @selectedInvoice?.DocCurrency
+                    </div>
+                    <div class="ivx-linescroll">
+                        <table class="ivx-lines">
+                            <thead>
+                                <tr>
+                                    <th>Credit note #</th>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Reason</th>
+                                    <th class="ivx-num">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var creditNote in existingCreditNotes.CreditNotes)
+                                {
+                                    <tr>
+                                        <td><span class="ivx-cust-name">@creditNote.CreditNoteNumber</span></td>
+                                        <td class="ivx-date">@creditNote.CreditNoteDate.ToString("dd MMM yyyy")</td>
+                                        <td><span class="ivx-tag">@creditNote.TypeName</span></td>
+                                        <td>
+                                            <span class="ivx-fiscal">
+                                                <span class="ivx-dot @GetCreditNoteDotClass(creditNote.Status)" aria-hidden="true"></span>
+                                                <span class="ivx-fiscal-text">@creditNote.StatusName</span>
+                                            </span>
+                                        </td>
+                                        <td>@TruncateText(creditNote.Reason, 30)</td>
+                                        <td class="ivx-num">@creditNote.DocTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="ivx-dialog-actions">
+                    <button type="button" class="ivx-btn ivx-btn-secondary"
+                            @onclick="() => showExistingCreditNotesModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showCreateCreditNoteModal && selectedInvoice != null)
+{
+    <div class="ivx-overlay">
+        <div class="ivx-dialog-wrap">
+            <div class="ivx-dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="ivx-cnnew-title"
+                 @onclick:stopPropagation="true">
+
+                @if (isCreatingCreditNote)
+                {
+                    @* The percentage is paced by SimulateSapProgressAsync, not reported by SAP —
+                       it is a "something is happening" signal for a call that can take a while. *@
+                    <div class="ivx-posting" aria-live="polite">
+                        <div class="ivx-ring">
+                            <svg viewBox="0 0 100 100" aria-hidden="true">
+                                <circle class="ivx-ring-track" cx="50" cy="50" r="42" />
+                                <circle class="ivx-ring-fill" cx="50" cy="50" r="42"
+                                        stroke-dasharray="@($"{264 * creditNoteProgress / 100} 264")" />
+                            </svg>
+                            <span class="ivx-ring-label">@creditNoteProgress%</span>
                         </div>
-                        <div class="cn-modal-body">
-                            <div class="alert-banner info-alert" style="margin-bottom:1rem;">
-                                <i class="bi bi-info-circle-fill"></i>
-                                <div class="alert-body">
-                                    <strong>Active Total Credited:</strong> @GetActiveCreditedAmount().ToString("N2")
-                                    @selectedInvoice?.DocCurrency
-                                </div>
-                            </div>
-                            <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
-                                <table class="lines-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Credit Note #</th>
-                                            <th>Date</th>
-                                            <th>Type</th>
-                                            <th>Status</th>
-                                            <th>Reason</th>
-                                            <th style="text-align:right;">Amount</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var cn in existingCreditNotes.CreditNotes)
+                        <h3>Posting to SAP</h3>
+                        <p>@creditNoteProgressMessage</p>
+                        <small>Please keep this window open while the credit note is created.</small>
+                    </div>
+                }
+
+                <div class="ivx-dialog-head">
+                    <h2 class="ivx-dialog-title" id="ivx-cnnew-title">
+                        <i class="ph ph-file-minus" aria-hidden="true"></i>
+                        Create credit note — invoice #@selectedInvoice.DocNum
+                    </h2>
+                    <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon" title="Close" aria-label="Close"
+                            disabled="@isCreatingCreditNote" @onclick="() => showCreateCreditNoteModal = false">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </button>
+                </div>
+                <div class="ivx-dialog-body">
+                    @if (existingCreditNotes?.HasExistingCreditNotes == true)
+                    {
+                        <div class="ivx-note is-warn">
+                            This invoice already has @GetActiveCreditNoteCount() active credit note(s) totalling
+                            @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency. Remaining creditable
+                            amount: @GetRemainingCreditableAmount().ToString("N2") @selectedInvoice.DocCurrency.
+                        </div>
+                    }
+
+                    <div class="ivx-field">
+                        <label for="ivx-cn-reason">Reason for credit note *</label>
+                        <textarea id="ivx-cn-reason" class="ivx-input ivx-textarea" @bind="creditNoteReason"
+                                  placeholder="Enter the reason for creating this credit note…"
+                                  disabled="@isCreatingCreditNote"></textarea>
+                    </div>
+
+                    <div>
+                        <div class="ivx-sect"><i class="ph ph-list-checks" aria-hidden="true"></i>Select items to credit</div>
+                        <div class="ivx-linescroll">
+                            <table class="ivx-cnlines">
+                                <thead>
+                                    <tr>
+                                        <th style="width:34px">
+                                            <input class="ivx-check" type="checkbox" title="Select all lines"
+                                                   aria-label="Select all lines" @bind="selectAllLines"
+                                                   @bind:after="ToggleAllLines" disabled="@isCreatingCreditNote" />
+                                        </th>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th class="ivx-num">Qty</th>
+                                        <th class="ivx-num">Credit qty</th>
+                                        <th class="ivx-num">Price</th>
+                                        <th class="ivx-num">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (creditNoteLines != null)
+                                    {
+                                        @foreach (var line in creditNoteLines)
                                         {
-                                            <tr>
-                                                <td><strong>@cn.CreditNoteNumber</strong></td>
-                                                <td>@cn.CreditNoteDate.ToString("dd MMM yyyy")</td>
-                                                <td><span class="status-badge open">@cn.TypeName</span></td>
-                                                <td><span class="status-badge @GetCreditNoteStatusClass(cn.Status)">@cn.StatusName</span>
+                                            <tr class="@(line.IsSelected ? null : "is-off")">
+                                                <td>
+                                                    <input class="ivx-check" type="checkbox"
+                                                           aria-label="Credit @line.ItemCode" @bind="line.IsSelected"
+                                                           disabled="@isCreatingCreditNote" />
                                                 </td>
-                                                <td>@TruncateText(cn.Reason, 30)</td>
-                                                <td style="text-align:right; font-weight:600;">@cn.DocTotal.ToString("N2")</td>
+                                                <td><span class="ivx-cust-name">@line.ItemCode</span></td>
+                                                <td>@line.ItemDescription</td>
+                                                <td class="ivx-num">@line.OriginalQuantity</td>
+                                                <td class="ivx-num">
+                                                    <input class="ivx-input ivx-qty" type="number" min="0"
+                                                           max="@line.OriginalQuantity" step="0.01"
+                                                           aria-label="Credit quantity for @line.ItemCode"
+                                                           @bind="line.CreditQuantity"
+                                                           disabled="@(!line.IsSelected || isCreatingCreditNote)" />
+                                                </td>
+                                                <td class="ivx-num">@line.UnitPrice.ToString("N2")</td>
+                                                <td class="ivx-num">
+                                                    @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
+                                                </td>
                                             </tr>
                                         }
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="cn-modal-footer">
-                            <MudButton Class="btn-secondary-action" OnClick="() => showExistingCreditNotesModal = false">Close
-                            </MudButton>
+                                    }
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan="6" class="ivx-num">Credit note total</td>
+                                        <td class="ivx-num">@CalculateCreditNoteTotal().ToString("N2")</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
                         </div>
                     </div>
                 </div>
-            }
-
-            <!-- ━━━ Create Credit Note Modal ━━━ -->
-            @if (showCreateCreditNoteModal && selectedInvoice != null)
-            {
-                <div class="cn-modal-overlay">
-                    <div class="cn-modal" style="position:relative;" @onclick:stopPropagation="true">
+                <div class="ivx-dialog-actions">
+                    <button type="button" class="ivx-btn ivx-btn-secondary" disabled="@isCreatingCreditNote"
+                            @onclick="() => showCreateCreditNoteModal = false">Cancel</button>
+                    <button type="button" class="ivx-btn ivx-btn-primary" @onclick="CreateCreditNote"
+                            disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
                         @if (isCreatingCreditNote)
                         {
-                            <div class="cn-progress-overlay">
-                                <div class="progress-dots">
-                                    <div class="dot"></div>
-                                    <div class="dot"></div>
-                                    <div class="dot"></div>
-                                </div>
-                                <div class="progress-ring-wrap">
-                                    <svg width="100" height="100" viewBox="0 0 100 100">
-                                        <circle cx="50" cy="50" r="42" fill="none" stroke="#e9ecef" stroke-width="7" />
-                                        <circle cx="50" cy="50" r="42" fill="none" stroke="#f59e0b" stroke-width="7" stroke-linecap="round"
-                                                stroke-dasharray="@(264 * creditNoteProgress / 100) 264"
-                                                style="transform:rotate(-90deg);transform-origin:center;transition:stroke-dasharray .3s ease;" />
-                                    </svg>
-                                    <span class="ring-label">@creditNoteProgress%</span>
-                                </div>
-                                <h6 style="color:#d97706; font-weight:600; margin-bottom:.3rem;">
-                                    <i class="bi bi-cloud-upload me-1"></i>Posting to SAP
-                                </h6>
-                                <p style="color:#6b7280; font-size:.88rem; margin-bottom:.15rem;">@creditNoteProgressMessage</p>
-                                <small style="color:#9ca3af;">Please wait while the credit note is being created…</small>
-                            </div>
+                            <span class="ivx-spin" aria-hidden="true"></span>
+                            <span>Posting…</span>
                         }
+                        else
+                        {
+                            <span>Create credit note</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
-                        <div class="cn-modal-header">
-                            <h5><i class="bi bi-file-earmark-minus" style="color:#d97706;"></i> Create Credit Note — Invoice
-                                #@selectedInvoice.DocNum</h5>
-                                <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-modal"
-                                               OnClick="() => showCreateCreditNoteModal = false" Disabled="@isCreatingCreditNote" Size="Size.Small" />
-                            </div>
-                            <div class="cn-modal-body">
-                                @if (existingCreditNotes?.HasExistingCreditNotes == true)
-                                {
-                                    <div class="alert-banner warn-alert" style="margin-bottom:1rem;">
-                                        <i class="bi bi-exclamation-triangle-fill"></i>
-                                        <div class="alert-body">
-                                            <strong>Warning:</strong> This invoice already has @GetActiveCreditNoteCount() active credit
-                                            note(s)
-                                            totaling @GetActiveCreditedAmount().ToString("N2") @selectedInvoice.DocCurrency.
-                                            Remaining creditable amount: @GetRemainingCreditableAmount().ToString("N2")
-                                            @selectedInvoice.DocCurrency.
-                                        </div>
-                                    </div>
-                                }
-
-                                <div style="margin-bottom:1.25rem;">
-                                    <label
-                                        style="display:block;font-size:.75rem;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:.4rem;">
-                                        Reason for Credit Note *
-                                    </label>
-                                    <textarea
-                                    style="width:100%;border:1px solid #d1d5db;border-radius:8px;padding:.6rem .85rem;font-size:.9rem;resize:vertical;min-height:80px;"
-                                    @bind="creditNoteReason" placeholder="Enter the reason for creating this credit note…"
-                                    disabled="@isCreatingCreditNote"></textarea>
-                                </div>
-
-                                <div class="detail-section-title"><i class="bi bi-list-check" style="color:#d97706;"></i> Select Items to
-                                    Credit</div>
-                                    <div style="border:1px solid #e5e7eb; border-radius:10px; overflow:hidden;">
-                                        <table class="cn-lines-table">
-                                            <thead>
-                                                <tr>
-                                                    <th style="width:36px;">
-                                                        <input type="checkbox" @bind="selectAllLines" @bind:after="ToggleAllLines"
-                                                               disabled="@isCreatingCreditNote" style="cursor:pointer;" />
-                                                    </th>
-                                                    <th>Item</th>
-                                                    <th>Description</th>
-                                                    <th style="text-align:right;">Qty</th>
-                                                    <th style="text-align:right;">Credit Qty</th>
-                                                    <th style="text-align:right;">Price</th>
-                                                    <th style="text-align:right;">Total</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @if (creditNoteLines != null)
-                                                {
-                                                    @foreach (var line in creditNoteLines)
-                                                    {
-                                                        <tr class="@(line.IsSelected ? "selected-row" : "")">
-                                                            <td>
-                                                                <input type="checkbox" @bind="line.IsSelected" disabled="@isCreatingCreditNote"
-                                                                       style="cursor:pointer;" />
-                                                            </td>
-                                                            <td><strong>@line.ItemCode</strong></td>
-                                                            <td>@line.ItemDescription</td>
-                                                            <td style="text-align:right;">@line.OriginalQuantity</td>
-                                                            <td style="text-align:right;">
-                                                                <input type="number" class="cn-qty-input" @bind="line.CreditQuantity" min="0"
-                                                                       max="@line.OriginalQuantity" step="0.01"
-                                                                       disabled="@(!line.IsSelected || isCreatingCreditNote)" />
-                                                            </td>
-                                                            <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                                            <td style="text-align:right; font-weight:600;">
-                                                                @((line.IsSelected ? line.CreditQuantity * line.UnitPrice : 0).ToString("N2"))
-                                                            </td>
-                                                        </tr>
-                                                    }
-                                                }
-                                            </tbody>
-                                            <tfoot>
-                                                <tr>
-                                                    <td colspan="6" style="text-align:right;">Credit Note Total:</td>
-                                                    <td style="text-align:right;">@CalculateCreditNoteTotal().ToString("N2")</td>
-                                                </tr>
-                                            </tfoot>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div class="cn-modal-footer">
-                                    <MudButton Class="btn-secondary-action" OnClick="() => showCreateCreditNoteModal = false"
-                                               Disabled="@isCreatingCreditNote">Cancel</MudButton>
-                                    <MudButton Class="btn-warning-action" OnClick="CreateCreditNote"
-                                               Disabled="@(isCreatingCreditNote || string.IsNullOrWhiteSpace(creditNoteReason) || !HasSelectedLines())">
-                                        @if (isCreatingCreditNote)
-                                        {
-                                            <span class="spinner-border spinner-border-sm"></span>
-                                            <span>Posting…</span>
-                                        }
-                                        else
-                                        {
-                                            <i class="bi bi-check-lg"></i>
-                                            <span>Create Credit Note</span>
-                                        }
-                                    </MudButton>
-                                </div>
-                            </div>
-                        </div>
-                    }
-
-                    <!-- ━━━ Toast Notification ━━━ -->
-                    @if (!string.IsNullOrEmpty(creditNoteMessage))
-                    {
-                        <div class="toast-banner @(creditNoteSuccess ? "success" : "error")">
-                            <i class="bi @(creditNoteSuccess ? "bi-check-circle-fill" : "bi-exclamation-circle-fill") toast-icon"></i>
-                            <div class="toast-body">@creditNoteMessage</div>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="toast-close" OnClick="() => creditNoteMessage = null"
-                                           Size="Size.Small" />
-                        </div>
-                    }
+@if (!string.IsNullOrEmpty(creditNoteMessage))
+{
+    <div class="ivx-overlay">
+        <div class="ivx-toast @(creditNoteSuccess ? null : "is-bad")" role="status">
+            <i class="ph @(creditNoteSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+            <div class="ivx-toast-body">@creditNoteMessage</div>
+            <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-icon-sm" title="Dismiss"
+                    aria-label="Dismiss message" @onclick="() => creditNoteMessage = null">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+        </div>
+    </div>
+}
 
 @code {
+    private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];
+
     private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
         .StartsWith("van-sales-invoices", StringComparison.OrdinalIgnoreCase);
 
-    private MudTable<InvoiceDto> _table = null!;
     private int _pageSize = 10;
     private List<InvoiceDto>? invoices;
     private List<InvoiceDto>? allInvoices;
@@ -1850,10 +747,11 @@
     private string? latestFiscalizationInvoiceNumber;
     private string? latestFiscalizationRequestJson;
     private string? latestFiscalizationResponseJson;
+
+    // The fetch pulls one large page and the pager below works over it in the browser,
+    // which is what the 100/5000 fetch sizes in LoadInvoices are sized for.
     private int currentPage = 1;
-    private int pageSize = 20;
-    private int totalPages = 1;
-    private int totalCount = 0;
+    private int displayPage = 1;
     private string _searchString = string.Empty;
 
     private int? docNumSearch;
@@ -1890,43 +788,72 @@
     private string creditNoteProgressMessage = "Initializing...";
     private CancellationTokenSource? _progressCancellationTokenSource;
 
-    // Quick filter
-    private Func<InvoiceDto, bool> _quickFilter => x =>
-    {
-        if (string.IsNullOrWhiteSpace(_searchString))
-            return true;
-        if (x.DocNum.ToString().Contains(_searchString, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (x.CardCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.CardName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.DocCurrency?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if (x.FiscalizationStatus?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-        if ($"{x.DocEntry} {x.DocTotal}".Contains(_searchString))
-            return true;
-        return false;
-    };
+    private int LoadedCount => invoices?.Count ?? 0;
 
-    private async Task OnInvoiceRowClicked(TableRowClickEventArgs<InvoiceDto> args)
+    /// <summary>
+    /// The quick filter narrows what is already loaded — it never refetches, which is why it
+    /// lives on the table's own toolbar rather than in the filter row.
+    /// </summary>
+    private IEnumerable<InvoiceDto> FilteredInvoices
     {
-        if (args.Item is not null)
-            await ViewInvoice(args.Item.DocEntry);
+        get
+        {
+            if (invoices is null)
+                return [];
+
+            if (string.IsNullOrWhiteSpace(_searchString))
+                return invoices;
+
+            var search = _searchString.Trim();
+            return invoices.Where(invoice =>
+                invoice.DocNum.ToString().Contains(search, StringComparison.OrdinalIgnoreCase)
+                || invoice.CardCode?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
+                || invoice.CardName?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
+                || invoice.DocCurrency?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
+                || invoice.FiscalizationStatus?.Contains(search, StringComparison.OrdinalIgnoreCase) == true
+                || $"{invoice.DocEntry} {invoice.DocTotal}".Contains(search));
+        }
     }
 
-    private void PageChanged(int i)
+    private int FilteredCount => FilteredInvoices.Count();
+
+    private int DisplayPageCount => Math.Max(1, (FilteredCount + _pageSize - 1) / _pageSize);
+
+    private IEnumerable<InvoiceDto> PageRows
+        => FilteredInvoices.Skip((displayPage - 1) * _pageSize).Take(_pageSize);
+
+    private string RangeLabel
     {
-        _table.NavigateTo(i - 1);
+        get
+        {
+            if (isLoading && invoices is null)
+                return "Loading…";
+
+            var count = FilteredCount;
+            if (count == 0)
+                return "No invoices";
+
+            var first = ((displayPage - 1) * _pageSize) + 1;
+            var last = Math.Min(displayPage * _pageSize, count);
+            return $"{first:N0}–{last:N0} of {count:N0} invoices";
+        }
     }
 
     protected override async Task OnInitializedAsync()
     {
         _pageSize = AppSettings.PageSize;
-        pageSize = AppSettings.PageSize;
         await LoadInvoices();
         await AuditService.LogAsync(AuditActions.ViewInvoices, "Invoice", null);
+    }
+
+    private void ResetToFirstPage() => displayPage = 1;
+
+    private void GoToDisplayPage(int page)
+    {
+        if (page >= 1 && page <= DisplayPageCount)
+        {
+            displayPage = page;
+        }
     }
 
     private string FormatDate(string? dateStr)
@@ -1964,8 +891,6 @@
                 var loadedInvoices = response.Invoices ?? new List<InvoiceDto>();
                 allInvoices = loadedInvoices;
                 invoices = ApplyFiscalStatusFilter(loadedInvoices);
-                totalCount = invoices.Count;
-                totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
             }
             else
             {
@@ -1979,6 +904,8 @@
         finally
         {
             isLoading = false;
+            // The set changed underneath the display pager, so start it over.
+            displayPage = 1;
         }
     }
 
@@ -2014,12 +941,14 @@
             {
                 docNumSearch = null;
                 await LoadInvoices();
+                StateHasChanged();
             }
             return;
         }
 
         currentPage = 1;
         await LoadInvoices();
+        StateHasChanged();
     }
 
     private async Task FilterByCustomerCode()
@@ -2030,12 +959,14 @@
             {
                 customerCode = null;
                 await LoadInvoices();
+                StateHasChanged();
             }
             return;
         }
 
         currentPage = 1;
         await LoadInvoices();
+        StateHasChanged();
     }
 
     private async Task ApplyFilter()
@@ -2051,12 +982,17 @@
         fiscalStatusFilter = null;
         fromDate = null;
         toDate = null;
+        _searchString = string.Empty;
         currentPage = 1;
-        totalPages = 1;
         allInvoices = null;
         await LoadInvoices();
     }
 
+    /// <summary>
+    /// The API does not take the fiscal status as a parameter — it is applied to whatever the fetch
+    /// returned. LoadInvoices still counts it as a filter, which is what widens the fetch from 100
+    /// rows to 5000 so there is enough to filter over.
+    /// </summary>
     private List<InvoiceDto> ApplyFiscalStatusFilter(IEnumerable<InvoiceDto> source)
     {
         if (string.IsNullOrWhiteSpace(fiscalStatusFilter))
@@ -2184,8 +1120,6 @@
         }
 
         invoices = ApplyFiscalStatusFilter(allInvoices ?? new List<InvoiceDto>());
-        totalCount = invoices.Count;
-        totalPages = Math.Max(1, (int)Math.Ceiling(totalCount / (double)_pageSize));
     }
 
     private bool HasLatestFiscalizationPayload
@@ -2449,6 +1383,10 @@
         }
     }
 
+    /// <summary>
+    /// Paces the posting dialog's ring. SAP reports no progress for this call, so the percentage
+    /// is a "something is still happening" signal, not a measurement.
+    /// </summary>
     private async Task SimulateSapProgressAsync(CancellationToken cancellationToken)
     {
         var progressSteps = new[]
@@ -2494,25 +1432,25 @@
         catch (TaskCanceledException) { /* Expected */ }
     }
 
-    private string GetCreditNoteStatusClass(CreditNoteStatus status) => status switch
+    private static string GetCreditNoteDotClass(CreditNoteStatus status) => status switch
     {
-        CreditNoteStatus.Draft => "",
-        CreditNoteStatus.Pending => "partial",
-        CreditNoteStatus.Approved => "open",
-        CreditNoteStatus.Applied => "closed",
-        CreditNoteStatus.PartiallyApplied => "partial",
-        CreditNoteStatus.Cancelled => "",
-        CreditNoteStatus.Voided => "",
-        _ => ""
+        CreditNoteStatus.Applied => "is-done",
+        CreditNoteStatus.Approved or CreditNoteStatus.PartiallyApplied => "is-todo",
+        CreditNoteStatus.Pending => "is-todo",
+        CreditNoteStatus.Cancelled or CreditNoteStatus.Voided => "is-unknown",
+        _ => "is-unknown"
     };
 
-    private static string GetFiscalStatusClass(string? status)
-        => status?.Trim().ToLowerInvariant() switch
+    private static string GetFiscalDotClass(string? status)
+        => NormalizeFiscalStatus(status) switch
         {
-            "fiscalised" => "fiscalised",
-            "not fiscalised" => "not-fiscalised",
-            _ => "unknown"
+            "fiscalised" => "is-done",
+            "not fiscalised" => "is-todo",
+            _ => "is-unknown"
         };
+
+    private static string GetFiscalTextClass(string? status)
+        => NormalizeFiscalStatus(status) == "not fiscalised" ? "is-todo" : string.Empty;
 
     private int GetActiveCreditNoteCount()
     {
@@ -2550,21 +1488,6 @@
     {
         if (string.IsNullOrEmpty(text)) return "—";
         return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "…";
-    }
-
-    private async Task OnPageChanged(int page)
-    {
-        if (page >= 1 && page != currentPage)
-        {
-            currentPage = page;
-            await LoadInvoices();
-        }
-    }
-
-    private async Task OnPageSizeChanged()
-    {
-        currentPage = 1;
-        await LoadInvoices();
     }
 
     private class CreditNoteLineSelection

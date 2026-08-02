@@ -6,6 +6,12 @@
 
 <PageTitle>Crate POD History - Shop Inventory</PageTitle>
 
+@* Nocturne, carried by wwwroot/css/pods.css (linked from App.razor), shared with
+   /pods and /crates/pods so the three tabs of this surface are one design.
+   Icon-only buttons draw their glyph inline rather than from the Phosphor font:
+   the glyph is their whole label, so a font that fails to load would leave them
+   reading as dead controls. *@
+
 @{
     var filteredRows = FilteredPodAttachmentRows.ToList();
     var attachmentCount = pods.Sum(pod => pod.Attachments.Count);
@@ -19,289 +25,321 @@
         .ToList();
 }
 
-<div class="container-fluid fade-in staff-dashboard staff-shell crpod-page">
-    <div class="crpod-hero">
-        <div class="crpod-hero-top">
-            <div class="crpod-hero-heading">
-                <span class="crpod-hero-icon">
-                    <i class="bi bi-clock-history"></i>
-                </span>
-                <div>
-                    <h2 class="crpod-hero-title">Crate POD History</h2>
-                    <p class="crpod-hero-subtitle">Review submitted crate PODs and manage their supporting files.</p>
+<div class="podx">
+
+    <header class="podx-head">
+        <div class="podx-shell">
+            <div class="podx-head-row">
+                <div class="podx-titles">
+                    <div class="podx-titles-row">
+                        <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
+                        <h1 class="podx-title">Crate POD History</h1>
+                    </div>
+                    <p class="podx-sub">Review submitted crate PODs and manage their supporting files.</p>
                 </div>
-            </div>
-            <button type="button" class="crpod-refresh-btn" @onclick="RefreshAllAsync" disabled="@isLoading">
-                <i class="bi bi-arrow-clockwise"></i>
-                <span>@(isLoading ? "Refreshing..." : "Refresh")</span>
-            </button>
-        </div>
-
-        <div class="crpod-hero-stats">
-            <div class="crpod-stat">
-                <span class="crpod-stat-value">@pods.Count</span>
-                <span class="crpod-stat-label">Submissions</span>
-            </div>
-            <div class="crpod-stat">
-                <span class="crpod-stat-value">@attachmentCount</span>
-                <span class="crpod-stat-label">Attachments</span>
-            </div>
-            <div class="crpod-stat">
-                <span class="crpod-stat-value">@PodEligibleTransactions.Count()</span>
-                <span class="crpod-stat-label">Invoice transactions</span>
-            </div>
-        </div>
-    </div>
-
-    <PodNavTabs Active="PodNavTabs.PodNavTab.CrateHistory" />
-
-    @if (!string.IsNullOrWhiteSpace(statusMessage))
-    {
-        <div class="crpod-status-banner @(statusIsSuccess ? "crpod-status-success" : "crpod-status-error")">
-            <i class="bi @(statusIsSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill")"></i>
-            <span>@statusMessage</span>
-        </div>
-    }
-
-    @if (!canSubmitPods)
-    {
-        <div class="crpod-card mb-4">
-            <div class="crpod-readonly-state">
-                <div class="crpod-readonly-icon">
-                    <i class="bi bi-eye"></i>
-                </div>
-                <div>
-                    <h3 class="crpod-card-title mb-1">Read-only access</h3>
-                    <p class="crpod-card-note mb-0">You can preview and download crate POD documents. Upload and delete are limited to the crate field roles.</p>
-                </div>
-            </div>
-        </div>
-    }
-
-    <div class="crpod-card">
-        <div class="crpod-list-header">
-            <div class="crpod-list-heading">
-                <i class="bi bi-list-task"></i>
-                <span>Crate POD Uploads</span>
-            </div>
-            <span class="crpod-record-count">@filteredRows.Count records</span>
-        </div>
-
-        <div class="crpod-filter-grid">
-            <div class="crpod-filter-field">
-                <label class="crpod-label">Search</label>
-                <input type="text" class="form-control crpod-input" @bind="PodHistorySearch" @bind:event="oninput"
-                       placeholder="Invoice #, shop, file, or uploader" />
-            </div>
-            <div class="crpod-filter-field">
-                <label class="crpod-label">Shop Code</label>
-                <input type="text" class="form-control crpod-input" @bind="PodHistoryShopCode" @bind:event="oninput"
-                       placeholder="e.g. SPA055" />
-            </div>
-            <div class="crpod-filter-field">
-                <label class="crpod-label">Uploaded By</label>
-                <input type="text" class="form-control crpod-input" @bind="PodHistoryUploadedBy" @bind:event="oninput"
-                       placeholder="username" />
-            </div>
-            <div class="crpod-filter-field">
-                <label class="crpod-label">Role</label>
-                <select class="form-select crpod-input" @bind="PodHistoryRoleFilter">
-                    <option value="all">All roles</option>
-                    <option value="Driver">Driver</option>
-                    <option value="Merchandiser">Merchandiser</option>
-                </select>
-            </div>
-            <div class="crpod-filter-field">
-                <label class="crpod-label">From Date</label>
-                <input type="date" class="form-control crpod-input" @bind="PodHistoryFromDate" />
-            </div>
-            <div class="crpod-filter-field">
-                <label class="crpod-label">To Date</label>
-                <input type="date" class="form-control crpod-input" @bind="PodHistoryToDate" />
-            </div>
-            @if (HasPodHistoryFilters)
-            {
-                <div class="crpod-filter-field crpod-filter-field-action">
-                    <button type="button" class="crpod-filter-clear" @onclick="ClearPodHistoryFilters">
-                        <i class="bi bi-x-circle"></i>
-                        <span>Clear</span>
+                <div class="podx-head-actions">
+                    <button type="button" class="podx-btn podx-btn-secondary" @onclick="RefreshAllAsync"
+                            disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="podx-spin" aria-hidden="true"></span>
+                            <span>Refreshing…</span>
+                        }
+                        else
+                        {
+                            <span>Refresh</span>
+                        }
                     </button>
                 </div>
-            }
-        </div>
+            </div>
 
-        @if (!filteredRows.Any())
+            <div class="podx-counts">
+                <div class="podx-counts-item">
+                    <span class="podx-counts-value">@pods.Count</span>
+                    <span class="podx-counts-label">Submissions</span>
+                </div>
+                <div class="podx-counts-item">
+                    <span class="podx-counts-value">@attachmentCount</span>
+                    <span class="podx-counts-label">Attachments</span>
+                </div>
+                <div class="podx-counts-item">
+                    <span class="podx-counts-value">@PodEligibleTransactions.Count()</span>
+                    <span class="podx-counts-label">Invoice transactions</span>
+                </div>
+            </div>
+
+            <PodNavTabs Active="PodNavTabs.PodNavTab.CrateHistory" />
+        </div>
+    </header>
+
+    <div class="podx-body">
+
+        @if (!string.IsNullOrWhiteSpace(statusMessage))
         {
-            <div class="crpod-empty-state">
-                <i class="bi bi-inbox"></i>
-                <span>No crate POD submissions match the current filters.</span>
+            <div class="podx-note @(statusIsSuccess ? "is-ok" : "is-bad")" role="status">
+                <i class="ph @(statusIsSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+                <div class="podx-note-body">@statusMessage</div>
             </div>
         }
-        else
-        {
-            <div class="crpod-table-wrap">
-                <table class="table mb-0 align-middle crpod-table crpod-history-table mobile-card-table">
-                    <thead>
-                        <tr>
-                            <th>Invoice #</th>
-                            <th>Shop</th>
-                            <th>File</th>
-                            <th>Notes</th>
-                            <th class="text-end">Quantity</th>
-                            <th>Size</th>
-                            <th>Uploaded</th>
-                            <th>By</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var row in pagedRows)
-                        {
-                            var pod = row.Pod;
-                            var attachment = row.Attachment;
 
-                            <tr>
-                                <td data-label="Invoice #">
-                                    <span class="crpod-doc-badge">@(pod.InvoiceDocNum?.ToString() ?? $"TX {pod.CrateTransactionId}")</span>
-                                </td>
-                                <td data-label="Shop">
-                                    <div class="crpod-table-primary">@(string.IsNullOrWhiteSpace(pod.ShopName) ? pod.ShopCardCode : pod.ShopName)</div>
-                                    <div class="crpod-table-sub">@pod.ShopCardCode</div>
-                                </td>
-                                <td data-label="File">
-                                    @if (attachment is null)
-                                    {
-                                        <div class="crpod-table-sub">No documents</div>
-                                    }
-                                    else
-                                    {
-                                        <div class="crpod-file-name">@attachment.FileName</div>
-                                        <div class="crpod-table-sub">@(attachment.MimeType ?? "unknown type")</div>
-                                    }
-                                </td>
-                                <td data-label="Notes" class="crpod-table-note-cell">@(string.IsNullOrWhiteSpace(pod.Notes) ? "-" : pod.Notes)</td>
-                                <td data-label="Quantity" class="text-end fw-semibold">@pod.Quantity.ToString("N2")</td>
-                                <td data-label="Size" class="crpod-size-cell">@(attachment?.FileSizeFormatted ?? "-")</td>
-                                <td data-label="Uploaded">
-                                    <div class="crpod-table-primary">@((attachment?.UploadedAt ?? pod.SubmittedAt).ToString("MMM dd, yyyy"))</div>
-                                    <div class="crpod-table-sub">@((attachment?.UploadedAt ?? pod.SubmittedAt).ToString("HH:mm"))</div>
-                                </td>
-                                <td data-label="By">
-                                    <div class="crpod-table-primary">@(pod.SubmittedByUserName ?? "Unknown user")</div>
-                                    <div class="crpod-table-sub">
-                                        <span class="crpod-role-badge @GetSubmissionRoleTone(pod.SubmissionRole)">@pod.SubmissionRole</span>
-                                    </div>
-                                </td>
-                                <td data-label="Actions" class="text-end">
-                                    <div class="crpod-actions">
-                                        @if (attachment is not null && CanPreviewAttachment(attachment.MimeType))
-                                        {
-                                            <button type="button" class="crpod-action-btn crpod-action-view" title="View"
-                                                    @onclick="() => ViewAttachmentAsync(attachment)">
-                                                <i class="bi bi-eye"></i>
-                                            </button>
-                                        }
-                                        @if (attachment is not null)
-                                        {
-                                            <button type="button" class="crpod-action-btn crpod-action-download" title="Download"
-                                                    @onclick="() => DownloadAttachmentAsync(attachment)">
-                                                <i class="bi bi-download"></i>
-                                            </button>
-                                        }
-                                        @if (canDeleteCratePods)
-                                        {
-                                            <button type="button" class="crpod-action-btn crpod-action-delete" title="Delete"
-                                                    @onclick="() => BeginDeleteAttachment(pod, attachment)">
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        }
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
+        @if (!canSubmitPods)
+        {
+            <div class="podx-note is-accent">
+                <i class="ph ph-eye" aria-hidden="true"></i>
+                <div class="podx-note-body">
+                    <strong>Read-only access.</strong> You can preview and download crate POD documents.
+                    Upload and delete are limited to the crate field roles.
+                </div>
+            </div>
+        }
+
+        <section class="podx-card">
+            <div class="podx-card-head">
+                <h2 class="podx-card-title">
+                    <i class="ph ph-list-checks" aria-hidden="true"></i>Crate POD uploads
+                </h2>
+                <span class="podx-count">@filteredRows.Count.ToString("N0") records</span>
             </div>
 
-            <div class="crpod-pagination">
-                <div class="crpod-pagination-info">
-                    Showing @firstRowNumber-@lastRowNumber of @filteredRows.Count
+            <div class="podx-card-body">
+                <div class="podx-fields">
+                    <div class="podx-field">
+                        <label for="crh-f-search">Search</label>
+                        <input id="crh-f-search" class="podx-input" type="text" @bind="PodHistorySearch"
+                               @bind:event="oninput" placeholder="Invoice #, shop, file, or uploader" />
+                    </div>
+                    <div class="podx-field">
+                        <label for="crh-f-shop">Shop code</label>
+                        <input id="crh-f-shop" class="podx-input" type="text" @bind="PodHistoryShopCode"
+                               @bind:event="oninput" placeholder="e.g. SPA055" />
+                    </div>
+                    <div class="podx-field">
+                        <label for="crh-f-by">Uploaded by</label>
+                        <input id="crh-f-by" class="podx-input" type="text" @bind="PodHistoryUploadedBy"
+                               @bind:event="oninput" placeholder="username" />
+                    </div>
+                    <div class="podx-field">
+                        <label for="crh-f-role">Role</label>
+                        <div class="podx-select">
+                            <select id="crh-f-role" class="podx-input" @bind="PodHistoryRoleFilter">
+                                <option value="all">All roles</option>
+                                <option value="Driver">Driver</option>
+                                <option value="Merchandiser">Merchandiser</option>
+                            </select>
+                            <span class="podx-caret" aria-hidden="true"></span>
+                        </div>
+                    </div>
+                    <div class="podx-field">
+                        <label for="crh-f-from">From date</label>
+                        <input id="crh-f-from" class="podx-input podx-input-num" type="date" @bind="PodHistoryFromDate" />
+                    </div>
+                    <div class="podx-field">
+                        <label for="crh-f-to">To date</label>
+                        <input id="crh-f-to" class="podx-input podx-input-num" type="date" @bind="PodHistoryToDate" />
+                    </div>
+                    @if (HasPodHistoryFilters)
+                    {
+                        <div class="podx-field">
+                            <label>&nbsp;</label>
+                            <button type="button" class="podx-btn podx-btn-ghost" @onclick="ClearPodHistoryFilters">
+                                Clear
+                            </button>
+                        </div>
+                    }
                 </div>
-                <div class="crpod-pagination-controls">
-                    <label class="crpod-pagination-size">
-                        <span>Rows</span>
-                        <select class="form-select crpod-input" @bind="PodHistoryPageSize">
-                            @foreach (var size in CratePageSizeOptions)
+            </div>
+
+            @if (!filteredRows.Any())
+            {
+                <div class="podx-empty">
+                    <i class="ph ph-funnel-simple" aria-hidden="true"></i>
+                    <span>No crate POD submissions match the current filters.</span>
+                </div>
+            }
+            else
+            {
+                <div class="podx-tablewrap">
+                    <table class="podx-table">
+                        <thead>
+                            <tr>
+                                <th>Invoice #</th>
+                                <th>Shop</th>
+                                <th>File</th>
+                                <th>Notes</th>
+                                <th class="podx-num">Quantity</th>
+                                <th class="podx-num">Size</th>
+                                <th>Uploaded</th>
+                                <th>By</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in pagedRows)
                             {
-                                <option value="@size">@size</option>
+                                var pod = row.Pod;
+                                var attachment = row.Attachment;
+
+                                <tr>
+                                    <td>
+                                        <span class="podx-badge">@(pod.InvoiceDocNum?.ToString() ?? $"TX {pod.CrateTransactionId}")</span>
+                                    </td>
+                                    <td>
+                                        <span class="podx-stack">
+                                            <span class="podx-strong">
+                                                @(string.IsNullOrWhiteSpace(pod.ShopName) ? pod.ShopCardCode : pod.ShopName)
+                                            </span>
+                                            <span class="podx-weak">@pod.ShopCardCode</span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (attachment is null)
+                                        {
+                                            <span class="podx-weak">No documents</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="podx-stack">
+                                                <span class="podx-strong">@attachment.FileName</span>
+                                                <span class="podx-weak">@(attachment.MimeType ?? "unknown type")</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="podx-clip" title="@pod.Notes">
+                                            @(string.IsNullOrWhiteSpace(pod.Notes) ? "—" : pod.Notes)
+                                        </span>
+                                    </td>
+                                    <td class="podx-num">@pod.Quantity.ToString("N2")</td>
+                                    <td class="podx-num">@(attachment?.FileSizeFormatted ?? "—")</td>
+                                    <td>
+                                        <span class="podx-stack">
+                                            <span>@((attachment?.UploadedAt ?? pod.SubmittedAt).ToString("dd MMM yyyy"))</span>
+                                            <span class="podx-weak">@((attachment?.UploadedAt ?? pod.SubmittedAt).ToString("HH:mm"))</span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="podx-stack">
+                                            <span>@(pod.SubmittedByUserName ?? "Unknown user")</span>
+                                            <span><span class="podx-badge">@pod.SubmissionRole</span></span>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="podx-actions">
+                                            @if (attachment is not null && CanPreviewAttachment(attachment.MimeType))
+                                            {
+                                                <button type="button" class="podx-btn podx-btn-ghost podx-btn-icon-sm"
+                                                        title="View" aria-label="View @attachment.FileName"
+                                                        @onclick="() => ViewAttachmentAsync(attachment)">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
+                                                </button>
+                                            }
+                                            @if (attachment is not null)
+                                            {
+                                                <button type="button" class="podx-btn podx-btn-ghost podx-btn-icon-sm"
+                                                        title="Download" aria-label="Download @attachment.FileName"
+                                                        @onclick="() => DownloadAttachmentAsync(attachment)">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11"></path><path d="M7 11l5 5 5-5"></path><path d="M4 20h16"></path></svg>
+                                                </button>
+                                            }
+                                            @if (canDeleteCratePods)
+                                            {
+                                                <button type="button" class="podx-btn podx-btn-ghost podx-btn-icon-sm"
+                                                        title="Delete" aria-label="Delete crate POD record"
+                                                        @onclick="() => BeginDeleteAttachment(pod, attachment)">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+                                                </button>
+                                            }
+                                        </span>
+                                    </td>
+                                </tr>
                             }
-                        </select>
-                    </label>
-                    <div class="crpod-pagination-btns">
-                        <button type="button" class="crpod-page-btn" title="First page"
-                                disabled="@(currentPage <= 1)" @onclick="() => GoToPodHistoryPage(1)">
-                            <i class="bi bi-chevron-double-left"></i>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="podx-foot">
+                    <span class="podx-foot-range">
+                        @firstRowNumber.ToString("N0")–@lastRowNumber.ToString("N0") of @filteredRows.Count.ToString("N0")
+                    </span>
+                    <span class="podx-pagesize">
+                        <span>Rows</span>
+                        <span class="podx-select">
+                            <select class="podx-input" aria-label="Rows per page" @bind="PodHistoryPageSize">
+                                @foreach (var size in CratePageSizeOptions)
+                                {
+                                    <option value="@size">@size</option>
+                                }
+                            </select>
+                            <span class="podx-caret" aria-hidden="true"></span>
+                        </span>
+                    </span>
+                    <div class="podx-pager">
+                        <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="First page"
+                                aria-label="First page" disabled="@(currentPage <= 1)"
+                                @onclick="() => GoToPodHistoryPage(1)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6l-6 6 6 6"></path><path d="M7 6v12"></path></svg>
                         </button>
-                        <button type="button" class="crpod-page-btn" title="Previous page"
-                                disabled="@(currentPage <= 1)" @onclick="() => GoToPodHistoryPage(currentPage - 1)">
-                            <i class="bi bi-chevron-left"></i>
+                        <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="Previous page"
+                                aria-label="Previous page" disabled="@(currentPage <= 1)"
+                                @onclick="() => GoToPodHistoryPage(currentPage - 1)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
                         </button>
-                        <span class="crpod-page-indicator">Page @currentPage of @totalPages</span>
-                        <button type="button" class="crpod-page-btn" title="Next page"
-                                disabled="@(currentPage >= totalPages)" @onclick="() => GoToPodHistoryPage(currentPage + 1)">
-                            <i class="bi bi-chevron-right"></i>
+                        <span class="podx-page-label">Page @currentPage / @totalPages</span>
+                        <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="Next page"
+                                aria-label="Next page" disabled="@(currentPage >= totalPages)"
+                                @onclick="() => GoToPodHistoryPage(currentPage + 1)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
                         </button>
-                        <button type="button" class="crpod-page-btn" title="Last page"
-                                disabled="@(currentPage >= totalPages)" @onclick="() => GoToPodHistoryPage(totalPages)">
-                            <i class="bi bi-chevron-double-right"></i>
+                        <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="Last page"
+                                aria-label="Last page" disabled="@(currentPage >= totalPages)"
+                                @onclick="() => GoToPodHistoryPage(totalPages)">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l6 6-6 6"></path><path d="M17 6v12"></path></svg>
                         </button>
                     </div>
                 </div>
-            </div>
-        }
+            }
+        </section>
     </div>
 </div>
 
 @if (showAttachmentViewer)
 {
-    <div class="crpod-modal-backdrop" @onclick="CloseAttachmentViewerAsync">
-        <div class="crpod-modal crpod-modal-large" @onclick:stopPropagation="true">
-            <div class="crpod-modal-header">
-                <div>
-                    <h4 class="crpod-modal-title">View Attachment</h4>
-                    <p class="crpod-card-note mb-0">@attachmentViewerFileName</p>
-                </div>
-                <button type="button" class="crpod-modal-close" @onclick="CloseAttachmentViewerAsync">
-                    <i class="bi bi-x-lg"></i>
-                </button>
-            </div>
-            <div class="crpod-modal-body">
-                @if (isLoadingAttachmentViewer)
-                {
-                    <div class="crpod-modal-state">Loading attachment...</div>
-                }
-                else if (!string.IsNullOrWhiteSpace(attachmentViewerUrl) && string.Equals(attachmentViewerMimeType, "application/pdf", StringComparison.OrdinalIgnoreCase))
-                {
-                    <iframe class="crpod-viewer-frame" src="@attachmentViewerUrl" title="@attachmentViewerFileName"></iframe>
-                }
-                else if (!string.IsNullOrWhiteSpace(attachmentViewerUrl) && attachmentViewerMimeType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    <img class="crpod-viewer-image" src="@attachmentViewerUrl" alt="@attachmentViewerFileName" />
-                }
-                else
-                {
-                    <div class="crpod-modal-state">This attachment cannot be previewed inline. Use download instead.</div>
-                }
-            </div>
-            <div class="crpod-modal-actions">
-                <button type="button" class="crpod-secondary-btn" @onclick="CloseAttachmentViewerAsync">Close</button>
-                @if (attachmentViewer is not null)
-                {
-                    <button type="button" class="crpod-primary-btn" @onclick='() => DownloadAttachmentAsync(attachmentViewer!)'>
-                        <i class="bi bi-download"></i>
-                        <span>Download</span>
+    <div class="podx-overlay">
+        <div class="podx-dialog-wrap" @onclick="CloseAttachmentViewerAsync">
+            <div class="podx-viewer" role="dialog" aria-modal="true" aria-label="Crate POD viewer"
+                 @onclick:stopPropagation="true">
+                <div class="podx-viewer-head">
+                    <h2 class="podx-viewer-name">@attachmentViewerFileName</h2>
+                    @if (attachmentViewer is not null)
+                    {
+                        <button type="button" class="podx-btn podx-btn-secondary"
+                                @onclick='() => DownloadAttachmentAsync(attachmentViewer!)'>Download</button>
+                    }
+                    <button type="button" class="podx-btn podx-btn-ghost podx-btn-icon" title="Close"
+                            aria-label="Close viewer" @onclick="CloseAttachmentViewerAsync">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
                     </button>
-                }
+                </div>
+                <div class="podx-viewer-body">
+                    @if (isLoadingAttachmentViewer)
+                    {
+                        <span class="podx-spin podx-spin-lg" aria-hidden="true"></span>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(attachmentViewerUrl)
+                             && string.Equals(attachmentViewerMimeType, "application/pdf", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <iframe class="podx-viewer-pdf" src="@attachmentViewerUrl" title="@attachmentViewerFileName"></iframe>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(attachmentViewerUrl)
+                             && attachmentViewerMimeType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        <img class="podx-viewer-image" src="@attachmentViewerUrl" alt="@attachmentViewerFileName" />
+                    }
+                    else
+                    {
+                        <div class="podx-loading">This attachment cannot be previewed inline. Use download instead.</div>
+                    }
+                </div>
             </div>
         </div>
     </div>
@@ -309,33 +347,37 @@
 
 @if (showDeleteAttachmentConfirm)
 {
-    <div class="crpod-modal-backdrop" @onclick="CancelDeleteAttachment">
-        <div class="crpod-modal" @onclick:stopPropagation="true">
-            <div class="crpod-modal-header">
-                <div>
-                    <h4 class="crpod-modal-title">Delete Crate POD</h4>
-                    <p class="crpod-card-note mb-0">This permanently removes the selected crate POD submission and its supporting documents.</p>
+    <div class="podx-overlay">
+        <div class="podx-dialog-wrap" @onclick="CancelDeleteAttachment">
+            <div class="podx-dialog" role="dialog" aria-modal="true" aria-labelledby="crh-del-title"
+                 @onclick:stopPropagation="true">
+                <h2 class="podx-dialog-title is-bad" id="crh-del-title">
+                    <i class="ph ph-trash" aria-hidden="true"></i>Delete crate POD
+                </h2>
+                <div class="podx-dialog-body">
+                    <div>
+                        This permanently removes the selected crate POD submission and its supporting documents.
+                    </div>
+                    <div>
+                        Remove the @attachmentDeleteContext record@if (attachmentToDelete is not null)
+                        {
+                            <span> and delete <span class="podx-strong">@(attachmentToDelete?.FileName)</span></span>
+                        }?
+                    </div>
                 </div>
-                <button type="button" class="crpod-modal-close" @onclick="CancelDeleteAttachment">
-                    <i class="bi bi-x-lg"></i>
-                </button>
-            </div>
-            <div class="crpod-modal-body">
-                <p class="crpod-delete-copy">
-                    Remove the @attachmentDeleteContext record@if (attachmentToDelete is not null)
-                    {
-                        <span> and delete <strong>@(attachmentToDelete?.FileName)</strong></span>
-                    }?
-                </p>
-            </div>
-            <div class="crpod-modal-actions">
-                <button type="button" class="crpod-secondary-btn" @onclick="CancelDeleteAttachment" disabled="@isDeletingAttachment">Cancel</button>
-                <button type="button" class="crpod-danger-btn" @onclick="DeletePodAsync" disabled="@isDeletingAttachment">
-                    @(isDeletingAttachment ? "Deleting..." : "Delete record")
-                </button>
+                <div class="podx-dialog-actions">
+                    <button type="button" class="podx-btn podx-btn-secondary" @onclick="CancelDeleteAttachment"
+                            disabled="@isDeletingAttachment">Cancel</button>
+                    <button type="button" class="podx-btn podx-btn-bad" @onclick="DeletePodAsync"
+                            disabled="@isDeletingAttachment">
+                        @if (isDeletingAttachment)
+                        {
+                            <span class="podx-spin" aria-hidden="true"></span>
+                        }
+                        <span>Delete record</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 }
-
-<CratePodStyles />

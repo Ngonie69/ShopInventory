@@ -555,12 +555,9 @@
                         </span>
                         <span class="snav-text">Templates</span>
                     </NavLink>
-                    <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
-                        <span class="snav-icon">
-                            <i class="ph ph-sparkle" aria-hidden="true"></i>
-                        </span>
-                        <span class="snav-text">AI Assistant</span>
-                    </NavLink>
+                    @* AI Assistant (/ai-assistant) is hidden from the sidebar and the
+                       topbar command palette. The route still resolves, so existing
+                       links into it — including notification action URLs — keep working. *@
                     <AuthorizeView Roles="Admin" Context="mobilePushCtx">
                         <Authorized>
                             <NavLink class="snav-link" href="/mobile-push" Match="NavLinkMatch.Prefix">

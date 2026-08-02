@@ -482,7 +482,8 @@
         new("Security", "Review security configuration", "/security", "ph-shield-check", "", "authentication"),
         new("Sync status", "Review synchronization health", "/sync-status", "ph-arrows-clockwise", UserRoles.SystemRoles, "integration"),
         new("Backups", "Manage application backups", "/backups", "ph-cloud-arrow-up", UserRoles.Admin, "restore"),
-        new("AI assistant", "Open the business assistant", "/ai-assistant", "ph-sparkle", UserRoles.SystemRoles, "help"),
+        // AI assistant (/ai-assistant) is deliberately absent: the page is hidden from
+        // navigation, so it must not be reachable from search either. See NavMenu.razor.
         new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", "ph-chat-circle-dots", UserRoles.Admin, "messages")
     ];
 }

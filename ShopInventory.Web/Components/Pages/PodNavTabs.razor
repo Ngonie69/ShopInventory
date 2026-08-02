@@ -2,21 +2,25 @@
 @inject NavigationManager Navigation
 
 @* Shared tab bar across the POD record surfaces. Each tab is gated on the same roles
-   as the page it points at, so a tab never leads somewhere the user cannot open. *@
-<nav class="podnav">
+   as the page it points at, so a tab never leads somewhere the user cannot open.
+
+   Nocturne, carried by wwwroot/css/pods.css. `.podx-tabs` defines the palette
+   tokens itself rather than inheriting them from a `.podx` page wrapper, so this
+   component holds its colours on every page it renders on. *@
+<nav class="podx-tabs" aria-label="POD records">
     <AuthorizeView Roles="Admin,Cashier,PodOperator,Operator,Driver,SalesRep" Context="productCtx">
         <Authorized>
             @if (Current == PodNavTab.Product)
             {
-                <span class="podnav-link podnav-active">
-                    <i class="bi bi-box-seam"></i>
+                <span class="podx-tab is-on" aria-current="page">
+                    <i class="ph ph-package" aria-hidden="true"></i>
                     <span>Product PODs</span>
                 </span>
             }
             else
             {
-                <a class="podnav-link" href="/pods">
-                    <i class="bi bi-box-seam"></i>
+                <a class="podx-tab" href="/pods">
+                    <i class="ph ph-package" aria-hidden="true"></i>
                     <span>Product PODs</span>
                 </a>
             }
@@ -27,30 +31,30 @@
         <Authorized>
             @if (Current == PodNavTab.Crate)
             {
-                <span class="podnav-link podnav-active">
-                    <i class="bi bi-boxes"></i>
+                <span class="podx-tab is-on" aria-current="page">
+                    <i class="ph ph-stack" aria-hidden="true"></i>
                     <span>Crate PODs</span>
                 </span>
             }
             else
             {
-                <a class="podnav-link" href="/crates/pods">
-                    <i class="bi bi-boxes"></i>
+                <a class="podx-tab" href="/crates/pods">
+                    <i class="ph ph-stack" aria-hidden="true"></i>
                     <span>Crate PODs</span>
                 </a>
             }
 
             @if (Current == PodNavTab.CrateHistory)
             {
-                <span class="podnav-link podnav-active">
-                    <i class="bi bi-clock-history"></i>
+                <span class="podx-tab is-on" aria-current="page">
+                    <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
                     <span>Crate POD History</span>
                 </span>
             }
             else
             {
-                <a class="podnav-link" href="/crates/pods/history">
-                    <i class="bi bi-clock-history"></i>
+                <a class="podx-tab" href="/crates/pods/history">
+                    <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
                     <span>Crate POD History</span>
                 </a>
             }
@@ -87,67 +91,3 @@
         };
     }
 }
-
-<style>
-    .podnav {
-        display: flex;
-        gap: .25rem;
-        align-items: stretch;
-        border-bottom: 1px solid #e2e8f0;
-        margin-bottom: 1.25rem;
-        overflow-x: auto;
-        scrollbar-width: none;
-    }
-
-    .podnav::-webkit-scrollbar {
-        display: none;
-    }
-
-    .podnav-link {
-        display: inline-flex;
-        align-items: center;
-        gap: .45rem;
-        padding: .7rem .9rem;
-        margin-bottom: -1px;
-        border-bottom: 2px solid transparent;
-        color: #64748b;
-        font-size: .88rem;
-        font-weight: 600;
-        text-decoration: none;
-        white-space: nowrap;
-        transition: color .15s ease, border-color .15s ease;
-    }
-
-    .podnav-link:hover {
-        color: #0f766e;
-    }
-
-    .podnav-active {
-        color: #0f766e;
-        border-bottom-color: #0f766e;
-    }
-
-    .dark-theme .podnav {
-        border-bottom-color: #334155;
-    }
-
-    .dark-theme .podnav-link {
-        color: #94a3b8;
-    }
-
-    .dark-theme .podnav-link:hover,
-    .dark-theme .podnav-active {
-        color: #2dd4bf;
-    }
-
-    .dark-theme .podnav-active {
-        border-bottom-color: #2dd4bf;
-    }
-
-    @@media (max-width: 575.98px) {
-        .podnav-link {
-            padding: .7rem .6rem;
-            font-size: .82rem;
-        }
-    }
-</style>
