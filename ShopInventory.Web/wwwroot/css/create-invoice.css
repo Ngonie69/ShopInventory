@@ -446,9 +446,11 @@
     min-width: 0;
 }
 
+/* The 20px gap is measured from the app bar, not the viewport top, or the bar
+   covers the first 54px of the aside once it pins. */
 .civ-aside {
     position: sticky;
-    top: 20px;
+    top: calc(var(--kf-topbar-h, 74px) + 20px);
     display: flex;
     flex-direction: column;
     gap: 14px;

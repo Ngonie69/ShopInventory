@@ -114,9 +114,11 @@
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
 
+/* Seated on the app bar, not the viewport top: the bar is fixed and 74px tall,
+   so a header pinned at 0 parks itself underneath it and disappears. */
 .exc-header {
     position: sticky;
-    top: 0;
+    top: var(--kf-topbar-h, 74px);
     z-index: 30;
     backdrop-filter: blur(10px);
     background: rgba(22, 24, 38, .88);
