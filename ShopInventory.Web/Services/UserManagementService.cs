@@ -19,6 +19,7 @@ public interface IUserManagementService
 {
     Task<UserListResponse> GetUsersAsync(int page = 1, int pageSize = 20, string? search = null, string? role = null, string? status = null);
     Task<UserModel?> GetUserAsync(Guid id);
+    Task<UserModel?> GetCurrentUserAsync(CancellationToken cancellationToken = default);
     Task<(List<string> DirectPermissions, List<string> EffectivePermissions, bool UsesRoleDefaults)> GetUserPermissionsAsync(Guid id);
     Task CreateUserAsync(string username, string email, string password, string role);
     Task CreateUserAsync(UserFormModel model);
@@ -97,6 +98,28 @@ public class UserManagementService : IUserManagementService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching user {Id}", id);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The signed-in user's own record. The access token carries the username,
+    /// role and warehouse codes but not the assigned section, so a page that has
+    /// to scope itself to the caller's depot reads it from here.
+    ///
+    /// This endpoint is open to any authenticated caller — it returns only the
+    /// caller's own record — unlike the by-id lookup, which needs ViewUsers.
+    /// </summary>
+    public async Task<UserModel?> GetCurrentUserAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var client = await CreateAuthenticatedClientAsync();
+            return await client.GetFromJsonAsync<UserModel>("api/usermanagement/me", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching the current user's record");
             return null;
         }
     }

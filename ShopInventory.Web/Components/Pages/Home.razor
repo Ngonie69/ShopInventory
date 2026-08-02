@@ -2,6 +2,7 @@
 @page "/dashboard"
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using ShopInventory.Web.Common
 @using ShopInventory.Web.Data
 @attribute [Authorize(Roles = UserRoles.DashboardRoles)]
 @inject IInvoiceService InvoiceService
@@ -214,21 +215,14 @@ else
 
         currentUsername = user.Identity?.Name ?? currentUsername;
 
-        if (user.IsInRole("PodOperator"))
+        // Roles this dashboard does not serve are sent to the page they work
+        // from — a POD operator to the POD dashboard, a lab user to batch
+        // status. RoleLandingRoutes holds that chain for the sign-in page and
+        // RedirectToLogin too, so all three agree on where a role belongs.
+        var landing = RoleLandingRoutes.For(user);
+        if (!string.Equals(landing, RoleLandingRoutes.Dashboard, StringComparison.OrdinalIgnoreCase))
         {
-            Navigation.NavigateTo("/pods", replace: true);
-            return;
-        }
-
-        if (user.IsInRole("Lab") && !user.IsInRole("Admin"))
-        {
-            Navigation.NavigateTo("/lab/batch-status", replace: true);
-            return;
-        }
-
-        if (user.IsInRole("MerchandiserPurchaseOrderViewer"))
-        {
-            Navigation.NavigateTo("/reports/merchandiser-purchase-orders", replace: true);
+            Navigation.NavigateTo(landing, replace: true);
             return;
         }
 

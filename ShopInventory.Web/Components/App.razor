@@ -42,9 +42,11 @@
     <link rel="stylesheet" href="@Assets["css/business-partners.css"]" />
     <link rel="stylesheet" href="@Assets["css/dashboard.css"]" />
     <link rel="stylesheet" href="@Assets["css/sales-rep-dashboard.css"]" />
+    <link rel="stylesheet" href="@Assets["css/pod-dashboard.css"]" />
     <link rel="stylesheet" href="@Assets["css/sync-status.css"]" />
-    <link rel="stylesheet" href="@Assets["css/sales-orders.css"]" />
+    <link rel="stylesheet" href="@Assets["css/whatsapp-console.css"]" />
     <link rel="stylesheet" href="@Assets["css/quotations.css"]" />
+    <link rel="stylesheet" href="@Assets["css/sales-orders.css"]" />
     <link rel="stylesheet" href="@Assets["css/invoices.css"]" />
     <link rel="stylesheet" href="@Assets["css/payments.css"]" />
     <link rel="stylesheet" href="@Assets["css/pods.css"]" />
@@ -61,6 +63,9 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@@phosphor-icons/web@2.1.1/src/fill/style.css" />
     <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    @* Must stay after MudBlazor: SalesOrders puts .btn-so-gradient on MudButton,
+       and .mud-button-* matches it on specificity, so order decides the winner. *@
+    <link rel="stylesheet" href="@Assets["css/sales-order-buttons.css"]" />
     <ImportMap />
     @* favicon.svg is the simplified mark, drawn to stay legible at 16-32px. *@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

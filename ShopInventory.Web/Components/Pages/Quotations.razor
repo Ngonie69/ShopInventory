@@ -1,8 +1,16 @@
 @page "/quotations"
+@using System.Globalization
+@using System.Text
 @using Microsoft.AspNetCore.Authorization
+@using MudBlazor
 @attribute [Authorize(Roles = "Admin,Cashier")]
 @inject IQuotationService QuotationService
+@inject IBusinessPartnerService BusinessPartnerService
+@inject IMasterDataCacheService CacheService
+@inject IPriceService PriceService
+@inject NavigationManager NavigationManager
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 @inject IJSRuntime JS
 @inject ILogger<Quotations> Logger
 @inject IAppSettingsProvider AppSettings
@@ -11,822 +19,898 @@
 
 <PageTitle>Quotations - Shop Inventory</PageTitle>
 
-@* Nocturne, carried by wwwroot/css/quotations.css (linked from App.razor) in
-   both schemes, following the app's theme toggle like every other page. The
-   palette and density scale are credit-notes.css's, unchanged, so the list
-   pages read as one system.
+@* The imported Nocturne design is dark; wwwroot/css/quotations.css (linked
+   from App.razor) carries it and its light counterpart, and follows the app's
+   theme toggle like every other page.
 
-   Icon-only buttons draw their glyph inline rather than from the Phosphor font:
-   the glyph is their whole label, so a font that fails to load would leave them
-   reading as dead controls.
+   Icon-only controls draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that failed to load would
+   leave them reading as dead controls. Icons that sit beside a word keep the
+   font.
 
-   New quotations are raised on /quotations/create. The dialog here only
-   reprices an existing local quotation — the customer, currency and line items
-   are locked, which is why those controls are read-only rather than absent. *@
+   The list is a plain CSS grid rather than MudTable. The design's row is seven
+   columns with a per-column treatment MudTable's cells cannot carry, and below
+   1000px the same markup re-lays as a labelled card — which a table element
+   cannot do at all. *@
 
-<div class="qtx">
+<div class="qtn">
 
-    <header class="qtx-head">
-        <div class="qtx-shell">
-            <div class="qtx-titles">
-                <div class="qtx-titles-row">
-                    <i class="ph ph-file-text" aria-hidden="true"></i>
-                    <h1 class="qtx-title">Quotations</h1>
-                </div>
-                <p class="qtx-sub">Create and manage customer quotations</p>
+    <header class="qtn-head">
+        <div class="qtn-head-inner">
+            <div class="qtn-titles">
+                <div class="qtn-kicker">Sales workspace · Quotations</div>
+                <h1>Quotations</h1>
+                <p class="qtn-lede">@LedeText</p>
             </div>
-            <div class="qtx-head-actions">
-                <span class="qtx-count">@totalCount.ToString("N0") quotations</span>
-                <a class="qtx-btn qtx-btn-primary" href="/quotations/create">
+            <div class="qtn-head-actions">
+                <button type="button" class="qtn-btn" disabled="@(isExporting || IsFirstLoad)"
+                        @onclick="ExportCsv">
+                    @if (isExporting)
+                    {
+                        <span class="qtn-spin" aria-hidden="true"></span>
+                        <span>Exporting…</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-download-simple" aria-hidden="true"></i>
+                        <span>Export</span>
+                    }
+                </button>
+                <a class="qtn-btn qtn-btn-primary" href="/quotations/create">
                     <i class="ph ph-plus" aria-hidden="true"></i>New quotation
                 </a>
             </div>
         </div>
-        <div class="qtx-rule"></div>
     </header>
 
-    <div class="qtx-body">
+    <div class="qtn-body">
 
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="qtx-alert" role="alert">
+            <div class="qtn-alert" role="alert">
                 <i class="ph ph-warning-octagon" aria-hidden="true"></i>
-                <div class="qtx-alert-body">@errorMessage</div>
-                <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon-sm" title="Dismiss"
-                        aria-label="Dismiss error" @onclick="() => errorMessage = null">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                <div class="qtn-alert-body">@errorMessage</div>
+                <button type="button" class="qtn-alert-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
                 </button>
             </div>
         }
 
-        @if (IsFirstLoad)
-        {
-            <section class="qtx-stats" aria-hidden="true">
-                @for (var skeletonTile = 0; skeletonTile < 5; skeletonTile++)
-                {
-                    <div class="qtx-stat">
-                        <span class="qtx-stat-mark is-quiet"></span>
-                        <div style="flex:1">
-                            <div class="qtx-skel" style="width:52%;height:15px;margin-bottom:6px"></div>
-                            <div class="qtx-skel" style="width:74%;height:9px"></div>
-                        </div>
-                    </div>
-                }
-            </section>
-        }
-        else if (quotations?.Any() == true)
-        {
-            @* Counted over the loaded set. The list is fetched whole and filtered in
-               the browser, so these are counts of everything the filters matched. *@
-            <section class="qtx-stats" aria-label="Quotation counts">
-                <div class="qtx-stat">
-                    <span class="qtx-stat-mark" aria-hidden="true"><i class="ph ph-file-text"></i></span>
-                    <div>
-                        <div class="qtx-stat-value">@totalCount.ToString("N0")</div>
-                        <div class="qtx-stat-label">Total</div>
-                    </div>
-                </div>
-                <div class="qtx-stat">
-                    <span class="qtx-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-pencil-simple"></i></span>
-                    <div>
-                        <div class="qtx-stat-value">@quotations.Count(q => q.Status == QuotationStatus.Draft)</div>
-                        <div class="qtx-stat-label">Draft</div>
-                    </div>
-                </div>
-                <div class="qtx-stat">
-                    <span class="qtx-stat-mark" aria-hidden="true"><i class="ph ph-check-circle"></i></span>
-                    <div>
-                        <div class="qtx-stat-value">
-                            @quotations.Count(q => q.Status == QuotationStatus.Approved || q.Status == QuotationStatus.Accepted)
-                        </div>
-                        <div class="qtx-stat-label">Approved</div>
-                    </div>
-                </div>
-                <div class="qtx-stat">
-                    <span class="qtx-stat-mark" aria-hidden="true"><i class="ph ph-arrows-clockwise"></i></span>
-                    <div>
-                        <div class="qtx-stat-value">@quotations.Count(q => q.Status == QuotationStatus.Converted)</div>
-                        <div class="qtx-stat-label">Converted</div>
-                    </div>
-                </div>
-                <div class="qtx-stat">
-                    <span class="qtx-stat-mark is-quiet" aria-hidden="true"><i class="ph ph-clock-countdown"></i></span>
-                    <div>
-                        <div class="qtx-stat-value">
-                            @quotations.Count(q => q.Status == QuotationStatus.Expired || q.IsExpired)
-                        </div>
-                        <div class="qtx-stat-label">Expired</div>
-                    </div>
-                </div>
-            </section>
-        }
+        @* The five figures are the status filter as well as the count: the
+           pressed one narrows the list below, and picking an exact status from
+           the filter bar releases it. *@
+        <section class="qtn-stats" aria-label="Quotations by status">
+            @foreach (var card in StatCards())
+            {
+                <button type="button" class="qtn-stat @(bucket == card.Key ? "qtn-stat-on" : "")"
+                        aria-pressed="@(bucket == card.Key)" @onclick="() => SelectBucket(card.Key)">
+                    <span class="qtn-stat-head">
+                        <i class="ph @card.Icon @card.Tone" aria-hidden="true"></i>
+                        <span>@card.Label</span>
+                    </span>
+                    <span class="qtn-stat-figures">
+                        <span class="qtn-stat-num">@card.Value</span>
+                        <span class="qtn-stat-share">@card.Share</span>
+                    </span>
+                </button>
+            }
+        </section>
 
-        <section class="qtx-filters">
-            <div class="qtx-field">
-                <label id="qtx-src-label">Data source</label>
-                <div class="qtx-seg" role="group" aria-labelledby="qtx-src-label">
-                    <button type="button" class="qtx-seg-btn @(dataSource == "sap" ? "is-on" : null)"
+        <section class="qtn-filters" aria-label="Filters">
+            <div class="qtn-field">
+                <span class="qtn-label">Data source</span>
+                <div class="qtn-seg" role="group" aria-label="Data source">
+                    <button type="button" class="qtn-seg-opt @(dataSource == "sap" ? "qtn-seg-on" : "")"
                             aria-pressed="@(dataSource == "sap")" disabled="@isLoading"
                             @onclick='() => SwitchDataSource("sap")'>
-                        <i class="ph ph-cloud-arrow-down" aria-hidden="true"></i>SAP
+                        <i class="ph ph-cloud" aria-hidden="true"></i>SAP
                     </button>
-                    <button type="button" class="qtx-seg-btn @(dataSource == "local" ? "is-on" : null)"
+                    <button type="button" class="qtn-seg-opt @(dataSource == "local" ? "qtn-seg-on" : "")"
                             aria-pressed="@(dataSource == "local")" disabled="@isLoading"
                             @onclick='() => SwitchDataSource("local")'>
                         <i class="ph ph-database" aria-hidden="true"></i>Local
                     </button>
                 </div>
             </div>
-            <div class="qtx-field" style="width:190px">
-                <label for="qtx-f-customer">Customer</label>
-                <input id="qtx-f-customer" class="qtx-input" type="text" placeholder="Customer code"
-                       @bind="customerFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown" />
+
+            <div class="qtn-filter-rule" aria-hidden="true"></div>
+
+            <div class="qtn-field qtn-field-grow">
+                <label class="qtn-label" for="qtn-f-customer">Customer</label>
+                <span class="qtn-input-icon">
+                    <i class="ph ph-buildings" aria-hidden="true"></i>
+                    <input id="qtn-f-customer" class="qtn-input" type="text" placeholder="Code or name"
+                           @bind="customerFilter" @bind:event="oninput" @onkeydown="HandleFilterKeyDown" />
+                </span>
             </div>
-            <div class="qtx-field" style="width:160px">
-                <label for="qtx-f-status">Status</label>
-                <div class="qtx-select">
-                    <select id="qtx-f-status" class="qtx-input" @bind="statusFilter">
+
+            <div class="qtn-field" style="width:158px">
+                <label class="qtn-label" for="qtn-f-status">Status</label>
+                <span class="qtn-select">
+                    <select id="qtn-f-status" class="qtn-input" @bind="statusFilter" @bind:after="ApplyStatusFilter">
                         <option value="">All statuses</option>
                         @foreach (QuotationStatus status in Enum.GetValues<QuotationStatus>())
                         {
                             <option value="@(((int)status).ToString())">@status</option>
                         }
                     </select>
-                    <span class="qtx-caret" aria-hidden="true"></span>
-                </div>
+                    <span class="qtn-caret" aria-hidden="true"></span>
+                </span>
             </div>
-            <div class="qtx-field" style="width:140px">
-                <label for="qtx-f-from">From date</label>
-                <input id="qtx-f-from" class="qtx-input qtx-input-num" type="date" @bind="fromDate" />
+
+            <div class="qtn-field" style="width:150px">
+                <label class="qtn-label" for="qtn-f-from">Issued from</label>
+                <input id="qtn-f-from" class="qtn-input qtn-input-num" type="date" @bind="fromDate" />
             </div>
-            <div class="qtx-field" style="width:140px">
-                <label for="qtx-f-to">To date</label>
-                <input id="qtx-f-to" class="qtx-input qtx-input-num" type="date" @bind="toDate" />
+
+            <div class="qtn-field" style="width:150px">
+                <label class="qtn-label" for="qtn-f-to">Issued to</label>
+                <input id="qtn-f-to" class="qtn-input qtn-input-num" type="date" @bind="toDate" />
             </div>
-            <div class="qtx-filter-actions">
-                <button type="button" class="qtx-btn qtx-btn-ghost" @onclick="ClearFilter" disabled="@isLoading">
-                    Clear
+
+            <div class="qtn-filter-actions">
+                <button type="button" class="qtn-btn qtn-btn-primary" disabled="@isLoading" @onclick="ApplyFilter">
+                    @if (isLoading)
+                    {
+                        <span class="qtn-spin" aria-hidden="true"></span>
+                        <span>Searching…</span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <span>Search</span>
+                    }
                 </button>
-                <button type="button" class="qtx-btn qtx-btn-secondary" @onclick="ApplyFilter" disabled="@isLoading">
-                    <i class="ph ph-magnifying-glass" aria-hidden="true"></i>@(isLoading ? "Searching…" : "Search")
+                <button type="button" class="qtn-btn qtn-btn-ghost" disabled="@isLoading" @onclick="ClearFilter">
+                    Clear
                 </button>
             </div>
         </section>
 
-        <section class="qtx-card">
+        @{
+            var rows = Filtered;
+            var page = ClampPage(rows.Count);
+            var pages = PageCount(rows.Count);
+        }
 
-            @* A refresh keeps the rows on screen; only this strip moves. *@
+        <section class="qtn-card">
             @if (isLoading && !IsFirstLoad)
             {
-                <div class="qtx-refresh" role="status" aria-label="Refreshing quotations"></div>
+                @* A refresh keeps the rows readable and says so with the strip,
+                   rather than blanking the list it is replacing. *@
+                <div class="qtn-refresh" role="status" aria-label="Refreshing quotations"></div>
             }
 
-            <div class="qtx-toolbar">
-                <span class="qtx-range">@RangeLabel</span>
-                <span class="qtx-hint">
-                    <i class="ph ph-cursor-click" aria-hidden="true"></i>
-                    Reading from @(dataSource == "sap" ? "SAP" : "the local database")
-                </span>
+            <div class="qtn-card-head">
+                <h2>All quotations</h2>
+                <span class="qtn-source-tag">@(dataSource == "sap" ? "SAP" : "LOCAL")</span>
+                <span class="qtn-range">@RangeLabel(rows.Count, page)</span>
+                <div class="qtn-card-tools">
+                    <button type="button" class="qtn-tool @(expiringOnly ? "qtn-tool-on" : "")"
+                            aria-pressed="@expiringOnly" @onclick="ToggleExpiringOnly">
+                        <i class="ph ph-funnel" aria-hidden="true"></i>Expiring soon
+                    </button>
+                    <button type="button" class="qtn-tool" @onclick="ToggleSort">
+                        <i class="ph ph-arrows-down-up" aria-hidden="true"></i>
+                        @(newestFirst ? "Newest first" : "Oldest first")
+                    </button>
+                </div>
             </div>
 
-            <div class="qtx-tablewrap">
-                <table class="qtx-table">
-                    <thead>
-                        <tr>
-                            <th>Quote #</th>
-                            <th>Customer</th>
-                            <th>Date</th>
-                            <th>Valid until</th>
-                            <th>Status</th>
-                            <th>Currency</th>
-                            <th class="qtx-num">Total</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (IsFirstLoad)
+            <div class="qtn-scroll">
+                <div class="qtn-grid" role="table" aria-label="Quotations">
+                    <div class="qtn-thead" role="row">
+                        <span role="columnheader">Quote</span>
+                        <span role="columnheader">Customer</span>
+                        <span role="columnheader">Issued</span>
+                        <span role="columnheader">Valid until</span>
+                        <span role="columnheader">Status</span>
+                        <span role="columnheader" class="qtn-num">Total</span>
+                        <span role="columnheader" class="qtn-num">Actions</span>
+                    </div>
+
+                    @if (IsFirstLoad)
+                    {
+                        @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
                         {
-                            @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
-                            {
-                                <tr>
-                                    @for (var skeletonCell = 0; skeletonCell < 8; skeletonCell++)
+                            <div class="qtn-row" role="row">
+                                @for (var skeletonCell = 0; skeletonCell < 7; skeletonCell++)
+                                {
+                                    <span role="cell"><span class="qtn-skel"></span></span>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        @foreach (var quotation in rows.Skip((page - 1) * pageSize).Take(pageSize))
+                        {
+                            <div class="qtn-row" role="row" @key="quotation.Id"
+                                 @onclick="() => ViewQuotation(quotation)">
+                                <span class="qtn-quote" role="cell">@quotation.QuotationNumber</span>
+                                <span class="qtn-cust" role="cell">
+                                    <span class="qtn-cust-name">@(quotation.CardName ?? quotation.CardCode)</span>
+                                    <span class="qtn-cust-code">@quotation.CardCode</span>
+                                </span>
+                                <span class="qtn-date" role="cell">
+                                    <span class="qtn-rl">Issued</span>@quotation.QuotationDate.ToString("dd MMM yyyy")
+                                </span>
+                                <span class="qtn-valid @ValidClass(quotation)" role="cell">
+                                    <span class="qtn-rl">Valid until</span>
+                                    @(quotation.ValidUntil?.ToString("dd MMM yyyy") ?? "—")
+                                </span>
+                                <span class="qtn-cell-status" role="cell">
+                                    <span class="qtn-badge @StatusBadgeClass(quotation)">@quotation.StatusName</span>
+                                </span>
+                                <span class="qtn-total qtn-num" role="cell">
+                                    <span class="qtn-rl">Total</span>@quotation.DocTotal.ToString("N2")<span
+                                        class="qtn-ccy">@(quotation.Currency ?? "USD")</span>
+                                </span>
+                                <span class="qtn-rowactions" role="cell">
+                                    <button type="button" class="qtn-icon-btn" title="View quotation"
+                                            aria-label="View quotation @quotation.QuotationNumber"
+                                            @onclick="() => ViewQuotation(quotation)" @onclick:stopPropagation>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                                             stroke-linecap="round" aria-hidden="true">
+                                            <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path>
+                                            <circle cx="12" cy="12" r="2.6"></circle>
+                                        </svg>
+                                    </button>
+                                    @if (CanRepriceQuotation(quotation))
                                     {
-                                        <td><div class="qtx-skel"></div></td>
-                                    }
-                                </tr>
-                            }
-                        }
-                        else
-                        {
-                            @foreach (var quotation in PageRows)
-                            {
-                                <tr @key="quotation.Id">
-                                    <td>
-                                        <button type="button" class="qtx-link" @onclick="() => ViewQuotation(quotation)">
-                                            @quotation.QuotationNumber
+                                        <button type="button" class="qtn-icon-btn" title="Edit or reprice"
+                                                aria-label="Edit or reprice @quotation.QuotationNumber"
+                                                @onclick="() => OpenRepriceModal(quotation)" @onclick:stopPropagation>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M4 20h4L20 8l-4-4L4 16z"></path>
+                                                <path d="M14.5 5.5l4 4"></path>
+                                            </svg>
                                         </button>
-                                    </td>
-                                    <td>
-                                        <span class="qtx-cust">
-                                            <span class="qtx-cust-name">@quotation.CardName</span>
-                                            <span class="qtx-cust-code">@quotation.CardCode</span>
-                                        </span>
-                                    </td>
-                                    <td class="qtx-date">@quotation.QuotationDate.ToString("dd MMM yyyy")</td>
-                                    <td class="qtx-date @ValidUntilClass(quotation)">
-                                        @(quotation.ValidUntil?.ToString("dd MMM yyyy") ?? "—")
-                                        @if (HasLapsed(quotation))
-                                        {
-                                            <i class="ph ph-warning" title="Expired" aria-label="Expired"></i>
-                                        }
-                                    </td>
-                                    <td>
-                                        <span class="qtx-status">
-                                            <span class="qtx-dot @GetStatusDotClass(quotation.Status)" aria-hidden="true"></span>
-                                            <span class="qtx-status-text @GetStatusTextClass(quotation.Status)">@quotation.StatusName</span>
-                                        </span>
-                                    </td>
-                                    <td class="qtx-curr">@quotation.Currency</td>
-                                    <td class="qtx-num">@quotation.DocTotal.ToString("N2")</td>
-                                    <td>
-                                        <span class="qtx-rowactions">
-                                            <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon-sm"
-                                                    title="View quotation" aria-label="View quotation @quotation.QuotationNumber"
-                                                    @onclick="() => ViewQuotation(quotation)">
-                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
-                                            </button>
-                                            @if (CanRepriceQuotation(quotation))
+                                    }
+                                    @if (CanConvert(quotation))
+                                    {
+                                        <button type="button" class="qtn-icon-btn" title="Convert to sales order"
+                                                aria-label="Convert @quotation.QuotationNumber to a sales order"
+                                                disabled="@(convertingQuotationId == quotation.Id)"
+                                                @onclick="() => ConvertToSalesOrder(quotation)" @onclick:stopPropagation>
+                                            @if (convertingQuotationId == quotation.Id)
                                             {
-                                                <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon-sm"
-                                                        title="Edit or reprice" aria-label="Edit or reprice quotation @quotation.QuotationNumber"
-                                                        @onclick="() => OpenRepriceModal(quotation)">
-                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
-                                                </button>
+                                                <span class="qtn-spin" aria-hidden="true"></span>
                                             }
-                                            @if (CanConvert(quotation))
+                                            else
                                             {
-                                                <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon-sm"
-                                                        title="Convert to sales order"
-                                                        aria-label="Convert quotation @quotation.QuotationNumber to a sales order"
-                                                        disabled="@(convertingQuotationId == quotation.Id)"
-                                                        @onclick="() => OpenConvertDialog(quotation)">
-                                                    @if (convertingQuotationId == quotation.Id)
-                                                    {
-                                                        <span class="qtx-spin" aria-hidden="true"></span>
-                                                    }
-                                                    else
-                                                    {
-                                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><path d="M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"></path></svg>
-                                                    }
-                                                </button>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                     stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                                                     aria-hidden="true">
+                                                    <path d="M3 4h2.2l2.3 11.1a1.5 1.5 0 0 0 1.5 1.2h8.4a1.5 1.5 0 0 0 1.5-1.2L20.6 8H6"></path>
+                                                    <circle cx="9.5" cy="20" r="1.3"></circle>
+                                                    <circle cx="17.5" cy="20" r="1.3"></circle>
+                                                </svg>
                                             }
-                                            @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Pending)
-                                            {
-                                                <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon-sm"
-                                                        title="Approve" aria-label="Approve quotation @quotation.QuotationNumber"
-                                                        @onclick="() => ApproveQuotation(quotation.Id)">
-                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
-                                                </button>
-                                            }
-                                            @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Cancelled)
-                                            {
-                                                <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon-sm"
-                                                        title="Delete" aria-label="Delete quotation @quotation.QuotationNumber"
-                                                        @onclick="() => OpenDeleteDialog(quotation)">
-                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
-                                                </button>
-                                            }
-                                        </span>
-                                    </td>
-                                </tr>
-                            }
+                                        </button>
+                                    }
+                                    @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Pending)
+                                    {
+                                        <button type="button" class="qtn-icon-btn" title="Approve"
+                                                aria-label="Approve @quotation.QuotationNumber"
+                                                @onclick="() => ApproveQuotation(quotation.Id)" @onclick:stopPropagation>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M4.5 12.5l5 5 10-11"></path>
+                                            </svg>
+                                        </button>
+                                    }
+                                    @if (quotation.Status == QuotationStatus.Draft || quotation.Status == QuotationStatus.Cancelled)
+                                    {
+                                        <button type="button" class="qtn-icon-btn" title="Delete"
+                                                aria-label="Delete @quotation.QuotationNumber"
+                                                @onclick="() => DeleteQuotation(quotation.Id)" @onclick:stopPropagation>
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M4 7h16M9.5 7V5h5v2M6.8 7l.9 13h8.6l.9-13"></path>
+                                                <path d="M10 11v6M14 11v6"></path>
+                                            </svg>
+                                        </button>
+                                    }
+                                </span>
+                            </div>
                         }
-                    </tbody>
-                </table>
+                    }
+                </div>
             </div>
 
-            @if (!IsFirstLoad && quotations?.Any() != true)
+            @if (IsFirstLoad)
             {
-                <div class="qtx-empty">
-                    <i class="ph ph-funnel-simple" aria-hidden="true"></i>
-                    <span>No quotations found</span>
-                    <span class="qtx-empty-sub">
-                        Nothing in @(dataSource == "sap" ? "SAP" : "the local database") matches these filters.
-                        Try the other source, or widen the dates.
-                    </span>
-                    <a class="qtx-btn qtx-btn-primary" href="/quotations/create">
-                        <i class="ph ph-plus" aria-hidden="true"></i>New quotation
-                    </a>
+                <div class="qtn-loading">
+                    <span class="qtn-spin" aria-hidden="true"></span>
+                    <span>Loading quotations from @SourceName…</span>
+                </div>
+            }
+            else if (rows.Count == 0)
+            {
+                <div class="qtn-empty">
+                    <i class="ph ph-file-dashed" aria-hidden="true"></i>
+                    @if (quotations is null || quotations.Count == 0)
+                    {
+                        <span>No quotations found in @SourceName for this search.</span>
+                        <div class="qtn-empty-actions">
+                            <a class="qtn-btn qtn-btn-primary" href="/quotations/create">
+                                <i class="ph ph-plus" aria-hidden="true"></i>New quotation
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <span>No quotations match the status and expiry filters in play.</span>
+                        <div class="qtn-empty-actions">
+                            <button type="button" class="qtn-btn qtn-btn-ghost" @onclick="ClearListFilters">
+                                Show all @quotations.Count.ToString("N0")
+                            </button>
+                        </div>
+                    }
                 </div>
             }
 
-            <div class="qtx-foot">
-                <span class="qtx-foot-range">@RangeLabel</span>
-                <span class="qtx-pagesize">
-                    <span>Rows</span>
-                    <span class="qtx-select">
-                        <select class="qtx-input" aria-label="Rows per page" @bind="_pageSize" @bind:after="ResetToFirstPage">
-                            @foreach (var size in PageSizeOptions)
+            @if (rows.Count > 0)
+            {
+                <div class="qtn-foot">
+                    <label class="qtn-per">
+                        <span>Rows</span>
+                        <span class="qtn-select">
+                            <select class="qtn-input" @bind="pageSize" @bind:after="ResetPage"
+                                    aria-label="Rows per page">
+                                @foreach (var size in PageSizes)
+                                {
+                                    <option value="@size">@size</option>
+                                }
+                            </select>
+                            <span class="qtn-caret" aria-hidden="true"></span>
+                        </span>
+                    </label>
+                    <div class="qtn-pages">
+                        <button type="button" class="qtn-step" title="Previous page" aria-label="Previous page"
+                                disabled="@(page <= 1)" @onclick="() => GoToPage(page - 1)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M14.5 5l-7 7 7 7"></path>
+                            </svg>
+                        </button>
+                        @foreach (var slot in PageSlots(page, pages))
+                        {
+                            if (slot is null)
                             {
-                                <option value="@size">@size</option>
+                                <span class="qtn-gap" aria-hidden="true">…</span>
                             }
-                        </select>
-                        <span class="qtx-caret" aria-hidden="true"></span>
-                    </span>
-                </span>
-                <div class="qtx-pager">
-                    <button type="button" class="qtx-btn qtx-btn-secondary qtx-btn-icon" title="Previous page"
-                            aria-label="Previous page" disabled="@(displayPage <= 1)"
-                            @onclick="() => GoToDisplayPage(displayPage - 1)">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
-                    </button>
-                    <span class="qtx-page-label">Page @displayPage / @DisplayPageCount</span>
-                    <button type="button" class="qtx-btn qtx-btn-secondary qtx-btn-icon" title="Next page"
-                            aria-label="Next page" disabled="@(displayPage >= DisplayPageCount)"
-                            @onclick="() => GoToDisplayPage(displayPage + 1)">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
-                    </button>
+                            else
+                            {
+                                var number = slot.Value;
+                                <button type="button" class="qtn-page @(number == page ? "qtn-page-on" : "")"
+                                        aria-current="@(number == page ? "page" : null)" aria-label="Page @number"
+                                        @onclick="() => GoToPage(number)">
+                                    @number
+                                </button>
+                            }
+                        }
+                        <button type="button" class="qtn-step" title="Next page" aria-label="Next page"
+                                disabled="@(page >= pages)" @onclick="() => GoToPage(page + 1)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M9.5 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
-            </div>
+            }
         </section>
     </div>
 </div>
 
+@* ── Detail drawer ─────────────────────────────────────────────────────── *@
 @if (selectedQuotation != null)
 {
-    <div class="qtx-overlay">
-        <div class="qtx-scrim" @onclick="CloseDrawer"></div>
-        <aside class="qtx-drawer" aria-label="Quotation detail">
-            <div class="qtx-drawer-head">
-                <div class="qtx-drawer-titles">
-                    <h2 class="qtx-drawer-title">
-                        <i class="ph ph-file-text" aria-hidden="true"></i>
-                        @selectedQuotation.QuotationNumber
-                    </h2>
-                    <p class="qtx-drawer-sub">
-                        @(selectedQuotation.CardName ?? selectedQuotation.CardCode) ·
-                        @selectedQuotation.Currency @selectedQuotation.DocTotal.ToString("N2")
-                    </p>
+    var quotation = selectedQuotation;
+    var isConverting = convertingQuotationId == quotation.Id;
+
+    <div class="qtn">
+        <div class="qtn-scrim" @onclick="CloseDrawer"></div>
+        <aside class="qtn-drawer" aria-label="Quotation details">
+            <div class="qtn-drawer-head">
+                <div class="qtn-drawer-titles">
+                    <div class="qtn-kicker">Quotation</div>
+                    <h2>@quotation.QuotationNumber</h2>
+                    <div class="qtn-drawer-sub">
+                        @(quotation.CardName ?? quotation.CardCode) ·
+                        @quotation.Currency @quotation.DocTotal.ToString("N2")
+                    </div>
                 </div>
-                <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon" title="Close"
-                        aria-label="Close details" @onclick="CloseDrawer">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                <button type="button" class="qtn-icon-btn" title="Close" aria-label="Close details"
+                        @onclick="CloseDrawer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
                 </button>
             </div>
-            <div class="qtx-drawer-body">
-                <div class="qtx-grid">
-                    <div>
-                        <div class="qtx-dt">Customer</div>
-                        <div class="qtx-dd">@selectedQuotation.CardCode — @selectedQuotation.CardName</div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Status</div>
-                        <div class="qtx-dd">
-                            <span class="qtx-status">
-                                <span class="qtx-dot @GetStatusDotClass(selectedQuotation.Status)" aria-hidden="true"></span>
-                                <span class="qtx-status-text @GetStatusTextClass(selectedQuotation.Status)">@selectedQuotation.StatusName</span>
-                            </span>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Quotation date</div>
-                        <div class="qtx-dd">@selectedQuotation.QuotationDate.ToString("dd MMM yyyy")</div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Valid until</div>
-                        <div class="qtx-dd">@(selectedQuotation.ValidUntil?.ToString("dd MMM yyyy") ?? "—")</div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Contact person</div>
-                        <div class="qtx-dd">@(selectedQuotation.ContactPerson ?? "—")</div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Salesperson</div>
-                        <div class="qtx-dd">@(selectedQuotation.SalesPersonName ?? "—")</div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Currency</div>
-                        <div class="qtx-dd">@selectedQuotation.Currency</div>
-                    </div>
-                    <div>
-                        <div class="qtx-dt">Created by</div>
-                        <div class="qtx-dd">@(selectedQuotation.CreatedByUserName ?? "—")</div>
-                    </div>
-                    @if (selectedQuotation.SalesOrderId.HasValue)
-                    {
+
+            <div class="qtn-drawer-body">
+                <div>
+                    <div class="qtn-sect"><i class="ph ph-identification-card" aria-hidden="true"></i>Details</div>
+                    <div class="qtn-dl">
                         <div>
-                            <div class="qtx-dt">Sales order</div>
-                            <div class="qtx-dd">SO #@selectedQuotation.SalesOrderId</div>
+                            <div class="qtn-dt">Customer</div>
+                            <div class="qtn-dd">@quotation.CardName</div>
+                            <div class="qtn-dd qtn-cust-code">@quotation.CardCode</div>
                         </div>
-                    }
+                        <div>
+                            <div class="qtn-dt">Status</div>
+                            <div class="qtn-dd">
+                                <span class="qtn-badge @StatusBadgeClass(quotation)">@quotation.StatusName</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Total</div>
+                            <div class="qtn-dd qtn-dd-num">@quotation.Currency @quotation.DocTotal.ToString("N2")</div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Issued</div>
+                            <div class="qtn-dd qtn-dd-num">@quotation.QuotationDate.ToString("dd MMM yyyy")</div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Valid until</div>
+                            <div class="qtn-dd qtn-dd-num @ValidClass(quotation)">
+                                @(quotation.ValidUntil?.ToString("dd MMM yyyy") ?? "—")
+                            </div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Currency</div>
+                            <div class="qtn-dd">@quotation.Currency</div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Contact person</div>
+                            <div class="qtn-dd">@(quotation.ContactPerson ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Salesperson</div>
+                            <div class="qtn-dd">@(quotation.SalesPersonName ?? "—")</div>
+                        </div>
+                        <div>
+                            <div class="qtn-dt">Created by</div>
+                            <div class="qtn-dd">@(quotation.CreatedByUserName ?? "—")</div>
+                        </div>
+                        @if (quotation.SalesOrderId.HasValue)
+                        {
+                            <div>
+                                <div class="qtn-dt">Sales order</div>
+                                <div class="qtn-dd qtn-dd-num">SO #@quotation.SalesOrderId</div>
+                            </div>
+                        }
+                    </div>
                 </div>
 
-                @if (dataSource == "local" && !selectedQuotation.IsSynced)
+                @if (dataSource == "local" && !quotation.IsSynced)
                 {
-                    <div class="qtx-note is-warn">
-                        This quotation has local changes that have not been pushed back to SAP.
+                    <div class="qtn-alert" role="status">
+                        <i class="ph ph-cloud-slash" aria-hidden="true"></i>
+                        <div class="qtn-alert-body">
+                            This quotation has local changes that have not been pushed back to SAP.
+                        </div>
                     </div>
                 }
 
-                @if (!string.IsNullOrEmpty(selectedQuotation.Comments))
+                @if (!string.IsNullOrEmpty(quotation.Comments))
                 {
                     <div>
-                        <div class="qtx-sect"><i class="ph ph-chat-text" aria-hidden="true"></i>Comments</div>
-                        <div class="qtx-note is-prose">@selectedQuotation.Comments</div>
+                        <div class="qtn-sect"><i class="ph ph-chat-text" aria-hidden="true"></i>Comments</div>
+                        <p class="qtn-prose">@quotation.Comments</p>
                     </div>
                 }
 
-                @if (!string.IsNullOrEmpty(selectedQuotation.TermsAndConditions))
+                @if (!string.IsNullOrEmpty(quotation.TermsAndConditions))
                 {
                     <div>
-                        <div class="qtx-sect"><i class="ph ph-file-text" aria-hidden="true"></i>Terms &amp; conditions</div>
-                        <div class="qtx-note is-prose">@selectedQuotation.TermsAndConditions</div>
+                        <div class="qtn-sect"><i class="ph ph-file-text" aria-hidden="true"></i>Terms &amp; conditions</div>
+                        <p class="qtn-prose">@quotation.TermsAndConditions</p>
                     </div>
                 }
 
                 <div>
-                    <div class="qtx-sect">
+                    <div class="qtn-sect">
                         <i class="ph ph-list-bullets" aria-hidden="true"></i>Line items
                         @if (!IsDetailLoading && !detailLoadFailed)
                         {
-                            <span>(@selectedQuotation.Lines.Count)</span>
+                            <span>(@quotation.Lines.Count)</span>
                         }
                     </div>
+
                     @if (IsDetailLoading)
                     {
-                        <div class="qtx-note">Fetching the line items…</div>
+                        <div class="qtn-loading" style="padding-inline:0">
+                            <span class="qtn-spin" aria-hidden="true"></span>
+                            <span>Loading line items…</span>
+                        </div>
                     }
                     else if (detailLoadFailed)
                     {
-                        <div class="qtx-note is-warn">
+                        <div class="qtn-note">
                             Couldn't load the line items for this quotation. Close and reopen it to try again.
                         </div>
                     }
                     else
                     {
-                        <div class="qtx-linescroll">
-                            <table class="qtx-lines">
+                        <div class="qtn-lines-wrap">
+                            <table class="qtn-lines">
                                 <thead>
                                     <tr>
                                         <th>#</th>
                                         <th>Item</th>
                                         <th>Description</th>
-                                        <th class="qtx-num">Qty</th>
-                                        <th class="qtx-num">Price</th>
-                                        <th class="qtx-num">Disc %</th>
-                                        <th class="qtx-num">VAT %</th>
-                                        <th class="qtx-num">Total</th>
+                                        <th class="qtn-num">Qty</th>
+                                        <th class="qtn-num">Price</th>
+                                        <th class="qtn-num">Disc %</th>
+                                        <th class="qtn-num">VAT %</th>
+                                        <th class="qtn-num">Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var line in selectedQuotation.Lines)
+                                    @foreach (var line in quotation.Lines)
                                     {
                                         <tr>
                                             <td>@(line.LineNum + 1)</td>
-                                            <td><span class="qtx-cust-name">@line.ItemCode</span></td>
+                                            <td class="qtn-lines-item">@line.ItemCode</td>
                                             <td>@line.ItemDescription</td>
-                                            <td class="qtx-num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                            <td class="qtx-num">@line.UnitPrice.ToString("N2")</td>
-                                            @* Up to six decimals so a special-price discount reads the same here as in
-                                               SAP (5.714286%), while a typed 10% still shows as 10.0% *@
-                                            <td class="qtx-num">@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("0.0####") + "%" : "—")</td>
-                                            <td class="qtx-num">@(line.TaxPercent > 0 ? line.TaxPercent.ToString("N1") + "%" : "—")</td>
-                                            <td class="qtx-num">@line.LineTotal.ToString("N2")</td>
+                                            <td class="qtn-num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                            <td class="qtn-num">@line.UnitPrice.ToString("N2")</td>
+                                            @* Up to six decimals so a special-price discount reads the same here as in SAP (5.714286%), while a typed 10% still shows as 10.0% *@
+                                            <td class="qtn-num">@(line.DiscountPercent > 0 ? line.DiscountPercent.ToString("0.0####") + "%" : "—")</td>
+                                            <td class="qtn-num">@(line.TaxPercent > 0 ? line.TaxPercent.ToString("N1") + "%" : "—")</td>
+                                            <td class="qtn-num qtn-lines-total">@line.LineTotal.ToString("N2")</td>
                                         </tr>
                                     }
                                 </tbody>
                                 <tfoot>
                                     <tr>
                                         <td colspan="6"></td>
-                                        <td class="qtx-num">Subtotal</td>
-                                        <td class="qtx-num">@selectedQuotation.SubTotal.ToString("N2")</td>
+                                        <td class="qtn-tot-label">Subtotal</td>
+                                        <td class="qtn-tot-value">@quotation.SubTotal.ToString("N2")</td>
                                     </tr>
-                                    @if (selectedQuotation.DiscountAmount > 0)
+                                    @if (quotation.DiscountAmount > 0)
                                     {
                                         <tr>
                                             <td colspan="6"></td>
-                                            <td class="qtx-num qtx-neg">Discount</td>
-                                            <td class="qtx-num qtx-neg">-@selectedQuotation.DiscountAmount.ToString("N2")</td>
+                                            <td class="qtn-tot-label">Discount</td>
+                                            <td class="qtn-tot-value">-@quotation.DiscountAmount.ToString("N2")</td>
                                         </tr>
                                     }
                                     <tr>
                                         <td colspan="6"></td>
-                                        <td class="qtx-num">VAT</td>
-                                        <td class="qtx-num">@selectedQuotation.TaxAmount.ToString("N2")</td>
+                                        <td class="qtn-tot-label">VAT</td>
+                                        <td class="qtn-tot-value">@quotation.TaxAmount.ToString("N2")</td>
+                                    </tr>
+                                    <tr class="qtn-tot-grand">
+                                        <td colspan="6"></td>
+                                        <td class="qtn-tot-label">Total</td>
+                                        <td class="qtn-tot-value">@quotation.DocTotal.ToString("N2")</td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
-
-                        <div class="qtx-total">
-                            <span class="qtx-total-label">Total</span>
-                            <span class="qtx-total-value">@selectedQuotation.DocTotal.ToString("N2")</span>
-                        </div>
                     }
                 </div>
             </div>
-            <div class="qtx-drawer-foot">
-                @{
-                    var isConverting = convertingQuotationId == selectedQuotation.Id;
-                }
+
+            <div class="qtn-drawer-foot">
                 @if (CanRepriceSelectedQuotation)
                 {
-                    <button type="button" class="qtx-btn qtx-btn-secondary"
-                            disabled="@(IsDetailLoading || isConverting)"
-                            @onclick="() => OpenRepriceModal(selectedQuotation)">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>Edit / reprice
+                    <button type="button" class="qtn-btn" disabled="@(IsDetailLoading || isConverting)"
+                            @onclick="() => OpenRepriceModal(quotation)">
+                        <i class="ph ph-pencil-simple" aria-hidden="true"></i>Edit / reprice
                     </button>
                 }
                 @if (CanApplyStandardVat)
                 {
-                    <button type="button" class="qtx-btn qtx-btn-secondary"
+                    <button type="button" class="qtn-btn"
                             disabled="@(isApplyingStandardVat || IsDetailLoading || isConverting)"
                             @onclick="ApplyStandardVat">
                         @if (isApplyingStandardVat)
                         {
-                            <span class="qtx-spin" aria-hidden="true"></span>
+                            <span class="qtn-spin" aria-hidden="true"></span>
                             <span>Applying…</span>
                         }
                         else
                         {
+                            <i class="ph ph-percent" aria-hidden="true"></i>
                             <span>Apply 15.5% VAT</span>
                         }
                     </button>
                 }
                 @if (CanDownloadQuotationPdf)
                 {
-                    <button type="button" class="qtx-btn qtx-btn-secondary" disabled="@(isPdfLoading || isConverting)"
+                    <button type="button" class="qtn-btn" disabled="@(isPdfLoading || isConverting)"
                             @onclick="DownloadQuotationPdf">
                         @if (isPdfLoading)
                         {
-                            <span class="qtx-spin" aria-hidden="true"></span>
+                            <span class="qtn-spin" aria-hidden="true"></span>
                             <span>Preparing…</span>
                         }
                         else
                         {
+                            <i class="ph ph-download-simple" aria-hidden="true"></i>
                             <span>Download PDF</span>
                         }
                     </button>
-                    <button type="button" class="qtx-btn qtx-btn-secondary" disabled="@(isPdfLoading || isConverting)"
+                    <button type="button" class="qtn-btn" disabled="@(isPdfLoading || isConverting)"
                             @onclick="PrintQuotationPdf">
-                        Print
+                        <i class="ph ph-printer" aria-hidden="true"></i>Print
                     </button>
                 }
-                <button type="button" class="qtx-btn qtx-btn-secondary" disabled="@isConverting" @onclick="CloseDrawer">
-                    Close
-                </button>
-                @if (CanConvert(selectedQuotation))
-                {
-                    <button type="button" class="qtx-btn qtx-btn-primary" disabled="@(isConverting || IsDetailLoading)"
-                            @onclick="() => OpenConvertDialog(selectedQuotation)">
-                        @if (isConverting)
-                        {
-                            <span class="qtx-spin" aria-hidden="true"></span>
-                            <span>Converting…</span>
-                        }
-                        else
-                        {
-                            <span>Convert to sales order</span>
-                        }
+                <div class="qtn-foot-primary">
+                    <button type="button" class="qtn-btn qtn-btn-ghost" disabled="@isConverting" @onclick="CloseDrawer">
+                        Close
                     </button>
-                }
+                    @if (CanConvert(quotation))
+                    {
+                        <button type="button" class="qtn-btn qtn-btn-primary"
+                                disabled="@(isConverting || IsDetailLoading)"
+                                @onclick="() => ConvertToSalesOrder(quotation)">
+                            @if (isConverting)
+                            {
+                                <span class="qtn-spin" aria-hidden="true"></span>
+                                <span>Converting…</span>
+                            }
+                            else
+                            {
+                                <i class="ph ph-shopping-cart-simple" aria-hidden="true"></i>
+                                <span>Convert to sales order</span>
+                            }
+                        </button>
+                    }
+                </div>
             </div>
         </aside>
     </div>
 }
 
-@if (showRepriceModal && repriceQuotation is not null)
+@* ── Create / reprice modal ────────────────────────────────────────────── *@
+@if (showCreateModal)
 {
-    <div class="qtx-overlay">
-        <div class="qtx-dialog-wrap" @onclick="CloseRepriceModal">
-            <div class="qtx-dialog is-wide" role="dialog" aria-modal="true" aria-labelledby="qtx-reprice-title"
-                 @onclick:stopPropagation="true">
-                <div class="qtx-dialog-head">
-                    <h2 class="qtx-dialog-title" id="qtx-reprice-title">
-                        <i class="ph ph-pencil-simple" aria-hidden="true"></i>Edit / reprice quotation
-                    </h2>
-                    <button type="button" class="qtx-btn qtx-btn-ghost qtx-btn-icon" title="Close"
-                            aria-label="Close" disabled="@isSaving" @onclick="CloseRepriceModal">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    <div class="qtn">
+        <div class="qtn-modal-scrim">
+            <div class="qtn-modal" role="dialog" aria-modal="true" aria-label="@(isEditMode ? "Edit or reprice quotation" : "New quotation")">
+                <div class="qtn-modal-head">
+                    <h2>@(isEditMode ? "Edit / reprice quotation" : "New quotation")</h2>
+                    <button type="button" class="qtn-icon-btn" title="Close" aria-label="Close"
+                            @onclick="CloseCreateModal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
                     </button>
                 </div>
-                <div class="qtx-dialog-body">
-                    <div class="qtx-note is-warn">
-                        Reprice keeps the customer, currency and line items locked. Only local quotation
-                        pricing fields are updated here — SAP review is still required afterwards.
-                    </div>
 
-                    <div class="qtx-form">
-                        <div class="qtx-field is-wide">
-                            <label for="qtx-r-customer">Customer</label>
-                            <input id="qtx-r-customer" class="qtx-input" type="text" readonly
-                                   value="@RepriceCustomerLabel" />
+                <div class="qtn-modal-body">
+                    @if (isLoadingMasterData)
+                    {
+                        <div class="qtn-loading" style="padding-inline:0">
+                            <span class="qtn-spin" aria-hidden="true"></span>
+                            <span>Loading master data…</span>
                         </div>
-                        <div class="qtx-field">
-                            <label for="qtx-r-contact">Contact person</label>
-                            <input id="qtx-r-contact" class="qtx-input" type="text" placeholder="Contact name"
-                                   @bind="newQuotation.ContactPerson" />
-                        </div>
-                        <div class="qtx-field">
-                            <label for="qtx-r-valid">Valid until</label>
-                            <input id="qtx-r-valid" class="qtx-input qtx-input-num" type="date" @bind="validUntilDate" />
-                        </div>
-                        <div class="qtx-field">
-                            <label for="qtx-r-currency">Currency</label>
-                            <input id="qtx-r-currency" class="qtx-input" type="text" readonly
-                                   value="@newQuotation.Currency" />
-                        </div>
-                        <div class="qtx-field">
-                            <label for="qtx-r-ref">Customer reference</label>
-                            <input id="qtx-r-ref" class="qtx-input" type="text" placeholder="Reference number"
-                                   @bind="newQuotation.CustomerRefNo" />
-                        </div>
-                        <div class="qtx-field">
-                            <label for="qtx-r-disc">Header discount %</label>
-                            <input id="qtx-r-disc" class="qtx-input qtx-input-num" type="number" min="0" max="100"
-                                   step="0.1" @bind="newQuotation.DiscountPercent" />
-                        </div>
-                        <div class="qtx-field is-wide">
-                            <label for="qtx-r-comments">Comments</label>
-                            <textarea id="qtx-r-comments" class="qtx-input qtx-textarea" rows="2"
-                                      placeholder="Additional notes…" @bind="newQuotation.Comments"></textarea>
-                        </div>
-                        <div class="qtx-field is-wide">
-                            <label for="qtx-r-terms">Terms &amp; conditions</label>
-                            <textarea id="qtx-r-terms" class="qtx-input qtx-textarea" rows="2"
-                                      placeholder="Payment terms, delivery terms…" @bind="newQuotation.TermsAndConditions"></textarea>
-                        </div>
-                    </div>
+                    }
+                    else
+                    {
+                        @if (isEditMode)
+                        {
+                            <div class="qtn-note">
+                                Reprice mode keeps the customer, currency and line items locked. Only local quotation
+                                pricing fields are updated here.
+                            </div>
+                        }
 
-                    <div>
-                        <div class="qtx-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Line items</div>
-                        <div class="qtx-linescroll">
-                            <table class="qtx-editlines">
-                                <thead>
-                                    <tr>
-                                        <th>Item</th>
-                                        <th>Description</th>
-                                        <th class="qtx-num">Qty</th>
-                                        <th class="qtx-num">Price</th>
-                                        <th class="qtx-num">Disc %</th>
-                                        <th class="qtx-num">VAT %</th>
-                                        <th class="qtx-num">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @for (var lineIndex = 0; lineIndex < newQuotation.Lines.Count; lineIndex++)
-                                    {
-                                        var line = newQuotation.Lines[lineIndex];
-                                        <tr>
-                                            <td style="width:20%">
-                                                <input class="qtx-input" type="text" readonly value="@line.ItemCode"
-                                                       aria-label="Item code" />
-                                            </td>
-                                            <td style="width:28%">
-                                                <input class="qtx-input" type="text" readonly value="@line.ItemDescription"
-                                                       aria-label="Item description" />
-                                            </td>
-                                            <td style="width:10%">
-                                                <input class="qtx-input" type="number" min="0.0001" step="1"
-                                                       aria-label="Quantity" @bind="line.Quantity" />
-                                            </td>
-                                            <td style="width:13%">
-                                                <input class="qtx-input" type="number" min="0" step="0.01"
-                                                       aria-label="Unit price" @bind="line.UnitPrice" />
-                                            </td>
-                                            <td style="width:12%">
-                                                @* step matches SAP's six-decimal discounts so editing a line priced from a
-                                                   special price does not trip step validation *@
-                                                <input class="qtx-input" type="number" min="0" max="100" step="0.000001"
-                                                       aria-label="Discount percent" @bind="line.DiscountPercent" />
-                                            </td>
-                                            <td style="width:10%">
-                                                <input class="qtx-input" type="number" min="0" max="100" step="0.1"
-                                                       aria-label="VAT percent" @bind="line.TaxPercent" />
-                                            </td>
-                                            <td class="qtx-num qtx-linetotal">
-                                                @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <div class="qtx-tally">
-                            <div class="qtx-tally-inner">
-                                <div class="qtx-tally-row">
-                                    <span>Subtotal</span>
-                                    <span>@CalculateSubTotal().ToString("N2")</span>
-                                </div>
-                                @if (newQuotation.DiscountPercent > 0)
+                        <div class="qtn-form">
+                            <div class="qtn-field qtn-combo">
+                                <label class="qtn-label" for="qtn-c-customer">Customer *</label>
+                                @if (isEditMode)
                                 {
-                                    <div class="qtx-tally-row is-neg">
-                                        <span>Header discount</span>
-                                        <span>-@CalculateHeaderDiscount().ToString("N2")</span>
-                                    </div>
+                                    <input id="qtn-c-customer" class="qtn-input" type="text" value="@bpSearchTerm" readonly />
                                 }
-                                <div class="qtx-tally-row">
-                                    <span>VAT</span>
-                                    <span>@CalculateTaxTotal().ToString("N2")</span>
-                                </div>
-                                <div class="qtx-tally-row is-total">
-                                    <span>Total</span>
-                                    <span>@CalculateTotal().ToString("N2")</span>
-                                </div>
+                                else
+                                {
+                                    <input id="qtn-c-customer" class="qtn-input" type="text" placeholder="Search customer…"
+                                           @bind="bpSearchTerm" @bind:event="oninput"
+                                           @onfocus="() => showBPDropdown = true" />
+                                    @if (showBPDropdown && filteredBusinessPartners.Any())
+                                    {
+                                        <div class="qtn-combo-list">
+                                            @foreach (var bp in filteredBusinessPartners.Take(20))
+                                            {
+                                                <button type="button" class="qtn-combo-opt"
+                                                        @onclick="() => SelectBusinessPartner(bp)">
+                                                    <span class="qtn-combo-name">@bp.CardName</span>
+                                                    <span class="qtn-combo-code">@bp.CardCode</span>
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                }
                             </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="qtx-dialog-actions">
-                    <button type="button" class="qtx-btn qtx-btn-secondary" disabled="@isSaving"
-                            @onclick="CloseRepriceModal">Cancel</button>
-                    <button type="button" class="qtx-btn qtx-btn-primary" @onclick="SaveReprice"
-                            disabled="@(isSaving || newQuotation.Lines.Count == 0)">
-                        @if (isSaving)
-                        {
-                            <span class="qtx-spin" aria-hidden="true"></span>
-                        }
-                        <span>Save changes</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
 
-@if (convertQuotation != null)
-{
-    <div class="qtx-overlay">
-        <div class="qtx-dialog-wrap" @onclick="CloseConvertDialog">
-            <div class="qtx-dialog" role="dialog" aria-modal="true" aria-labelledby="qtx-convert-title"
-                 @onclick:stopPropagation="true">
-                <h2 class="qtx-dialog-title" id="qtx-convert-title">
-                    <i class="ph ph-shopping-cart" aria-hidden="true"></i>Convert to sales order
-                </h2>
-                <div class="qtx-dialog-body">
-                    <div class="qtx-summary">
-                        <div class="qtx-summary-item is-wide">
-                            <div class="qtx-dt">Customer</div>
-                            <div class="qtx-summary-value" title="@convertQuotation.CardName">
-                                @(convertQuotation.CardName ?? convertQuotation.CardCode)
+                            <div class="qtn-field">
+                                <label class="qtn-label" for="qtn-c-contact">Contact person</label>
+                                <input id="qtn-c-contact" class="qtn-input" type="text" placeholder="Contact name"
+                                       @bind="newQuotation.ContactPerson" />
                             </div>
-                        </div>
-                        <div class="qtx-summary-item">
-                            <div class="qtx-dt">Quotation</div>
-                            <div class="qtx-summary-value">@convertQuotation.QuotationNumber</div>
-                        </div>
-                        <div class="qtx-summary-item">
-                            <div class="qtx-dt">Amount</div>
-                            <div class="qtx-summary-value">
-                                @convertQuotation.Currency @convertQuotation.DocTotal.ToString("N2")
-                            </div>
-                        </div>
-                    </div>
-                    <div class="qtx-note">This raises a sales order from the quotation. It cannot be undone here.</div>
-                </div>
-                <div class="qtx-dialog-actions">
-                    <button type="button" class="qtx-btn qtx-btn-secondary" disabled="@(convertingQuotationId != null)"
-                            @onclick="CloseConvertDialog">Cancel</button>
-                    <button type="button" class="qtx-btn qtx-btn-primary" disabled="@(convertingQuotationId != null)"
-                            @onclick="ConfirmConvertToSalesOrder">
-                        @if (convertingQuotationId != null)
-                        {
-                            <span class="qtx-spin" aria-hidden="true"></span>
-                        }
-                        <span>Convert</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-}
 
-@if (deleteQuotation != null)
-{
-    <div class="qtx-overlay">
-        <div class="qtx-dialog-wrap" @onclick="CloseDeleteDialog">
-            <div class="qtx-dialog" role="dialog" aria-modal="true" aria-labelledby="qtx-delete-title"
-                 @onclick:stopPropagation="true">
-                <h2 class="qtx-dialog-title" id="qtx-delete-title">
-                    <i class="ph ph-trash" aria-hidden="true"></i>Delete quotation
-                </h2>
-                <div class="qtx-dialog-body">
-                    <div class="qtx-note">
-                        Delete quotation <strong>@deleteQuotation.QuotationNumber</strong> for
-                        @(deleteQuotation.CardName ?? deleteQuotation.CardCode)? This cannot be undone.
-                    </div>
+                            <div class="qtn-field">
+                                <label class="qtn-label" for="qtn-c-valid">Valid until</label>
+                                <input id="qtn-c-valid" class="qtn-input qtn-input-num" type="date" @bind="validUntilDate" />
+                            </div>
+
+                            <div class="qtn-field">
+                                <label class="qtn-label" for="qtn-c-ccy">Currency</label>
+                                <span class="qtn-select">
+                                    <select id="qtn-c-ccy" class="qtn-input" @bind="newQuotation.Currency"
+                                            disabled="@isEditMode">
+                                        <option value="">Select currency</option>
+                                        <option value="USD">USD</option>
+                                        <option value="ZIG">ZIG</option>
+                                        <option value="ZAR">ZAR</option>
+                                        <option value="BWP">BWP</option>
+                                        <option value="EUR">EUR</option>
+                                        <option value="GBP">GBP</option>
+                                    </select>
+                                    <span class="qtn-caret" aria-hidden="true"></span>
+                                </span>
+                            </div>
+
+                            <div class="qtn-field">
+                                <label class="qtn-label" for="qtn-c-ref">Customer reference</label>
+                                <input id="qtn-c-ref" class="qtn-input" type="text" placeholder="Reference number"
+                                       @bind="newQuotation.CustomerRefNo" />
+                            </div>
+
+                            <div class="qtn-field">
+                                <label class="qtn-label" for="qtn-c-disc">Discount %</label>
+                                <input id="qtn-c-disc" class="qtn-input qtn-input-num" type="number" min="0" max="100"
+                                       step="0.1" @bind="newQuotation.DiscountPercent" />
+                            </div>
+
+                            <div class="qtn-field qtn-form-wide">
+                                <label class="qtn-label" for="qtn-c-comments">Comments</label>
+                                <textarea id="qtn-c-comments" class="qtn-input" rows="2" placeholder="Additional notes…"
+                                          @bind="newQuotation.Comments"></textarea>
+                            </div>
+
+                            <div class="qtn-field qtn-form-wide">
+                                <label class="qtn-label" for="qtn-c-terms">Terms &amp; conditions</label>
+                                <textarea id="qtn-c-terms" class="qtn-input" rows="2"
+                                          placeholder="Payment terms, delivery terms…"
+                                          @bind="newQuotation.TermsAndConditions"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="qtn-editor">
+                            <div class="qtn-editor-head">
+                                <h3>Line items</h3>
+                                @if (!isEditMode)
+                                {
+                                    <button type="button" class="qtn-btn qtn-btn-sm" @onclick="AddLineItem">
+                                        <i class="ph ph-plus" aria-hidden="true"></i>Add line
+                                    </button>
+                                }
+                            </div>
+
+                            @if (newQuotation.Lines.Count == 0)
+                            {
+                                <div class="qtn-note">No line items added yet.</div>
+                            }
+                            else
+                            {
+                                <div class="qtn-lines-wrap">
+                                    <table class="qtn-lines">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:20%">Item</th>
+                                                <th>Description</th>
+                                                <th class="qtn-num" style="width:10%">Qty</th>
+                                                <th class="qtn-num" style="width:12%">Price</th>
+                                                <th class="qtn-num" style="width:10%">Disc %</th>
+                                                <th class="qtn-num" style="width:10%">VAT %</th>
+                                                <th class="qtn-num" style="width:11%">Total</th>
+                                                <th style="width:34px"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @for (var i = 0; i < newQuotation.Lines.Count; i++)
+                                            {
+                                                var lineIndex = i;
+                                                var line = newQuotation.Lines[lineIndex];
+                                                <tr>
+                                                    <td>
+                                                        <input class="qtn-input" type="text" placeholder="Item code"
+                                                               readonly="@isEditMode" @bind="line.ItemCode" />
+                                                    </td>
+                                                    <td>
+                                                        <input class="qtn-input" type="text" placeholder="Description"
+                                                               readonly="@isEditMode" @bind="line.ItemDescription" />
+                                                    </td>
+                                                    <td>
+                                                        <input class="qtn-input qtn-input-num" type="number"
+                                                               min="0.0001" step="1" @bind="line.Quantity" />
+                                                    </td>
+                                                    <td>
+                                                        <input class="qtn-input qtn-input-num" type="number" min="0"
+                                                               step="0.01" @bind="line.UnitPrice" />
+                                                    </td>
+                                                    <td>
+                                                        @* step matches SAP's six-decimal discounts so editing a line priced from a special price does not trip step validation *@
+                                                        <input class="qtn-input qtn-input-num" type="number" min="0"
+                                                               max="100" step="0.000001" @bind="line.DiscountPercent" />
+                                                    </td>
+                                                    <td>
+                                                        <input class="qtn-input qtn-input-num" type="number" min="0"
+                                                               max="100" step="0.1" @bind="line.TaxPercent" />
+                                                    </td>
+                                                    <td class="qtn-num qtn-lines-total">
+                                                        @((line.Quantity * line.UnitPrice * (1 - line.DiscountPercent / 100)).ToString("N2"))
+                                                    </td>
+                                                    <td>
+                                                        @if (!isEditMode)
+                                                        {
+                                                            <button type="button" class="qtn-icon-btn" title="Remove line"
+                                                                    aria-label="Remove line @(lineIndex + 1)"
+                                                                    @onclick="() => RemoveLineItem(lineIndex)">
+                                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                                     stroke-width="1.6" stroke-linecap="round"
+                                                                     stroke-linejoin="round" aria-hidden="true">
+                                                                    <path d="M4 7h16M9.5 7V5h5v2M6.8 7l.9 13h8.6l.9-13"></path>
+                                                                    <path d="M10 11v6M14 11v6"></path>
+                                                                </svg>
+                                                            </button>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div class="qtn-editor-totals">
+                                    <div class="qtn-totals">
+                                        <div class="qtn-tot-row">
+                                            <span>Subtotal</span><span>@CalculateSubTotal().ToString("N2")</span>
+                                        </div>
+                                        @if (newQuotation.DiscountPercent > 0)
+                                        {
+                                            <div class="qtn-tot-row">
+                                                <span>Header discount</span>
+                                                <span>-@CalculateHeaderDiscount().ToString("N2")</span>
+                                            </div>
+                                        }
+                                        <div class="qtn-tot-row">
+                                            <span>VAT</span><span>@CalculateTaxTotal().ToString("N2")</span>
+                                        </div>
+                                        <div class="qtn-tot-row qtn-grand">
+                                            <span>Total</span><span>@CalculateTotal().ToString("N2")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
-                <div class="qtx-dialog-actions">
-                    <button type="button" class="qtx-btn qtx-btn-secondary" disabled="@isDeleting"
-                            @onclick="CloseDeleteDialog">Cancel</button>
-                    <button type="button" class="qtx-btn qtx-btn-bad" disabled="@isDeleting"
-                            @onclick="ConfirmDeleteQuotation">
-                        @if (isDeleting)
+
+                <div class="qtn-modal-foot">
+                    <button type="button" class="qtn-btn qtn-btn-ghost" @onclick="CloseCreateModal">Cancel</button>
+                    <button type="button" class="qtn-btn qtn-btn-primary" @onclick="SaveQuotation"
+                            disabled="@(isCreating || newQuotation.Lines.Count == 0 || string.IsNullOrWhiteSpace(newQuotation.Currency))">
+                        @if (isCreating)
                         {
-                            <span class="qtx-spin" aria-hidden="true"></span>
+                            <span class="qtn-spin" aria-hidden="true"></span>
                         }
-                        <span>Delete</span>
+                        <span>@(isEditMode ? "Save changes" : "Create quotation")</span>
                     </button>
                 </div>
             </div>
@@ -844,20 +928,20 @@
     /// </summary>
     private const int ListFetchSize = 10000;
 
-    private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];
+    /// <summary>How near its expiry a quotation has to be to count as expiring soon.</summary>
+    private const int ExpiryWindowDays = 7;
 
-    private int _pageSize = 10;
+    private static readonly int[] PageSizes = [10, 25, 50, 100, 200];
+
     private List<QuotationDto>? quotations;
     private QuotationDto? selectedQuotation;
-    private QuotationDto? convertQuotation;
-    private QuotationDto? deleteQuotation;
-    private QuotationDto? repriceQuotation;
     private bool isLoading = true;
-    private bool isSaving = false;
-    private bool isDeleting = false;
+    private bool isCreating = false;
     private bool isPdfLoading = false;
+    private bool isExporting = false;
     private bool isApplyingStandardVat = false;
-    private bool showRepriceModal = false;
+    private bool showCreateModal = false;
+    private bool isEditMode = false;
     private string? errorMessage;
     private int? convertingQuotationId;
     private int? editingQuotationId;
@@ -870,6 +954,8 @@
     private bool IsDetailLoading => selectedQuotation is not null && detailLoadingId == selectedQuotation.Id;
 
     private bool IsFirstLoad => isLoading && (quotations is null || quotations.Count == 0);
+
+    private string SourceName => dataSource == "sap" ? "SAP" : "the local database";
 
     private bool CanDownloadQuotationPdf => selectedQuotation is not null &&
         (dataSource == "local" || selectedQuotation.SAPDocEntry.HasValue);
@@ -884,69 +970,283 @@
     // Data source toggle: "sap" or "local"
     private string dataSource = "sap";
 
-    // Filters
+    // Filters sent to the service on Search
     private string? customerFilter;
     private string? statusFilter;
     private DateTime? fromDate;
     private DateTime? toDate;
 
-    // Fetch paging — one page pulls the whole set; the display pager below works over it.
+    // Filters applied to the rows already in hand: the status bucket the figures
+    // press, the expiring-soon toggle, and the sort direction.
+    private string bucket = "all";
+    private bool expiringOnly;
+    private bool newestFirst = true;
+
+    // Paging. currentPage and fetchSize belong to the service call — it is asked
+    // for the whole set in one go — and pageNumber/pageSize to the list itself.
     private int currentPage = 1;
-    private int pageSize = ListFetchSize;
-    private int totalPages = 1;
+    private int fetchSize = ListFetchSize;
     private int totalCount = 0;
+    private int pageNumber = 1;
+    private int pageSize = 25;
 
-    // Display paging, in the browser, over the fetched set.
-    private int displayPage = 1;
-
-    // Reprice form
+    // New quotation
     private CreateQuotationRequest newQuotation = new();
     private DateTime? validUntilDate;
 
-    private string RepriceCustomerLabel => string.IsNullOrWhiteSpace(newQuotation.CardName)
-        ? newQuotation.CardCode
-        : $"{newQuotation.CardCode} — {newQuotation.CardName}";
+    // Business Partner autocomplete state
+    private List<BusinessPartnerDto> allBusinessPartners = new();
+    private BusinessPartnerDto? selectedBusinessPartner;
+    private string? bpSearchTerm;
+    private bool showBPDropdown = false;
+    private bool isLoadingMasterData = true;
 
-    private int LoadedCount => quotations?.Count ?? 0;
-
-    private int DisplayPageCount => Math.Max(1, (LoadedCount + _pageSize - 1) / _pageSize);
-
-    private IEnumerable<QuotationDto> PageRows => quotations is null
-        ? []
-        : quotations.Skip((displayPage - 1) * _pageSize).Take(_pageSize);
-
-    private string RangeLabel
+    private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
     {
         get
         {
-            if (IsFirstLoad)
-                return "Loading…";
+            if (string.IsNullOrWhiteSpace(bpSearchTerm))
+                return allBusinessPartners.Take(50);
 
-            if (LoadedCount == 0)
-                return "No quotations";
-
-            var first = ((displayPage - 1) * _pageSize) + 1;
-            var last = Math.Min(displayPage * _pageSize, LoadedCount);
-            return $"{first:N0}–{last:N0} of {LoadedCount:N0} quotations";
+            var search = bpSearchTerm.ToLowerInvariant();
+            return allBusinessPartners.Where(bp =>
+                (bp.CardCode?.ToLowerInvariant().Contains(search) ?? false) ||
+                (bp.CardName?.ToLowerInvariant().Contains(search) ?? false));
         }
     }
 
     protected override async Task OnInitializedAsync()
     {
-        _pageSize = AppSettings.PageSize;
+        pageSize = PageSizes.Contains(AppSettings.PageSize) ? AppSettings.PageSize : 25;
         await LoadQuotations();
         await AuditService.LogAsync(AuditActions.ViewQuotations, "Quotation", null);
     }
 
-    private void ResetToFirstPage() => displayPage = 1;
+    // ── The list in hand ────────────────────────────────────────────────────
 
-    private void GoToDisplayPage(int page)
+    /// <summary>The loaded quotations after the bucket, the expiry toggle and the sort.</summary>
+    private List<QuotationDto> Filtered
     {
-        if (page >= 1 && page <= DisplayPageCount)
+        get
         {
-            displayPage = page;
+            IEnumerable<QuotationDto> rows = quotations ?? Enumerable.Empty<QuotationDto>();
+
+            rows = bucket switch
+            {
+                "draft" => rows.Where(quotation => quotation.Status == QuotationStatus.Draft),
+                "approved" => rows.Where(IsApproved),
+                "converted" => rows.Where(quotation => quotation.Status == QuotationStatus.Converted),
+                "expired" => rows.Where(IsExpired),
+                _ => rows
+            };
+
+            if (expiringOnly)
+            {
+                rows = rows.Where(IsExpiringSoon);
+            }
+
+            rows = newestFirst
+                ? rows.OrderByDescending(quotation => quotation.QuotationDate).ThenByDescending(quotation => quotation.Id)
+                : rows.OrderBy(quotation => quotation.QuotationDate).ThenBy(quotation => quotation.Id);
+
+            return rows.ToList();
         }
     }
+
+    private static bool IsApproved(QuotationDto quotation) =>
+        quotation.Status is QuotationStatus.Approved or QuotationStatus.Accepted;
+
+    private static bool IsExpired(QuotationDto quotation) =>
+        quotation.Status == QuotationStatus.Expired || quotation.IsExpired;
+
+    /// <summary>Approved, not yet ordered and not lapsed — the quotes still worth chasing.</summary>
+    private static bool IsOpen(QuotationDto quotation) =>
+        IsApproved(quotation) && quotation.SalesOrderId is null && !IsExpired(quotation);
+
+    private static bool IsExpiringSoon(QuotationDto quotation)
+    {
+        if (quotation.ValidUntil is not { } validUntil || IsExpired(quotation))
+            return false;
+
+        if (quotation.Status is QuotationStatus.Converted or QuotationStatus.Cancelled)
+            return false;
+
+        var days = (validUntil.Date - DateTime.Today).TotalDays;
+        return days >= 0 && days <= ExpiryWindowDays;
+    }
+
+    private string LedeText
+    {
+        get
+        {
+            if (IsFirstLoad)
+                return $"Loading quotations from {SourceName}…";
+
+            if (quotations is null || quotations.Count == 0)
+                return $"No quotations came back from {SourceName} for this search.";
+
+            var open = quotations.Count(IsOpen);
+            var soon = quotations.Count(IsExpiringSoon);
+
+            if (open == 0)
+                return $"No approved quotes are open — {quotations.Count:N0} quotations on file for this search.";
+
+            return soon == 0
+                ? $"{open:N0} approved quotes are still open — none expire inside {ExpiryWindowDays} days."
+                : $"{open:N0} approved quotes are still open — {soon:N0} of them expire inside {ExpiryWindowDays} days.";
+        }
+    }
+
+    private sealed record StatCard(string Key, string Label, string Icon, string Tone, string Value, string Share);
+
+    private List<StatCard> StatCards()
+    {
+        var rows = quotations ?? new List<QuotationDto>();
+        var loaded = rows.Count;
+
+        // The share each status holds of what is loaded. Total carries the
+        // service's own count instead, which can exceed the fetched page.
+        string Share(int count) => loaded == 0 || count == 0
+            ? "none"
+            : $"{Math.Round(count * 100d / loaded)}%";
+
+        var draft = rows.Count(quotation => quotation.Status == QuotationStatus.Draft);
+        var approved = rows.Count(IsApproved);
+        var converted = rows.Count(quotation => quotation.Status == QuotationStatus.Converted);
+        var expired = rows.Count(IsExpired);
+
+        return
+        [
+            new("all", "Total", "ph-files", "", (totalCount > 0 ? totalCount : loaded).ToString("N0"), "all time"),
+            new("draft", "Draft", "ph-pencil-simple", "", draft.ToString("N0"), draft == 0 ? "none open" : Share(draft)),
+            new("approved", "Approved", "ph-check-circle", "qtn-tone-ok", approved.ToString("N0"), Share(approved)),
+            new("converted", "Converted", "ph-arrows-clockwise", "qtn-tone-accent", converted.ToString("N0"), Share(converted)),
+            new("expired", "Expired", "ph-clock-countdown", "qtn-tone-warn", expired.ToString("N0"), Share(expired))
+        ];
+    }
+
+    private string RangeLabel(int rowCount, int page)
+    {
+        if (rowCount == 0)
+            return "No records";
+
+        var first = ((page - 1) * pageSize) + 1;
+        var last = Math.Min(page * pageSize, rowCount);
+        return $"{rowCount:N0} records · showing {first:N0}–{last:N0}";
+    }
+
+    private static string StatusBadgeClass(QuotationDto quotation) => quotation.Status switch
+    {
+        QuotationStatus.Approved or QuotationStatus.Accepted => "qtn-badge-ok",
+        QuotationStatus.Converted or QuotationStatus.Sent => "qtn-badge-accent",
+        QuotationStatus.Expired or QuotationStatus.Rejected => "qtn-badge-warn",
+        _ => quotation.IsExpired ? "qtn-badge-warn" : string.Empty
+    };
+
+    private static string ValidClass(QuotationDto quotation) =>
+        IsExpired(quotation) ? "qtn-valid-gone" : IsExpiringSoon(quotation) ? "qtn-valid-soon" : string.Empty;
+
+    private static bool CanConvert(QuotationDto quotation) =>
+        IsApproved(quotation) && quotation.SalesOrderId is null;
+
+    // ── List-side filters ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// The figures and the status dropdown ask the same question, so pressing one
+    /// releases the other rather than leaving two filters silently stacked.
+    /// </summary>
+    private void SelectBucket(string key)
+    {
+        bucket = bucket == key ? "all" : key;
+        if (bucket != "all")
+        {
+            statusFilter = null;
+        }
+
+        ResetPage();
+    }
+
+    private async Task ApplyStatusFilter()
+    {
+        if (!string.IsNullOrEmpty(statusFilter))
+        {
+            bucket = "all";
+        }
+
+        ResetPage();
+        await LoadQuotations();
+    }
+
+    private void ToggleExpiringOnly()
+    {
+        expiringOnly = !expiringOnly;
+        ResetPage();
+    }
+
+    private void ToggleSort()
+    {
+        newestFirst = !newestFirst;
+        ResetPage();
+    }
+
+    private void ClearListFilters()
+    {
+        bucket = "all";
+        expiringOnly = false;
+        ResetPage();
+    }
+
+    private async Task HandleFilterKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await ApplyFilter();
+        }
+    }
+
+    // ── Paging ──────────────────────────────────────────────────────────────
+
+    private int PageCount(int rowCount) => Math.Max(1, (rowCount + pageSize - 1) / pageSize);
+
+    // Filtering can shrink the list under the page currently being read.
+    private int ClampPage(int rowCount)
+    {
+        var pages = PageCount(rowCount);
+        if (pageNumber > pages)
+            pageNumber = pages;
+        if (pageNumber < 1)
+            pageNumber = 1;
+        return pageNumber;
+    }
+
+    private void GoToPage(int page) => pageNumber = page;
+
+    private void ResetPage() => pageNumber = 1;
+
+    // The design's "1 2 3 4 5 … 62": the ends, the current page and its
+    // neighbours, with a gap standing in for everything skipped.
+    private static List<int?> PageSlots(int current, int pages)
+    {
+        var slots = new List<int?>();
+        var last = 0;
+
+        for (var page = 1; page <= pages; page++)
+        {
+            var keep = page == 1 || page == pages || Math.Abs(page - current) <= 1;
+            if (!keep)
+                continue;
+
+            if (last > 0 && page - last > 1)
+                slots.Add(null);
+
+            slots.Add(page);
+            last = page;
+        }
+
+        return slots;
+    }
+
+    // ── Loading ─────────────────────────────────────────────────────────────
 
     private async Task SwitchDataSource(string source)
     {
@@ -955,6 +1255,7 @@
 
         dataSource = source;
         currentPage = 1;
+        ResetPage();
         await LoadQuotations();
     }
 
@@ -969,12 +1270,11 @@
         {
             if (dataSource == "sap")
             {
-                var response = await QuotationService.GetQuotationsFromSAPAsync(currentPage, pageSize, customerFilter, fromDate, toDate);
+                var response = await QuotationService.GetQuotationsFromSAPAsync(currentPage, fetchSize, customerFilter, fromDate, toDate);
                 if (response != null)
                 {
                     quotations = response.Quotations;
                     totalCount = response.TotalCount;
-                    totalPages = response.TotalPages;
 
                     // Apply client-side status filter for SAP quotations
                     if (!string.IsNullOrEmpty(statusFilter) && int.TryParse(statusFilter, out var statusInt))
@@ -997,12 +1297,11 @@
                     status = (QuotationStatus)statusInt;
                 }
 
-                var response = await QuotationService.GetQuotationsAsync(currentPage, pageSize, status, customerFilter, fromDate, toDate);
+                var response = await QuotationService.GetQuotationsAsync(currentPage, fetchSize, status, customerFilter, fromDate, toDate);
                 if (response != null)
                 {
                     quotations = response.Quotations;
                     totalCount = response.TotalCount;
-                    totalPages = response.TotalPages;
                 }
                 else
                 {
@@ -1019,14 +1318,12 @@
         finally
         {
             isLoading = false;
-            // The set changed underneath the display pager, so start it over.
-            displayPage = 1;
         }
     }
 
     private async Task ApplyFilter()
     {
-        currentPage = 1;
+        ResetPage();
         await LoadQuotations();
     }
 
@@ -1037,16 +1334,66 @@
         fromDate = null;
         toDate = null;
         currentPage = 1;
+        bucket = "all";
+        expiringOnly = false;
+        ResetPage();
         await LoadQuotations();
     }
 
-    private async Task HandleFilterKeyDown(KeyboardEventArgs args)
+    // ── Export ──────────────────────────────────────────────────────────────
+
+    /// <summary>Writes what the list currently shows — every filter applied, every page.</summary>
+    private async Task ExportCsv()
     {
-        if (args.Key == "Enter")
+        isExporting = true;
+        try
         {
-            await ApplyFilter();
+            var rows = Filtered;
+            var csv = new StringBuilder();
+            csv.AppendLine("Quote,Customer Code,Customer,Issued,Valid Until,Status,Currency,Total");
+
+            foreach (var quotation in rows)
+            {
+                csv.Append(Csv(quotation.QuotationNumber)).Append(',')
+                   .Append(Csv(quotation.CardCode)).Append(',')
+                   .Append(Csv(quotation.CardName)).Append(',')
+                   .Append(quotation.QuotationDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).Append(',')
+                   .Append(quotation.ValidUntil?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? string.Empty).Append(',')
+                   .Append(Csv(quotation.StatusName)).Append(',')
+                   .Append(Csv(quotation.Currency ?? "USD")).Append(',')
+                   .Append(quotation.DocTotal.ToString("0.00", CultureInfo.InvariantCulture))
+                   .Append('\n');
+            }
+
+            // The BOM is what makes Excel read the file as UTF-8; without it,
+            // customer names with accents arrive mangled.
+            var bytes = new UTF8Encoding(true).GetBytes(csv.ToString());
+            var fileName = $"Quotations_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+
+            await JS.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error exporting quotations");
+            errorMessage = "We couldn't export the quotations right now. Please try again.";
+        }
+        finally
+        {
+            isExporting = false;
         }
     }
+
+    private static string Csv(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
+    }
+
+    // ── Drawer ──────────────────────────────────────────────────────────────
 
     private async Task ViewQuotation(QuotationDto quotation)
     {
@@ -1203,10 +1550,18 @@
             }
 
             selectedQuotation = updatedQuotation;
-            ReplaceQuotation(updatedQuotation);
 
-            Snackbar.Add($"Applied {DefaultVatPercent}% VAT to quotation lines that were missing VAT.", Severity.Success);
-            await AuditService.LogAsync(AuditActions.ApplyQuotationVat, "Quotation", updatedQuotation.QuotationNumber, $"Applied standard VAT of {DefaultVatPercent}% to zero-VAT lines.");
+            if (quotations is not null)
+            {
+                var quotationIndex = quotations.FindIndex(quotation => quotation.Id == updatedQuotation.Id);
+                if (quotationIndex >= 0)
+                {
+                    quotations[quotationIndex] = updatedQuotation;
+                }
+            }
+
+            Snackbar.Add("Applied 15.5% VAT to quotation lines that were missing VAT.", Severity.Success);
+            await AuditService.LogAsync(AuditActions.ApplyQuotationVat, "Quotation", updatedQuotation.QuotationNumber, "Applied standard VAT of 15.5% to zero-VAT lines.");
         }
         catch (Exception ex)
         {
@@ -1233,30 +1588,16 @@
         }
     }
 
-    // ── Convert to sales order ──────────────────────────
-
-    private void OpenConvertDialog(QuotationDto quotation)
+    private async Task ConvertToSalesOrder(QuotationDto quotation)
     {
-        if (convertingQuotationId != null)
-            return;
+        var result = await DialogService.ShowMessageBoxAsync(
+            "Convert to Sales Order",
+            $"Are you sure you want to convert quotation {quotation.QuotationNumber} for {quotation.CardName ?? quotation.CardCode} (Total: {quotation.Currency} {quotation.DocTotal:N2}) into a sales order?",
+            yesText: "Convert",
+            cancelText: "Cancel");
 
-        convertQuotation = quotation;
-    }
+        if (result != true) return;
 
-    private void CloseConvertDialog()
-    {
-        if (convertingQuotationId != null)
-            return;
-
-        convertQuotation = null;
-    }
-
-    private async Task ConfirmConvertToSalesOrder()
-    {
-        if (convertQuotation == null)
-            return;
-
-        var quotation = convertQuotation;
         convertingQuotationId = quotation.Id;
         StateHasChanged();
 
@@ -1267,7 +1608,6 @@
             {
                 Snackbar.Add($"Quotation converted to Sales Order {salesOrder.OrderNumber} successfully!", Severity.Success);
                 await AuditService.LogAsync(AuditActions.ConvertQuotationToOrder, "Quotation", quotation.Id.ToString(), $"Converted to Sales Order {salesOrder.OrderNumber}", true);
-                convertQuotation = null;
                 CloseDrawer();
                 await LoadQuotations();
             }
@@ -1287,66 +1627,51 @@
         }
     }
 
-    // ── Delete ──────────────────────────────────────────
-
-    private void OpenDeleteDialog(QuotationDto quotation)
+    private async Task DeleteQuotation(int id)
     {
-        if (isDeleting)
-            return;
+        var result = await DialogService.ShowMessageBoxAsync(
+            "Delete Quotation",
+            "Are you sure you want to delete this quotation?",
+            yesText: "Delete",
+            cancelText: "Cancel");
 
-        deleteQuotation = quotation;
-    }
+        if (result != true) return;
 
-    private void CloseDeleteDialog()
-    {
-        if (isDeleting)
-            return;
-
-        deleteQuotation = null;
-    }
-
-    private async Task ConfirmDeleteQuotation()
-    {
-        if (deleteQuotation == null)
-            return;
-
-        var id = deleteQuotation.Id;
-        isDeleting = true;
-        StateHasChanged();
-
-        try
+        var success = await QuotationService.DeleteQuotationAsync(id);
+        if (success)
         {
-            var success = await QuotationService.DeleteQuotationAsync(id);
-            if (success)
-            {
-                Snackbar.Add("Quotation deleted successfully.", Severity.Success);
-                await AuditService.LogAsync(AuditActions.DeleteQuotation, "Quotation", id.ToString());
-                deleteQuotation = null;
-
-                if (selectedQuotation?.Id == id)
-                {
-                    CloseDrawer();
-                }
-
-                await LoadQuotations();
-            }
-            else
-            {
-                Snackbar.Add("Failed to delete quotation.", Severity.Error);
-            }
+            Snackbar.Add("Quotation deleted successfully.", Severity.Success);
+            await AuditService.LogAsync(AuditActions.DeleteQuotation, "Quotation", id.ToString());
+            await LoadQuotations();
         }
-        catch (Exception ex)
+        else
         {
-            Snackbar.Add($"Error deleting quotation: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            isDeleting = false;
-            StateHasChanged();
+            Snackbar.Add("Failed to delete quotation.", Severity.Error);
         }
     }
 
-    // ── Reprice dialog ──────────────────────────────────
+    // ── Create Modal Logic ──────────────────────────────
+
+    private async Task OpenCreateModal()
+    {
+        showCreateModal = true;
+        isEditMode = false;
+        editingQuotationId = null;
+        newQuotation = new CreateQuotationRequest();
+        validUntilDate = DateTime.UtcNow.AddDays(30);
+        selectedBusinessPartner = null;
+        bpSearchTerm = null;
+        showBPDropdown = false;
+
+        if (allBusinessPartners.Count == 0)
+        {
+            await LoadMasterDataForCreate();
+        }
+        else
+        {
+            isLoadingMasterData = false;
+        }
+    }
 
     private async Task OpenRepriceModal(QuotationDto quotation)
     {
@@ -1365,9 +1690,15 @@
 
         quotation = detailed;
 
-        repriceQuotation = quotation;
+        isEditMode = true;
         editingQuotationId = quotation.Id;
-        showRepriceModal = true;
+        showCreateModal = true;
+        isLoadingMasterData = false;
+        selectedBusinessPartner = null;
+        showBPDropdown = false;
+        bpSearchTerm = string.IsNullOrWhiteSpace(quotation.CardName)
+            ? quotation.CardCode
+            : $"{quotation.CardCode} - {quotation.CardName}";
         validUntilDate = quotation.ValidUntil;
         newQuotation = new CreateQuotationRequest
         {
@@ -1399,14 +1730,59 @@
         };
     }
 
-    private void CloseRepriceModal()
+    private void CloseCreateModal()
     {
-        if (isSaving)
-            return;
-
-        showRepriceModal = false;
-        repriceQuotation = null;
+        showCreateModal = false;
+        isEditMode = false;
         editingQuotationId = null;
+        showBPDropdown = false;
+    }
+
+    private async Task LoadMasterDataForCreate()
+    {
+        isLoadingMasterData = true;
+        try
+        {
+            var response = await BusinessPartnerService.GetBusinessPartnersAsync();
+            allBusinessPartners = response?.BusinessPartners?.Where(bp => bp.CardType == "cCustomer").ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading master data for quotation creation");
+        }
+        finally
+        {
+            isLoadingMasterData = false;
+        }
+    }
+
+    private void SelectBusinessPartner(BusinessPartnerDto bp)
+    {
+        selectedBusinessPartner = bp;
+        newQuotation.CardCode = bp.CardCode ?? "";
+        newQuotation.CardName = bp.CardName;
+        newQuotation.ShipToAddress = bp.Address;
+        newQuotation.BillToAddress = bp.Address;
+        bpSearchTerm = $"{bp.CardCode} - {bp.CardName}";
+        showBPDropdown = false;
+    }
+
+    private void AddLineItem()
+    {
+        newQuotation.Lines.Add(new CreateQuotationLineRequest
+        {
+            Quantity = 1,
+            UnitPrice = 0,
+            TaxPercent = DefaultVatPercent
+        });
+    }
+
+    private void RemoveLineItem(int index)
+    {
+        if (index >= 0 && index < newQuotation.Lines.Count)
+        {
+            newQuotation.Lines.RemoveAt(index);
+        }
     }
 
     private decimal CalculateSubTotal()
@@ -1429,38 +1805,66 @@
         return CalculateSubTotal() - CalculateHeaderDiscount() + CalculateTaxTotal();
     }
 
-    private async Task SaveReprice()
+    private async Task SaveQuotation()
     {
-        if (!editingQuotationId.HasValue)
+        if (string.IsNullOrEmpty(newQuotation.CardCode))
         {
-            Snackbar.Add("No quotation selected for repricing.", Severity.Error);
+            Snackbar.Add("Please select a customer.", Severity.Warning);
             return;
         }
 
         if (newQuotation.Lines.Count == 0)
         {
-            Snackbar.Add("A quotation needs at least one line item.", Severity.Warning);
+            Snackbar.Add("Please add at least one line item.", Severity.Warning);
             return;
         }
 
-        isSaving = true;
+        if (string.IsNullOrWhiteSpace(newQuotation.Currency))
+        {
+            Snackbar.Add("Please select a currency.", Severity.Warning);
+            return;
+        }
+
+        isCreating = true;
         try
         {
             newQuotation.ValidUntil = validUntilDate;
 
-            var updated = await QuotationService.RepriceQuotationAsync(editingQuotationId.Value, newQuotation);
-            if (updated != null)
+            if (isEditMode)
             {
-                ReplaceQuotation(updated);
-                selectedQuotation = selectedQuotation?.Id == updated.Id ? updated : selectedQuotation;
-                isSaving = false;
-                CloseRepriceModal();
-                Snackbar.Add($"Quotation {updated.QuotationNumber} updated locally. SAP review is still required.", Severity.Warning);
-                await AuditService.LogAsync(AuditActions.UpdateQuotation, "Quotation", updated.QuotationNumber, "Repriced local quotation; SAP review pending.");
+                if (!editingQuotationId.HasValue)
+                {
+                    Snackbar.Add("No quotation selected for repricing.", Severity.Error);
+                    return;
+                }
+
+                var updated = await QuotationService.RepriceQuotationAsync(editingQuotationId.Value, newQuotation);
+                if (updated != null)
+                {
+                    ReplaceQuotation(updated);
+                    selectedQuotation = selectedQuotation?.Id == updated.Id ? updated : selectedQuotation;
+                    CloseCreateModal();
+                    Snackbar.Add($"Quotation {updated.QuotationNumber} updated locally. SAP review is still required.", Severity.Warning);
+                    await AuditService.LogAsync(AuditActions.UpdateQuotation, "Quotation", updated.QuotationNumber, "Repriced local quotation; SAP review pending.");
+                }
+                else
+                {
+                    Snackbar.Add("Failed to update quotation.", Severity.Error);
+                }
             }
             else
             {
-                Snackbar.Add("Failed to update quotation.", Severity.Error);
+                var created = await QuotationService.CreateQuotationAsync(newQuotation);
+                if (created != null)
+                {
+                    Snackbar.Add($"Quotation {created.QuotationNumber} created successfully!", Severity.Success);
+                    CloseCreateModal();
+                    await LoadQuotations();
+                }
+                else
+                {
+                    Snackbar.Add("Failed to create quotation.", Severity.Error);
+                }
             }
         }
         catch (Exception ex)
@@ -1469,7 +1873,7 @@
         }
         finally
         {
-            isSaving = false;
+            isCreating = false;
         }
     }
 
@@ -1496,48 +1900,4 @@
             && quotation.Status != QuotationStatus.Converted
             && quotation.Status != QuotationStatus.Cancelled;
     }
-
-    private static bool CanConvert(QuotationDto quotation)
-        => (quotation.Status == QuotationStatus.Approved || quotation.Status == QuotationStatus.Accepted)
-            && quotation.SalesOrderId == null;
-
-    /// <summary>
-    /// True when the quotation's validity has run out and that still matters — a converted or
-    /// cancelled quotation is settled, so its lapsed date is not worth flagging.
-    /// </summary>
-    private static bool HasLapsed(QuotationDto quotation)
-        => quotation.ValidUntil.HasValue
-            && quotation.ValidUntil.Value < DateTime.UtcNow
-            && quotation.Status != QuotationStatus.Converted
-            && quotation.Status != QuotationStatus.Cancelled;
-
-    private static string ValidUntilClass(QuotationDto quotation)
-    {
-        if (!quotation.ValidUntil.HasValue)
-            return "is-unset";
-
-        return HasLapsed(quotation) ? "is-lapsed" : string.Empty;
-    }
-
-    /// <summary>
-    /// The dot beside a status. Nocturne reserves a colour fill for the states that
-    /// need acting on; everything settled reads in neutral ink.
-    /// </summary>
-    private static string GetStatusDotClass(QuotationStatus status) => status switch
-    {
-        QuotationStatus.Draft => "is-draft",
-        QuotationStatus.Pending or QuotationStatus.Sent => "is-pending",
-        QuotationStatus.Approved or QuotationStatus.Accepted => "is-live",
-        QuotationStatus.Converted => "is-done",
-        QuotationStatus.Rejected => "is-bad",
-        QuotationStatus.Expired or QuotationStatus.Cancelled => "is-void",
-        _ => "is-draft"
-    };
-
-    private static string GetStatusTextClass(QuotationStatus status) => status switch
-    {
-        QuotationStatus.Approved or QuotationStatus.Accepted => "is-live",
-        QuotationStatus.Rejected => "is-bad",
-        _ => string.Empty
-    };
 }

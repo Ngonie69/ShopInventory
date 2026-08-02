@@ -1,1418 +1,1870 @@
 /* ==========================================================================
    Quotations — Nocturne
 
-   The quotation list on the Nocturne design system, sibling to
-   sales-orders.css and credit-notes.css: a dense, quiet table on a
-   near-neutral blue-grey ground, Inter at 500, 8px radii, outlined buttons,
-   and freestanding rules that fade to transparent over 48px at each end.
+   Replicates the imported design (Quotations.dc.html): a stated header over a
+   row of five figures that double as the status filter, one filter bar, and
+   the list itself — a seven-column grid inside a single card, with the rows
+   control and the numbered pager along its foot.
 
-   There is no imported design file for this page. The palette and the
-   density scale are copied verbatim from credit-notes.css so the list pages
-   stay one system; what is new here is the source toggle (this list can be
-   read from SAP or from the local projection) and the reprice dialog's
-   editable line table.
+   The import is drawn as a single dark scheme, so the dark palette below is
+   the design's own — #161826 ground, #232532 surface, #292b31 hover, the
+   #9184d9 blurple accent with its accent-900/800/700 ramp, and the two OKLCH
+   status hues (152 for approved, 70 for expiring and expired) — unchanged.
+   The light palette is its daylight counterpart, re-anchored on paper with
+   the accent taken down to #5f52c4 so it can carry the quote numbers and the
+   kicker (#9184d9 is 3.0:1 on white — enough for chrome, not for text).
 
-   Light is the base and `.dark-theme` the override, matching the order
-   App.razor's pre-paint script stamps the class in, so neither scheme
-   flashes.
+   Light is the base and `.dark-theme` the override, matching the rest of the
+   app and the order App.razor's pre-paint script stamps the class in, so
+   neither scheme flashes. Token names and values are deliberately identical
+   to business-partners.css and approval-process.css so the pages stay one
+   system.
 
-   Rules live in this file rather than an inline Razor <style> block for the
-   same two reasons as credit-notes.css: a scoped style block cannot reach
-   native controls the way these selectors need to, and app.css carries
-   global `.dark-theme input/select/textarea` rules that have to be
-   out-specified — so every control carries a class and every control
-   selector is two classes deep, winning regardless of load order.
+   Rules live here rather than an inline Razor <style> block for the same
+   reason as those two: app.css carries global `.dark-theme input/select`
+   rules that have to be out-specified, so every control carries a class and
+   every control selector is two classes deep, winning regardless of load
+   order. Headings are pinned to Nocturne's 500 because Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would otherwise bolden them past the weight
+   this system allows.
+
+   The seven columns are one `grid-template-columns` declaration shared by the
+   header strip and every row, so the two cannot drift. Below 1000px the row
+   stops being a grid row and becomes a labelled card, the same treatment
+   business-partners.css gives its directory.
    ========================================================================== */
 
-.qtx,
-.qtx-overlay {
-    --qtx-bg: #f4f4f8;
-    --qtx-surface: #ffffff;
-    --qtx-field: #ffffff;
-    --qtx-ink: #1b1c26;
-    --qtx-ink-2: #35374a;
-    --qtx-mute: #4e5164;
-    --qtx-mute-2: #656879;
-    --qtx-mute-3: #7b7e8e;
-    --qtx-faint: #a0a2ae;
-    --qtx-placeholder: #9498a8;
-    --qtx-divider: rgba(27, 28, 38, .14);
-    --qtx-rowline: rgba(27, 28, 38, .09);
-    --qtx-hover: rgba(27, 28, 38, .04);
-    --qtx-press: rgba(27, 28, 38, .09);
-    --qtx-field-edge: #d4d6e2;
-    --qtx-field-edge-hi: #a9adc0;
-    --qtx-accent: #5f52c4;
-    --qtx-accent-rgb: 95, 82, 196;
-    /* The accent's text-carrying step: on the dark ground the design uses a
-       pale lavender; on paper the same role has to be the deep end of the
-       ramp instead. */
-    --qtx-accent-text: #473d99;
-    --qtx-tag-bg: #e4e7f5;
-    --qtx-tag-ink: #3f424d;
-    --qtx-dot: #9397ab;
-    --qtx-dot-quiet: #b2b6ca;
-    --qtx-dot-faint: #cfd3e5;
-    --qtx-bad: #b3273c;
-    --qtx-bad-bg: #fdf0f2;
-    --qtx-bad-edge: #f0ccd3;
-    --qtx-warn: #8a5a05;
-    --qtx-ok: #0b6b4f;
-    --qtx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
-    --qtx-shadow-lg: 0 0 0 1px #d9dbe8, 0 16px 40px rgba(27, 28, 38, .16);
-    --qtx-scrim: rgba(41, 43, 49, .34);
+.qtn {
+    --qtn-bg: #f4f4f8;
+    --qtn-surface: #ffffff;
+    --qtn-raised: #f7f7fb;
+    --qtn-ink: #1b1c26;
+    --qtn-ink-2: #35374a;
+    --qtn-mute: #4e5164;
+    --qtn-mute-2: #656879;
+    --qtn-mute-3: #7b7e8e;
+    --qtn-faint: #a0a2ae;
+    --qtn-placeholder: #9498a8;
+    --qtn-divider: rgba(27, 28, 38, .14);
+    --qtn-rule: rgba(27, 28, 38, .08);
+    --qtn-hover: rgba(27, 28, 38, .04);
+    --qtn-press: rgba(27, 28, 38, .09);
+    --qtn-field-bg: rgba(27, 28, 38, .04);
+    --qtn-field-edge: #d4d6e2;
+    --qtn-field-edge-hi: #a9adc0;
+    --qtn-accent: #5f52c4;
+    --qtn-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-300/400 (a pale lavender); on paper the same role has to
+       be the deep end of the ramp instead. */
+    --qtn-accent-text: #473d99;
+    --qtn-avatar-bg: rgba(27, 28, 38, .07);
+    --qtn-scrim: rgba(27, 28, 38, .45);
+
+    /* The two status hues, as light-theme counterparts of the design's OKLCH
+       pairs: an ink that clears 4.5:1 on its own wash, and a wash and edge
+       quiet enough to read as a badge rather than an alert. */
+    --qtn-ok-ink: #15633f;
+    --qtn-ok-bg: #e2f3ea;
+    --qtn-ok-edge: #a6d5be;
+    --qtn-ok-tone: #1c7d51;
+    --qtn-warn-ink: #7a4f10;
+    --qtn-warn-bg: #fbf1de;
+    --qtn-warn-edge: #e0c68b;
+    --qtn-warn-tone: #9c6812;
+
+    --qtn-skel: linear-gradient(90deg, rgba(27, 28, 38, .05) 25%, rgba(27, 28, 38, .1) 37%, rgba(27, 28, 38, .05) 63%);
+    --qtn-thumb: #c8cad6;
+    --qtn-shadow-lg: 0 0 0 1px rgba(27, 28, 38, .1), -14px 0 44px rgba(27, 28, 38, .16);
+    --qtn-shadow-modal: 0 0 0 1px rgba(27, 28, 38, .1), 0 24px 64px rgba(27, 28, 38, .22);
     /* The select caret, whole: a var() inside the data URL's quoted string
        would not be substituted, so each theme carries the finished image. */
-    --qtx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --qtx-scheme: light;
+    --qtn-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --qtn-scheme: light;
 
     /* Nocturne's compact scale — density 0.70x. */
-    --qtx-s1: 2.8px;
-    --qtx-s2: 5.6px;
-    --qtx-s3: 8.4px;
-    --qtx-s4: 11.2px;
-    --qtx-s6: 16.8px;
-    --qtx-s8: 22.4px;
-    --qtx-r-sm: 4px;
-    --qtx-r-md: 8px;
-    --qtx-r-lg: 14px;
+    --qtn-s1: 2.8px;
+    --qtn-s2: 5.6px;
+    --qtn-s3: 8.4px;
+    --qtn-s4: 11.2px;
+    --qtn-s6: 16.8px;
+    --qtn-s8: 22.4px;
+    --qtn-r-sm: 4px;
+    --qtn-r-md: 8px;
+    --qtn-r-lg: 14px;
 
-    color-scheme: var(--qtx-scheme);
+    /* The list's seven columns, declared once. The actions column is sized for
+       the widest case — the five controls a local draft can carry — so the row
+       does not reflow between statuses; against SAP only two of them show and
+       the column reads as the narrow one the design draws. */
+    --qtn-cols: 108px minmax(0, 1.7fr) 106px 112px 122px minmax(126px, .95fr) 146px;
+
+    color-scheme: var(--qtn-scheme);
 }
 
-.dark-theme .qtx,
-.dark-theme .qtx-overlay {
-    --qtx-bg: #161826;
-    --qtx-surface: #232532;
-    --qtx-field: #232532;
-    --qtx-ink: #e9e9ed;
-    --qtx-ink-2: #aeaeb5;
-    --qtx-mute: #9999a1;
-    --qtx-mute-2: #87878f;
-    --qtx-mute-3: #72727d;
-    --qtx-faint: #5a5a66;
-    --qtx-placeholder: #6b6b77;
-    --qtx-divider: rgba(233, 233, 237, .16);
-    --qtx-rowline: rgba(233, 233, 237, .08);
-    --qtx-hover: rgba(233, 233, 237, .04);
-    --qtx-press: rgba(233, 233, 237, .1);
-    --qtx-field-edge: rgba(233, 233, 237, .16);
-    --qtx-field-edge-hi: rgba(233, 233, 237, .45);
-    --qtx-accent: #9184d9;
-    --qtx-accent-rgb: 145, 132, 217;
-    --qtx-accent-text: #d2cefd;
-    --qtx-tag-bg: #3f424d;
-    --qtx-tag-ink: #f3f5fe;
-    --qtx-dot: #b2b6ca;
-    --qtx-dot-quiet: #75798c;
-    --qtx-dot-faint: #595d6c;
-    --qtx-bad: #e8697d;
-    --qtx-bad-bg: #2f2028;
-    --qtx-bad-edge: #4a2c35;
-    --qtx-warn: #e0b062;
-    --qtx-ok: #b6ecd8;
-    --qtx-shadow-sm: 0 0 0 1px #3f424d;
-    --qtx-shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, .65);
-    --qtx-scrim: rgba(10, 11, 18, .62);
-    --qtx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --qtx-scheme: dark;
+.dark-theme .qtn {
+    --qtn-bg: #161826;
+    --qtn-surface: #232532;
+    --qtn-raised: #292b31;
+    --qtn-ink: #e9e9ed;
+    --qtn-ink-2: #e4e7f5;
+    --qtn-mute: #cfd3e5;
+    --qtn-mute-2: #b2b6ca;
+    --qtn-mute-3: #9397ab;
+    --qtn-faint: #75798c;
+    --qtn-placeholder: #75798c;
+    --qtn-divider: rgba(233, 233, 237, .16);
+    --qtn-rule: rgba(243, 245, 254, .07);
+    --qtn-hover: rgba(243, 245, 254, .04);
+    --qtn-press: rgba(243, 245, 254, .1);
+    --qtn-field-bg: rgba(243, 245, 254, .05);
+    --qtn-field-edge: rgba(233, 233, 237, .16);
+    --qtn-field-edge-hi: rgba(233, 233, 237, .45);
+    --qtn-accent: #9184d9;
+    --qtn-accent-rgb: 145, 132, 217;
+    --qtn-accent-text: #d2cefd;
+    --qtn-avatar-bg: rgba(243, 245, 254, .07);
+    --qtn-scrim: rgba(10, 11, 18, .6);
+
+    /* The design's own status colours. */
+    --qtn-ok-ink: oklch(0.85 0.10 152);
+    --qtn-ok-bg: oklch(0.45 0.09 152 / 0.25);
+    --qtn-ok-edge: oklch(0.55 0.10 152 / 0.45);
+    --qtn-ok-tone: oklch(0.80 0.13 152);
+    --qtn-warn-ink: oklch(0.86 0.09 70);
+    --qtn-warn-bg: oklch(0.45 0.09 70 / 0.25);
+    --qtn-warn-edge: oklch(0.58 0.10 70 / 0.45);
+    --qtn-warn-tone: oklch(0.80 0.11 70);
+
+    --qtn-skel: linear-gradient(90deg, rgba(243, 245, 254, .05) 25%, rgba(243, 245, 254, .11) 37%, rgba(243, 245, 254, .05) 63%);
+    --qtn-thumb: #3f424d;
+    --qtn-shadow-lg: 0 0 0 1px #3f424d, -14px 0 44px rgba(0, 0, 0, .6);
+    --qtn-shadow-modal: 0 0 0 1px #3f424d, 0 24px 64px rgba(0, 0, 0, .65);
+    --qtn-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --qtn-scheme: dark;
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
 
-.qtx {
+.qtn {
     min-height: 100vh;
-    background: var(--qtx-bg);
-    color: var(--qtx-ink);
+    background: var(--qtn-bg);
+    color: var(--qtn-ink);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
 }
 
-.qtx *,
-.qtx-overlay * {
+.qtn * {
     box-sizing: border-box;
 }
 
-.qtx :focus-visible,
-.qtx-overlay :focus-visible {
-    outline: 2px solid var(--qtx-accent);
+.qtn :focus-visible {
+    outline: 2px solid var(--qtn-accent);
     outline-offset: 2px;
 }
 
-.qtx ::selection,
-.qtx-overlay ::selection {
-    background: rgba(var(--qtx-accent-rgb), .3);
+.qtn ::selection {
+    background: rgba(var(--qtn-accent-rgb), .3);
 }
 
-/* Nocturne's signature: freestanding rules fade to transparent over 48px at
-   each end. Box outlines and in-control separators stay solid. */
-.qtx-rule {
-    height: 1px;
-    background: linear-gradient(to right,
-            transparent, var(--qtx-divider) 48px,
-            var(--qtx-divider) calc(100% - 48px), transparent);
-}
-
-/* ── Header ────────────────────────────────────────────────────────────── */
-/* Seated on the app bar rather than the viewport top, and opaque rather than
-   the design's frosted glass: a translucent bar only hides what passes beneath
-   it while the compositor honours the backdrop blur, and software rendering, a
-   reduced-transparency setting or an offscreen capture all drop the blur.
-   --qtx-bg is the page's own ground, so an opaque bar is indistinguishable
-   from the design at rest. */
-
-.qtx-head {
-    position: sticky;
-    top: var(--kf-topbar-h, 74px);
-    z-index: 30;
-    background: var(--qtx-bg);
-}
-
-.qtx-shell {
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: var(--qtx-s6) 32px;
-    display: flex;
-    align-items: flex-end;
-    gap: var(--qtx-s8);
-}
-
-.qtx-titles {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    margin-right: auto;
-    min-width: 0;
-}
-
-.qtx-titles-row {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s3);
-}
-
-.qtx-titles-row i {
-    font-size: 17px;
-    color: var(--qtx-accent);
-}
-
-.qtx-title {
-    margin: 0;
-    font-size: 22px;
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.qtn h1,
+.qtn h2,
+.qtn h3 {
+    font-family: 'Inter', system-ui, sans-serif;
     font-weight: 500;
-    line-height: 1.12;
-    letter-spacing: -.01em;
-    color: var(--qtx-ink);
-}
-
-.qtx-sub {
     margin: 0;
-    font-size: 12.5px;
-    color: var(--qtx-mute-2);
 }
 
-.qtx-head-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s4);
-}
-
-.qtx-count {
-    font-size: 12px;
-    color: var(--qtx-mute-3);
+.qtn-num {
+    text-align: right;
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-/* ── Body ──────────────────────────────────────────────────────────────── */
-
-.qtx-body {
-    max-width: 1320px;
-    margin: 0 auto;
-    padding: var(--qtx-s8) 32px 96px;
-    display: flex;
-    flex-direction: column;
-    gap: var(--qtx-s6);
 }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 /* Nocturne outlines its primary action rather than filling it. */
 
-.qtx .qtx-btn,
-.qtx-overlay .qtx-btn {
+.qtn .qtn-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 7px;
     height: 32px;
-    padding: var(--qtx-s2) calc(var(--qtx-s3) * 1.2);
+    padding: var(--qtn-s2) calc(var(--qtn-s3) * 1.5);
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: 14px;
+    font-size: 12.5px;
     font-weight: 500;
     line-height: 1.2;
-    color: var(--qtx-ink);
+    color: var(--qtn-mute);
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--qtx-r-md);
+    border: 1px solid var(--qtn-divider);
+    border-radius: var(--qtn-r-md);
     cursor: pointer;
-    text-decoration: none;
     white-space: nowrap;
+    text-decoration: none;
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.qtx .qtx-btn:disabled,
-.qtx-overlay .qtx-btn:disabled {
+.qtn .qtn-btn:hover:not(:disabled) {
+    color: var(--qtn-ink);
+    border-color: var(--qtn-field-edge-hi);
+    background: var(--qtn-hover);
+}
+
+.qtn .qtn-btn:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
 
-.qtx .qtx-btn-primary,
-.qtx-overlay .qtx-btn-primary {
-    color: var(--qtx-accent);
-    border-color: var(--qtx-accent);
-    letter-spacing: .02em;
+.qtn .qtn-btn i {
+    font-size: 15px;
+    line-height: 1;
 }
 
-.qtx .qtx-btn-primary:hover:not(:disabled),
-.qtx-overlay .qtx-btn-primary:hover:not(:disabled) {
-    background: rgba(var(--qtx-accent-rgb), .12);
-}
-
-.qtx .qtx-btn-primary:active:not(:disabled),
-.qtx-overlay .qtx-btn-primary:active:not(:disabled) {
-    background: rgba(var(--qtx-accent-rgb), .22);
-}
-
-.qtx .qtx-btn-secondary,
-.qtx-overlay .qtx-btn-secondary {
-    border-color: var(--qtx-divider);
-}
-
-.qtx .qtx-btn-secondary:hover:not(:disabled),
-.qtx-overlay .qtx-btn-secondary:hover:not(:disabled) {
-    background: var(--qtx-hover);
-}
-
-.qtx .qtx-btn-secondary:active:not(:disabled),
-.qtx-overlay .qtx-btn-secondary:active:not(:disabled) {
-    background: var(--qtx-press);
-}
-
-.qtx .qtx-btn-ghost,
-.qtx-overlay .qtx-btn-ghost {
-    color: var(--qtx-accent);
-    padding-inline: var(--qtx-s1);
-}
-
-.qtx .qtx-btn-ghost:hover:not(:disabled),
-.qtx-overlay .qtx-btn-ghost:hover:not(:disabled) {
-    background: rgba(var(--qtx-accent-rgb), .1);
-}
-
-.qtx .qtx-btn-ghost:active:not(:disabled),
-.qtx-overlay .qtx-btn-ghost:active:not(:disabled) {
-    background: rgba(var(--qtx-accent-rgb), .18);
-}
-
-.qtx .qtx-btn-bad,
-.qtx-overlay .qtx-btn-bad {
-    color: var(--qtx-bad);
-    border-color: var(--qtx-bad-edge);
-}
-
-.qtx .qtx-btn-bad:hover:not(:disabled),
-.qtx-overlay .qtx-btn-bad:hover:not(:disabled) {
-    background: var(--qtx-bad-bg);
-}
-
-.qtx .qtx-btn-sm,
-.qtx-overlay .qtx-btn-sm {
-    height: 30px;
-    font-size: 12.5px;
-}
-
-.qtx .qtx-btn-icon,
-.qtx-overlay .qtx-btn-icon {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-}
-
-.qtx .qtx-btn-icon-sm,
-.qtx-overlay .qtx-btn-icon-sm {
-    width: 26px;
-    height: 26px;
-    padding: 0;
-}
-
-/* Icon-only buttons draw their glyph inline rather than from the Phosphor
-   font: the glyph is their whole label, so a font that fails to load would
-   leave them reading as dead controls. Stroked at 1.7 to match the weight
-   Inter 500 sets beside them — same recipe as mobile-orders.css. */
-.qtx .qtx-btn svg,
-.qtx-overlay .qtx-btn svg {
+/* Every glyph is a stroked path carrying fill="none" as a presentation
+   attribute, which a `fill` declaration here would override — so the icon
+   rules set geometry only. */
+.qtn .qtn-btn svg {
     display: block;
+    flex: none;
     width: 15px;
     height: 15px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
 }
 
-/* ── Stat row ──────────────────────────────────────────────────────────── */
-
-.qtx-stats {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: var(--qtx-s4);
+.qtn .qtn-btn-primary {
+    color: var(--qtn-accent-text);
+    border-color: var(--qtn-accent);
 }
 
-.qtx-stat {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s4);
-    padding: var(--qtx-s4) var(--qtx-s6);
-    background: var(--qtx-surface);
-    border-radius: var(--qtx-r-md);
-    box-shadow: var(--qtx-shadow-sm);
+.qtn .qtn-btn-primary:hover:not(:disabled) {
+    color: var(--qtn-accent-text);
+    border-color: var(--qtn-accent);
+    background: rgba(var(--qtn-accent-rgb), .12);
 }
 
-.qtx-stat-mark {
-    width: 34px;
-    height: 34px;
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--qtx-r-md);
-    background: rgba(var(--qtx-accent-rgb), .1);
-    color: var(--qtx-accent);
-    font-size: 16px;
+.qtn .qtn-btn-primary:active:not(:disabled) {
+    background: rgba(var(--qtn-accent-rgb), .22);
 }
 
-.qtx-stat-mark.is-quiet {
-    background: var(--qtx-hover);
-    color: var(--qtx-mute);
+.qtn .qtn-btn-ghost {
+    color: var(--qtn-mute-2);
+    border-color: transparent;
 }
 
-.qtx-stat-value {
-    font-size: 19px;
-    font-weight: 500;
-    line-height: 1.15;
-    font-variant-numeric: tabular-nums;
+.qtn .qtn-btn-ghost:hover:not(:disabled) {
+    color: var(--qtn-ink);
+    border-color: transparent;
+    background: var(--qtn-hover);
 }
 
-.qtx-stat-label {
-    font-size: 11px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--qtx-mute-3);
-}
-
-/* ── Filters ───────────────────────────────────────────────────────────── */
-
-.qtx-filters {
-    display: flex;
-    align-items: flex-end;
-    gap: var(--qtx-s4);
-    flex-wrap: wrap;
-}
-
-.qtx-field > label {
-    display: block;
+.qtn .qtn-btn-sm {
+    height: 28px;
     font-size: 12px;
-    margin-bottom: 5px;
-    color: var(--qtx-mute);
+    padding-inline: var(--qtn-s4);
 }
 
-.qtx .qtx-input,
-.qtx-overlay .qtx-input {
-    width: 100%;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.3;
-    color: var(--qtx-ink);
-    caret-color: var(--qtx-accent);
-    background: var(--qtx-field);
-    background-image: none;
-    border: 1px solid var(--qtx-field-edge);
-    border-radius: var(--qtx-r-md);
-    appearance: none;
-    -webkit-appearance: none;
+/* Icon-only controls. Their glyph is their whole label, so every one of them
+   draws it inline rather than from the Phosphor font: a font that failed to
+   load would leave them reading as dead squares. */
+.qtn .qtn-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    padding: 0;
+    border: 1px solid var(--qtn-divider);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--qtn-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, border-color .13s, color .13s;
 }
 
-.qtx .qtx-input:hover,
-.qtx-overlay .qtx-input:hover {
-    border-color: var(--qtx-field-edge-hi);
+.qtn .qtn-icon-btn svg {
+    display: block;
+    width: 14px;
+    height: 14px;
 }
 
-.qtx .qtx-input:focus-visible,
-.qtx-overlay .qtx-input:focus-visible {
-    border-color: var(--qtx-accent);
-    outline-offset: 0;
+.qtn .qtn-icon-btn:hover:not(:disabled) {
+    color: var(--qtn-accent-text);
+    border-color: rgba(var(--qtn-accent-rgb), .55);
+    background: rgba(var(--qtn-accent-rgb), .12);
 }
 
-.qtx .qtx-input::placeholder,
-.qtx-overlay .qtx-input::placeholder {
-    color: var(--qtx-placeholder);
-    opacity: 1;
-    -webkit-text-fill-color: var(--qtx-placeholder);
-}
-
-.qtx .qtx-input:disabled,
-.qtx-overlay .qtx-input:disabled,
-.qtx .qtx-input[readonly],
-.qtx-overlay .qtx-input[readonly] {
-    background: var(--qtx-hover);
-    color: var(--qtx-mute);
+.qtn .qtn-icon-btn:disabled {
+    opacity: .4;
     cursor: not-allowed;
 }
 
-.qtx .qtx-input-num,
-.qtx-overlay .qtx-input-num {
-    font-variant-numeric: tabular-nums;
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the two actions stay
+   reachable while the list scrolls past.
+
+   Opaque, not frosted — same reason as .bp-head in business-partners.css: the
+   frosted bar's missing 12% lets the page title read straight through it
+   wherever the compositor skips the blur. --qtn-bg is the page ground, so the
+   at-rest look is unchanged. */
+.qtn-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--qtn-bg);
+    border-bottom: 1px solid var(--qtn-divider);
 }
 
-/* The date input's own indicator is the control's only affordance, so it is
-   tinted to the ink rather than left as the browser's black-on-dark default. */
-.qtx .qtx-input[type="date"]::-webkit-calendar-picker-indicator,
-.qtx-overlay .qtx-input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: .6;
+.qtn-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--qtn-s4) 28px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--qtn-s8);
 }
 
-.dark-theme .qtx .qtx-input[type="date"]::-webkit-calendar-picker-indicator,
-.dark-theme .qtx-overlay .qtx-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+.qtn-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-right: auto;
+    min-width: 0;
 }
 
-.qtx-select {
-    position: relative;
+.qtn-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--qtn-accent-text);
 }
 
-.qtx .qtx-select select.qtx-input,
-.qtx-overlay .qtx-select select.qtx-input {
-    padding-right: 26px;
-    cursor: pointer;
+.qtn-head h1 {
+    font-size: 26px;
+    letter-spacing: -.015em;
+    line-height: 1.1;
 }
 
-.qtx-select .qtx-caret {
-    position: absolute;
-    right: 9px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--qtx-caret) no-repeat center / contain;
-    pointer-events: none;
+.qtn-lede {
+    margin: 0;
+    font-size: 13px;
+    color: var(--qtn-mute-2);
+    max-width: 62ch;
+    text-wrap: pretty;
 }
 
-.qtx-filter-actions {
+.qtn-head-actions {
     display: flex;
     align-items: center;
-    gap: var(--qtx-s2);
-    margin-left: auto;
+    gap: var(--qtn-s3);
+    flex: none;
 }
 
-/* The source toggle. This list can be read from SAP or from the local
-   projection, and which one is showing changes what the rows mean — so the
-   control states both options rather than hiding one behind a select. */
-.qtx-seg {
-    display: inline-flex;
-    padding: 2px;
-    gap: 2px;
-    border: 1px solid var(--qtx-field-edge);
-    border-radius: var(--qtx-r-md);
-    background: var(--qtx-field);
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.qtn-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--qtn-s8) 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtn-s6);
 }
 
-.qtx .qtx-seg-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    height: 26px;
-    padding: 0 10px;
-    font-family: 'Inter', system-ui, sans-serif;
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--qtx-mute);
-    background: transparent;
+/* ── The five figures ──────────────────────────────────────────────────── */
+/* Each is the status filter as well as the count: pressing one narrows the
+   list, and the pressed card carries the accent rail the design draws across
+   its top edge. */
+
+.qtn-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--qtn-s4);
+}
+
+.qtn .qtn-stat {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+    padding: 12px 14px 13px;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    background: var(--qtn-surface);
     border: 0;
-    border-radius: calc(var(--qtx-r-md) - 3px);
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px var(--qtn-divider);
     cursor: pointer;
+    transition: background-color .14s, box-shadow .14s;
+}
+
+.qtn .qtn-stat:hover {
+    background: var(--qtn-raised);
+}
+
+.qtn .qtn-stat-on {
+    background: rgba(var(--qtn-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--qtn-accent-rgb), .5);
+}
+
+/* The 28px rail the design draws inside the pressed card's top edge. */
+.qtn .qtn-stat-on::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    top: 0;
+    width: 28px;
+    height: 2px;
+    background: var(--qtn-accent);
+}
+
+.qtn-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s3);
+    min-width: 0;
+}
+
+.qtn-stat-head i {
+    font-size: 15px;
+    line-height: 1;
+    flex: none;
+    color: var(--qtn-mute-3);
+}
+
+.qtn-stat-head span {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--qtn-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.qtx .qtx-seg-btn:hover:not(:disabled) {
-    color: var(--qtx-ink);
-    background: var(--qtx-hover);
+.qtn-stat-on .qtn-stat-head span {
+    color: var(--qtn-accent-text);
 }
 
-.qtx .qtx-seg-btn.is-on {
-    color: var(--qtx-accent-text);
-    background: rgba(var(--qtx-accent-rgb), .13);
+.qtn-tone-ok {
+    color: var(--qtn-ok-tone);
 }
 
-.qtx .qtx-seg-btn:disabled {
+.qtn-tone-warn {
+    color: var(--qtn-warn-tone);
+}
+
+.qtn-tone-accent {
+    color: var(--qtn-accent);
+}
+
+.qtn-stat-figures {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+}
+
+.qtn-stat-num {
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.qtn-stat-share {
+    font-size: 11.5px;
+    color: var(--qtn-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Filter bar ────────────────────────────────────────────────────────── */
+
+.qtn-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--qtn-s4);
+    padding: 13px 16px 14px;
+    border-radius: 10px;
+    background: var(--qtn-surface);
+    box-shadow: inset 0 0 0 1px var(--qtn-divider);
+    flex-wrap: wrap;
+}
+
+.qtn-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.qtn-field-grow {
+    flex: 1 1 180px;
+}
+
+.qtn-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--qtn-mute-3);
+}
+
+.qtn-filter-rule {
+    width: 1px;
+    height: 34px;
+    flex: none;
+    background: var(--qtn-divider);
+}
+
+.qtn-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s3);
+    margin-left: auto;
+}
+
+/* The source is two states of one question, so one segmented control rather
+   than two buttons. */
+.qtn-seg {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px;
+    border-radius: var(--qtn-r-md);
+    background: var(--qtn-field-bg);
+    box-shadow: inset 0 0 0 1px var(--qtn-divider);
+}
+
+.qtn .qtn-seg-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 13px;
+    border: 0;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--qtn-mute-2);
+    background: transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, color .14s, box-shadow .14s;
+}
+
+.qtn .qtn-seg-opt i {
+    font-size: 14px;
+    line-height: 1;
+    color: var(--qtn-mute-3);
+}
+
+.qtn .qtn-seg-opt:hover:not(:disabled) {
+    color: var(--qtn-ink);
+}
+
+.qtn .qtn-seg-opt:disabled {
     opacity: .5;
     cursor: not-allowed;
 }
 
-/* ── Card ──────────────────────────────────────────────────────────────── */
-
-.qtx-card {
-    display: flex;
-    flex-direction: column;
-    background: var(--qtx-surface);
-    border-radius: var(--qtx-r-md);
-    box-shadow: var(--qtx-shadow-sm);
-    overflow: hidden;
-    position: relative;
+.qtn .qtn-seg-on {
+    color: var(--qtn-accent-text);
+    background: rgba(var(--qtn-accent-rgb), .16);
+    box-shadow: inset 0 0 0 1px rgba(var(--qtn-accent-rgb), .45);
 }
 
-/* A refresh keeps the rows on screen and readable; this strip is the only
-   thing that moves, so a re-read never blanks the table. */
-.qtx-refresh {
-    position: absolute;
-    inset: 0 0 auto;
-    height: 2px;
-    overflow: hidden;
-    background: var(--qtx-rowline);
+.qtn .qtn-seg-on i {
+    color: inherit;
 }
 
-.qtx-refresh::after {
-    content: "";
-    display: block;
-    width: 35%;
-    height: 100%;
-    background: var(--qtx-accent);
-    animation: qtx-slide 1.4s ease-in-out infinite;
-}
+/* ── Controls ──────────────────────────────────────────────────────────── */
 
-@keyframes qtx-slide {
-    0% {
-        transform: translateX(-100%);
-    }
-
-    100% {
-        transform: translateX(320%);
-    }
-}
-
-.qtx-toolbar {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s4);
-    padding: var(--qtx-s4) var(--qtx-s6);
-    min-height: 54px;
-}
-
-.qtx-range {
-    font-size: 13px;
-    color: var(--qtx-mute-2);
-}
-
-.qtx-hint {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--qtx-s2);
-    font-size: 12px;
-    color: var(--qtx-mute-3);
-}
-
-.qtx-hint i {
-    font-size: 13px;
-}
-
-/* ── Table ─────────────────────────────────────────────────────────────── */
-
-.qtx-tablewrap {
-    overflow-x: auto;
-}
-
-.qtx-table {
+.qtn .qtn-input {
     width: 100%;
-    min-width: 980px;
-    border-collapse: collapse;
-    font-size: 13px;
-}
-
-.qtx-table th {
-    text-align: left;
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--qtx-mute);
-    padding: var(--qtx-s2);
-    white-space: nowrap;
-}
-
-.qtx-table td {
-    padding: var(--qtx-s2);
-    vertical-align: middle;
-}
-
-.qtx-table th:first-child,
-.qtx-table td:first-child {
-    padding-left: var(--qtx-s6);
-}
-
-.qtx-table th:last-child,
-.qtx-table td:last-child {
-    padding-right: var(--qtx-s6);
-    text-align: right;
-    white-space: nowrap;
-}
-
-.qtx-num {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-}
-
-/* Row rules are painted as row-level strips so the end-fade spans the row
-   rather than restarting in every cell. */
-.qtx-table thead tr {
-    background: linear-gradient(to right,
-            transparent, var(--qtx-divider) 48px,
-            var(--qtx-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.qtx-table tbody tr {
-    background: linear-gradient(to right,
-            transparent, var(--qtx-rowline) 48px,
-            var(--qtx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.qtx-table tbody tr:hover {
-    /* the hover tint layers over the row rule, which keeps painting */
-    background:
-        linear-gradient(var(--qtx-hover), var(--qtx-hover)) no-repeat 0 0 / 100% 100%,
-        linear-gradient(to right,
-            transparent, var(--qtx-rowline) 48px,
-            var(--qtx-rowline) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
-}
-
-.qtx .qtx-link,
-.qtx-overlay .qtx-link {
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-    color: var(--qtx-accent);
-    background: none;
-    border: 0;
-    padding: 0;
-    font-size: inherit;
-    font-family: inherit;
-    cursor: pointer;
-    text-decoration: none;
-    text-underline-offset: 3px;
-}
-
-.qtx .qtx-link:hover,
-.qtx-overlay .qtx-link:hover {
-    color: var(--qtx-accent-text);
-    text-decoration: underline;
-}
-
-.qtx-cust {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 140px;
-}
-
-.qtx-cust-name {
-    font-weight: 500;
-}
-
-.qtx-cust-code {
-    font-size: 11.5px;
-    letter-spacing: .02em;
-    color: var(--qtx-mute-3);
-}
-
-.qtx-date {
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    color: var(--qtx-ink-2);
-}
-
-.qtx-date.is-unset {
-    color: var(--qtx-faint);
-}
-
-/* An expiry that has passed is the one date on this page worth colouring:
-   it changes what can still be done with the quotation. */
-.qtx-date.is-lapsed {
-    color: var(--qtx-bad);
-}
-
-.qtx-curr {
+    min-height: 32px;
+    padding: 6px 11px;
+    font-family: 'Inter', system-ui, sans-serif;
     font-size: 12.5px;
-    color: var(--qtx-mute-2);
+    line-height: 1.3;
+    color: var(--qtn-ink);
+    caret-color: var(--qtn-accent);
+    background: var(--qtn-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--qtn-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
 }
 
-.qtx-tag {
+.qtn .qtn-input:hover:not(:disabled) {
+    border-color: var(--qtn-field-edge);
+}
+
+.qtn .qtn-input:focus-visible {
+    border-color: rgba(var(--qtn-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.qtn .qtn-input:disabled,
+.qtn .qtn-input[readonly] {
+    color: var(--qtn-mute-2);
+    cursor: not-allowed;
+}
+
+.qtn .qtn-input::placeholder {
+    color: var(--qtn-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--qtn-placeholder);
+}
+
+.qtn .qtn-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The number spinners reserve room inside the field even when they are only
+   painted on hover, which clipped "15.5" to "15." in the line editor's
+   narrowest columns. The step arrows are no loss: every one of these fields is
+   typed into. */
+.qtn .qtn-input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.qtn .qtn-input[type="number"]::-webkit-outer-spin-button,
+.qtn .qtn-input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+}
+
+.qtn textarea.qtn-input {
+    min-height: 60px;
+    resize: vertical;
+}
+
+/* The date field's own picker button is a UA control that ignores the
+   palette, so it is tinted rather than restyled. */
+.qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: grayscale(1) opacity(.55);
+    cursor: pointer;
+}
+
+.dark-theme .qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) grayscale(1) opacity(.6);
+}
+
+.qtn-input-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.qtn-input-icon > i {
+    position: absolute;
+    left: 10px;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--qtn-mute-3);
+    pointer-events: none;
+}
+
+.qtn .qtn-input-icon .qtn-input {
+    padding-left: 31px;
+}
+
+.qtn-select {
+    position: relative;
+    display: flex;
+}
+
+.qtn .qtn-select select.qtn-input {
+    padding: 6px 28px 6px 11px;
+    cursor: pointer;
+}
+
+.qtn-select .qtn-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--qtn-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── The list ──────────────────────────────────────────────────────────── */
+
+.qtn-card {
+    border-radius: 10px;
+    background: var(--qtn-surface);
+    box-shadow: inset 0 0 0 1px var(--qtn-divider);
+    overflow: hidden;
+}
+
+.qtn-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s4);
+    padding: 14px 18px 12px;
+    flex-wrap: wrap;
+}
+
+.qtn-card-head h2 {
+    font-size: 14px;
+    letter-spacing: -.01em;
+}
+
+.qtn-source-tag {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    letter-spacing: .02em;
-    padding: 2px 8px;
-    border-radius: calc(var(--qtx-r-md) * .75);
-    white-space: nowrap;
-    background: var(--qtx-tag-bg);
-    color: var(--qtx-tag-ink);
+    height: 20px;
+    padding: 0 8px;
+    border-radius: var(--qtn-r-sm);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    color: var(--qtn-accent-text);
+    background: rgba(var(--qtn-accent-rgb), .16);
+    box-shadow: inset 0 0 0 1px rgba(var(--qtn-accent-rgb), .45);
 }
 
-.qtx-status {
+.qtn-range {
+    font-size: 12px;
+    color: var(--qtn-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.qtn-card-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.qtn .qtn-tool {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--qtn-mute-2);
+    background: transparent;
+    border: 1px solid var(--qtn-divider);
+    border-radius: var(--qtn-r-md);
+    cursor: pointer;
     white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.qtx-status .qtx-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    flex: none;
-    background: var(--qtx-dot);
-}
-
-.qtx-dot.is-draft {
-    background: var(--qtx-dot-quiet);
-}
-
-.qtx-dot.is-pending {
-    background: var(--qtx-warn);
-}
-
-.qtx-dot.is-live {
-    background: var(--qtx-accent);
-}
-
-.qtx-dot.is-done {
-    background: var(--qtx-ok);
-}
-
-.qtx-dot.is-bad {
-    background: var(--qtx-bad);
-}
-
-.qtx-dot.is-void {
-    background: var(--qtx-dot-faint);
-}
-
-.qtx-status-text {
-    color: var(--qtx-mute);
-}
-
-.qtx-status-text.is-live {
-    color: var(--qtx-accent-text);
-}
-
-.qtx-status-text.is-bad {
-    color: var(--qtx-bad);
-}
-
-.qtx-rowactions {
-    display: inline-flex;
-    gap: var(--qtx-s1);
-    justify-content: flex-end;
-    align-items: center;
-}
-
-/* ── Empty / loading ───────────────────────────────────────────────────── */
-
-.qtx-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--qtx-s3);
-    padding: 56px var(--qtx-s6);
-    font-size: 13.5px;
-    text-align: center;
-}
-
-.qtx-empty i {
-    font-size: 22px;
-    color: var(--qtx-accent);
-    opacity: .8;
-}
-
-.qtx-empty-sub {
-    font-size: 12.5px;
-    color: var(--qtx-mute-2);
-    max-width: 42ch;
-}
-
-.qtx-skel {
-    height: 11px;
-    border-radius: var(--qtx-r-sm);
-    background: var(--qtx-rowline);
-    animation: qtx-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes qtx-pulse {
-    0%, 100% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: .45;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .qtx-skel {
-        animation: none;
-    }
-
-    .qtx-refresh::after {
-        animation-duration: 3s;
-    }
-}
-
-/* ── Footer / pager ────────────────────────────────────────────────────── */
-
-.qtx-foot {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s4);
-    padding: var(--qtx-s4) var(--qtx-s6);
-    border-top: 1px solid var(--qtx-divider);
-    flex-wrap: wrap;
-}
-
-.qtx-foot-range {
-    font-size: 12px;
-    color: var(--qtx-mute-3);
-    font-variant-numeric: tabular-nums;
-}
-
-.qtx-pagesize {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--qtx-s2);
-    font-size: 12px;
-    color: var(--qtx-mute-3);
-}
-
-.qtx .qtx-pagesize select.qtx-input {
-    width: auto;
-    min-height: 28px;
-    padding: 2px 24px 2px 8px;
-    font-size: 12.5px;
-}
-
-.qtx-pager {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s2);
-    margin-left: auto;
-}
-
-.qtx-page-label {
-    font-size: 12px;
-    color: var(--qtx-mute-2);
-    font-variant-numeric: tabular-nums;
-    min-width: 74px;
-    text-align: center;
-}
-
-/* ── Alert ─────────────────────────────────────────────────────────────── */
-
-.qtx-alert {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--qtx-s3);
-    padding: var(--qtx-s3) var(--qtx-s4);
-    border-radius: var(--qtx-r-md);
-    background: var(--qtx-bad-bg);
-    border: 1px solid var(--qtx-bad-edge);
-    color: var(--qtx-bad);
-    font-size: 13px;
-}
-
-.qtx-alert-body {
-    flex: 1;
-}
-
-/* ── Overlays: drawer and dialogs ──────────────────────────────────────── */
-/* Both render below the app bar rather than over it: the page container is a
-   stacking context, so an overlay centred on the full viewport is painted
-   over by the topbar however high its z-index. */
-
-.qtx-overlay {
-    font-family: 'Inter', system-ui, sans-serif;
-    color: var(--qtx-ink);
-}
-
-.qtx-scrim {
-    position: fixed;
-    inset: var(--kf-topbar-h, 74px) 0 0;
-    background: var(--qtx-scrim);
-    z-index: 9998;
-}
-
-.qtx-drawer {
-    position: fixed;
-    top: var(--kf-topbar-h, 74px);
-    right: 0;
-    width: min(720px, 95vw);
-    height: calc(100vh - var(--kf-topbar-h, 74px));
-    z-index: 9999;
-    display: flex;
-    flex-direction: column;
-    background: var(--qtx-surface);
-    box-shadow: var(--qtx-shadow-lg);
+.qtn .qtn-tool i {
     font-size: 14px;
+    line-height: 1;
 }
 
-.qtx-drawer-head {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s4);
-    padding: var(--qtx-s4) var(--qtx-s6);
-    flex-shrink: 0;
-    border-bottom: 1px solid var(--qtx-divider);
+.qtn .qtn-tool:hover:not(:disabled) {
+    color: var(--qtn-ink);
+    border-color: var(--qtn-field-edge-hi);
 }
 
-.qtx-drawer-titles {
-    margin-right: auto;
-    min-width: 0;
+.qtn .qtn-tool-on {
+    color: var(--qtn-accent-text);
+    border-color: rgba(var(--qtn-accent-rgb), .5);
+    background: rgba(var(--qtn-accent-rgb), .14);
 }
 
-.qtx-drawer-title {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -.01em;
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s3);
-}
+/* ── The grid ──────────────────────────────────────────────────────────── */
 
-.qtx-drawer-title i {
-    color: var(--qtx-accent);
-    font-size: 15px;
-}
-
-.qtx-drawer-sub {
-    margin: 0;
-    font-size: 12.5px;
-    color: var(--qtx-mute-2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.qtx-drawer-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: var(--qtx-s6);
-    display: flex;
-    flex-direction: column;
-    gap: var(--qtx-s6);
-}
-
-.qtx-drawer-foot {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: var(--qtx-s2);
-    padding: var(--qtx-s4) var(--qtx-s6);
-    border-top: 1px solid var(--qtx-divider);
-    flex-shrink: 0;
-    flex-wrap: wrap;
-}
-
-.qtx-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--qtx-s4);
-}
-
-.qtx-dt {
-    font-size: 11px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--qtx-mute-3);
-    margin-bottom: 2px;
-}
-
-.qtx-dd {
-    font-size: 13.5px;
-    color: var(--qtx-ink);
-}
-
-.qtx-sect {
-    font-size: 11px;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--qtx-accent);
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s2);
-    margin-bottom: var(--qtx-s3);
-}
-
-.qtx-note {
-    padding: var(--qtx-s3) var(--qtx-s4);
-    border-radius: var(--qtx-r-md);
-    background: var(--qtx-hover);
-    font-size: 13px;
-    color: var(--qtx-ink-2);
-}
-
-/* Only for text that arrives with its own line breaks — a quotation's comments
-   and terms come from SAP as typed. It must not go on `.qtx-note` itself:
-   pre-wrap would then also preserve the Razor source's own indentation and
-   line wrapping in every fixed note on the page. */
-.qtx-note.is-prose {
-    white-space: pre-wrap;
-}
-
-.qtx-note .qtx-dt {
-    color: var(--qtx-mute-3);
-}
-
-.qtx-note.is-warn {
-    background: rgba(var(--qtx-accent-rgb), .08);
-    border: 1px solid var(--qtx-accent);
-    color: var(--qtx-ink-2);
-}
-
-.qtx-lines {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12.5px;
-}
-
-.qtx-lines th {
-    text-align: left;
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--qtx-mute);
-    padding: var(--qtx-s2);
-    white-space: nowrap;
-}
-
-.qtx-lines td {
-    padding: var(--qtx-s2);
-    color: var(--qtx-ink-2);
-}
-
-/* A row rule, not a row fill: the strip needs a gradient, because a bare colour
-   in `background` ignores the 1px size and floods the whole row. These rules do
-   not fade at the ends — inside a box, Nocturne keeps its separators solid. */
-.qtx-lines thead tr,
-.qtx-lines tbody tr,
-.qtx-lines tfoot tr:first-child {
-    background: linear-gradient(var(--qtx-rowline), var(--qtx-rowline)) no-repeat bottom / 100% 1px;
-}
-
-.qtx-lines tfoot td {
-    color: var(--qtx-ink);
-}
-
-.qtx-lines .qtx-neg {
-    color: var(--qtx-bad);
-}
-
-.qtx-linescroll {
+.qtn-scroll {
     overflow-x: auto;
 }
 
-.qtx-total {
-    display: flex;
+.qtn-grid {
+    min-width: 1020px;
+}
+
+.qtn-thead,
+.qtn-row {
+    display: grid;
+    grid-template-columns: var(--qtn-cols);
     align-items: center;
-    justify-content: space-between;
-    padding: var(--qtx-s4) var(--qtx-s6);
-    margin-top: var(--qtx-s4);
-    border-radius: var(--qtx-r-md);
-    border: 1px solid var(--qtx-accent);
-    background: rgba(var(--qtx-accent-rgb), .08);
+    gap: 14px;
 }
 
-.qtx-total-label {
-    font-size: 13px;
-    color: var(--qtx-mute);
+.qtn-thead {
+    padding: 9px 18px;
+    border-top: 1px solid var(--qtn-divider);
+    border-bottom: 1px solid var(--qtn-divider);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--qtn-mute-3);
 }
 
-.qtx-total-value {
-    font-size: 20px;
+.qtn .qtn-th-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: color .13s;
+}
+
+.qtn .qtn-th-sort:hover {
+    color: var(--qtn-ink);
+}
+
+.qtn-sort-mark {
+    font-size: 9px;
+    color: var(--qtn-accent);
+}
+
+.qtn-row {
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--qtn-rule);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.qtn-row:hover {
+    background: var(--qtn-hover);
+}
+
+.qtn-quote {
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    color: var(--qtx-accent-text);
-}
-
-.qtx-dialog-wrap {
-    position: fixed;
-    inset: var(--kf-topbar-h, 74px) 0 0;
-    z-index: 10000;
-    display: grid;
-    place-items: center;
-    padding: var(--qtx-s4);
-    background: var(--qtx-scrim);
-}
-
-.qtx-dialog {
-    width: min(560px, 100%);
-    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--qtx-s8));
-    display: flex;
-    flex-direction: column;
-    gap: var(--qtx-s4);
-    padding: var(--qtx-s6);
-    border-radius: var(--qtx-r-lg);
-    background: var(--qtx-surface);
-    box-shadow: var(--qtx-shadow-lg);
-    font-size: 14px;
-}
-
-.qtx-dialog.is-wide {
-    width: min(920px, 100%);
-}
-
-.qtx-dialog-title {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 500;
-    letter-spacing: -.015em;
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s3);
-}
-
-.qtx-dialog-title i {
-    font-size: 17px;
-    color: var(--qtx-accent);
-}
-
-.qtx-dialog-head {
-    display: flex;
-    align-items: center;
-    gap: var(--qtx-s4);
-}
-
-.qtx-dialog-head .qtx-dialog-title {
-    margin-right: auto;
-}
-
-.qtx-dialog-body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--qtx-s4);
-    overflow-y: auto;
-}
-
-.qtx-dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--qtx-s2);
-}
-
-.qtx-overlay .qtx-textarea {
-    min-height: 72px;
-    resize: vertical;
-    line-height: 1.5;
-    padding: var(--qtx-s2) 10px;
-}
-
-.qtx-summary {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--qtx-s4);
-    padding: var(--qtx-s4);
-    border-radius: var(--qtx-r-md);
-    background: var(--qtx-hover);
-}
-
-.qtx-summary-item.is-wide {
-    grid-column: 1 / -1;
-    min-width: 0;
-}
-
-.qtx-summary-value {
-    font-size: 13.5px;
+    color: var(--qtn-accent-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* ── Reprice dialog form ───────────────────────────────────────────────── */
-
-.qtx-form {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--qtx-s4);
+.qtn-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
 }
 
-.qtx-form .is-wide {
-    grid-column: 1 / -1;
-}
-
-/* The editable line table. Cells hold controls rather than text, so the row
-   rhythm comes from the inputs' own 28px height. */
-.qtx-editlines {
-    width: 100%;
-    min-width: 700px;
-    border-collapse: collapse;
-    font-size: 12.5px;
-}
-
-.qtx-editlines th {
-    text-align: left;
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--qtx-mute);
-    padding: var(--qtx-s2);
+.qtn-cust-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.qtx-editlines td {
-    padding: var(--qtx-s1) var(--qtx-s2);
+.qtn-cust-code {
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: var(--qtn-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.qtx-editlines thead tr,
-.qtx-editlines tbody tr {
-    background: linear-gradient(var(--qtx-rowline), var(--qtx-rowline)) no-repeat bottom / 100% 1px;
-}
-
-.qtx-overlay .qtx-editlines .qtx-input {
-    min-height: 28px;
-    padding: 3px 8px;
-    font-size: 12.5px;
-    border-radius: var(--qtx-r-sm);
-}
-
-.qtx-overlay .qtx-editlines .qtx-input[type="number"] {
-    text-align: right;
+.qtn-date {
+    color: var(--qtn-mute);
     font-variant-numeric: tabular-nums;
 }
 
-.qtx-linetotal {
+/* Valid-until carries the whole warning: amber once a quote is inside its
+   last week, and the deeper amber once it has lapsed. */
+.qtn-valid {
+    font-variant-numeric: tabular-nums;
+    color: var(--qtn-mute);
+}
+
+.qtn-valid-soon {
+    color: var(--qtn-warn-ink);
+}
+
+.qtn-valid-gone {
+    color: var(--qtn-warn-tone);
+}
+
+.qtn-total {
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    color: var(--qtx-ink);
 }
 
-/* The running totals sit under the line table, right-aligned to the column
-   they sum. */
-.qtx-tally {
+.qtn-ccy {
+    margin-left: 5px;
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--qtn-mute-3);
+}
+
+.qtn-rowactions {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
+    gap: 5px;
 }
 
-.qtx-tally-inner {
-    min-width: 260px;
-    display: grid;
-    gap: 3px;
+/* Row labels, carried for the card layout below 1000px and hidden above it. */
+.qtn-rl {
+    display: none;
 }
 
-.qtx-tally-row {
+/* ── Status badges ─────────────────────────────────────────────────────── */
+
+.qtn-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: var(--qtn-r-sm);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--qtn-mute);
+    background: var(--qtn-press);
+    box-shadow: inset 0 0 0 1px var(--qtn-divider);
+}
+
+.qtn-badge-ok {
+    color: var(--qtn-ok-ink);
+    background: var(--qtn-ok-bg);
+    box-shadow: inset 0 0 0 1px var(--qtn-ok-edge);
+}
+
+.qtn-badge-warn {
+    color: var(--qtn-warn-ink);
+    background: var(--qtn-warn-bg);
+    box-shadow: inset 0 0 0 1px var(--qtn-warn-edge);
+}
+
+.qtn-badge-accent {
+    color: var(--qtn-accent-text);
+    background: rgba(var(--qtn-accent-rgb), .16);
+    box-shadow: inset 0 0 0 1px rgba(var(--qtn-accent-rgb), .45);
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.qtn-foot {
     display: flex;
-    justify-content: space-between;
-    gap: var(--qtx-s6);
-    font-size: 12.5px;
-    color: var(--qtx-mute-2);
+    align-items: center;
+    gap: var(--qtn-s4);
+    padding: 13px 18px;
+    font-size: 12px;
+    color: var(--qtn-mute-3);
+    flex-wrap: wrap;
+}
+
+.qtn-per {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s3);
+}
+
+.qtn .qtn-per select.qtn-input {
+    width: auto;
+    min-height: 28px;
+    padding: 4px 26px 4px 10px;
+    font-size: 12px;
+}
+
+.qtn-pages {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.qtn .qtn-step {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    color: var(--qtn-mute-3);
+    background: transparent;
+    border: 1px solid var(--qtn-divider);
+    border-radius: var(--qtn-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s, background-color .14s;
+}
+
+.qtn .qtn-step svg {
+    display: block;
+    width: 13px;
+    height: 13px;
+}
+
+.qtn .qtn-step:hover:not(:disabled) {
+    color: var(--qtn-ink);
+    background: var(--qtn-hover);
+}
+
+.qtn .qtn-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.qtn .qtn-page {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
+    color: var(--qtn-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--qtn-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
 }
 
-.qtx-tally-row.is-neg {
-    color: var(--qtx-bad);
+.qtn .qtn-page:hover {
+    color: var(--qtn-ink);
+    background: var(--qtn-hover);
 }
 
-.qtx-tally-row.is-total {
-    padding-top: var(--qtx-s2);
-    border-top: 1px solid var(--qtx-divider);
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--qtx-accent-text);
+.qtn .qtn-page-on {
+    color: var(--qtn-accent-text);
+    background: rgba(var(--qtn-accent-rgb), .16);
+    box-shadow: inset 0 0 0 1px rgba(var(--qtn-accent-rgb), .5);
 }
 
-.qtx-spin {
-    width: 12px;
-    height: 12px;
+.qtn-gap {
+    min-width: 20px;
+    text-align: center;
+    color: var(--qtn-faint);
+}
+
+/* ── Notices, empty, loading ───────────────────────────────────────────── */
+
+.qtn-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--qtn-s4);
+    padding: var(--qtn-s4) var(--qtn-s6);
+    border: 1px solid var(--qtn-warn-edge);
+    border-radius: var(--qtn-r-md);
+    background: var(--qtn-warn-bg);
+    color: var(--qtn-warn-ink);
+    font-size: 13px;
+    text-wrap: pretty;
+}
+
+.qtn-alert i {
+    font-size: 17px;
+    line-height: 1.3;
+    flex: none;
+}
+
+.qtn-alert-body {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.qtn .qtn-alert-x {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s, background-color .13s;
+}
+
+.qtn .qtn-alert-x svg {
+    display: block;
+    width: 11px;
+    height: 11px;
+}
+
+.qtn .qtn-alert-x:hover {
+    opacity: 1;
+    background: rgba(27, 28, 38, .08);
+}
+
+.dark-theme .qtn .qtn-alert-x:hover {
+    background: rgba(243, 245, 254, .12);
+}
+
+.qtn-note {
+    padding: var(--qtn-s3) var(--qtn-s4);
+    border-radius: var(--qtn-r-md);
+    background: var(--qtn-field-bg);
+    font-size: 12.5px;
+    color: var(--qtn-mute-2);
+    text-wrap: pretty;
+}
+
+.qtn-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--qtn-s3);
+    padding: 56px var(--qtn-s6);
+    font-size: 13px;
+    color: var(--qtn-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.qtn-empty i {
+    font-size: 22px;
+    color: var(--qtn-accent);
+    opacity: .75;
+}
+
+.qtn-empty-actions {
+    margin-top: var(--qtn-s3);
+    display: flex;
+    gap: var(--qtn-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.qtn-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s3);
+    padding: var(--qtn-s4) 18px;
+    font-size: 12.5px;
+    color: var(--qtn-mute-2);
+}
+
+.qtn-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
     border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: 50%;
-    animation: qtx-spin .7s linear infinite;
+    animation: qtn-spin .7s linear infinite;
 }
 
-@keyframes qtx-spin {
+@keyframes qtn-spin {
     to {
         transform: rotate(360deg);
     }
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .qtx-spin {
-        animation-duration: 3s;
+/* A refresh keeps the rows on screen and says so with one strip along the top
+   of the card, rather than blanking the list it is replacing. */
+.qtn-refresh {
+    height: 2px;
+    background: linear-gradient(90deg,
+        transparent, var(--qtn-accent) 40%, var(--qtn-accent) 60%, transparent);
+    background-size: 220% 100%;
+    animation: qtn-sweep 1.1s linear infinite;
+}
+
+@keyframes qtn-sweep {
+    from {
+        background-position: 120% 0;
+    }
+
+    to {
+        background-position: -120% 0;
     }
 }
 
-/* ── Narrow screens ───────────────────────────────────────────────────── */
+.qtn-skel {
+    height: 11px;
+    border-radius: var(--qtn-r-sm);
+    background: var(--qtn-skel);
+    background-size: 400% 100%;
+    animation: qtn-shimmer 1.4s ease infinite;
+}
 
-@media (max-width: 1180px) {
-    .qtx-stats {
+@keyframes qtn-shimmer {
+    from {
+        background-position: 100% 50%;
+    }
+
+    to {
+        background-position: 0 50%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .qtn-skel,
+    .qtn-refresh {
+        animation: none;
+    }
+
+    .qtn-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Detail drawer ─────────────────────────────────────────────────────── */
+/* Offset below the app bar: the page is a stacking context, so a drawer
+   cannot paint over the topbar however high its z-index. */
+
+.qtn-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    background: var(--qtn-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: qtn-fade .18s ease;
+}
+
+.qtn-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    z-index: 9999;
+    width: min(720px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    display: flex;
+    flex-direction: column;
+    background: var(--qtn-bg);
+    color: var(--qtn-ink);
+    box-shadow: var(--qtn-shadow-lg);
+    animation: qtn-slide .22s ease;
+}
+
+@keyframes qtn-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes qtn-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .qtn-scrim,
+    .qtn-drawer {
+        animation: none;
+    }
+}
+
+.qtn-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--qtn-s4);
+    padding: var(--qtn-s6) var(--qtn-s8);
+    border-bottom: 1px solid var(--qtn-divider);
+    flex: none;
+}
+
+.qtn-drawer-titles {
+    flex: 1;
+    min-width: 0;
+}
+
+.qtn-drawer-head h2 {
+    font-size: 19px;
+    letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+}
+
+.qtn-drawer-sub {
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--qtn-mute-2);
+    overflow-wrap: anywhere;
+}
+
+.qtn-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--qtn-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtn-s8);
+}
+
+.qtn-drawer-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s3);
+    padding: var(--qtn-s4) var(--qtn-s8);
+    border-top: 1px solid var(--qtn-divider);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.qtn-foot-primary {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s3);
+}
+
+.qtn-sect {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s2);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--qtn-mute-3);
+    margin-bottom: var(--qtn-s4);
+}
+
+.qtn-sect i {
+    font-size: 14px;
+    line-height: 1;
+}
+
+.qtn-dl {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--qtn-s6) var(--qtn-s8);
+}
+
+.qtn-dt {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtn-faint);
+    margin-bottom: 2px;
+}
+
+.qtn-dd {
+    font-size: 13.5px;
+    color: var(--qtn-ink);
+    overflow-wrap: anywhere;
+}
+
+.qtn-dd-num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+.qtn-prose {
+    font-size: 13px;
+    color: var(--qtn-mute);
+    white-space: pre-wrap;
+    text-wrap: pretty;
+}
+
+/* ── Line items ────────────────────────────────────────────────────────── */
+
+.qtn-lines-wrap {
+    overflow-x: auto;
+}
+
+.qtn-lines {
+    width: 100%;
+    min-width: 620px;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.qtn-lines th {
+    padding: 0 var(--qtn-s3) var(--qtn-s3);
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--qtn-mute-3);
+    border-bottom: 1px solid var(--qtn-divider);
+    white-space: nowrap;
+}
+
+.qtn-lines td {
+    padding: var(--qtn-s3);
+    color: var(--qtn-mute);
+    border-bottom: 1px solid var(--qtn-rule);
+    vertical-align: middle;
+}
+
+.qtn-lines .qtn-num {
+    text-align: right;
+}
+
+.qtn-lines-item {
+    font-weight: 500;
+    color: var(--qtn-ink);
+    white-space: nowrap;
+}
+
+.qtn-lines tfoot td {
+    border-bottom: 0;
+    padding-block: 4px;
+}
+
+.qtn-lines tfoot tr:first-child td {
+    padding-top: var(--qtn-s4);
+}
+
+.qtn-tot-label {
+    text-align: right;
+    color: var(--qtn-mute-3);
+}
+
+.qtn-tot-value {
+    text-align: right;
+    font-weight: 500;
+    color: var(--qtn-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.qtn-tot-grand .qtn-tot-label,
+.qtn-tot-grand .qtn-tot-value {
+    font-size: 13.5px;
+    color: var(--qtn-accent-text);
+    border-top: 1px solid var(--qtn-divider);
+    padding-top: var(--qtn-s3);
+}
+
+.qtn-lines-total {
+    font-weight: 500;
+    color: var(--qtn-ink);
+}
+
+/* ── Reprice modal ─────────────────────────────────────────────────────── */
+/* Centred below the app bar for the same reason the drawer starts there. */
+
+.qtn-modal-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 10000;
+    display: grid;
+    place-items: center;
+    padding: var(--qtn-s6);
+    background: var(--qtn-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: qtn-fade .18s ease;
+}
+
+.qtn-modal {
+    width: min(880px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--qtn-r-lg);
+    background: var(--qtn-bg);
+    color: var(--qtn-ink);
+    box-shadow: var(--qtn-shadow-modal);
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .qtn-modal-scrim {
+        animation: none;
+    }
+}
+
+.qtn-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s4);
+    padding: var(--qtn-s6) var(--qtn-s8);
+    border-bottom: 1px solid var(--qtn-divider);
+    flex: none;
+}
+
+.qtn-modal-head h2 {
+    font-size: 17px;
+    margin-right: auto;
+}
+
+.qtn-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--qtn-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--qtn-s6);
+}
+
+.qtn-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--qtn-s3);
+    padding: var(--qtn-s4) var(--qtn-s8);
+    border-top: 1px solid var(--qtn-divider);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.qtn-form {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--qtn-s4);
+}
+
+.qtn-form-wide {
+    grid-column: 1 / -1;
+}
+
+/* The customer picker's suggestion list. */
+.qtn-combo {
+    position: relative;
+}
+
+.qtn-combo-list {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: 0;
+    right: 0;
+    z-index: 5;
+    max-height: 210px;
+    overflow-y: auto;
+    padding: 4px;
+    border-radius: var(--qtn-r-md);
+    background: var(--qtn-surface);
+    box-shadow: var(--qtn-shadow-modal);
+}
+
+.qtn .qtn-combo-opt {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    width: 100%;
+    padding: 6px 9px;
+    font: inherit;
+    text-align: left;
+    color: var(--qtn-ink);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.qtn .qtn-combo-opt:hover {
+    background: rgba(var(--qtn-accent-rgb), .14);
+}
+
+.qtn-combo-name {
+    font-size: 12.5px;
+}
+
+.qtn-combo-code {
+    font-size: 11px;
+    color: var(--qtn-mute-3);
+}
+
+/* The line editor: the same table as the drawer's, with the editable cells
+   holding fields sized to their own column. */
+.qtn-editor {
+    padding: var(--qtn-s6);
+    border-radius: var(--qtn-r-md);
+    background: var(--qtn-surface);
+    box-shadow: inset 0 0 0 1px var(--qtn-divider);
+}
+
+.qtn-editor-head {
+    display: flex;
+    align-items: center;
+    gap: var(--qtn-s4);
+    margin-bottom: var(--qtn-s4);
+}
+
+.qtn-editor-head h3 {
+    font-size: 13px;
+    margin-right: auto;
+}
+
+.qtn .qtn-lines .qtn-input {
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.qtn .qtn-lines .qtn-input-num {
+    text-align: right;
+}
+
+.qtn-editor-totals {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--qtn-s4);
+}
+
+/* Rows rather than a two-column grid: the grand total's rule has to run the
+   full width of the block, and a grid draws it in two segments with the
+   column gap showing through the middle. */
+.qtn-totals {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 250px;
+    font-size: 12.5px;
+}
+
+.qtn-tot-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--qtn-s6);
+    color: var(--qtn-mute-3);
+}
+
+.qtn-tot-row > span:last-child {
+    font-variant-numeric: tabular-nums;
+    color: var(--qtn-ink);
+}
+
+.qtn-tot-row.qtn-grand {
+    margin-top: var(--qtn-s2);
+    padding-top: var(--qtn-s3);
+    border-top: 1px solid var(--qtn-divider);
+    font-weight: 500;
+}
+
+.qtn-tot-row.qtn-grand,
+.qtn-tot-row.qtn-grand > span:last-child {
+    color: var(--qtn-accent-text);
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.qtn-scroll::-webkit-scrollbar,
+.qtn-lines-wrap::-webkit-scrollbar,
+.qtn-drawer-body::-webkit-scrollbar,
+.qtn-modal-body::-webkit-scrollbar,
+.qtn-combo-list::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.qtn-scroll::-webkit-scrollbar-thumb,
+.qtn-lines-wrap::-webkit-scrollbar-thumb,
+.qtn-drawer-body::-webkit-scrollbar-thumb,
+.qtn-modal-body::-webkit-scrollbar-thumb,
+.qtn-combo-list::-webkit-scrollbar-thumb {
+    background: var(--qtn-thumb);
+    border-radius: 8px;
+}
+
+.qtn-scroll::-webkit-scrollbar-track,
+.qtn-lines-wrap::-webkit-scrollbar-track,
+.qtn-drawer-body::-webkit-scrollbar-track,
+.qtn-modal-body::-webkit-scrollbar-track,
+.qtn-combo-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+/* The five figures hold one row down to 1120px. The staff shell gives the page
+   about 1208px at a 1440 viewport — the width the design is drawn at — so this
+   has to sit below that or the row folds on the design's own screen. */
+@media (max-width: 1120px) {
+    .qtn-stats {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .qtn-dl {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .qtn-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below the grid's own minimum the row stops being a row: each becomes a
+   labelled card, so nothing has to be read out of a horizontal scroll. */
+@media (max-width: 1000px) {
+    .qtn-scroll {
+        overflow-x: visible;
+    }
+
+    .qtn-grid {
+        min-width: 0;
+    }
+
+    .qtn-thead {
+        display: none;
+    }
+
+    /* The quote number and the actions head the card, the customer takes the
+       line below, and the four remaining cells wrap together as one labelled
+       run rather than stacking into four lines of their own. */
+    .qtn-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--qtn-s2) var(--qtn-s4);
+        padding: var(--qtn-s4) var(--qtn-s6);
+    }
+
+    .qtn-rl {
+        display: inline;
+        margin-right: 4px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--qtn-faint);
+    }
+
+    .qtn-row > .qtn-quote {
+        order: 1;
+    }
+
+    .qtn-row > .qtn-rowactions {
+        order: 2;
+        margin-left: auto;
+    }
+
+    .qtn-row > .qtn-cust {
+        order: 3;
+        flex: 1 0 100%;
+    }
+
+    .qtn-row > .qtn-date {
+        order: 4;
+    }
+
+    .qtn-row > .qtn-valid {
+        order: 5;
+    }
+
+    .qtn-row > .qtn-cell-status {
+        order: 6;
+    }
+
+    .qtn-row > .qtn-total {
+        order: 7;
+        text-align: left;
     }
 }
 
 @media (max-width: 860px) {
-    .qtx-shell,
-    .qtx-body {
-        padding-left: var(--qtx-s6);
-        padding-right: var(--qtx-s6);
-    }
-
-    .qtx-shell {
-        flex-direction: column;
-        align-items: stretch;
-        gap: var(--qtx-s4);
-    }
-
-    .qtx-head-actions {
-        justify-content: space-between;
-    }
-
-    .qtx-stats {
+    .qtn-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .qtx-field {
-        flex: 1 1 150px;
+    .qtn-head-inner,
+    .qtn-body {
+        padding-inline: 18px;
     }
 
-    .qtx-filter-actions {
+    .qtn-head-inner {
+        flex-wrap: wrap;
+        gap: var(--qtn-s4);
+    }
+
+    .qtn-head-actions {
+        width: 100%;
+    }
+
+    .qtn-head-actions .qtn-btn {
+        flex: 1;
+    }
+
+    .qtn-head h1 {
+        font-size: 22px;
+    }
+
+    .qtn-filter-rule {
+        display: none;
+    }
+
+    .qtn-field,
+    .qtn-field-grow {
+        flex: 1 1 100%;
+        width: auto !important;
+    }
+
+    .qtn-filter-actions {
         margin-left: 0;
         width: 100%;
-        justify-content: flex-end;
     }
 
-    .qtx-grid,
-    .qtx-summary,
-    .qtx-form {
+    .qtn-filter-actions .qtn-btn {
+        flex: 1;
+    }
+
+    /* The segmented control fills the row like every other field here, so its
+       two options split it rather than huddling at the left edge. */
+    .qtn .qtn-seg-opt {
+        flex: 1;
+        justify-content: center;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .qtn .qtn-input {
+        font-size: 16px;
+    }
+
+    .qtn-card-tools {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .qtn-card-tools .qtn-tool {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .qtn-pages {
+        margin-left: 0;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .qtn-dl,
+    .qtn-form {
         grid-template-columns: 1fr;
     }
 
-    .qtx-pager {
-        margin-left: 0;
+    .qtn-drawer-head,
+    .qtn-drawer-body,
+    .qtn-drawer-foot,
+    .qtn-modal-head,
+    .qtn-modal-body,
+    .qtn-modal-foot {
+        padding-inline: var(--qtn-s6);
+    }
+
+    .qtn-drawer-foot .qtn-btn,
+    .qtn-modal-foot .qtn-btn {
+        flex: 1;
+    }
+
+    .qtn-foot-primary {
         width: 100%;
-        justify-content: space-between;
+    }
+}
+
+@media (max-width: 620px) {
+    .qtn-stats {
+        grid-template-columns: 1fr;
     }
 }

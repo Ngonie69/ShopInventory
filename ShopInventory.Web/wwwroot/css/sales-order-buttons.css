@@ -1,0 +1,36 @@
+/* Shared gradient button for the sales-order family of pages:
+   SalesOrders, SalesOrderEdit, CreateSalesOrder and CreateCreditNote.
+
+   This lived as four byte-identical copies in those pages' inline <style>
+   blocks. It has to be linked AFTER MudBlazor.min.css in App.razor:
+   SalesOrders.razor puts .btn-so-gradient on MudButton, and MudBlazor's
+   .mud-button-* rules carry the same (0,1,0) specificity, so the winner is
+   decided by document order alone. The inline blocks used to sit in the body
+   and beat MudBlazor for free; a stylesheet in the head only keeps that if it
+   comes after MudBlazor's.
+
+   Per-page responsive overrides stay in their own pages — they are not
+   identical, and only two of the four pages have one. */
+
+.btn-so-gradient {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border: none;
+    color: #fff;
+    padding: .55rem 1.35rem;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: .88rem;
+    text-decoration: none;
+    transition: all .2s;
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
+    cursor: pointer;
+}
+
+.btn-so-gradient:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
+    color: #fff;
+}
