@@ -94,6 +94,10 @@ public class IdempotencyMiddlewareTests
     [Theory]
     [InlineData("/api/crates/transactions/42/pods")]
     [InlineData("/api/crates/transactions/42/grvs")]
+    // The POD upload deduplicates on external reference and on file content, returning the
+    // attachment either way; the crate variant delegates to the crates handler above.
+    [InlineData("/api/invoice/2148037/pod")]
+    [InlineData("/api/invoice/2148037/crate-pod")]
     public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
     {
         // These handlers persist their response through IIdempotencyRequestStore and replay the real
@@ -136,6 +140,32 @@ public class IdempotencyMiddlewareTests
 
         var key = $"ensure-invoice-{Guid.NewGuid():N}";
         const string path = "/api/crates/transactions/ensure-invoice";
+        await middleware.InvokeAsync(CreateContext(key, path));
+        var retry = CreateContext(key, path);
+        await middleware.InvokeAsync(retry);
+
+        Assert.Equal("true", retry.Response.Headers["Idempotency-Replayed"]);
+        Assert.Equal(1, calls);
+    }
+
+    [Theory]
+    [InlineData("/api/invoice/2148037/fiscalize")]
+    [InlineData("/api/invoice")]
+    public async Task Sibling_invoice_routes_keep_the_middleware_guard(string path)
+    {
+        // "POST /api/invoice/" + "/pod" must not widen into a prefix rule over the whole invoice
+        // controller: everything else under it still relies on this middleware.
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                Interlocked.Increment(ref calls);
+                context.Response.StatusCode = StatusCodes.Status200OK;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var key = $"invoice-sibling-{Guid.NewGuid():N}";
         await middleware.InvokeAsync(CreateContext(key, path));
         var retry = CreateContext(key, path);
         await middleware.InvokeAsync(retry);

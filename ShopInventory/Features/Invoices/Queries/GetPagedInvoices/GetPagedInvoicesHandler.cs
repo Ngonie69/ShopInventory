@@ -14,15 +14,12 @@ namespace ShopInventory.Features.Invoices.Queries.GetPagedInvoices;
 public sealed class GetPagedInvoicesHandler(
     ApplicationDbContext dbContext,
     ISAPServiceLayerClient sapClient,
-    IRevmaxClient revmaxClient,
-    ISender sender,
+    IInvoiceFiscalStatusBackfillQueue fiscalStatusBackfillQueue,
     IOptions<SAPSettings> settings,
     IOptions<RevmaxSettings> revmaxSettings,
     ILogger<GetPagedInvoicesHandler> logger
 ) : IRequestHandler<GetPagedInvoicesQuery, ErrorOr<InvoiceListResponseDto>>
 {
-    private const int MaxAutomaticFiscalBackfillCount = 100;
-
     public async Task<ErrorOr<InvoiceListResponseDto>> Handle(
         GetPagedInvoicesQuery request,
         CancellationToken cancellationToken)
@@ -50,17 +47,16 @@ public sealed class GetPagedInvoicesHandler(
 
             if (revmaxSettings.Value.Enabled)
             {
-                var syncedCount = await InvoiceFiscalTransactionSync.SyncUnknownInvoicesAsync(
+                var queuedCount = InvoiceFiscalTransactionSync.QueueUnknownInvoicesForBackfill(
                     invoiceDtos,
-                    revmaxClient,
-                    sender,
-                    logger,
-                    Math.Min(MaxAutomaticFiscalBackfillCount, invoiceDtos.Count),
-                    cancellationToken);
+                    fiscalStatusBackfillQueue);
 
-                if (syncedCount > 0)
+                if (queuedCount > 0)
                 {
-                    await FiscalDocumentStatusProjector.EnrichInvoicesAsync(dbContext, invoiceDtos, cancellationToken);
+                    logger.LogInformation(
+                        "Queued {Count} invoice(s) on page {Page} for fiscal status backfill; they report as Unknown until REVMax has been read back",
+                        queuedCount,
+                        request.Page);
                 }
             }
 

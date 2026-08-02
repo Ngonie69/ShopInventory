@@ -8,6 +8,7 @@ using ShopInventory.Models.Entities;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -465,6 +466,13 @@ public class DocumentService : IDocumentService
     /// <summary>JPEG quality for compressed images (1-100).</summary>
     private const int JpegCompressionQuality = 75;
 
+    /// <summary>
+    /// How long after an upload an identical file on the same entity is treated as a re-submission
+    /// of it rather than a new attachment. Long enough to cover a user retrying a failed upload,
+    /// far short of deliberately attaching the same document again later.
+    /// </summary>
+    private static readonly TimeSpan DuplicateContentWindow = TimeSpan.FromMinutes(15);
+
     public async Task<DocumentAttachmentDto> UploadAttachmentAsync(UploadAttachmentRequest request, Stream fileStream, string fileName, string mimeType, Guid? userId, CancellationToken cancellationToken = default)
     {
         var normalizedExternalReference = NormalizeExternalReference(request.ExternalReference);
@@ -519,6 +527,29 @@ public class DocumentService : IDocumentService
         // Get file size
         var fileInfo = new FileInfo(fullPath);
 
+        // Hashed after storing rather than off the incoming stream: the stream has already been
+        // consumed by the write above, and for a compressible image the stored bytes are the
+        // re-encoded ones, so hashing here compares like with like on the next upload.
+        var contentSha256 = await TryComputeFileHashAsync(fullPath, cancellationToken);
+
+        var duplicateByContent = await FindRecentAttachmentByContentAsync(
+            request.EntityType,
+            request.EntityId,
+            contentSha256,
+            cancellationToken);
+
+        if (duplicateByContent is not null)
+        {
+            TryDeleteStoredFile(fullPath);
+            _logger.LogInformation(
+                "Reused attachment {AttachmentId} for a re-upload of identical content on {EntityType} {EntityId} within {WindowMinutes} minute(s)",
+                duplicateByContent.Id,
+                request.EntityType,
+                request.EntityId,
+                DuplicateContentWindow.TotalMinutes);
+            return MapToDto(duplicateByContent);
+        }
+
         // Create attachment record
         var attachment = new DocumentAttachmentEntity
         {
@@ -529,6 +560,7 @@ public class DocumentService : IDocumentService
             StoredFileName = fullPath,
             MimeType = mimeType,
             FileSizeBytes = fileInfo.Length,
+            ContentSha256 = contentSha256,
             Description = request.Description,
             IncludeInEmail = request.IncludeInEmail,
             UploadedByUserId = userId,
@@ -544,6 +576,72 @@ public class DocumentService : IDocumentService
         await _context.SaveChangesAsync(cancellationToken);
 
         return MapToDto(attachment);
+    }
+
+    /// <summary>
+    /// Finds an attachment on the same entity holding identical content, uploaded recently enough
+    /// that this upload is a re-submission of it rather than a deliberate second copy.
+    /// </summary>
+    /// <remarks>
+    /// The external-reference check above only fires when the caller supplies a reference and
+    /// supplies the same one each attempt. A client that sends none, or mints a fresh one per
+    /// attempt, gets no duplicate protection at all from it — which is how invoice 2148037 ended up
+    /// with two POD attachments 70 seconds apart on 2026-08-02: the retry was caught by its
+    /// reference, the third attempt carried a different one and was stored.
+    ///
+    /// Content is the key that does not depend on the client behaving. The window is what keeps it
+    /// honest: a retry arrives in seconds, so anything inside it is a duplicate submission, while
+    /// re-attaching the same file days later stays a legitimate second attachment.
+    ///
+    /// Unlike the external-reference path this is a read followed by an insert, with no unique index
+    /// to collapse a tie — the index cannot be unique precisely because the same file may be
+    /// attached again later. Two genuinely simultaneous uploads of identical content can therefore
+    /// still both be stored. That is narrower than the case this closes: a client retries after the
+    /// first attempt answers, which serialises it. Making it airtight needs a uniqueness scope that
+    /// expires, which Postgres cannot express as an index.
+    /// </remarks>
+    private async Task<DocumentAttachmentEntity?> FindRecentAttachmentByContentAsync(
+        string entityType,
+        int entityId,
+        string? contentSha256,
+        CancellationToken cancellationToken)
+    {
+        if (contentSha256 is null)
+        {
+            return null;
+        }
+
+        var cutoff = DateTime.UtcNow - DuplicateContentWindow;
+
+        return await _context.Set<DocumentAttachmentEntity>()
+            .AsNoTracking()
+            .Include(a => a.UploadedByUser)
+            .Where(a => a.EntityType == entityType
+                && a.EntityId == entityId
+                && a.ContentSha256 == contentSha256
+                && a.UploadedAt >= cutoff)
+            .OrderBy(a => a.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// SHA-256 of a stored file, or null when it cannot be read. Hashing is an optimisation for
+    /// duplicate detection, never a reason to fail an upload that has already been written.
+    /// </summary>
+    private async Task<string?> TryComputeFileHashAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            using var sha256 = SHA256.Create();
+            var hash = await sha256.ComputeHashAsync(stream, cancellationToken);
+            return Convert.ToHexString(hash);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not hash stored attachment {Path}; duplicate content detection is skipped for it", path);
+            return null;
+        }
     }
 
     public async Task<DocumentAttachmentDto?> GetAttachmentByExternalReferenceAsync(string entityType, int entityId, string externalReference, CancellationToken cancellationToken = default)
@@ -1496,11 +1594,12 @@ public class DocumentService : IDocumentService
         var insertedCount = await _context.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO "DocumentAttachments"
                 ("Description", "EntityId", "EntityType", "ExternalReference", "FileName",
-                 "FileSizeBytes", "IncludeInEmail", "MimeType", "StoredFileName", "UploadedAt", "UploadedByUserId")
+                 "FileSizeBytes", "ContentSha256", "IncludeInEmail", "MimeType", "StoredFileName",
+                 "UploadedAt", "UploadedByUserId")
             VALUES
                 ({attachment.Description}, {attachment.EntityId}, {attachment.EntityType}, {attachment.ExternalReference},
-                 {attachment.FileName}, {attachment.FileSizeBytes}, {attachment.IncludeInEmail}, {attachment.MimeType},
-                 {attachment.StoredFileName}, {attachment.UploadedAt}, {attachment.UploadedByUserId})
+                 {attachment.FileName}, {attachment.FileSizeBytes}, {attachment.ContentSha256}, {attachment.IncludeInEmail},
+                 {attachment.MimeType}, {attachment.StoredFileName}, {attachment.UploadedAt}, {attachment.UploadedByUserId})
             ON CONFLICT ("EntityType", "EntityId", "ExternalReference") DO NOTHING
             """, cancellationToken);
 
