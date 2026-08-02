@@ -1,9 +1,17 @@
 /* ==========================================================================
    Exception Center — Nocturne
 
-   Same arrangement as settings.css and create-invoice.css: the Nocturne design
-   is a single dark scheme, so this module paints its own ground and does not
-   follow the app's light/dark toggle. Tokens are copied from the design system.
+   The Nocturne design is a single dark scheme, and its values are the dark
+   block below, unmodified. The page still follows the app's light/dark toggle:
+   a page that painted its own dark ground regardless left the light theme
+   showing a dark slab inside light chrome, which is what the shell's own
+   Nocturne palette (nocturne-shell.css) exists to avoid. The light values here
+   are that palette's --kfn-* light scale, so the page and the chrome around it
+   agree — same arrangement as settings.css and create-invoice.css.
+
+   Colour flows through five channel tokens (--exc-*-rgb) rather than literal
+   rgba(), so every wash, hover film and hairline mixed from them flips with the
+   theme from one declaration instead of being restated twice.
 
    Rules live in a plain stylesheet rather than a scoped Razor <style> block
    because app.css carries global `.dark-theme input/select/button` rules that
@@ -17,10 +25,34 @@
     --exc-surface: #232532;
     --exc-text: #e9e9ed;
     --exc-accent: #9184d9;
-    --exc-divider: rgba(233, 233, 237, .16);
+
+    /* Channels for the mixes below. Everything tinted — dividers, hover films,
+       washes, rings, family stripes — is struck from one of these five. */
+    --exc-text-rgb: 233, 233, 237;
+    --exc-accent-rgb: 145, 132, 217;
+    --exc-danger-rgb: 232, 105, 125;
+    --exc-warn-rgb: 224, 164, 74;
+    --exc-calm-rgb: 127, 200, 169;
+
+    --exc-divider: rgba(var(--exc-text-rgb), .16);
 
     --exc-neutral-800: #3f424d;
     --exc-neutral-900: #292b31;
+
+    /* A native <option> list is a floating menu, so it takes the raised ground —
+       which is above the card in the dark scheme and below it in the light one,
+       hence its own token rather than a reuse of --exc-neutral-900. */
+    --exc-menu-bg: #292b31;
+
+    /* Error text sits a step *below* the panel holding it, which means darker
+       here and lighter once the scheme flips. In the dark scheme that step
+       lands back on the page ground, which is why this was written as the
+       ground's own hex; as its own token it can go the other way. */
+    --exc-code-bg: #161826;
+
+    /* The ring a hovered tile draws. Brighter than the resting ring in dark,
+       darker than it in light — a ring reads as "lifted" either way. */
+    --exc-ring-hover: #595d6c;
 
     --exc-accent-100: #f5f4ff;
     --exc-accent-300: #d2cefd;
@@ -31,11 +63,11 @@
     --exc-warn: #e0a44a;
     --exc-calm: #7fc8a9;
 
-    --exc-t-70: rgba(233, 233, 237, .70);
-    --exc-t-60: rgba(233, 233, 237, .60);
-    --exc-t-52: rgba(233, 233, 237, .52);
-    --exc-t-45: rgba(233, 233, 237, .45);
-    --exc-t-40: rgba(233, 233, 237, .40);
+    --exc-t-70: rgba(var(--exc-text-rgb), .70);
+    --exc-t-60: rgba(var(--exc-text-rgb), .60);
+    --exc-t-52: rgba(var(--exc-text-rgb), .52);
+    --exc-t-45: rgba(var(--exc-text-rgb), .45);
+    --exc-t-40: rgba(var(--exc-text-rgb), .40);
 
     --exc-space-1: 2.8px;
     --exc-space-2: 5.6px;
@@ -73,6 +105,90 @@
     border-radius: 12px;
 }
 
+/* ── Light theme ────────────────────────────────────────────────────────────
+   Values are nocturne-shell.css's --kfn-* light scale, so the page reads as the
+   same design as the topbar and sidebar around it. Dark is the base above, not
+   this block's else-branch: the theme class is written by the blocking script in
+   App.razor's <head>, but if it ever fails to run the page still lands on the
+   design as imported rather than on a half-applied light one.
+
+   Only what actually differs is restated. Dividers, films, washes and rings all
+   mix from the channel tokens and flip with them.
+
+   Both selectors are set together by that script and by app.js's toggle; the
+   pair mirrors how nocturne-shell.css keys its own themes. */
+[data-theme="light"] .exc,
+.light-theme .exc {
+    --exc-bg: #f2f3f9;
+    /* Cards are raised off the ground, and in a light scheme raised means
+       nearer white — the inverse of the dark scheme, where it means nearer the
+       page's own ground. */
+    --exc-surface: #ffffff;
+    --exc-text: #171a2d;
+    /* The accent is a text colour as often as a fill here (tile rings, primary
+       button labels, the 1-to-24h aging band), so this is the shell's deeper
+       --kfn-accent-bright rather than its --kfn-accent: 6.7:1 on the card. */
+    --exc-accent: #5a4bb6;
+
+    --exc-text-rgb: 23, 26, 45;
+    --exc-accent-rgb: 90, 75, 182;
+    /* Nocturne's red, amber and green are pitched to carry on a dark ground and
+       drop to ~3:1 on a white one, so all three are taken down to their
+       light-scheme equivalents: 5.4:1, 5.2:1 and 5.3:1 on the card. */
+    --exc-danger-rgb: 194, 51, 74;
+    --exc-warn-rgb: 161, 92, 0;
+    --exc-calm-rgb: 31, 122, 90;
+
+    --exc-neutral-800: #e1e3ef;
+    --exc-neutral-900: #edeef6;
+    --exc-menu-bg: #ffffff;
+    --exc-code-bg: #e7e9f3;
+    --exc-ring-hover: #c9cde0;
+
+    --exc-accent-100: #3a3363;
+    --exc-accent-300: #4b3da3;
+    --exc-accent-400: #6a5cc4;
+    --exc-accent-900: #efecfc;
+
+    --exc-danger: #c2334a;
+    --exc-warn: #a15c00;
+    --exc-calm: #1f7a5a;
+
+    /* Lifted +.08 from the dark alphas: ink thinned on a light ground loses
+       contrast faster than light thinned on a dark one, so matching the design's
+       mixes by number would read a full step fainter than the design does. The
+       lift holds the weight instead — each mix lands within .1 of the ratio its
+       dark counterpart has on the dark card (t-52: 4.85:1 here, 4.72:1 there).
+       That keeps the design's own relationships, including the fact that the
+       10-12px label mixes (t-45, t-40) sit below 4.5:1 in *both* schemes. */
+    --exc-t-70: rgba(var(--exc-text-rgb), .78);
+    --exc-t-60: rgba(var(--exc-text-rgb), .70);
+    --exc-t-52: rgba(var(--exc-text-rgb), .62);
+    --exc-t-45: rgba(var(--exc-text-rgb), .56);
+    --exc-t-40: rgba(var(--exc-text-rgb), .50);
+
+    /* The dark scheme rings cards in opaque grey and drops deep black shadows;
+       neither survives on white, so the ring is thinned ink and the lift is a
+       soft slate shadow. */
+    --exc-shadow-sm: 0 0 0 1px rgba(var(--exc-text-rgb), .09);
+    --exc-shadow-md: 0 0 0 1px rgba(var(--exc-text-rgb), .10), 0 6px 18px rgba(15, 23, 42, .12);
+
+    /* The families are glyph and stripe colours, not fills, so each needs to
+       carry on light the way the dark set carries on #161826. Held apart in hue
+       so two root causes still read as two at a glance; 4.5:1 to 5.8:1 on the
+       recessed panel they actually sit on. */
+    --exc-fam-sap: #5a4bb6;
+    --exc-fam-connectivity: #1d6ea0;
+    --exc-fam-fiscal: #a15c00;
+    --exc-fam-stock: #1f7a5a;
+    --exc-fam-data: #a34a86;
+    --exc-fam-payment: #a3512b;
+    --exc-fam-worker: #5e6483;
+    --exc-fam-unknown: #5e6483;
+
+    color-scheme: light;
+}
+
 /* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
    theme for an iOS input fix; inside this page that would flatten the accent
    and danger colours on WebKit, so hand the fill back to `color`. */
@@ -83,7 +199,7 @@
 }
 
 .exc ::selection {
-    background: rgba(145, 132, 217, .30);
+    background: rgba(var(--exc-accent-rgb), .30);
 }
 
 .exc :focus {
@@ -257,14 +373,14 @@
     border-radius: var(--exc-radius-md);
     background: var(--exc-accent-900);
     color: var(--exc-accent);
-    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .35);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-accent-rgb), .35);
     font-size: 16px;
 }
 
 .exc-card-icon-danger {
-    background: rgba(232, 105, 125, .14);
+    background: rgba(var(--exc-danger-rgb), .14);
     color: var(--exc-danger);
-    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .35);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-danger-rgb), .35);
 }
 
 .exc-card-text {
@@ -321,7 +437,7 @@ button.exc-tile {
 }
 
 button.exc-tile:hover {
-    box-shadow: 0 0 0 1px #595d6c;
+    box-shadow: 0 0 0 1px var(--exc-ring-hover);
 }
 
 button.exc-tile.exc-tile-on {
@@ -372,7 +488,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc-tile-danger {
-    box-shadow: 0 0 0 1px rgba(232, 105, 125, .42);
+    box-shadow: 0 0 0 1px rgba(var(--exc-danger-rgb), .42);
 }
 
 .exc-tile-warn .exc-tile-value,
@@ -463,7 +579,7 @@ button.exc-tile.exc-tile-on {
     flex: none;
     margin-top: 1px;
     border-radius: var(--exc-radius-sm);
-    background: rgba(233, 233, 237, .07);
+    background: rgba(var(--exc-text-rgb), .07);
     color: var(--exc-fam);
     font-size: 14px;
 }
@@ -540,7 +656,7 @@ button.exc-tile.exc-tile-on {
     gap: var(--exc-space-3);
     padding: var(--exc-space-3);
     border-radius: var(--exc-radius-sm);
-    background: rgba(233, 233, 237, .04);
+    background: rgba(var(--exc-text-rgb), .04);
     font-size: 12.5px;
     color: var(--exc-t-70);
 }
@@ -567,7 +683,7 @@ button.exc-tile.exc-tile-on {
     margin: 0;
     padding: var(--exc-space-3);
     border-radius: var(--exc-radius-sm);
-    background: #161826;
+    background: var(--exc-code-bg);
     box-shadow: inset 0 0 0 1px var(--exc-divider);
     font-family: 'Space Grotesk', ui-monospace, monospace;
     font-size: 11.5px;
@@ -594,17 +710,17 @@ button.exc-tile.exc-tile-on {
     min-width: 0;
     border-radius: 2px 2px 0 0;
     background: var(--exc-accent-900);
-    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .28);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-accent-rgb), .28);
     min-height: 2px;
 }
 
 .exc-spark-bar-hot {
-    background: rgba(232, 105, 125, .32);
-    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .45);
+    background: rgba(var(--exc-danger-rgb), .32);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-danger-rgb), .45);
 }
 
 .exc-spark-bar-empty {
-    background: rgba(233, 233, 237, .05);
+    background: rgba(var(--exc-text-rgb), .05);
     box-shadow: none;
 }
 
@@ -621,7 +737,7 @@ button.exc-tile.exc-tile-on {
     height: 8px;
     border-radius: 4px;
     overflow: hidden;
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--exc-text-rgb), .06);
     margin-top: var(--exc-space-4);
 }
 
@@ -770,7 +886,7 @@ button.exc-tile.exc-tile-on {
     padding: 4px var(--exc-space-3);
     border: 0;
     border-radius: 6px;
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--exc-text-rgb), .06);
     box-shadow: inset 0 0 0 1px var(--exc-divider);
     color: var(--exc-t-70);
     font: inherit;
@@ -780,12 +896,12 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc-preset:hover {
-    background: rgba(233, 233, 237, .10);
+    background: rgba(var(--exc-text-rgb), .10);
     color: var(--exc-text);
 }
 
 .exc-preset-on {
-    background: rgba(145, 132, 217, .16);
+    background: rgba(var(--exc-accent-rgb), .16);
     box-shadow: inset 0 0 0 1px var(--exc-accent);
     color: var(--exc-accent-300);
 }
@@ -837,7 +953,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc .exc-input:hover {
-    border-color: rgba(233, 233, 237, .45);
+    border-color: rgba(var(--exc-text-rgb), .45);
 }
 
 .exc .exc-input:focus-visible {
@@ -854,7 +970,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc .exc-select option {
-    background: var(--exc-neutral-900);
+    background: var(--exc-menu-bg);
     color: var(--exc-text);
 }
 
@@ -898,7 +1014,7 @@ button.exc-tile.exc-tile-on {
     flex: none;
     border-radius: 9px;
     border: 1px solid var(--exc-divider);
-    background: rgba(233, 233, 237, .06);
+    background: rgba(var(--exc-text-rgb), .06);
     transition: background .18s, border-color .18s;
 }
 
@@ -910,7 +1026,7 @@ button.exc-tile.exc-tile-on {
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: rgba(233, 233, 237, .55);
+    background: rgba(var(--exc-text-rgb), .55);
     transition: transform .18s, background .18s;
 }
 
@@ -919,7 +1035,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc-switch input:checked + .exc-switch-track {
-    background: rgba(145, 132, 217, .28);
+    background: rgba(var(--exc-accent-rgb), .28);
     border-color: var(--exc-accent);
 }
 
@@ -965,7 +1081,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc .exc-btn-primary:hover:not(:disabled) {
-    background: rgba(145, 132, 217, .12);
+    background: rgba(var(--exc-accent-rgb), .12);
 }
 
 .exc .exc-btn-secondary {
@@ -973,7 +1089,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc .exc-btn-secondary:hover:not(:disabled) {
-    background: rgba(233, 233, 237, .07);
+    background: rgba(var(--exc-text-rgb), .07);
 }
 
 .exc .exc-btn-ghost {
@@ -982,7 +1098,7 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc .exc-btn-ghost:hover:not(:disabled) {
-    background: rgba(145, 132, 217, .10);
+    background: rgba(var(--exc-accent-rgb), .10);
 }
 
 .exc .exc-btn-sm {
@@ -1010,21 +1126,21 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc-badge-blocked {
-    background: rgba(232, 105, 125, .14);
+    background: rgba(var(--exc-danger-rgb), .14);
     color: var(--exc-danger);
-    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .34);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-danger-rgb), .34);
 }
 
 .exc-badge-stalled {
-    background: rgba(224, 164, 74, .12);
+    background: rgba(var(--exc-warn-rgb), .12);
     color: var(--exc-warn);
-    box-shadow: inset 0 0 0 1px rgba(224, 164, 74, .30);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-warn-rgb), .30);
 }
 
 .exc-badge-retrying {
-    background: rgba(127, 200, 169, .12);
+    background: rgba(var(--exc-calm-rgb), .12);
     color: var(--exc-calm);
-    box-shadow: inset 0 0 0 1px rgba(127, 200, 169, .28);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-calm-rgb), .28);
 }
 
 .exc-badge-quiet {
@@ -1074,7 +1190,7 @@ button.exc-tile.exc-tile-on {
 
 .exc-table tbody td {
     padding: var(--exc-space-3) var(--exc-space-4);
-    border-bottom: 1px solid rgba(233, 233, 237, .07);
+    border-bottom: 1px solid rgba(var(--exc-text-rgb), .07);
     vertical-align: top;
 }
 
@@ -1083,11 +1199,11 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc-table tbody tr:hover td {
-    background: rgba(233, 233, 237, .03);
+    background: rgba(var(--exc-text-rgb), .03);
 }
 
 .exc-row-open td {
-    background: rgba(145, 132, 217, .06);
+    background: rgba(var(--exc-accent-rgb), .06);
 }
 
 .exc-cell-main {
@@ -1124,7 +1240,7 @@ button.exc-tile.exc-tile-on {
 
 .exc-ref-open:hover {
     color: var(--exc-text);
-    background: rgba(233, 233, 237, .10);
+    background: rgba(var(--exc-text-rgb), .10);
 }
 
 .exc-sub {
@@ -1196,7 +1312,7 @@ button.exc-tile.exc-tile-on {
     width: 4px;
     height: 12px;
     border-radius: 1px;
-    background: rgba(233, 233, 237, .14);
+    background: rgba(var(--exc-text-rgb), .14);
 }
 
 .exc-pip-used {
@@ -1240,7 +1356,7 @@ button.exc-tile.exc-tile-on {
 
 .exc-detail td {
     padding: 0 var(--exc-space-4) var(--exc-space-4);
-    background: rgba(145, 132, 217, .06);
+    background: rgba(var(--exc-accent-rgb), .06);
 }
 
 .exc-detail-grid {
@@ -1293,25 +1409,25 @@ button.exc-tile.exc-tile-on {
 }
 
 .exc-alert-success {
-    background: rgba(145, 132, 217, .12);
+    background: rgba(var(--exc-accent-rgb), .12);
     color: var(--exc-accent-300);
-    box-shadow: inset 0 0 0 1px rgba(145, 132, 217, .32);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-accent-rgb), .32);
 }
 
 .exc-alert-error {
-    background: rgba(232, 105, 125, .10);
+    background: rgba(var(--exc-danger-rgb), .10);
     color: var(--exc-danger);
-    box-shadow: inset 0 0 0 1px rgba(232, 105, 125, .32);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-danger-rgb), .32);
 }
 
 .exc-alert-warn {
-    background: rgba(224, 164, 74, .10);
+    background: rgba(var(--exc-warn-rgb), .10);
     color: var(--exc-warn);
-    box-shadow: inset 0 0 0 1px rgba(224, 164, 74, .28);
+    box-shadow: inset 0 0 0 1px rgba(var(--exc-warn-rgb), .28);
 }
 
 .exc-alert-info {
-    background: rgba(233, 233, 237, .05);
+    background: rgba(var(--exc-text-rgb), .05);
     color: var(--exc-t-70);
     box-shadow: inset 0 0 0 1px var(--exc-divider);
 }
@@ -1335,7 +1451,7 @@ button.exc-tile.exc-tile-on {
 
 .exc-alert-close:hover {
     opacity: 1;
-    background: rgba(233, 233, 237, .10);
+    background: rgba(var(--exc-text-rgb), .10);
 }
 
 .exc-empty {
@@ -1382,7 +1498,7 @@ button.exc-tile.exc-tile-on {
     height: 16px;
     flex: none;
     border-radius: 50%;
-    border: 2px solid rgba(233, 233, 237, .2);
+    border: 2px solid rgba(var(--exc-text-rgb), .2);
     border-top-color: var(--exc-accent);
     animation: exc-spin .8s linear infinite;
 }

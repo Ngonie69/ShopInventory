@@ -294,6 +294,35 @@ window.themeManager = {
 
 window.shopInventory = window.shopInventory || {};
 
+// Stops a textarea inserting a newline when Enter is pressed on its own, so a
+// composer can treat Enter as "send" and Shift+Enter as "new line". Blazor's
+// own @onkeydown does the sending; it cannot cancel the default action itself,
+// because :preventDefault is fixed at render time and would suppress every key.
+// Idempotent: the dataset flag keeps repeat calls from stacking listeners.
+window.shopInventory.suppressEnterNewline = function (elementId) {
+    const element = document.getElementById(elementId);
+    if (!element || element.dataset.enterSuppressed === 'true') {
+        return;
+    }
+
+    element.dataset.enterSuppressed = 'true';
+    element.addEventListener('keydown', function (event) {
+        // isComposing guards IME input, where Enter commits the candidate.
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
+        }
+    });
+};
+
+// Pins a scrolling list to its newest entry — used by the WhatsApp console so a
+// conversation opens on its latest message rather than its oldest.
+window.shopInventory.scrollToBottom = function (elementId) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.scrollTop = element.scrollHeight;
+    }
+};
+
 window.shopInventory.formatUtcForBrowserLocalDisplay = function (utcIsoString) {
     if (!utcIsoString) {
         return null;

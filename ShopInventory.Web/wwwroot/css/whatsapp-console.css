@@ -1,0 +1,1611 @@
+/* ==========================================================================
+   WhatsApp Operator Console — Nocturne
+
+   Implements concept 1B ("Control room") from the imported design
+   (WhatsApp Operator Console.dc.html): sessions are a permanent first
+   column — gateway health, the session list with its inline pairing QR and
+   the failure card all live beside the thread list and the conversation,
+   rather than collapsing into a status line the way 1A does.
+
+   The import also draws the app's top bar and sidebar. That chrome is the
+   app's own and already built — nocturne-shell.css was derived from this
+   very design — so only the content region is built here. The import
+   narrows the sidebar to a 56px icon rail to buy horizontal room; the app's
+   sidebar is shared by every page and stays at its 232px, so the three
+   columns here are sized against what is left instead.
+
+   Unlike the other Nocturne pages this one is viewport-locked rather than
+   scrolled: it is a console, and each of its three columns scrolls
+   independently. That means neutralising .kf-container's padding and
+   letting the page own the height between the top bar and the viewport
+   floor — the only place this file reaches outside its own scope.
+
+   The import is a single dark scheme, so the dark palette below is the
+   design's own — #161826 ground, #232532 surface, the #9184d9 blurple
+   accent — unchanged. Light is its daylight counterpart, with the accent
+   taken down to #5f52c4 so it can carry text (#9184d9 is 3.0:1 on white:
+   enough for chrome, not for type). Light is the base and `.dark-theme` the
+   override, matching the rest of the app and the order App.razor's pre-paint
+   script stamps the class in, so neither scheme flashes.
+
+   Token names and values are deliberately identical to
+   sales-rep-dashboard.css and mobile-orders.css so the pages stay one
+   system; the import writes its semantic tones as oklch(), and they are
+   carried here as the hex those pages already resolve for the same roles.
+
+   Rules live here rather than an inline Razor <style> block because app.css
+   carries global `.dark-theme input/textarea` rules that paint every dark
+   field #1e293b and have to be out-specified, and Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would otherwise bolden headings past the 500
+   Nocturne allows.
+   ========================================================================== */
+
+.wac {
+    --wac-ground: #f4f4f8;
+    --wac-surface: #ffffff;
+    --wac-sunken: #eceef5;
+    --wac-raised: #f4f4f8;
+
+    --wac-ink: #1b1c26;
+    --wac-ink-2: #35374a;
+    --wac-mute: #4e5164;
+    --wac-mute-2: #656879;
+    --wac-mute-3: #7b7e8e;
+    --wac-faint: #a0a2ae;
+
+    --wac-divider: rgba(27, 28, 38, .14);
+    --wac-rule: rgba(27, 28, 38, .09);
+    --wac-hairline: rgba(27, 28, 38, .06);
+    --wac-hover: rgba(27, 28, 38, .04);
+    --wac-press: rgba(27, 28, 38, .09);
+    --wac-edge: #d4d6e2;
+    --wac-edge-hi: #a9adc0;
+
+    --wac-accent: #5f52c4;
+    --wac-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender (--color-accent-200/300); on paper the same role has to be
+       the deep end of the ramp instead. */
+    --wac-accent-text: #473d99;
+    --wac-accent-soft: rgba(95, 82, 196, .1);
+    --wac-accent-edge: rgba(95, 82, 196, .32);
+    --wac-accent-line: #8c81d6;
+
+    /* The outbound bubble carries running prose, so its ink is a near-ink
+       tinted toward the accent rather than the accent itself. */
+    --wac-out-bg: rgba(95, 82, 196, .1);
+    --wac-out-edge: rgba(95, 82, 196, .3);
+    --wac-out-ink: #2a2458;
+    --wac-in-bg: #ffffff;
+    --wac-in-edge: rgba(27, 28, 38, .12);
+    --wac-in-ink: #1b1c26;
+
+    --wac-ok: #0b6b4f;
+    --wac-ok-dot: #178a67;
+    --wac-ok-bg: #e7f4ef;
+    --wac-ok-edge: #b8ddcd;
+    --wac-warn: #8a5a00;
+    --wac-warn-dot: #b57c07;
+    --wac-warn-bg: #fdf3e1;
+    --wac-warn-edge: #e6cd9a;
+    --wac-bad: #a8402c;
+    --wac-bad-dot: #c0533d;
+    --wac-bad-bg: #fbece8;
+    --wac-bad-edge: #eec4b9;
+
+    --wac-s1: 2.8px;
+    --wac-s2: 5.6px;
+    --wac-s3: 8.4px;
+    --wac-s4: 11.2px;
+    --wac-s6: 16.8px;
+    --wac-s8: 22.4px;
+
+    /* One number for each fixed column so the header strips and the bodies
+       below them cannot drift apart. */
+    --wac-rail-w: 292px;
+    --wac-threads-w: 288px;
+
+    --wac-scheme: light;
+    color-scheme: var(--wac-scheme);
+}
+
+.dark-theme .wac {
+    /* Nocturne's own values, unmodified. */
+    --wac-ground: #161826;
+    --wac-surface: #232532;
+    --wac-sunken: #161826;
+    --wac-raised: #292b31;
+
+    --wac-ink: #e9e9ed;
+    --wac-ink-2: #cfd3e5;
+    --wac-mute: #b2b6ca;
+    --wac-mute-2: #9397ab;
+    --wac-mute-3: #75798c;
+    --wac-faint: #595d6c;
+
+    --wac-divider: rgba(233, 233, 237, .16);
+    --wac-rule: rgba(233, 233, 237, .1);
+    --wac-hairline: rgba(233, 233, 237, .06);
+    --wac-hover: rgba(233, 233, 237, .04);
+    --wac-press: rgba(233, 233, 237, .1);
+    --wac-edge: rgba(233, 233, 237, .14);
+    --wac-edge-hi: rgba(233, 233, 237, .45);
+
+    --wac-accent: #9184d9;
+    --wac-accent-rgb: 145, 132, 217;
+    --wac-accent-text: #d2cefd;
+    --wac-accent-soft: #2b2741;
+    --wac-accent-edge: #423a6a;
+    --wac-accent-line: #5d5294;
+
+    --wac-out-bg: #2b2741;
+    --wac-out-edge: #423a6a;
+    --wac-out-ink: #e7e5fe;
+    --wac-in-bg: #292b31;
+    --wac-in-edge: rgba(233, 233, 237, .08);
+    --wac-in-ink: #e4e7f5;
+
+    --wac-ok: #8fe0c2;
+    --wac-ok-dot: #4cc79a;
+    --wac-ok-bg: rgba(31, 106, 77, .25);
+    --wac-ok-edge: rgba(44, 135, 96, .45);
+    --wac-warn: #f0c987;
+    --wac-warn-dot: #d8a23f;
+    --wac-warn-bg: rgba(109, 74, 21, .25);
+    --wac-warn-edge: rgba(143, 103, 38, .45);
+    --wac-bad: #ef9179;
+    --wac-bad-dot: #d9674a;
+    --wac-bad-bg: rgba(107, 42, 27, .3);
+    --wac-bad-edge: rgba(150, 63, 42, .55);
+
+    --wac-scheme: dark;
+}
+
+/* ── Frame ─────────────────────────────────────────────────────────────── */
+/* The console owns the whole region under the top bar: .kf-container's
+   centring padding is neutralised for this page only, and the three columns
+   scroll independently inside it rather than the page scrolling as one. */
+
+html body .staff-container.kf-container:has(> .wac) {
+    max-width: none !important;
+    padding: 0 !important;
+}
+
+.wac {
+    display: flex;
+    height: calc(100vh - var(--kf-topbar-h, 54px));
+    min-height: 0;
+    background: var(--wac-ground);
+    color: var(--wac-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+.wac * {
+    box-sizing: border-box;
+}
+
+.wac :focus-visible {
+    outline: 2px solid var(--wac-accent);
+    outline-offset: 2px;
+}
+
+.wac ::selection {
+    background: rgba(var(--wac-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.wac h1,
+.wac h2,
+.wac h3 {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+}
+
+.wac p {
+    margin: 0;
+}
+
+/* Nocturne's signature: a freestanding rule fades to transparent at each end.
+   Panel outlines and in-panel separators stay solid. */
+.wac-rule {
+    flex: none;
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--wac-divider) 32px,
+            var(--wac-divider) calc(100% - 32px), transparent);
+}
+
+.wac-eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--wac-mute-2);
+}
+
+/* Each column scrolls on its own; the thin scrollbars keep the gutters from
+   eating into columns this narrow. */
+.wac-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--wac-edge) transparent;
+}
+
+.wac-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.wac-scroll::-webkit-scrollbar-thumb {
+    background: var(--wac-edge);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 4px;
+}
+
+.wac-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. Named
+   .wac-btn rather than reusing .btn so Bootstrap's own fills cannot land. */
+
+.wac-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--wac-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--wac-ink-2);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.wac-btn i {
+    font-size: 14px;
+}
+
+.wac-btn:hover:not(:disabled) {
+    background: var(--wac-hover);
+    border-color: var(--wac-edge-hi);
+    color: var(--wac-ink);
+}
+
+.wac-btn:active:not(:disabled) {
+    background: var(--wac-press);
+}
+
+.wac-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.wac-btn-accent {
+    border-color: var(--wac-accent-line);
+    color: var(--wac-accent-text);
+}
+
+.wac-btn-accent:hover:not(:disabled) {
+    background: var(--wac-accent-soft);
+    border-color: var(--wac-accent);
+    color: var(--wac-accent-text);
+}
+
+.wac-btn-accent:active:not(:disabled) {
+    background: var(--wac-accent-edge);
+}
+
+.wac-btn-danger {
+    border-color: var(--wac-bad-edge);
+    color: var(--wac-bad);
+}
+
+.wac-btn-danger:hover:not(:disabled) {
+    background: var(--wac-bad-bg);
+    border-color: var(--wac-bad-dot);
+    color: var(--wac-bad);
+}
+
+.wac-btn-xs {
+    height: 23px;
+    padding: 0 9px;
+    font-size: 11.5px;
+}
+
+.wac-btn-xs i {
+    font-size: 12px;
+}
+
+.wac-btn-block {
+    flex: 1;
+}
+
+.wac-btn-quiet {
+    border-color: transparent;
+    color: var(--wac-mute-2);
+}
+
+.wac-btn-quiet:hover:not(:disabled) {
+    border-color: transparent;
+    background: var(--wac-hover);
+    color: var(--wac-ink);
+}
+
+.wac-icon-btn {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--wac-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--wac-ink-2);
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+
+.wac-icon-btn i {
+    font-size: 14px;
+}
+
+.wac-icon-btn:hover:not(:disabled) {
+    background: var(--wac-hover);
+    border-color: var(--wac-edge-hi);
+    color: var(--wac-ink);
+}
+
+.wac-icon-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.wac-icon-btn.is-on {
+    border-color: var(--wac-accent-line);
+    background: var(--wac-accent-soft);
+    color: var(--wac-accent-text);
+}
+
+/* A spinner sized for the 23–28px controls, since Bootstrap's own is tied to
+   its button colours. */
+.wac-spin {
+    display: inline-block;
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: wac-spin .7s linear infinite;
+}
+
+@keyframes wac-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Fields ────────────────────────────────────────────────────────────── */
+/* app.css paints every field under .dark-theme #1e293b at (0,1,1); these
+   two-class selectors out-specify it, and the placeholder rule has to restate
+   -webkit-text-fill-color because app.css sets that too. */
+
+.wac .wac-input,
+.wac .wac-textarea {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--wac-edge);
+    border-radius: 8px;
+    background: var(--wac-sunken);
+    color: var(--wac-ink);
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.45;
+    transition: border-color .12s ease;
+}
+
+.wac .wac-textarea {
+    min-height: 34px;
+    max-height: 132px;
+    resize: none;
+}
+
+.wac .wac-input:hover:not(:disabled),
+.wac .wac-textarea:hover:not(:disabled) {
+    border-color: var(--wac-edge-hi);
+}
+
+.wac .wac-input:focus,
+.wac .wac-textarea:focus {
+    border-color: var(--wac-accent);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--wac-accent-rgb), .18);
+}
+
+.wac .wac-input:disabled,
+.wac .wac-textarea:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.wac .wac-input::placeholder,
+.wac .wac-textarea::placeholder {
+    color: var(--wac-mute-3);
+    -webkit-text-fill-color: var(--wac-mute-3);
+    opacity: 1;
+}
+
+.wac-field-label {
+    display: block;
+    margin-bottom: var(--wac-s2);
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--wac-mute);
+}
+
+.wac-help {
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--wac-mute-2);
+}
+
+.wac-help.is-error {
+    color: var(--wac-bad);
+}
+
+/* A search field with its glyph inset. */
+.wac-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.wac-search > i {
+    position: absolute;
+    left: 9px;
+    font-size: 14px;
+    color: var(--wac-mute-3);
+    pointer-events: none;
+}
+
+.wac .wac-search .wac-input {
+    height: 30px;
+    padding-left: 29px;
+    /* Reserved whether or not the clear button is showing, so the text does not
+       reflow the moment the field is first typed into. */
+    padding-right: 30px;
+}
+
+.wac-search-clear {
+    position: absolute;
+    right: 3px;
+    width: 24px;
+    height: 24px;
+    border-color: transparent;
+}
+
+.wac-search-clear i {
+    font-size: 13px;
+}
+
+/* ── Status dots and pills ─────────────────────────────────────────────── */
+
+.wac-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--wac-mute-3);
+}
+
+.wac-dot.is-ok {
+    background: var(--wac-ok-dot);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--wac-ok-dot) 22%, transparent);
+}
+
+.wac-dot.is-warn {
+    background: var(--wac-warn-dot);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--wac-warn-dot) 22%, transparent);
+}
+
+.wac-dot.is-bad {
+    background: var(--wac-bad-dot);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--wac-bad-dot) 22%, transparent);
+}
+
+.wac-dot-sm {
+    width: 6px;
+    height: 6px;
+    box-shadow: none !important;
+}
+
+.wac-pill {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    height: 19px;
+    padding: 0 7px;
+    border: 1px solid var(--wac-edge);
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    color: var(--wac-mute);
+    white-space: nowrap;
+}
+
+.wac-pill.is-ok {
+    border-color: var(--wac-ok-edge);
+    background: var(--wac-ok-bg);
+    color: var(--wac-ok);
+}
+
+.wac-pill.is-warn {
+    border-color: var(--wac-warn-edge);
+    background: var(--wac-warn-bg);
+    color: var(--wac-warn);
+}
+
+.wac-pill.is-bad {
+    border-color: var(--wac-bad-edge);
+    background: var(--wac-bad-bg);
+    color: var(--wac-bad);
+}
+
+/* ── Column 1 · gateway and sessions ───────────────────────────────────── */
+
+.wac-rail {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    width: var(--wac-rail-w);
+    min-height: 0;
+    background: var(--wac-surface);
+    border-right: 1px solid var(--wac-rule);
+}
+
+.wac-rail-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: var(--wac-s4);
+    padding: var(--wac-s6) var(--wac-s6) var(--wac-s4);
+}
+
+/* Gateway */
+
+.wac-gw {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: var(--wac-s3);
+}
+
+.wac-gw-state {
+    display: flex;
+    align-items: center;
+    gap: var(--wac-s3);
+}
+
+.wac-gw-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--wac-ink);
+}
+
+.wac-gw-aside {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--wac-mute-2);
+    white-space: nowrap;
+}
+
+.wac-facts {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+}
+
+.wac-fact {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11.5px;
+}
+
+.wac-fact dt {
+    flex: none;
+    margin: 0;
+    font-weight: 400;
+    color: var(--wac-mute-2);
+}
+
+.wac-fact dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--wac-ink-2);
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+/* The auto-refresh switch: a real checkbox behind a drawn track, so it keeps
+   its keyboard behaviour and its checked state without script. */
+.wac-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--wac-s2);
+    font-size: 11.5px;
+    color: var(--wac-mute-2);
+    cursor: pointer;
+    user-select: none;
+}
+
+.wac .wac-toggle input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.wac-toggle-track {
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 17px;
+    border-radius: 9px;
+    background: var(--wac-sunken);
+    box-shadow: inset 0 0 0 1px var(--wac-edge);
+    transition: background-color .14s ease, box-shadow .14s ease;
+}
+
+.wac-toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--wac-mute-3);
+    transition: transform .14s ease, background-color .14s ease;
+}
+
+.wac-toggle input:checked + .wac-toggle-track {
+    background: var(--wac-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-line);
+}
+
+.wac-toggle input:checked + .wac-toggle-track::after {
+    transform: translateX(13px);
+    background: var(--wac-accent);
+}
+
+.wac-toggle input:focus-visible + .wac-toggle-track {
+    outline: 2px solid var(--wac-accent);
+    outline-offset: 2px;
+}
+
+/* Sessions */
+
+.wac-sessions {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    gap: var(--wac-s3);
+}
+
+.wac-sec-head {
+    display: flex;
+    align-items: center;
+    gap: var(--wac-s2);
+    flex: none;
+}
+
+.wac-sec-head .wac-eyebrow {
+    margin-right: auto;
+}
+
+.wac-session-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wac-s3);
+    padding-right: 2px;
+}
+
+.wac-session {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wac-s3);
+    padding: 11px 12px;
+    border-radius: 8px;
+    background: var(--wac-sunken);
+    box-shadow: inset 0 0 0 1px var(--wac-rule);
+    text-align: left;
+}
+
+.wac-session.is-selected {
+    background: var(--wac-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-edge);
+}
+
+.wac-session-head {
+    display: flex;
+    align-items: center;
+    gap: var(--wac-s3);
+    min-width: 0;
+}
+
+/* The name is the control that selects the session; the row around it holds
+   the status, so the hit target is the name and its dot. */
+.wac-session-name {
+    display: flex;
+    align-items: center;
+    gap: var(--wac-s3);
+    min-width: 0;
+    margin-right: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--wac-ink);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+}
+
+.wac-session-name span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wac-session-name:hover {
+    color: var(--wac-accent-text);
+}
+
+.wac-session.is-selected .wac-session-name {
+    cursor: default;
+}
+
+.wac-session-status {
+    flex: none;
+    font-size: 10.5px;
+    color: var(--wac-mute-2);
+    white-space: nowrap;
+}
+
+.wac-session-status.is-ok {
+    color: var(--wac-ok);
+}
+
+.wac-session-status.is-warn {
+    color: var(--wac-warn);
+}
+
+.wac-session-status.is-bad {
+    color: var(--wac-bad);
+}
+
+/* Start/Stop are .wac-btn-block and share one row; the pairing card's wider
+   labels wrap onto their own lines rather than overflowing a 292px rail. */
+.wac-session-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.wac-session-facts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: var(--wac-s1);
+    border-top: 1px solid var(--wac-hairline);
+}
+
+/* Pairing */
+
+.wac-pair {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.wac-qr {
+    flex: none;
+    width: 62px;
+    height: 62px;
+    padding: 4px;
+    border-radius: 6px;
+    /* The code has to stay on white whatever the scheme, or a scanner reads
+       an inverted image. */
+    background: #ffffff;
+}
+
+.wac-qr img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+}
+
+.wac-pair-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.wac-pair-copy p {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--wac-mute-2);
+    text-wrap: pretty;
+}
+
+.wac-pair.is-big {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.wac-pair.is-big .wac-qr {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    max-width: 236px;
+    padding: 10px;
+}
+
+.wac-pair.is-big .wac-pair-copy {
+    align-items: center;
+}
+
+/* Failure card */
+
+.wac-alert {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: var(--wac-s2);
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--wac-bad-bg);
+    box-shadow: inset 0 0 0 1px var(--wac-bad-edge);
+}
+
+.wac-alert-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--wac-bad);
+}
+
+.wac-alert-head i {
+    flex: none;
+    font-size: 14px;
+}
+
+.wac-alert p {
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--wac-mute);
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+}
+
+.wac-alert-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: var(--wac-s1);
+}
+
+.wac-note {
+    flex: none;
+    padding: 9px 11px;
+    border-radius: 8px;
+    background: var(--wac-sunken);
+    box-shadow: inset 0 0 0 1px var(--wac-rule);
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--wac-mute-2);
+    text-wrap: pretty;
+}
+
+.wac-note.is-info {
+    background: var(--wac-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-edge);
+    color: var(--wac-ink-2);
+}
+
+/* Create-session form */
+
+.wac-create {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: var(--wac-s2);
+    padding: 11px 12px;
+    border-radius: 8px;
+    background: var(--wac-sunken);
+    box-shadow: inset 0 0 0 1px var(--wac-rule);
+}
+
+.wac-create-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: var(--wac-s1);
+}
+
+/* Rail footer figures */
+
+.wac-stats {
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--wac-s3);
+    padding: var(--wac-s4) var(--wac-s6);
+    border-top: 1px solid var(--wac-rule);
+}
+
+.wac-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.wac-stat-value {
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+}
+
+.wac-stat.is-accent .wac-stat-value {
+    color: var(--wac-accent-text);
+}
+
+.wac-stat-label {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    color: var(--wac-mute-2);
+}
+
+/* ── Column 2 · threads ────────────────────────────────────────────────── */
+
+.wac-threads {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    width: var(--wac-threads-w);
+    min-height: 0;
+    background: var(--wac-ground);
+    border-right: 1px solid var(--wac-rule);
+}
+
+.wac-threads-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--wac-s2);
+    padding: var(--wac-s4) var(--wac-s4) 0;
+}
+
+.wac-threads-title {
+    margin-right: auto;
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.wac-threads-count {
+    font-size: 11.5px;
+    color: var(--wac-mute-2);
+    white-space: nowrap;
+}
+
+.wac-threads-search {
+    flex: none;
+    padding: var(--wac-s3) var(--wac-s4) var(--wac-s2);
+}
+
+.wac-thread-list {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 1px;
+    padding: var(--wac-s2) var(--wac-s2) var(--wac-s3);
+}
+
+.wac-thread {
+    position: relative;
+    display: flex;
+    flex: none;
+    gap: 9px;
+    width: 100%;
+    padding: 9px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.wac-thread:hover {
+    background: var(--wac-surface);
+}
+
+.wac-thread.is-selected {
+    background: var(--wac-raised);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-edge);
+}
+
+.wac-thread.is-selected::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--wac-accent);
+}
+
+.wac-avatar {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--wac-raised);
+    box-shadow: inset 0 0 0 1px var(--wac-hairline);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--wac-ink-2);
+}
+
+.wac-thread.is-selected .wac-avatar {
+    background: var(--wac-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-edge);
+    color: var(--wac-accent-text);
+}
+
+.wac-thread-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.wac-thread-top,
+.wac-thread-bottom {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.wac-thread-bottom {
+    align-items: center;
+}
+
+.wac-thread-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wac-thread-time {
+    flex: none;
+    font-size: 10px;
+    color: var(--wac-mute-2);
+    white-space: nowrap;
+}
+
+.wac-thread-snippet {
+    flex: 1;
+    min-width: 0;
+    font-size: 11.5px;
+    color: var(--wac-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wac-thread-unread {
+    display: grid;
+    place-items: center;
+    flex: none;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--wac-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-line);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--wac-accent-text);
+}
+
+.wac-pager {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--wac-s2);
+    padding: var(--wac-s3) var(--wac-s4);
+    border-top: 1px solid var(--wac-rule);
+}
+
+.wac-pager-label {
+    flex: 1;
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--wac-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Column 3 · conversation ───────────────────────────────────────────── */
+
+.wac-conv {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: var(--wac-ground);
+}
+
+.wac-conv-head {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--wac-s3);
+    height: 54px;
+    padding: 0 var(--wac-s6);
+    border-bottom: 1px solid var(--wac-rule);
+}
+
+.wac-conv-id {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    margin-right: auto;
+    line-height: 1.25;
+}
+
+.wac-conv-name {
+    font-size: 13.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wac-conv-sub {
+    font-size: 11.5px;
+    color: var(--wac-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wac-msgs {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    flex: 1;
+    padding: var(--wac-s6) var(--wac-s6) var(--wac-s3);
+}
+
+.wac-daymark {
+    align-self: center;
+    flex: none;
+    margin: var(--wac-s1) 0;
+    padding: 2px 10px;
+    border-radius: 10px;
+    background: var(--wac-surface);
+    box-shadow: inset 0 0 0 1px var(--wac-rule);
+    font-size: 10.5px;
+    color: var(--wac-mute-2);
+}
+
+.wac-msg {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: 4px;
+    max-width: min(76%, 620px);
+}
+
+.wac-msg.is-out {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.wac-msg.is-in {
+    align-self: flex-start;
+}
+
+.wac-bubble {
+    padding: 8px 11px;
+    border-radius: 10px 10px 10px 3px;
+    background: var(--wac-in-bg);
+    box-shadow: inset 0 0 0 1px var(--wac-in-edge);
+    color: var(--wac-in-ink);
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    text-wrap: pretty;
+}
+
+.wac-msg.is-out .wac-bubble {
+    border-radius: 10px 10px 3px 10px;
+    background: var(--wac-out-bg);
+    box-shadow: inset 0 0 0 1px var(--wac-out-edge);
+    color: var(--wac-out-ink);
+}
+
+.wac-bubble.is-empty {
+    color: var(--wac-mute-2);
+    font-style: italic;
+}
+
+.wac-msg-foot {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--wac-mute-2);
+}
+
+.wac-msg-foot i {
+    font-size: 12px;
+}
+
+.wac-msg-foot .ph-checks {
+    color: var(--wac-accent);
+}
+
+/* The reply affordance stays out of the way until the message is hovered or
+   the button itself takes focus. */
+.wac-msg-reply {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--wac-mute-2);
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .12s ease, color .12s ease;
+}
+
+.wac-msg:hover .wac-msg-reply,
+.wac-msg-reply:focus-visible {
+    opacity: 1;
+}
+
+.wac-msg-reply:hover {
+    color: var(--wac-accent-text);
+}
+
+@media (hover: none) {
+    .wac-msg-reply {
+        opacity: 1;
+    }
+}
+
+/* Per-message capture detail, shown only while the header's Details toggle is
+   on — this is the metadata the console carried before the redesign. */
+.wac-msg-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    max-width: 100%;
+    font-size: 10px;
+    color: var(--wac-mute-2);
+}
+
+.wac-msg-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    overflow-wrap: anywhere;
+}
+
+.wac-raw {
+    max-width: 100%;
+    font-size: 10px;
+    color: var(--wac-mute-2);
+}
+
+.wac-raw summary {
+    cursor: pointer;
+    list-style: none;
+}
+
+.wac-raw summary::-webkit-details-marker {
+    display: none;
+}
+
+.wac-raw summary::before {
+    content: "\203A\00a0";
+    display: inline-block;
+    transition: transform .12s ease;
+}
+
+.wac-raw[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.wac-raw summary:hover {
+    color: var(--wac-ink-2);
+}
+
+.wac-raw pre {
+    max-height: 220px;
+    margin: var(--wac-s2) 0 0;
+    padding: var(--wac-s3);
+    border-radius: 6px;
+    background: var(--wac-sunken);
+    box-shadow: inset 0 0 0 1px var(--wac-rule);
+    color: var(--wac-mute);
+    font-size: 10.5px;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* Composer */
+
+.wac-composer {
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    gap: var(--wac-s3);
+    padding: var(--wac-s3) var(--wac-s6) var(--wac-s4);
+    border-top: 1px solid var(--wac-rule);
+}
+
+.wac-reply-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--wac-s3);
+    padding: 8px 11px;
+    border-radius: 8px;
+    background: var(--wac-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--wac-accent-edge);
+}
+
+.wac-reply-copy {
+    min-width: 0;
+    margin-right: auto;
+}
+
+.wac-reply-title {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--wac-accent-text);
+}
+
+.wac-reply-preview {
+    font-size: 11px;
+    color: var(--wac-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wac-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.wac-chip {
+    height: 24px;
+    padding: 0 10px;
+    border: 1px solid var(--wac-edge);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--wac-ink-2);
+    font-family: inherit;
+    font-size: 11.5px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease;
+}
+
+.wac-chip:hover:not(:disabled) {
+    background: var(--wac-hover);
+    border-color: var(--wac-edge-hi);
+}
+
+.wac-chip:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.wac-compose-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 9px;
+}
+
+.wac-compose-row .wac-icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+}
+
+.wac-compose-row .wac-icon-btn i {
+    font-size: 16px;
+}
+
+.wac-compose-row .wac-btn {
+    height: 34px;
+    padding: 0 14px;
+    font-size: 12.5px;
+}
+
+.wac-compose-hint {
+    font-size: 11px;
+    color: var(--wac-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Empty and loading states ──────────────────────────────────────────── */
+
+.wac-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--wac-s3);
+    flex: 1;
+    min-height: 0;
+    padding: var(--wac-s8) var(--wac-s6);
+    text-align: center;
+}
+
+.wac-empty i {
+    font-size: 26px;
+    color: var(--wac-faint);
+}
+
+.wac-empty h2 {
+    font-size: 14px;
+    color: var(--wac-ink-2);
+}
+
+.wac-empty p {
+    max-width: 44ch;
+    font-size: 12px;
+    color: var(--wac-mute-2);
+    text-wrap: pretty;
+}
+
+.wac-empty-sm {
+    padding: var(--wac-s6) var(--wac-s4);
+    gap: var(--wac-s2);
+}
+
+.wac-empty-sm p {
+    font-size: 11.5px;
+}
+
+/* ── Narrower viewports ────────────────────────────────────────────────── */
+/* The app sidebar keeps its 232px, so the console gives up its own columns
+   first: the rail narrows, then the threads column, then the three columns
+   become one scrolling stack. */
+
+@media (max-width: 1360px) {
+    .wac {
+        --wac-rail-w: 268px;
+        --wac-threads-w: 254px;
+    }
+}
+
+@media (max-width: 1180px) {
+    .wac {
+        --wac-rail-w: 248px;
+        --wac-threads-w: 232px;
+    }
+
+    .wac-conv-head,
+    .wac-msgs,
+    .wac-composer {
+        padding-left: var(--wac-s4);
+        padding-right: var(--wac-s4);
+    }
+
+    .wac-rail-body {
+        padding-left: var(--wac-s4);
+        padding-right: var(--wac-s4);
+    }
+
+    .wac-stats {
+        padding-left: var(--wac-s4);
+        padding-right: var(--wac-s4);
+    }
+}
+
+@media (max-width: 1023.98px) {
+    .wac {
+        flex-direction: column;
+        height: auto;
+        min-height: calc(100vh - var(--kf-topbar-h, 54px));
+    }
+
+    .wac-rail,
+    .wac-threads {
+        width: 100%;
+        border-right: 0;
+        border-bottom: 1px solid var(--wac-rule);
+    }
+
+    /* Stacked, the columns scroll with the page rather than each other. */
+    .wac-scroll {
+        overflow-y: visible;
+    }
+
+    .wac-thread-list {
+        max-height: 320px;
+        overflow-y: auto;
+    }
+
+    .wac-msgs {
+        min-height: 340px;
+    }
+
+    .wac-msg {
+        max-width: 88%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wac *,
+    .wac *::after {
+        transition: none !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}
