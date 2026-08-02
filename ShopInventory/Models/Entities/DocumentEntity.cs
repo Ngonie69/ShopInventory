@@ -93,6 +93,10 @@ public class DocumentTemplateEntity
 /// Document attachment entity for storing files attached to orders, invoices, etc.
 /// </summary>
 [Index(nameof(EntityType), nameof(EntityId), nameof(ExternalReference), IsUnique = true)]
+// Not unique: the same file may legitimately be attached to one entity more than once, just not
+// twice in quick succession. The duplicate window is applied in the query, so this only has to make
+// the lookup cheap.
+[Index(nameof(EntityType), nameof(EntityId), nameof(ContentSha256))]
 [Table("DocumentAttachments")]
 public class DocumentAttachmentEntity
 {
@@ -141,6 +145,17 @@ public class DocumentAttachmentEntity
     /// File size in bytes
     /// </summary>
     public long FileSizeBytes { get; set; }
+
+    /// <summary>
+    /// SHA-256 of the stored file, used to recognise a re-submission of the same content when the
+    /// caller supplies no <see cref="ExternalReference"/> or a different one each attempt.
+    /// </summary>
+    /// <remarks>
+    /// Null on rows written before this column existed, and on any upload whose file could not be
+    /// hashed; both simply fall back to reference-only duplicate detection.
+    /// </remarks>
+    [MaxLength(64)]
+    public string? ContentSha256 { get; set; }
 
     /// <summary>
     /// File description or notes

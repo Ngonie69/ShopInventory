@@ -72,6 +72,15 @@ public class IdempotencyMiddleware
     {
             ("POST /api/crates/transactions/", "/pods"),
             ("POST /api/crates/transactions/", "/grvs"),
+            // The POD upload deduplicates on the caller's external reference and, failing that, on
+            // the content of the file itself, returning the attachment either way. Letting this
+            // middleware answer instead would hand back a bare message and lose the attachment the
+            // retry was asking for.
+            ("POST /api/invoice/", "/pod"),
+            // Delegates to UploadCratePodCommand — the same handler behind the crates route above,
+            // so it owns idempotency for the same reason. "/pod" does not match this: the segment
+            // ends "-pod", not "/pod".
+            ("POST /api/invoice/", "/crate-pod"),
     };
 
     private static readonly string[] MobileSalesOrderCompatibilityRoles =
