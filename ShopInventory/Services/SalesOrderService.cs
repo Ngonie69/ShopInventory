@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,10 @@ public class SalesOrderService : ISalesOrderService
 {
     private const int MaxCommentsLength = 1000;
     private const int MaxCreateOrderAttempts = 5;
+
+    // How many order numbers a reconciliation sweep names before summarising the rest. Enough to
+    // act on without turning a two-minute job into a wall of text.
+    private const int MaxReportedStuckOrderNumbers = 10;
     private const string SapPostingIdempotencyScope = "salesorders.sap-post";
     private const string SapPostingUncertainSyncErrorPrefix = "The SAP posting result is uncertain";
     private static readonly TimeSpan ApprovalPricingTimeout = TimeSpan.FromSeconds(30);
@@ -1872,11 +1877,17 @@ public class SalesOrderService : ISalesOrderService
     }
 
     /// <summary>
-    /// Sweeps recent local sales orders that carry no SAP DocNum and links any that SAP actually
-    /// holds under their U_OrderNumber. A create can commit in SAP while the response, the local
-    /// save, or the short post-failure reconciliation window fails, which leaves the local row
-    /// showing Pending forever because nothing else re-checks it once the request has ended.
+    /// Sweeps recent local sales orders whose posting to SAP was attempted but left no SAP DocNum,
+    /// and links any that SAP actually holds under their U_OrderNumber. A create can commit in SAP
+    /// while the response, the local save, or the short post-failure reconciliation window fails,
+    /// which leaves the local row showing Pending forever because nothing else re-checks it once
+    /// the request has ended.
     /// </summary>
+    /// <remarks>
+    /// "Posting was attempted" is the load-bearing part of the candidate filter — an order nobody
+    /// ever submitted cannot be in SAP, so probing it is pure cost. See
+    /// <see cref="UnlinkedSapOrderCandidateFilter"/>.
+    /// </remarks>
     public async Task<int> ReconcileUnlinkedSapSalesOrdersAsync(
         TimeSpan lookback,
         int maxOrders,
@@ -1889,19 +1900,9 @@ public class SalesOrderService : ISalesOrderService
 
         var cutoff = DateTime.UtcNow - lookback;
 
-        // Null *or* non-positive: everywhere else "has a SAP document" means HasSapDocNum, which
-        // reads DocNum <= 0 as unlinked. Matching only null left those rows to the repair loop that
-        // used to run on the mobile order list, and this sweep is now the only thing that relinks
-        // them.
         var candidates = await _context.SalesOrders
             .AsNoTracking()
-            .Where(o => (o.SAPDocNum == null || o.SAPDocNum <= 0)
-                && o.CreatedAt >= cutoff
-                && (o.Status == SalesOrderStatus.Pending
-                    || o.Status == SalesOrderStatus.Approved
-                    || (o.Status == SalesOrderStatus.Draft && o.SyncError != null))
-                && o.OrderNumber != null
-                && o.OrderNumber != "")
+            .Where(UnlinkedSapOrderCandidateFilter(cutoff))
             .OrderBy(o => o.Id)
             .Select(o => new { o.Id, o.OrderNumber })
             .Take(maxOrders)
@@ -1910,6 +1911,17 @@ public class SalesOrderService : ISalesOrderService
         if (candidates.Count == 0)
         {
             return 0;
+        }
+
+        // A full batch means orders beyond the cap were not looked at this sweep, and because the
+        // ordering is oldest-first the ones being skipped are the newest — the opposite of what a
+        // repair sweep wants. Worth saying out loud: reaching the cap at all implies a backlog of
+        // orders whose posting is genuinely uncertain, which is an operator problem, not a tuning one.
+        if (candidates.Count >= maxOrders)
+        {
+            _logger.LogWarning(
+                "Sales order reconciliation is at its {MaxOrders}-order cap, so newer unlinked orders were not probed this sweep.",
+                maxOrders);
         }
 
         // One scan of ORDR for the whole sweep. This used to probe U_OrderNumber once per
@@ -1929,11 +1941,6 @@ public class SalesOrderService : ISalesOrderService
                 ex,
                 "Failed to resolve {CandidateCount} unlinked sales order(s) against SAP by U_OrderNumber. They will be retried on the next sweep.",
                 candidates.Count);
-            return 0;
-        }
-
-        if (sapOrdersByNumber.Count == 0)
-        {
             return 0;
         }
 
@@ -1975,6 +1982,18 @@ public class SalesOrderService : ISalesOrderService
                 "Linked {LinkedCount} of {CandidateCount} unlinked local sales order(s) to SAP documents found by U_OrderNumber.",
                 linkedCount,
                 candidates.Count);
+        }
+        else
+        {
+            // Name them. A sweep that links nothing is normal, but a sweep that links nothing every
+            // two minutes for hours means those orders need a person, and the previous version of
+            // this said only "Resolved 0 of 22" from inside the SAP client — enough to know
+            // something was stuck, not enough to know what.
+            _logger.LogInformation(
+                "Sales order reconciliation linked none of its {CandidateCount} candidate(s); SAP holds no document under {OrderNumbers}.",
+                candidates.Count,
+                string.Join(", ", candidates.Take(MaxReportedStuckOrderNumbers).Select(candidate => candidate.OrderNumber))
+                    + (candidates.Count > MaxReportedStuckOrderNumbers ? $", +{candidates.Count - MaxReportedStuckOrderNumbers} more" : string.Empty));
         }
 
         return linkedCount;
@@ -2444,6 +2463,45 @@ public class SalesOrderService : ISalesOrderService
         status is SalesOrderStatus.Draft
             or SalesOrderStatus.Pending
             or SalesOrderStatus.Approved;
+
+    /// <summary>
+    /// Selects local orders created since <paramref name="cutoff"/> that were submitted to SAP but
+    /// carry no SAP document number — the only orders a reconciliation sweep can possibly link.
+    /// </summary>
+    /// <remarks>
+    /// Null *or* non-positive DocNum: everywhere else "has a SAP document" means
+    /// <c>HasSapDocNum</c>, which reads DocNum &lt;= 0 as unlinked. Matching only null left those
+    /// rows to the repair loop that used to run on the mobile order list, and the sweep is now the
+    /// only thing that relinks them.
+    ///
+    /// Status alone cannot say whether SAP was ever asked to create the document, and only an order
+    /// that was asked can be sitting in SAP unlinked:
+    /// <list type="bullet">
+    /// <item><description><c>Pending</c>/<c>Draft</c> with a <c>SyncError</c> — the live limbo
+    /// state. A failed or uncertain post rolls the status back to what it was and records the
+    /// message, so the SyncError is the record that SAP was asked at all. No SyncError means
+    /// nothing was ever posted.</description></item>
+    /// <item><description><c>Approved</c> with no DocNum — the same limbo, but only reachable on
+    /// rows written before <c>ApplicationDbContext.EnsureApprovedSalesOrdersHaveSapDocNum</c>
+    /// started rejecting that combination on save. Kept so those rows still get repaired; it is not
+    /// where new cases arrive.</description></item>
+    /// </list>
+    ///
+    /// Matching bare <c>Pending</c> swept the whole mobile approval queue: every mobile order is
+    /// created Pending with no DocNum, so orders deliberately never sent to SAP were probed every
+    /// two minutes for the entire lookback window. Being the oldest rows they sorted first and
+    /// filled every slot, starving the real limbo cases — 86 consecutive sweeps on 2026-08-02
+    /// resolved 0 of 22-25, pinned at the cap for 40 minutes, and the only candidates that ever
+    /// left the set left because a human re-approved them by hand.
+    /// </remarks>
+    internal static Expression<Func<SalesOrderEntity, bool>> UnlinkedSapOrderCandidateFilter(DateTime cutoff) =>
+        o => (o.SAPDocNum == null || o.SAPDocNum <= 0)
+            && o.CreatedAt >= cutoff
+            && (o.Status == SalesOrderStatus.Approved
+                || ((o.Status == SalesOrderStatus.Pending || o.Status == SalesOrderStatus.Draft)
+                    && o.SyncError != null))
+            && o.OrderNumber != null
+            && o.OrderNumber != "";
 
     private async Task<Dictionary<string, string>> ResolveSalesOrderLineUomLookupAsync(
         IEnumerable<(string? ItemCode, string? UoMCode)> lines,
