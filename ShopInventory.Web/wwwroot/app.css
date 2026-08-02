@@ -949,23 +949,25 @@ body {
     top: calc(var(--kf-topbar-h) + 8px);
     width: min(380px, calc(100vw - 32px));
     /* MudBlazor's scale: drawer 1100, app bar 1300, dialog 1400, snackbar 1500.
-       1303 and not 1302, because the temporary drawer we use on mobile resolves
-       to appbar + 2 = 1302. At a tie the stacking order fell out of markup order
-       alone, which held only because the panel is declared after </MudLayout>.
-       The panel clears the app bar but still yields to dialogs and toasts. */
-    z-index: 1303;
+       Backdrop 1303 and panel 1304, both clear of the temporary drawer we use
+       on mobile, which resolves to appbar + 2 = 1302. Sharing 1302 left the
+       stacking order to markup order alone, which held only because these are
+       declared after </MudLayout>. Both still yield to dialogs and toasts. */
+    z-index: 1304;
 }
 
 .kf-notification-panel:focus {
     outline: none;
 }
 
-/* Click-away surface. Transparent, but it has to cover the app bar too so the
-   first click outside dismisses instead of landing on whatever is underneath. */
+/* Click-away surface. Transparent, and it has to cover everything the panel can
+   open over -- the app bar, and the mobile drawer at 1302 -- so the first click
+   outside dismisses instead of landing on whatever is underneath. Sits directly
+   below the panel, which is why the two moved up together. */
 .kf-notification-backdrop {
     inset: 0;
     position: fixed;
-    z-index: 1301;
+    z-index: 1303;
 }
 
 .kf-notification-header {
