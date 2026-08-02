@@ -1,640 +1,722 @@
 @page "/sync-status"
 @using Microsoft.AspNetCore.Authorization
 @using ShopInventory.Web.Data
-@using ShopInventory.Web.Models
-@using ShopInventory.Web.Services
-@using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize(Roles = UserRoles.SystemRoles)]
-@inject ISyncStatusClientService SyncService
-@inject IAuditService AuditService
-@inject AuthenticationStateProvider AuthStateProvider
-@implements IDisposable
 @rendermode InteractiveServer
 
-<PageTitle>Sync Status - Shop Inventory</PageTitle>
+<PageTitle>Sync status - Shop Inventory</PageTitle>
 
-<div class="sync-page">
-    <!-- Header -->
-    <div class="sync-header">
-        <div class="header-left">
-            <div class="header-icon">
-                <i class="bi bi-arrow-repeat"></i>
-            </div>
-            <div>
-                <h1 class="header-title">Sync Status & Health</h1>
-                <p class="header-subtitle">Monitor SAP connection and data synchronization</p>
-            </div>
-        </div>
-        <div class="header-actions">
-            <button class="btn-sync btn-sync-outline" @onclick="RefreshAll" disabled="@isRefreshing">
-                @if (isRefreshing)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                else
-                {
-                    <i class="bi bi-arrow-clockwise"></i>
-                }
-                <span>Refresh All</span>
-            </button>
-            <button class="btn-sync btn-sync-gradient" @onclick="TestConnection" disabled="@isTesting">
-                @if (isTesting)
-                {
-                    <span class="spinner-border spinner-border-sm"></span>
-                }
-                else
-                {
-                    <i class="bi bi-plug"></i>
-                }
-                <span>Test SAP Connection</span>
-            </button>
-        </div>
-    </div>
+@* Styles live in wwwroot/css/sync-status.css (linked from App.razor), on the same
+   Nocturne tokens as /approval-process/setup, /customers and /driver-shop-access,
+   and following the app's theme toggle like they do.
 
-    <!-- Stat Cards -->
-    <div class="sync-stats-grid">
-        <div class="sync-stat-card">
-            <div
-                class="sync-stat-icon @(sapStatus?.IsConnected == true ? "sync-stat-icon-green" : "sync-stat-icon-red")">
-                <i class="bi @(sapStatus?.IsConnected == true ? "bi-check-circle" : "bi-x-circle")"></i>
-            </div>
-            <div class="sync-stat-content">
-                <span class="sync-stat-value">@(sapStatus?.IsConnected == true ? "Connected" : "Disconnected")</span>
-                <span class="sync-stat-label">SAP Connection</span>
-                @if (sapStatus?.ResponseTimeMs.HasValue == true)
-                {
-                    <span class="sync-stat-meta">@($"{sapStatus.ResponseTimeMs:N0}")ms response</span>
-                }
-            </div>
-        </div>
+   The page is ordered the way the questions are asked: is the link up, is
+   anything waiting, is anything broken — then the link's own behaviour, then
+   what each cache is worth, then the queue, then the raw log for whoever wants
+   the receipts. Everything above the log is derived in SyncStatus.razor.cs from
+   what was already being fetched; nothing new is asked of SAP to draw it.
 
-        <div class="sync-stat-card">
-            <div
-                class="sync-stat-icon @(dashboard?.OverallHealthStatus == "Healthy" ? "sync-stat-icon-green" : dashboard?.OverallHealthStatus == "Degraded" ? "sync-stat-icon-amber" : "sync-stat-icon-red")">
-                <i
-                class="bi @(dashboard?.OverallHealthStatus == "Healthy" ? "bi-heart-pulse" : dashboard?.OverallHealthStatus == "Degraded" ? "bi-heart-half" : "bi-heart")"></i>
-            </div>
-            <div class="sync-stat-content">
-                <span class="sync-stat-value">@(dashboard?.OverallHealthStatus ?? "Unknown")</span>
-                <span class="sync-stat-label">System Health</span>
-                @if (dashboard?.HealthSummary != null)
-                {
-                    <span class="sync-stat-meta">Score: @dashboard.HealthSummary.HealthScore/100</span>
-                }
-            </div>
-        </div>
+   Icons are Phosphor and purely decorative: every status is a coloured dot plus
+   the word, so a font that failed to load costs nothing but the picture. *@
 
-        <div class="sync-stat-card">
-            <div
-                class="sync-stat-icon @(queueStatus?.PendingCount > 0 ? "sync-stat-icon-amber" : "sync-stat-icon-green")">
-                <i class="bi @(queueStatus?.PendingCount > 0 ? "bi-clock-history" : "bi-check2-all")"></i>
-            </div>
-            <div class="sync-stat-content">
-                <span class="sync-stat-value">@(queueStatus?.PendingCount ?? 0)</span>
-                <span class="sync-stat-label">Pending Queue</span>
-                @if ((queueStatus?.FailedCount ?? 0) > 0)
-                {
-                    <span class="sync-stat-meta sync-stat-meta-danger">@queueStatus!.FailedCount failed</span>
-                }
-                else
-                {
-                    <span class="sync-stat-meta">@(queueStatus?.ProcessedCount ?? 0) processed</span>
-                }
-            </div>
-        </div>
+<div class="syn">
 
-        <div class="sync-stat-card">
-            <div class="sync-stat-icon sync-stat-icon-blue">
-                <i class="bi bi-info-circle"></i>
-            </div>
-            <div class="sync-stat-content">
-                <span class="sync-stat-value">@(dashboard?.ActiveIssuesCount ?? 0)</span>
-                <span class="sync-stat-label">Active Issues</span>
-                @if (sapStatus?.ConsecutiveFailures > 0)
+    <header class="syn-head">
+        <div class="syn-head-inner">
+            <nav class="syn-crumbs" aria-label="Breadcrumb">
+                <span>Administration</span>
+                <span class="syn-crumb-sep" aria-hidden="true">/</span>
+                <span class="syn-crumb-now" aria-current="page">Sync status</span>
+            </nav>
+            <div class="syn-head-actions">
+                @if (loadedAtUtc.HasValue)
                 {
-                    <span class="sync-stat-meta sync-stat-meta-danger">@sapStatus.ConsecutiveFailures consecutive
-                        failures</span>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <!-- Health Issues Banner -->
-        @if (dashboard?.HealthSummary?.Issues?.Any() == true)
-        {
-            <div class="sync-issues-banner">
-                <i class="bi bi-exclamation-triangle"></i>
-                <div class="sync-issues-list">
-                    @foreach (var issue in dashboard.HealthSummary.Issues)
-                    {
-                        <span>@issue</span>
-                    }
-                </div>
-            </div>
-        }
-
-        <!-- SAP Connection Details -->
-        @if (sapStatus != null && (!sapStatus.IsConnected || sapStatus.LastConnectedAt.HasValue))
-        {
-            <div class="sync-detail-strip">
-                @if (sapStatus.LastConnectedAt.HasValue)
-                {
-                    <span class="sync-detail-item">
-                        <i class="bi bi-clock"></i> Last connected: @sapStatus.LastConnectedAt.Value.ToString("dd MMM yyyy HH:mm")
-                    </span>
-                }
-                @if (!sapStatus.IsConnected && !string.IsNullOrEmpty(sapStatus.LastError))
-                {
-                    <span class="sync-detail-item sync-detail-item-danger" title="@sapStatus.LastError">
-                        <i class="bi bi-exclamation-circle"></i> @(sapStatus.LastError.Length > 80 ?
-                                    sapStatus.LastError.Substring(0, 80) + "..." : sapStatus.LastError)
-                    </span>
-                }
-            </div>
-        }
-
-        <!-- Cache Status -->
-        <div class="sync-panel">
-            <div class="sync-panel-header">
-                <div class="sync-panel-title">
-                    <i class="bi bi-database"></i>
-                    <span>Cache Status</span>
-                </div>
-                <button class="btn-sync btn-sync-sm" @onclick="RefreshCacheStatus">
-                    <i class="bi bi-arrow-clockwise"></i>
-                </button>
-            </div>
-            <div class="sync-panel-body">
-                @if (cacheStatus != null && cacheStatus.Any())
-                {
-                    <div class="table-responsive">
-                        <table class="sync-table">
-                            <thead>
-                                <tr>
-                                    <th>Entity</th>
-                                    <th class="text-end">Items</th>
-                                    <th>Last Synced</th>
-                                    <th>Status</th>
-                                    <th>Stale</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var cache in cacheStatus)
-                                {
-                                    <tr class="@(cache.IsStale ? "sync-row-warn" : "")">
-                                        <td><strong>@cache.DisplayName</strong></td>
-                                        <td class="text-end">@cache.ItemCount.ToString("N0")</td>
-                                        <td>
-                                            @if (cache.LastSyncedAt.HasValue)
-                                            {
-                                                <span
-                                                title="@cache.LastSyncedAt.Value.ToString("dd MMM yyyy HH:mm:ss")">@cache.TimeAgo</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">Never synced</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class="sync-badge @cache.StatusBadgeClass">@cache.Status</span>
-                                        </td>
-                                        <td>
-                                            @if (cache.IsStale)
-                                            {
-                                                <span class="sync-stale-text">@cache.StaleMinutes min overdue</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="sync-fresh-text"><i class="bi bi-check"></i></span>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else
-                {
-                    <div class="sync-empty">
-                        <i class="bi bi-info-circle"></i>
-                        <span>No cache information available</span>
-                    </div>
-                }
-            </div>
-        </div>
-
-        <!-- Offline Queue -->
-        <div class="sync-panel">
-            <div class="sync-panel-header">
-                <div class="sync-panel-title">
-                    <i class="bi bi-list-task"></i>
-                    <span>Offline Queue</span>
-                </div>
-                <div class="header-actions">
-                    <button class="btn-sync btn-sync-sm btn-sync-success" @onclick="ProcessQueue"
-                            disabled="@(isProcessing || (queueStatus?.PendingCount ?? 0) == 0)">
-                        @if (isProcessing)
+                    <span class="syn-asof">
+                        @if (isRefreshing)
                         {
-                            <span class="spinner-border spinner-border-sm"></span>
+                            <span class="syn-spin" aria-hidden="true"></span>
                         }
                         else
                         {
-                            <i class="bi bi-play-circle"></i>
+                            <i class="ph ph-clock-countdown" aria-hidden="true"></i>
                         }
-                        <span>Process Queue</span>
-                    </button>
-                    <button class="btn-sync btn-sync-sm" @onclick="RefreshQueueItems">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="sync-panel-body">
-                @if (queuedTransactions != null && queuedTransactions.Any())
-                {
-                    <div class="table-responsive">
-                        <table class="sync-table sync-table-compact">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Type</th>
-                                    <th>Summary</th>
-                                    <th>Status</th>
-                                    <th>Created</th>
-                                    <th class="text-center">Attempts</th>
-                                    <th>Error</th>
-                                    <th class="text-end">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var item in queuedTransactions)
-                                {
-                                    <tr class="@GetQueueRowClass(item.Status)">
-                                        <td><code>@item.Id</code></td>
-                                        <td>@item.TransactionType</td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(item.Summary))
-                                            {
-                                                <strong>@item.Summary</strong>
-                                            }
-                                            else
-                                            {
-                                                <span class="text-muted">-</span>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class="sync-badge @item.StatusBadgeClass">@item.Status</span>
-                                        </td>
-                                        <td>
-                                            <span title="@item.CreatedAt.ToString("dd MMM yyyy HH:mm")">@item.TimeAgo</span>
-                                        </td>
-                                        <td class="text-center">@item.AttemptCount</td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(item.LastError))
-                                            {
-                                                <span class="sync-error-text" title="@item.LastError">
-                                                    <i class="bi bi-exclamation-triangle"></i>
-                                                    @(item.LastError.Length > 30 ? item.LastError.Substring(0, 30) + "..." :
-                                        item.LastError)
-                                                </span>
-                                            }
-                                        </td>
-                                        <td class="text-end">
-                                            <div class="sync-actions">
-                                                @if (item.Status == "Failed")
-                                                {
-                                                    <button class="btn-sync-icon btn-sync-icon-primary"
-                                                            @onclick="() => RetryItem(item.Id)" title="Retry">
-                                                        <i class="bi bi-arrow-repeat"></i>
-                                                    </button>
-                                                }
-                                                @if (item.Status != "Processing")
-                                                {
-                                                    <button class="btn-sync-icon btn-sync-icon-danger"
-                                                            @onclick="() => CancelItem(item.Id)" title="Cancel">
-                                                        <i class="bi bi-x-lg"></i>
-                                                    </button>
-                                                }
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
+                        as of @FormatClock(loadedAtUtc)
+                    </span>
                 }
-                else
-                {
-                    <div class="sync-empty sync-empty-success">
-                        <i class="bi bi-check-circle"></i>
-                        <span>No pending transactions in queue</span>
-                    </div>
-                }
-            </div>
-        </div>
-
-        <!-- Request History -->
-        <div class="sync-panel">
-            <div class="sync-panel-header">
-                <div class="sync-panel-title">
-                    <i class="bi bi-journal-text"></i>
-                    <span>SAP Request History</span>
-                </div>
-                <button class="btn-sync btn-sync-sm" @onclick="RefreshLogs">
-                    <i class="bi bi-arrow-clockwise"></i>
+                <label class="syn-switch" title="Re-read everything every 2 minutes">
+                    <input type="checkbox" checked="@autoRefresh" @onchange="ToggleAutoRefresh" />
+                    <span class="syn-switch-track" aria-hidden="true"></span>
+                    <span>Live</span>
+                </label>
+                <button type="button" class="syn-btn syn-btn-quiet" @onclick="RefreshAll" disabled="@isRefreshing">
+                    <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                    <span>Refresh</span>
+                </button>
+                <button type="button" class="syn-btn syn-btn-primary" @onclick="TestConnection" disabled="@isTesting">
+                    @if (isTesting)
+                    {
+                        <span class="syn-spin" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <i class="ph ph-plugs" aria-hidden="true"></i>
+                    }
+                    <span>Test SAP connection</span>
                 </button>
             </div>
-            <div class="sync-panel-body">
-                @if (connectionLogs != null && connectionLogs.Any())
-                {
-                    <div class="sync-scroll-table">
-                        <table class="sync-table sync-table-compact">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Endpoint</th>
-                                    <th>Result</th>
-                                    <th>Response Time</th>
-                                    <th>Details</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var log in connectionLogs)
-                                {
-                                    <tr class="@(!log.IsSuccess ? "sync-row-danger" : "")">
-                                        <td>@log.CheckedAt.ToString("dd MMM HH:mm:ss")</td>
-                                        <td>@(log.Endpoint ?? "Unknown")</td>
-                                        <td>
-                                            <span class="sync-badge @(log.IsSuccess ? "bg-success" : "bg-danger")">
-                                                @(log.IsSuccess ? "Success" : "Failed")
-                                            </span>
-                                        </td>
-                                        <td>@(log.ResponseTimeMs.HasValue ? $"{log.ResponseTimeMs:N0}ms" : "-")</td>
-                                        <td>
-                                            @if (!string.IsNullOrEmpty(log.ErrorMessage))
-                                            {
-                                                <span class="sync-error-text" title="@log.ErrorMessage">
-                                                    @(log.ErrorMessage.Length > 50 ? log.ErrorMessage.Substring(0, 50) + "..." :
-                                        log.ErrorMessage)
-                                                </span>
-                                            }
-                                            else if (log.IsSuccess)
-                                            {
-                                                <span class="sync-fresh-text">OK</span>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-                else
-                {
-                    <div class="sync-empty">
-                        <i class="bi bi-info-circle"></i>
-                        <span>No SAP requests recorded yet. Use sync features or test the connection to generate activity.</span>
-                    </div>
-                }
-            </div>
         </div>
-    </div>
+    </header>
 
-    <!-- Alert Toast -->
+    @if (isLoading)
+    {
+        <div class="syn-loading">
+            <span class="syn-spin syn-spin-lg" aria-hidden="true"></span>
+            <p>Reading the link, the caches and the queue&#8230;</p>
+        </div>
+    }
+    else
+    {
+        <div class="syn-body">
+
+            <!-- ── Hero ───────────────────────────────────────────────────── -->
+
+            <section class="syn-hero">
+                <div>
+                    <div class="syn-kicker">Integration</div>
+                    <h1>Sync status &amp; health</h1>
+                    <p>
+                        What the SAP link is doing, how fresh each cache is, and what is still
+                        waiting to be posted. Figures below the verdict are read over the last
+                        @LogWindowSize requests.
+                    </p>
+                </div>
+                <div class="syn-hero-facts">
+                    <span class="syn-hero-fact">
+                        <i class="ph ph-buildings" aria-hidden="true"></i>
+                        Company DB
+                        <strong>@(string.IsNullOrWhiteSpace(sapStatus?.CompanyDb) ? "not reported" : sapStatus!.CompanyDb)</strong>
+                    </span>
+                    <span class="syn-hero-fact">
+                        <i class="ph ph-clock-countdown" aria-hidden="true"></i>
+                        Last connected
+                        <strong>@FormatDateTime(sapStatus?.LastConnectedAt)</strong>
+                    </span>
+                </div>
+            </section>
+
+            <!-- ── The verdict ────────────────────────────────────────────── -->
+
+            <section class="syn-verdict">
+                <article class="syn-fig syn-fig-lead">
+                    <div class="syn-fig-head">
+                        <span class="syn-fig-rule" aria-hidden="true"></span>
+                        <span>SAP link</span>
+                    </div>
+                    <div class="syn-fig-num syn-fig-num-word @SapTone">@SapWord</div>
+                    @if (IsSapDisabled)
+                    {
+                        <div class="syn-fig-sub">Switched off in configuration</div>
+                    }
+                    else if (IsSapConnected)
+                    {
+                        <div class="syn-fig-sub">@FormatMs(sapStatus?.ResponseTimeMs) on the last probe</div>
+                    }
+                    else
+                    {
+                        <div class="syn-fig-sub syn-fig-sub-danger" title="@sapStatus?.LastError">
+                            @(string.IsNullOrWhiteSpace(sapStatus?.LastError) ? "No answer" : Shorten(sapStatus!.LastError, 48))
+                        </div>
+                    }
+                    <div class="syn-fig-foot">
+                        <span class="syn-state @SapStateTone">
+                            <span class="syn-dot" aria-hidden="true"></span>
+                            @if ((sapStatus?.ConsecutiveFailures ?? 0) > 0)
+                            {
+                                <span>@sapStatus!.ConsecutiveFailures consecutive failure@(sapStatus.ConsecutiveFailures == 1 ? "" : "s")</span>
+                            }
+                            else
+                            {
+                                <span>No recent failures</span>
+                            }
+                        </span>
+                    </div>
+                </article>
+
+                <article class="syn-fig">
+                    <div class="syn-fig-head">
+                        <span class="syn-fig-rule" aria-hidden="true"></span>
+                        <span>System health</span>
+                    </div>
+                    <div class="syn-fig-num @HealthTone">@HealthScore<span class="syn-fig-unit">/100</span></div>
+                    <div class="syn-fig-sub">@HealthWord</div>
+                    <div class="syn-fig-foot">
+                        <div class="syn-meter" role="img"
+                             aria-label="Health score @HealthScore out of 100">
+                            <div class="syn-meter-fill @HealthMeterTone" style="width:@HealthScore%"></div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="syn-fig">
+                    <div class="syn-fig-head">
+                        <span class="syn-fig-rule" aria-hidden="true"></span>
+                        <span>Waiting to post</span>
+                    </div>
+                    <div class="syn-fig-num @(PendingCount > 0 ? "syn-fig-warn" : "")">@PendingCount.ToString("N0")</div>
+                    <div class="syn-fig-sub">
+                        @if (queueStatus?.OldestPendingAt is not null)
+                        {
+                            <text>oldest waiting @FormatAge(queueStatus.OldestPendingAt)</text>
+                        }
+                        else
+                        {
+                            <text>nothing waiting</text>
+                        }
+                    </div>
+                    <div class="syn-fig-foot">
+                        <span class="syn-state @(FailedCount > 0 ? "syn-state-danger" : "syn-state-quiet")">
+                            <span class="syn-dot" aria-hidden="true"></span>
+                            <span>
+                                @if (FailedCount > 0)
+                                {
+                                    <text>@FailedCount failed</text>
+                                }
+                                else
+                                {
+                                    <text>@ProcessedCount.ToString("N0") posted to date</text>
+                                }
+                            </span>
+                        </span>
+                    </div>
+                </article>
+
+                <article class="syn-fig">
+                    <div class="syn-fig-head">
+                        <span class="syn-fig-rule" aria-hidden="true"></span>
+                        <span>Request success</span>
+                    </div>
+                    @if (link.HasData)
+                    {
+                        <div class="syn-fig-num @(link.Failures == 0 ? "syn-fig-good" : link.SuccessRate >= 90 ? "syn-fig-warn" : "syn-fig-danger")">@link.SuccessRate.ToString("N0")<span class="syn-fig-unit">%</span></div>
+                        <div class="syn-fig-sub">@link.Successes of @link.Total answered</div>
+                        <div class="syn-fig-foot">
+                            <span class="syn-state syn-state-quiet">
+                                <span class="syn-dot" aria-hidden="true"></span>
+                                <span>
+                                    @if (link.Span is { } span && span > TimeSpan.Zero)
+                                    {
+                                        <text>over the last @FormatDuration(span)</text>
+                                    }
+                                    else
+                                    {
+                                        <text>single request</text>
+                                    }
+                                </span>
+                            </span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="syn-fig-num syn-fig-num-word">&mdash;</div>
+                        <div class="syn-fig-sub">no requests recorded</div>
+                    }
+                </article>
+            </section>
+
+            <!-- ── Findings ───────────────────────────────────────────────── -->
+            @* The health check computes both the issues and what to do about
+               them; this page used to render the first list and drop the second. *@
+
+            @if (HealthIssues.Count > 0 || HealthAdvice.Count > 0)
+            {
+                <section class="syn-card">
+                    <div class="syn-card-head">
+                        <span class="syn-card-icon"><i class="ph ph-warning-circle" aria-hidden="true"></i></span>
+                        <div class="syn-card-text">
+                            <h2>What the health check found</h2>
+                            <p>@HealthIssues.Count issue@(HealthIssues.Count == 1 ? "" : "s") against a score of @HealthScore/100</p>
+                        </div>
+                    </div>
+                    <div class="syn-card-body">
+                        <div class="syn-findings">
+                            @if (HealthIssues.Count > 0)
+                            {
+                                <div class="syn-finding-col">
+                                    <h3>Findings</h3>
+                                    <ul class="syn-finding-list syn-finding-issue">
+                                        @foreach (var issue in HealthIssues)
+                                        {
+                                            <li>
+                                                <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                                                <span>@issue</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                            @if (HealthAdvice.Count > 0)
+                            {
+                                <div class="syn-finding-col">
+                                    <h3>What to do</h3>
+                                    <ul class="syn-finding-list syn-finding-fix">
+                                        @foreach (var advice in HealthAdvice)
+                                        {
+                                            <li>
+                                                <i class="ph ph-lightbulb" aria-hidden="true"></i>
+                                                <span>@advice</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @if (!IsSapConnected && !IsSapDisabled && !string.IsNullOrWhiteSpace(sapStatus?.LastError))
+            {
+                <div class="syn-notice syn-notice-danger">
+                    <i class="ph ph-plugs" aria-hidden="true"></i>
+                    <div>
+                        <strong>The last SAP probe did not get an answer.</strong>
+                        @sapStatus!.LastError
+                        @if (sapStatus.LastErrorAt.HasValue)
+                        {
+                            <text> (@FormatDateTime(sapStatus.LastErrorAt))</text>
+                        }
+                    </div>
+                </div>
+            }
+
+            <!-- ── The link itself ────────────────────────────────────────── -->
+
+            <div class="syn-split">
+
+                <section class="syn-card">
+                    <div class="syn-card-head">
+                        <span class="syn-card-icon"><i class="ph ph-pulse" aria-hidden="true"></i></span>
+                        <div class="syn-card-text">
+                            <h2>Response time</h2>
+                            <p>The last @LogWindowSize requests, oldest first</p>
+                        </div>
+                    </div>
+                    <div class="syn-card-body">
+                        @if (link.HasData)
+                        {
+                            <div class="syn-spark" role="img"
+                                 aria-label="@link.Total recent requests, @link.Failures of them failed, median @FormatMs(link.P50Ms)">
+                                @foreach (var bar in link.Bars)
+                                {
+                                    <div class="syn-spark-bar @(!bar.IsSuccess ? "syn-spark-bar-fail" : bar.IsSlow ? "syn-spark-bar-slow" : "")"
+                                         style="height:@(bar.HeightPercent)%"
+                                         title="@bar.Title"></div>
+                                }
+                            </div>
+                            <div class="syn-spark-axis">
+                                <span>@FormatClock(link.OldestAt)</span>
+                                <span>@(link.Failures == 0 ? "no failures" : $"{link.Failures} failed")</span>
+                                <span>@FormatClock(link.NewestAt)</span>
+                            </div>
+
+                            <div class="syn-pcts">
+                                <div class="syn-pct">
+                                    <span>Median</span>
+                                    <strong>@FormatMs(link.P50Ms)</strong>
+                                    <em>what it usually costs</em>
+                                </div>
+                                <div class="syn-pct">
+                                    <span>95th pct</span>
+                                    <strong>@FormatMs(link.P95Ms)</strong>
+                                    <em>1 call in 20 is worse</em>
+                                </div>
+                                <div class="syn-pct">
+                                    <span>Slowest</span>
+                                    <strong>@FormatMs(link.SlowestMs)</strong>
+                                    <em>in this window</em>
+                                </div>
+                                <div class="syn-pct">
+                                    <span>Failed</span>
+                                    <strong>@link.Failures</strong>
+                                    <em>of @link.Total requests</em>
+                                </div>
+                            </div>
+
+                            <p class="syn-footnote">
+                                <i class="ph ph-info" aria-hidden="true"></i>
+                                <span>
+                                    Latency against this cluster is heavy-tailed, so no single call
+                                    is evidence — read the median against the 95th. Bars are scaled
+                                    to the 95th percentile and cover successful calls only; a failed
+                                    request is drawn full height in red, because how fast an error
+                                    came back says nothing about how long SAP takes to answer.
+                                </span>
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="syn-empty">
+                                <i class="ph ph-pulse" aria-hidden="true"></i>
+                                <p>No SAP requests have been recorded yet. Use a sync feature, or test the connection above, to generate some.</p>
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="syn-card">
+                    <div class="syn-card-head">
+                        <span class="syn-card-icon"><i class="ph ph-tree-structure" aria-hidden="true"></i></span>
+                        <div class="syn-card-text">
+                            <h2>By endpoint</h2>
+                            <p>Failing first, then slowest</p>
+                        </div>
+                    </div>
+                    <div class="syn-card-body">
+                        @if (link.Endpoints.Count > 0)
+                        {
+                            <div class="syn-eps">
+                                @foreach (var endpoint in link.Endpoints)
+                                {
+                                    <div class="syn-ep">
+                                        <div class="syn-ep-body">
+                                            <span class="syn-ep-name" title="@endpoint.Name">@endpoint.Name</span>
+                                            <span class="syn-ep-meta">
+                                                <span>@endpoint.Calls call@(endpoint.Calls == 1 ? "" : "s")</span>
+                                                @if (endpoint.Failures > 0)
+                                                {
+                                                    <span class="syn-ep-meta-fail">@endpoint.Failures failed</span>
+                                                }
+                                                <span>median @FormatMs(endpoint.P50Ms)</span>
+                                            </span>
+                                        </div>
+                                        <div class="syn-ep-num">
+                                            @FormatMs(endpoint.P95Ms)
+                                            <em>p95</em>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
+                            <p class="syn-footnote">
+                                <i class="ph ph-info" aria-hidden="true"></i>
+                                <span>
+                                    Document keys are folded away, so <code>Items('A1000')</code> and
+                                    <code>Items('B2000')</code> count as one call made twice.
+                                </span>
+                            </p>
+                        }
+                        else
+                        {
+                            <div class="syn-empty">
+                                <i class="ph ph-tree-structure" aria-hidden="true"></i>
+                                <p>Nothing to break down yet.</p>
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+
+            <!-- ── Cache freshness ────────────────────────────────────────── -->
+
+            <section class="syn-card">
+                <div class="syn-card-head">
+                    <span class="syn-card-icon"><i class="ph ph-database" aria-hidden="true"></i></span>
+                    <div class="syn-card-text">
+                        <h2>Cache freshness</h2>
+                        <p>
+                            @if (StaleCacheCount > 0)
+                            {
+                                <text>@StaleCacheCount of @cacheStatus.Count need attention</text>
+                            }
+                            else
+                            {
+                                <text>All @cacheStatus.Count within their refresh window</text>
+                            }
+                        </p>
+                    </div>
+                    <div class="syn-card-tools">
+                        <button type="button" class="syn-btn syn-btn-icon" title="Re-read cache status"
+                                aria-label="Re-read cache status" @onclick="RefreshCacheStatus">
+                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="syn-card-body">
+                    @if (cacheStatus.Count > 0)
+                    {
+                        <div class="syn-caches">
+                            @foreach (var cache in OrderedCaches)
+                            {
+                                <article class="syn-cache @CacheCardTone(cache)">
+                                    <div class="syn-cache-top">
+                                        <span class="syn-cache-name" title="@cache.DisplayName">@cache.DisplayName</span>
+                                        <span class="syn-state @CacheStateTone(cache)">
+                                            <span class="syn-dot" aria-hidden="true"></span>
+                                            <span>@cache.Status</span>
+                                        </span>
+                                    </div>
+                                    <div class="syn-cache-count">
+                                        @cache.ItemCount.ToString("N0")
+                                        <em>rows</em>
+                                    </div>
+                                    <div class="syn-cache-budget">
+                                        <div class="syn-meter syn-meter-sm" role="img"
+                                             aria-label="@CacheBudgetSpent(cache)% of the refresh window used">
+                                            <div class="syn-meter-fill @CacheMeterTone(cache)"
+                                                 style="width:@CacheBudgetSpent(cache)%"></div>
+                                        </div>
+                                        <div class="syn-cache-budget-line">
+                                            <span>@(cache.LastSyncedAt.HasValue ? $"{FormatAge(cache.LastSyncedAt)} old" : "never synced")</span>
+                                            <span>@CacheBudgetNote(cache)</span>
+                                        </div>
+                                        <div class="syn-cache-budget-line">
+                                            <span title="@FormatDateTime(cache.LastSyncedAt)">@(cache.LastSyncedAt.HasValue ? FormatDateTime(cache.LastSyncedAt) : "—")</span>
+                                        </div>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(cache.LastError))
+                                    {
+                                        <div class="syn-cache-err">
+                                            <i class="ph ph-warning-circle" aria-hidden="true"></i>
+                                            <span>
+                                                @cache.LastError
+                                                @if (cache.LastErrorAt.HasValue)
+                                                {
+                                                    <text> (@FormatAge(cache.LastErrorAt) ago)</text>
+                                                }
+                                            </span>
+                                        </div>
+                                    }
+                                </article>
+                            }
+                        </div>
+
+                        <p class="syn-footnote">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <span>
+                                A cache is called stale two hours after its last successful sync;
+                                the bar is how much of that window is spent. Counts are the active
+                                rows this app holds locally, not what SAP has.
+                            </span>
+                        </p>
+                    }
+                    else
+                    {
+                        <div class="syn-empty">
+                            <i class="ph ph-database" aria-hidden="true"></i>
+                            <p>No cache information is available. The local cache tables have not been read.</p>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <!-- ── Offline queue ──────────────────────────────────────────── -->
+
+            <section class="syn-card">
+                <div class="syn-card-head">
+                    <span class="syn-card-icon"><i class="ph ph-queue" aria-hidden="true"></i></span>
+                    <div class="syn-card-text">
+                        <h2>Offline queue</h2>
+                        <p>
+                            Transactions captured while SAP was unreachable&#8202;&mdash;&#8202;last drained @FormatDateTime(queueStatus?.LastProcessedAt)
+                        </p>
+                    </div>
+                    <div class="syn-card-tools">
+                        <button type="button" class="syn-btn syn-btn-ghost syn-btn-sm" @onclick="ProcessQueue"
+                                disabled="@(isProcessing || PendingCount == 0)">
+                            @if (isProcessing)
+                            {
+                                <span class="syn-spin" aria-hidden="true"></span>
+                            }
+                            else
+                            {
+                                <i class="ph ph-play" aria-hidden="true"></i>
+                            }
+                            <span>Process queue</span>
+                        </button>
+                        <button type="button" class="syn-btn syn-btn-icon" title="Re-read the queue"
+                                aria-label="Re-read the queue" @onclick="RefreshQueueItems">
+                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="syn-card-body">
+                    @if (queuedTransactions.Count > 0)
+                    {
+                        <div class="syn-table-wrap">
+                            <table class="syn-table">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Waiting</th>
+                                        <th>Attempts</th>
+                                        <th>Last error</th>
+                                        <th class="syn-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in queuedTransactions)
+                                    {
+                                        <tr class="@(item.Status == "Failed" ? "syn-row-fail" : "")">
+                                            <td>
+                                                <strong>@(string.IsNullOrWhiteSpace(item.Summary) ? $"Item {item.Id}" : item.Summary)</strong>
+                                                <div class="syn-mono">#@item.Id@(string.IsNullOrWhiteSpace(item.CreatedBy) ? "" : $" · {item.CreatedBy}")</div>
+                                            </td>
+                                            <td>@item.TransactionType</td>
+                                            <td>
+                                                <span class="syn-state @QueueStateTone(item.Status)">
+                                                    <span class="syn-dot" aria-hidden="true"></span>
+                                                    <span>@item.Status</span>
+                                                </span>
+                                            </td>
+                                            <td class="syn-num" title="@FormatDateTime(item.CreatedAt)">@FormatAge(item.CreatedAt)</td>
+                                            <td>
+                                                <span class="syn-attempts">
+                                                    <span class="syn-pips" aria-hidden="true">
+                                                        @for (var pip = 0; pip < QueueMaxAttempts; pip++)
+                                                        {
+                                                            <span class="syn-pip @AttemptPipClass(item, pip)"></span>
+                                                        }
+                                                    </span>
+                                                    <span class="syn-attempts-text">@item.AttemptCount/@QueueMaxAttempts</span>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(item.LastError))
+                                                {
+                                                    <span class="syn-err-text" title="@item.LastError">@item.LastError</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="syn-state-quiet">&mdash;</span>
+                                                }
+                                            </td>
+                                            <td class="syn-right">
+                                                <div class="syn-actions">
+                                                    @if (item.Status == "Failed")
+                                                    {
+                                                        <button type="button" class="syn-btn syn-btn-icon"
+                                                                title="Retry" aria-label="Retry item @item.Id"
+                                                                @onclick="() => RetryItem(item.Id)">
+                                                            <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
+                                                        </button>
+                                                    }
+                                                    @if (item.Status != "Processing")
+                                                    {
+                                                        <button type="button" class="syn-btn syn-btn-icon syn-btn-icon-danger"
+                                                                title="Cancel" aria-label="Cancel item @item.Id"
+                                                                @onclick="() => CancelItem(item.Id)">
+                                                            <i class="ph ph-prohibit" aria-hidden="true"></i>
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p class="syn-footnote">
+                            <i class="ph ph-info" aria-hidden="true"></i>
+                            <span>
+                                An item is abandoned after @QueueMaxAttempts attempts, with the wait
+                                doubling between each. Retry puts a failed item back at the front.
+                            </span>
+                        </p>
+                    }
+                    else
+                    {
+                        <div class="syn-empty syn-empty-good">
+                            <i class="ph ph-check-circle" aria-hidden="true"></i>
+                            <p>Nothing is queued. Everything captured has been posted to SAP.</p>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <!-- ── Request log ────────────────────────────────────────────── -->
+
+            <section class="syn-card">
+                <div class="syn-card-head">
+                    <span class="syn-card-icon"><i class="ph ph-list-bullets" aria-hidden="true"></i></span>
+                    <div class="syn-card-text">
+                        <h2>Request log</h2>
+                        <p>Every SAP Service Layer call this window covers, newest first</p>
+                    </div>
+                    <div class="syn-card-tools">
+                        <button type="button" class="syn-btn syn-btn-icon" title="Re-read the log"
+                                aria-label="Re-read the log" @onclick="RefreshLogs">
+                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="syn-card-body">
+                    @if (connectionLogs.Count > 0)
+                    {
+                        <div class="syn-table-wrap syn-scroll">
+                            <table class="syn-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Endpoint</th>
+                                        <th>Result</th>
+                                        <th class="syn-right">Took</th>
+                                        <th>Detail</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var log in connectionLogs)
+                                    {
+                                        <tr class="@(log.IsSuccess ? "" : "syn-row-fail")">
+                                            <td class="syn-num">@FormatSeconds(log.CheckedAt)</td>
+                                            <td class="syn-mono">@(log.Endpoint ?? "unknown")</td>
+                                            <td>
+                                                <span class="syn-state @(log.IsSuccess ? "syn-state-good" : "syn-state-danger")">
+                                                    <span class="syn-dot" aria-hidden="true"></span>
+                                                    <span>@(log.IsSuccess ? "OK" : "Failed")</span>
+                                                </span>
+                                            </td>
+                                            <td class="syn-right syn-num">@FormatMs(log.ResponseTimeMs)</td>
+                                            <td>
+                                                @if (!string.IsNullOrWhiteSpace(log.ErrorMessage))
+                                                {
+                                                    <span class="syn-err-text" title="@log.ErrorMessage">@log.ErrorMessage</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="syn-state-quiet">&mdash;</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="syn-empty">
+                            <i class="ph ph-list-bullets" aria-hidden="true"></i>
+                            <p>No SAP requests recorded yet. Use a sync feature, or test the connection, to generate activity.</p>
+                        </div>
+                    }
+                </div>
+            </section>
+        </div>
+    }
+
     @if (!string.IsNullOrEmpty(alertMessage))
     {
-        <div class="sync-toast @(alertSuccess ? "sync-toast-success" : "sync-toast-danger")">
+        <div class="syn-toast @(alertSuccess ? "syn-toast-good" : "syn-toast-danger")"
+             role="@(alertSuccess ? "status" : "alert")">
+            <i class="ph @(alertSuccess ? "ph-check-circle" : "ph-warning-circle")" aria-hidden="true"></i>
             <span>@alertMessage</span>
-            <button class="sync-toast-close" @onclick="() => alertMessage = null">
-                <i class="bi bi-x-lg"></i>
+            <button type="button" class="syn-notice-close" aria-label="Dismiss"
+                    @onclick="() => alertMessage = null">
+                <i class="ph ph-x" aria-hidden="true"></i>
             </button>
         </div>
     }
-
-@code {
-    private bool isRefreshing = false;
-    private bool isTesting = false;
-    private bool isProcessing = false;
-    private string? alertMessage;
-    private bool alertSuccess;
-    private System.Threading.Timer? refreshTimer;
-    private string currentUsername = "Unknown";
-    private string currentUserRole = "User";
-
-    private SapConnectionStatusModel? sapStatus;
-    private SyncDashboardModel? dashboard;
-    private OfflineQueueStatusModel? queueStatus;
-    private List<CacheSyncStatusModel> cacheStatus = new();
-    private List<QueuedTransactionModel> queuedTransactions = new();
-    private List<ConnectionLogModel> connectionLogs = new();
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadCurrentUser();
-        await RefreshAll();
-        await AuditService.LogAsync("ViewSyncStatus", currentUsername, currentUserRole, "System", null, "Accessed sync status page", "/sync-status");
-
-        // Auto-refresh every 30 seconds
-        refreshTimer = new System.Threading.Timer(async _ =>
-        {
-            await InvokeAsync(async () =>
-    {
-        await RefreshAll();
-        StateHasChanged();
-    });
-        }, null, TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(120));
-    }
-
-    private async Task LoadCurrentUser()
-    {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-        currentUsername = authState.User.Identity?.Name ?? "Unknown";
-        currentUserRole = authState.User.Claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.Role)?.Value ??
-        "User";
-    }
-
-    private async Task RefreshAll()
-    {
-        isRefreshing = true;
-        try
-        {
-            var tasks = new List<Task>
-{
-RefreshSapStatus(),
-RefreshDashboard(),
-RefreshQueueStatus(),
-RefreshCacheStatus(),
-RefreshQueueItems(),
-RefreshLogs()
-};
-            await Task.WhenAll(tasks);
-        }
-        finally
-        {
-            isRefreshing = false;
-        }
-    }
-
-    private async Task RefreshSapStatus()
-    {
-        try
-        {
-            sapStatus = await SyncService.GetSapConnectionStatusAsync();
-        }
-        catch { }
-    }
-
-    private async Task RefreshDashboard()
-    {
-        try
-        {
-            dashboard = await SyncService.GetSyncDashboardAsync();
-        }
-        catch { }
-    }
-
-    private async Task RefreshQueueStatus()
-    {
-        try
-        {
-            queueStatus = await SyncService.GetOfflineQueueStatusAsync();
-        }
-        catch { }
-    }
-
-    private async Task RefreshCacheStatus()
-    {
-        try
-        {
-            cacheStatus = await SyncService.GetCacheSyncStatusAsync();
-        }
-        catch { }
-    }
-
-    private async Task RefreshQueueItems()
-    {
-        try
-        {
-            queuedTransactions = await SyncService.GetQueuedTransactionsAsync();
-        }
-        catch { }
-    }
-
-    private async Task RefreshLogs()
-    {
-        try
-        {
-            connectionLogs = await SyncService.GetConnectionLogsAsync(50);
-        }
-        catch { }
-    }
-
-    private async Task TestConnection()
-    {
-        isTesting = true;
-        try
-        {
-            var result = await SyncService.TestSapConnectionAsync();
-            if (result)
-            {
-                ShowAlert("SAP connection successful!", true);
-            }
-            else
-            {
-                ShowAlert("SAP connection failed. Check configuration.", false);
-            }
-            await RefreshSapStatus();
-        }
-        catch (Exception ex)
-        {
-            ShowAlert($"Connection test failed: {ex.Message}", false);
-        }
-        finally
-        {
-            isTesting = false;
-        }
-    }
-
-    private async Task ProcessQueue()
-    {
-        isProcessing = true;
-        try
-        {
-            var processed = await SyncService.ProcessQueueAsync();
-            ShowAlert($"Processed {processed} queue items", true);
-            await RefreshQueueStatus();
-            await RefreshQueueItems();
-            await AuditService.LogAsync("ProcessQueue", currentUsername, currentUserRole, "System", null, $"Manually processed {processed} queue items", "/sync-status");
-        }
-        catch (Exception ex)
-        {
-            ShowAlert($"Error processing queue: {ex.Message}", false);
-        }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
-
-    private async Task RetryItem(int itemId)
-    {
-        try
-        {
-            await SyncService.RetryQueueItemAsync(itemId);
-            ShowAlert("Item queued for retry", true);
-            await RefreshQueueItems();
-        }
-        catch (Exception ex)
-        {
-            ShowAlert($"Error: {ex.Message}", false);
-        }
-    }
-
-    private async Task CancelItem(int itemId)
-    {
-        try
-        {
-            await SyncService.CancelQueueItemAsync(itemId);
-            ShowAlert("Item cancelled", true);
-            await RefreshQueueItems();
-            await RefreshQueueStatus();
-        }
-        catch (Exception ex)
-        {
-            ShowAlert($"Error: {ex.Message}", false);
-        }
-    }
-
-    private string GetHealthBadgeClass(string? status) => status switch
-    {
-        "Healthy" => "bg-success",
-        "Degraded" => "bg-warning",
-        "Unhealthy" => "bg-danger",
-        _ => "bg-secondary"
-    };
-
-    private string GetQueueRowClass(string status) => status switch
-    {
-        "Failed" => "table-danger",
-        "Processing" => "table-info",
-        "Pending" => "",
-        _ => ""
-    };
-
-    private void ShowAlert(string message, bool success)
-    {
-        alertMessage = message;
-        alertSuccess = success;
-        StateHasChanged();
-        _ = Task.Delay(5000).ContinueWith(_ =>
-        {
-            alertMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-    public void Dispose()
-    {
-        refreshTimer?.Dispose();
-    }
-}
+</div>

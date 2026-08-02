@@ -164,15 +164,12 @@
 
 /* ── Header ────────────────────────────────────────────────────────────── */
 /* Seated on the app bar rather than the viewport top, so the search and the
-   sync action stay reachable while 2,000 rows scroll past.
+   sync action stay reachable while 2,000 rows scroll past. */
 
-   Opaque rather than the design's frosted glass. The hero's 30px title and
-   then 2,000 rows pass directly beneath this bar, and a translucent background
-   only hides them while the compositor honours the backdrop blur — software
-   rendering, a reduced-transparency setting or an offscreen capture all drop
-   the blur and leave what is behind legible straight through. --bp-bg is the
-   page's own ground, so an opaque bar is indistinguishable at rest. */
-
+/* Opaque, not frosted — same reason as .apr-head in approval-process.css: the
+   frosted bar's missing 12% lets the page title read straight through it
+   wherever the compositor skips the blur. --bp-bg is the page ground, so the
+   at-rest look is unchanged. */
 .bp-head {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
