@@ -157,15 +157,20 @@
 
 /* ── Header ────────────────────────────────────────────────────────────── */
 /* Seated on the app bar rather than the viewport top, so the breadcrumb and
-   the two page actions stay reachable while the catalogue scrolls. */
+   the two page actions stay reachable while the catalogue scrolls.
+
+   Opaque rather than the design's frosted glass. The hero's 30px title passes
+   directly beneath this bar, and a translucent background only hides it while
+   the compositor honours the backdrop blur — software rendering, a reduced-
+   transparency setting or an offscreen capture all drop the blur and leave the
+   title legible straight through the bar. --dsa-bg is the page's own ground,
+   so an opaque bar is indistinguishable from the design at rest. */
 
 .dsa-head {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    background: color-mix(in srgb, var(--dsa-bg) 88%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--dsa-bg);
     border-bottom: 1px solid var(--dsa-divider);
 }
 

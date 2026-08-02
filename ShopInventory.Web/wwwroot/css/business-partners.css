@@ -164,15 +164,20 @@
 
 /* ── Header ────────────────────────────────────────────────────────────── */
 /* Seated on the app bar rather than the viewport top, so the search and the
-   sync action stay reachable while 2,000 rows scroll past. */
+   sync action stay reachable while 2,000 rows scroll past.
+
+   Opaque rather than the design's frosted glass. The hero's 30px title and
+   then 2,000 rows pass directly beneath this bar, and a translucent background
+   only hides them while the compositor honours the backdrop blur — software
+   rendering, a reduced-transparency setting or an offscreen capture all drop
+   the blur and leave what is behind legible straight through. --bp-bg is the
+   page's own ground, so an opaque bar is indistinguishable at rest. */
 
 .bp-head {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    background: color-mix(in srgb, var(--bp-bg) 88%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--bp-bg);
     border-bottom: 1px solid var(--bp-divider);
 }
 
