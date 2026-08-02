@@ -1,229 +1,8 @@
-﻿@using MudBlazor
-
-<style>
-    /* ── Modern Sidebar Navigation ────────────────── */
-    .nav-sidebar {
-        display: flex;
-        flex-direction: column;
-        padding: 0.5rem 0.75rem 1rem;
-        gap: 1px;
-    }
-
-    /* ── Section Labels ── */
-    .nav-section-label {
-        font-size: 0.65rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
-        color: rgba(148, 163, 184, 0.55);
-        padding: 1.25rem 0.75rem 0.4rem;
-        margin: 0;
-        user-select: none;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .nav-section-label:first-child {
-        padding-top: 0.5rem;
-    }
-
-    .nav-section-label.admin-label {
-        color: rgba(251, 191, 36, 0.55);
-        border-top: 1px solid rgba(251, 191, 36, 0.1);
-        margin-top: 0.5rem;
-        padding-top: 1rem;
-    }
-
-    /* ── Nav Items ── */
-    .snav-link {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        padding: 0.55rem 0.75rem;
-        border-radius: 0.5rem;
-        color: rgba(203, 213, 225, 0.85);
-        text-decoration: none !important;
-        font-size: 0.825rem;
-        font-weight: 500;
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        cursor: pointer;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin: 1px 0;
-    }
-
-    .snav-link:hover {
-        background: rgba(255, 255, 255, 0.06);
-        color: #f1f5f9;
-        text-decoration: none !important;
-    }
-
-    .snav-link:hover .snav-icon {
-        color: #a5b4fc;
-        transform: scale(1.1);
-    }
-
-    /* Active state */
-    .snav-link.active {
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.15));
-        color: #e0e7ff;
-        font-weight: 600;
-        box-shadow: inset 3px 0 0 0 #818cf8;
-    }
-
-    .snav-link.active .snav-icon {
-        color: #a5b4fc;
-    }
-
-    /* Sub-items (Create actions) */
-    .snav-link.sub-link {
-        padding-left: 2.25rem;
-        font-size: 0.785rem;
-        color: rgba(203, 213, 225, 0.6);
-    }
-
-    .snav-link.sub-link .snav-icon .mud-icon-root {
-        font-size: 0.95rem !important;
-    }
-
-    .snav-link.sub-link:hover {
-        color: #e0e7ff;
-    }
-
-    .snav-link.sub-link.active {
-        color: #c7d2fe;
-        box-shadow: inset 3px 0 0 0 #6366f1;
-        background: rgba(99, 102, 241, 0.12);
-    }
-
-    /* ── Icons ── */
-    .snav-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 1.25rem;
-        height: 1.25rem;
-        flex-shrink: 0;
-        color: rgba(148, 163, 184, 0.65);
-        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .snav-icon .mud-icon-root {
-        font-size: 1.15rem !important;
-        color: inherit !important;
-    }
-
-    /* ── Text ── */
-    .snav-text {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    /* ── Bottom spacer ── */
-    .nav-bottom-spacer {
-        height: 2rem;
-        flex-shrink: 0;
-    }
-
-    /* ── Focus visible for keyboard nav ── */
-    .snav-link:focus-visible {
-        outline: 2px solid #818cf8;
-        outline-offset: -2px;
-    }
-
-    /* ── Mini Drawer (collapsed) state ── */
-    .mud-drawer--closed .nav-sidebar {
-        padding: 0.5rem 0.15rem 1rem;
-    }
-
-    .mud-drawer--closed .nav-section-label {
-        opacity: 0;
-        max-height: 0;
-        padding-top: 0;
-        padding-bottom: 0;
-        margin: 0;
-        pointer-events: none;
-        overflow: hidden;
-    }
-
-    .mud-drawer--closed .snav-link {
-        justify-content: center;
-        gap: 0;
-        padding: 0.6rem 0;
-        border-radius: 0.5rem;
-    }
-
-    .mud-drawer--closed .snav-link.sub-link {
-        padding-left: 0;
-    }
-
-    .mud-drawer--closed .snav-text {
-        opacity: 0;
-        max-width: 0;
-        overflow: hidden;
-        pointer-events: none;
-    }
-
-    .mud-drawer--closed .snav-link.active {
-        box-shadow: none;
-        background: rgba(99, 102, 241, 0.2);
-    }
-
-    /* Smooth transitions when drawer opens/closes */
-    .nav-section-label {
-        transition: opacity 0.15s ease, max-height 0.15s ease, padding 0.15s ease;
-        max-height: 3rem;
-    }
-
-    .snav-text {
-        transition: opacity 0.15s ease 0.05s, max-width 0.2s ease;
-        max-width: 200px;
-    }
-
-    .nav-sidebar {
-        transition: padding 0.2s ease;
-    }
-
-    /* ── Scrollbar ── */
-    .nav-sidebar::-webkit-scrollbar {
-        width: 3px;
-    }
-
-    .nav-sidebar::-webkit-scrollbar-track {
-        background: transparent;
-    }
-
-    .nav-sidebar::-webkit-scrollbar-thumb {
-        background: rgba(148, 163, 184, 0.2);
-        border-radius: 10px;
-    }
-
-    .nav-sidebar::-webkit-scrollbar-thumb:hover {
-        background: rgba(148, 163, 184, 0.35);
-    }
-
-    /* ── Responsive ── */
-    @@media (max-width: 640px) {
-        .nav-sidebar {
-            padding: 0.5rem;
-        }
-
-        .nav-section-label {
-            font-size: 0.6rem;
-            padding: 1rem 0.5rem 0.35rem;
-        }
-
-        .snav-link {
-            padding: 0.5rem 0.6rem;
-            font-size: 0.8rem;
-        }
-    }
-</style>
+﻿@* Navigation for the staff shell. Presentation lives in
+   wwwroot/css/nocturne-shell.css — an inline <style> block here would render
+   after the head stylesheets and win the cascade over them, which is what
+   forced the previous shell rules to carry !important. Glyphs are Phosphor,
+   the Nocturne design system's icon set, loaded in App.razor. *@
 
 <div class="nav-sidebar">
     <AuthorizeView>
@@ -235,7 +14,7 @@
                     <div class="nav-section-label">Overview</div>
                     <NavLink class="snav-link" href="/dashboard" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Dashboard" />
+                            <i class="ph ph-squares-four" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Dashboard</span>
                     </NavLink>
@@ -248,43 +27,43 @@
                     <div class="nav-section-label">Sales & Billing</div>
                     <NavLink class="snav-link" href="/invoices" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Receipt" />
+                            <i class="ph ph-receipt" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Invoices</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/van-sales-invoices" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                            <i class="ph ph-truck" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Van Sales Invoices</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/invoices/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Invoice</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCartCheckout" />
+                            <i class="ph ph-shopping-cart" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Sales Orders</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/van-sales-orders" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                            <i class="ph ph-truck" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Van Sales Orders</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/sales-orders/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Sale Order</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/route-customers" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Signpost" />
+                            <i class="ph ph-signpost" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Route Customers</span>
                     </NavLink>
@@ -296,37 +75,37 @@
                     <div class="nav-section-label">Sales</div>
                     <NavLink class="snav-link" href="/sales-orders" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ShoppingCartCheckout" />
+                            <i class="ph ph-shopping-cart" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Sales Orders</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/sales-orders/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.NoteAdd" />
+                            <i class="ph ph-note-pencil" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Sale Order</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
+                            <i class="ph ph-device-mobile" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Mobile Orders</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Schedule" />
+                            <i class="ph ph-clock" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Timesheets</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Timesheet Report</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/merchandiser-account" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PersonAddAlt1" />
+                            <i class="ph ph-user-plus" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Manage Merchandisers</span>
                     </NavLink>
@@ -337,7 +116,7 @@
                 <Authorized>
                     <NavLink class="snav-link" href="/mobile-drafts" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PhoneAndroid" />
+                            <i class="ph ph-device-mobile" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Mobile Orders</span>
                     </NavLink>
@@ -348,25 +127,25 @@
                 <Authorized>
                     <NavLink class="snav-link" href="/quotations" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.RequestQuote" />
+                            <i class="ph ph-file-text" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Quotations</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/quotations/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Quotation</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/credit-notes" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.NoteAlt" />
+                            <i class="ph ph-file-minus" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Credit Notes</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/credit-notes/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Credit Note</span>
                     </NavLink>
@@ -379,7 +158,7 @@
                     <div class="nav-section-label">Inventory</div>
                     <NavLink class="snav-link" href="/inventory-transfers" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.SwapHoriz" />
+                            <i class="ph ph-arrows-left-right" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Transfers</span>
                     </NavLink>
@@ -387,7 +166,7 @@
                         <Authorized>
                             <NavLink class="snav-link" href="/local-stock" Match="NavLinkMatch.Prefix">
                                 <span class="snav-icon">
-                                    <MudIcon Icon="@Icons.Material.Filled.Inventory" />
+                                    <i class="ph ph-package" aria-hidden="true"></i>
                                 </span>
                                 <span class="snav-text">Local Stock</span>
                             </NavLink>
@@ -403,7 +182,7 @@
                     <div class="nav-section-label">Account</div>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Security" />
+                            <i class="ph ph-shield-check" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Security</span>
                     </NavLink>
@@ -416,61 +195,61 @@
                     <div class="nav-section-label">Purchasing</div>
                     <NavLink class="snav-link" href="/purchase-orders" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ShoppingBag" />
+                            <i class="ph ph-shopping-bag" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Purchase Orders</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/purchase-orders/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create PO</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/purchase-requests" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                            <i class="ph ph-clipboard-text" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Purchase Requests</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/purchase-requests/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PostAdd" />
+                            <i class="ph ph-file-plus" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Request</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/purchase-quotations" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.RequestQuote" />
+                            <i class="ph ph-file-text" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Purchase Quotations</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/purchase-quotations/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Addchart" />
+                            <i class="ph ph-file-plus" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create PQ</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/goods-receipt-pos" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                            <i class="ph ph-truck" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Goods Receipt POs</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/goods-receipt-pos/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.MoveToInbox" />
+                            <i class="ph ph-tray" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create GRPO</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/purchase-invoices" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" />
+                            <i class="ph ph-receipt" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">A/P Invoices</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/purchase-invoices/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PostAdd" />
+                            <i class="ph ph-file-plus" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create A/P Invoice</span>
                     </NavLink>
@@ -483,13 +262,13 @@
                     <div class="nav-section-label">Payments</div>
                     <NavLink class="snav-link" href="/payments" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Payment" />
+                            <i class="ph ph-credit-card" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Payments</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/payments/create" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AddCircle" />
+                            <i class="ph ph-plus-circle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Create Payment</span>
                     </NavLink>
@@ -502,25 +281,25 @@
                     <div class="nav-section-label">Catalogue</div>
                     <NavLink class="snav-link" href="/products" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                            <i class="ph ph-package" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Products</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/stock" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.BarChart" />
+                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Stock Monitoring</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/customers" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.People" />
+                            <i class="ph ph-users-three" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Customers</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/gl-accounts" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AccountBalance" />
+                            <i class="ph ph-bank" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">G/L Accounts</span>
                     </NavLink>
@@ -532,13 +311,13 @@
                     <div class="nav-section-label">Lab</div>
                     <NavLink class="snav-link" href="/lab/batch-status" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Science" />
+                            <i class="ph ph-flask" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Batch Status</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/lab/batch-status/history" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.History" />
+                            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Status History</span>
                     </NavLink>
@@ -546,7 +325,7 @@
                         <Authorized>
                             <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                                 <span class="snav-icon">
-                                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                                    <i class="ph ph-shield-check" aria-hidden="true"></i>
                                 </span>
                                 <span class="snav-text">Security</span>
                             </NavLink>
@@ -561,13 +340,13 @@
                     <div class="nav-section-label">Insights</div>
                     <NavLink class="snav-link" href="/reports" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.TrendingUp" />
+                            <i class="ph ph-trend-up" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Reports</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                            <i class="ph ph-truck" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Sales Order vs Invoice</span>
                     </NavLink>
@@ -582,7 +361,7 @@
                     </AuthorizeView>
                     <NavLink class="snav-link" href="/reports/merchandiser-purchase-orders" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AssignmentTurnedIn" />
+                            <i class="ph ph-check-square-offset" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Merch PO Report</span>
                     </NavLink>
@@ -592,7 +371,7 @@
                 <Authorized>
                     <NavLink class="snav-link sub-link" href="/fiscalized-sales-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Receipt" />
+                            <i class="ph ph-receipt" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Fiscalized Sales</span>
                     </NavLink>
@@ -602,7 +381,7 @@
                 <Authorized>
                     <NavLink class="snav-link sub-link" href="/reports/fiscal-transactions" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                            <i class="ph ph-list-checks" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Fiscal Txn Log</span>
                     </NavLink>
@@ -612,7 +391,7 @@
                 <Authorized>
                     <NavLink class="snav-link sub-link" href="/reports/account-sales-payments" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Payments" />
+                            <i class="ph ph-coins" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Account Sales & Payments</span>
                     </NavLink>
@@ -623,13 +402,13 @@
                 <Authorized>
                     <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Schedule" />
+                            <i class="ph ph-clock" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Timesheets</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/timesheet-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Timesheet Report</span>
                     </NavLink>
@@ -641,26 +420,26 @@
                     <div class="nav-section-label">Delivery</div>
                     <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Speed" />
+                            <i class="ph ph-gauge" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">POD Dashboard</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                            <i class="ph ph-list-checks" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Product PODs</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                            <i class="ph ph-chart-bar" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Product POD Report</span>
                     </NavLink>
                     <div class="nav-section-label">Account</div>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Security" />
+                            <i class="ph ph-shield-check" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Security</span>
                     </NavLink>
@@ -678,14 +457,14 @@
                     {
                         <NavLink class="snav-link" href="/pod-dashboard" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
-                                <MudIcon Icon="@Icons.Material.Filled.Speed" />
+                                <i class="ph ph-gauge" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">POD Dashboard</span>
                         </NavLink>
                     }
                     <NavLink class="snav-link" href="/pods" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                            <i class="ph ph-list-checks" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Product PODs</span>
                     </NavLink>
@@ -693,7 +472,7 @@
                     {
                         <NavLink class="snav-link" href="/pod-report" Match="NavLinkMatch.Prefix">
                             <span class="snav-icon">
-                                <MudIcon Icon="@Icons.Material.Filled.Assessment" />
+                                <i class="ph ph-chart-bar" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Product POD Report</span>
                         </NavLink>
@@ -702,7 +481,7 @@
                         <Authorized>
                             <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
                                 <span class="snav-icon">
-                                    <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                                    <i class="ph ph-truck" aria-hidden="true"></i>
                                 </span>
                                 <span class="snav-text">Driver Accounts</span>
                             </NavLink>
@@ -713,7 +492,7 @@
                             <div class="nav-section-label">Account</div>
                             <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                                 <span class="snav-icon">
-                                    <MudIcon Icon="@Icons.Material.Filled.Security" />
+                                    <i class="ph ph-shield-check" aria-hidden="true"></i>
                                 </span>
                                 <span class="snav-text">Security</span>
                             </NavLink>
@@ -726,7 +505,7 @@
                     <div class="nav-section-label">Crates</div>
                     <NavLink class="snav-link sub-link" href="/crates/pods" Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.FactCheck" />
+                            <i class="ph ph-list-checks" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Crate PODs</span>
                     </NavLink>
@@ -734,13 +513,13 @@
                     {
                         <NavLink class="snav-link" href="/crates/opening-balances" Match="NavLinkMatch.All">
                             <span class="snav-icon">
-                                <MudIcon Icon="@Icons.Material.Filled.Inventory2" />
+                                <i class="ph ph-package" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Opening Balances</span>
                         </NavLink>
                         <NavLink class="snav-link sub-link" href="/crates/grvs" Match="NavLinkMatch.All">
                             <span class="snav-icon">
-                                <MudIcon Icon="@Icons.Material.Filled.AssignmentReturn" />
+                                <i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>
                             </span>
                             <span class="snav-text">Crate GRVs</span>
                         </NavLink>
@@ -754,31 +533,31 @@
                     <div class="nav-section-label">System</div>
                     <NavLink class="snav-link" href="/exception-center" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.WarningAmber" />
+                            <i class="ph ph-warning" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Exception Center</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/sync-status" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Sync" />
+                            <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Sync Status</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/notifications" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Notifications" />
+                            <i class="ph ph-bell" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Notifications</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/document-templates" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Description" />
+                            <i class="ph ph-file-text" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Templates</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/ai-assistant" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.SmartToy" />
+                            <i class="ph ph-sparkle" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">AI Assistant</span>
                     </NavLink>
@@ -786,7 +565,7 @@
                         <Authorized>
                             <NavLink class="snav-link" href="/mobile-push" Match="NavLinkMatch.Prefix">
                                 <span class="snav-icon">
-                                    <MudIcon Icon="@Icons.Material.Filled.Campaign" />
+                                    <i class="ph ph-megaphone" aria-hidden="true"></i>
                                 </span>
                                 <span class="snav-text">Mobile Push</span>
                             </NavLink>
@@ -794,7 +573,7 @@
                     </AuthorizeView>
                     <NavLink class="snav-link" href="/security" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Security" />
+                            <i class="ph ph-shield-check" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Security</span>
                     </NavLink>
@@ -805,21 +584,21 @@
                 <Authorized>
                     <NavLink class="snav-link" href="/revmax" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Memory" />
+                            <i class="ph ph-cpu" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">REVMax Fiscal</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/revmax/cross-device-credit-note"
                              Match="NavLinkMatch.All">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ReceiptLong" />
+                            <i class="ph ph-receipt" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Cross-Device CN</span>
                     </NavLink>
                     <NavLink class="snav-link sub-link" href="/revmax/cross-device-credit-note/history"
                              Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.History" />
+                            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Cross-Device CN History</span>
                     </NavLink>
@@ -831,7 +610,7 @@
                 <Authorized>
                     <NavLink class="snav-link" href="/user-activity" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Timeline" />
+                            <i class="ph ph-pulse" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Activity Log</span>
                     </NavLink>
@@ -844,79 +623,79 @@
                     <div class="nav-section-label admin-label">Administration</div>
                     <NavLink class="snav-link" href="/desktop-sales" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PointOfSale" />
+                            <i class="ph ph-desktop" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Desktop Sales</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/desktop-transactions" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.DesktopWindows" />
+                            <i class="ph ph-monitor" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Desktop Txns</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/user-management" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ManageAccounts" />
+                            <i class="ph ph-users-three" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">User Management</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/approval-process/setup" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.AccountTree" />
+                            <i class="ph ph-check-square-offset" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Approval Process</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/driver-business-partners" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.LocalShipping" />
+                            <i class="ph ph-truck" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Driver Shops</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/merchandiser-products" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.PersonSearch" />
+                            <i class="ph ph-package" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Merch Products</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/customer-portal-management" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.ContactPage" />
+                            <i class="ph ph-browsers" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Portal Mgmt</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/audit-trail" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.History" />
+                            <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Audit Trail</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/backups" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.CloudUpload" />
+                            <i class="ph ph-cloud-arrow-up" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Backups</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/webhooks" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.CellTower" />
+                            <i class="ph ph-broadcast" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Webhooks</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/whatsapp-inbox" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Chat" />
+                            <i class="ph ph-chat-circle-dots" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">WhatsApp Inbox</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/swagger" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Api" />
+                            <i class="ph ph-code" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">API Docs</span>
                     </NavLink>
                     <NavLink class="snav-link" href="/settings" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Settings" />
+                            <i class="ph ph-gear-six" aria-hidden="true"></i>
                         </span>
                         <span class="snav-text">Settings</span>
                     </NavLink>
@@ -929,7 +708,7 @@
             <div class="nav-section-label">Account</div>
             <NavLink class="snav-link" href="/login" Match="NavLinkMatch.All">
                 <span class="snav-icon">
-                    <MudIcon Icon="@Icons.Material.Filled.Login" />
+                    <i class="ph ph-sign-in" aria-hidden="true"></i>
                 </span>
                 <span class="snav-text">Login</span>
             </NavLink>

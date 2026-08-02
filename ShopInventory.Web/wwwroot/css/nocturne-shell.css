@@ -1,0 +1,763 @@
+/* ============================================================
+   Nocturne app shell — staff topbar and sidebar
+   ------------------------------------------------------------
+   Implements the shell from the "WhatsApp Operator Console"
+   Nocturne design: a 54px chrome band above a 232px navigation
+   column, blurple as the interaction accent, and gold reserved
+   for the Kefalos mark alone.
+
+   Loaded after app.css, which keeps ownership of the page
+   surfaces inside the shell. app.css states its shell geometry
+   with !important, so the handful of declarations restated here
+   carry it too; everything else wins on source order.
+   ============================================================ */
+
+/* ---- Shell tokens -----------------------------------------
+   Named --kfn-* so they cannot collide with the app-wide --kf-*
+   palette: this file re-skins the chrome, not the pages. */
+/* Geometry is theme-independent. --kf-topbar-h is app.css's own token: the
+   app bar, the main content's offset and every Nocturne page's sticky header
+   already measure from it, so setting it here moves all of them together. */
+:root {
+    --kf-topbar-h: 54px;
+    --kfn-nav-w: 232px;
+}
+
+:root,
+[data-theme="light"] {
+    --kfn-chrome: #FFFFFF;
+    --kfn-ground: #F2F3F9;
+    --kfn-raised: #EDEEF6;
+    --kfn-raised-2: #E7E9F3;
+    --kfn-line: rgba(23, 26, 45, 0.11);
+    --kfn-line-strong: #C9CDE0;
+    --kfn-text: #171A2D;
+    --kfn-text-2: #4B5170;
+    --kfn-text-3: #5E6483;
+    /* Darker than Nocturne's neutral-600 equivalent so the search placeholder
+       and the role line still clear 4.5:1 on white. */
+    --kfn-muted: #656B84;
+
+    --kfn-accent: #6A5CC4;
+    --kfn-accent-bright: #5A4BB6;
+    --kfn-accent-text: #4B3DA3;
+    --kfn-accent-pill: #EFECFC;
+    --kfn-accent-ring: #D6CFF7;
+    --kfn-accent-line: #B6ABEF;
+    --kfn-accent-wash: rgba(106, 92, 196, 0.12);
+
+    --kfn-brand: #B77D00;
+    --kfn-brand-line: #D99A00;
+    --kfn-brand-sub: #B77D00;
+
+    --kfn-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+}
+
+[data-theme="dark"],
+.dark-theme {
+    /* Nocturne's own values, unmodified. */
+    --kfn-chrome: #1b1e2c;
+    --kfn-ground: #161826;
+    --kfn-raised: #232532;
+    --kfn-raised-2: #292b31;
+    --kfn-line: rgba(233, 233, 237, 0.10);
+    --kfn-line-strong: #3f424d;
+    --kfn-text: #e9e9ed;
+    --kfn-text-2: #b2b6ca;
+    --kfn-text-3: #9397ab;
+    --kfn-muted: #75798c;
+
+    --kfn-accent: #9184d9;
+    --kfn-accent-bright: #b5abfc;
+    --kfn-accent-text: #d2cefd;
+    --kfn-accent-pill: #2b2741;
+    --kfn-accent-ring: #423a6a;
+    --kfn-accent-line: #5d5294;
+    --kfn-accent-wash: rgba(145, 132, 217, 0.14);
+
+    --kfn-brand: oklch(0.84 0.13 85);
+    --kfn-brand-line: oklch(0.78 0.13 85);
+    --kfn-brand-sub: oklch(0.78 0.11 85);
+
+    --kfn-shadow: 0 16px 40px rgba(0, 0, 0, 0.65);
+}
+
+/* ---- Frame -------------------------------------------------
+   The drawer width is one number: the topbar's lead cell matches
+   it so the two dividers form a single vertical line. */
+html body .staff-shell.kf-shell {
+    --mud-drawer-width-left: var(--kfn-nav-w);
+}
+
+html body .staff-appbar.kf-appbar {
+    background: var(--kfn-chrome) !important;
+    border-bottom: 1px solid var(--kfn-line);
+    color: var(--kfn-text) !important;
+}
+
+html body .staff-drawer.kf-drawer {
+    background: var(--kfn-chrome) !important;
+    border-right: 1px solid var(--kfn-line) !important;
+    color: var(--kfn-text) !important;
+    width: var(--kfn-nav-w) !important;
+}
+
+html body .staff-drawer.kf-drawer .mud-drawer-content {
+    background: var(--kfn-chrome);
+    width: var(--kfn-nav-w);
+}
+
+/* ---- Topbar ------------------------------------------------ */
+.kf-topbar {
+    gap: 16px;
+    padding: 0 16px 0 0;
+}
+
+.kf-topbar__lead {
+    flex: 0 0 var(--kfn-nav-w);
+    gap: 10px;
+    margin-right: 0;
+    padding-left: 13px;
+}
+
+.kf-nav-open .kf-topbar__lead {
+    border-right: 1px solid var(--kfn-line);
+}
+
+.kf-topbar .kf-icon-button,
+.kf-sidebar-brand .kf-sidebar-close {
+    border: 0;
+    border-radius: 8px;
+    color: var(--kfn-text-2);
+    flex: 0 0 30px;
+    height: 30px;
+    width: 30px;
+}
+
+.kf-topbar .kf-icon-button:hover,
+.kf-sidebar-brand .kf-sidebar-close:hover {
+    background: var(--kfn-raised-2);
+    border: 0;
+    color: var(--kfn-text);
+}
+
+.kf-topbar .kf-icon-button .ph,
+.kf-sidebar-brand .kf-sidebar-close .ph {
+    font-size: 17px;
+    line-height: 1;
+}
+
+.kf-topbar .kf-menu-toggle .ph {
+    font-size: 18px;
+}
+
+/* Brand: a bordered gold tile plus the two-line wordmark. Gold is
+   the mark's colour only — every interactive accent below is blurple. */
+.kf-topbar__brand {
+    border-radius: 8px;
+    padding: 2px 4px;
+}
+
+.kf-topbar .kf-brand,
+.kf-sidebar-brand .kf-brand {
+    gap: 9px;
+}
+
+.kf-topbar .kf-brand__mark,
+.kf-sidebar-brand .kf-brand__mark {
+    border: 1px solid var(--kfn-brand-line);
+    border-radius: 6px;
+    color: var(--kfn-brand);
+    flex: 0 0 28px;
+    height: 28px;
+    padding: 4px;
+    width: 28px;
+}
+
+.kf-topbar__brand:hover .kf-brand__mark {
+    background: var(--kfn-accent-wash);
+    border-color: var(--kfn-brand);
+    color: var(--kfn-brand);
+}
+
+.kf-topbar .kf-brand__copy strong,
+.kf-sidebar-brand .kf-brand__copy strong {
+    color: var(--kfn-text);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.10em;
+    line-height: 1.1;
+}
+
+.kf-topbar .kf-brand__copy small,
+.kf-sidebar-brand .kf-brand__copy small {
+    color: var(--kfn-brand-sub);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    line-height: 1.1;
+    margin-top: 2px;
+}
+
+/* Search */
+.kf-search-shell {
+    margin-right: 0;
+    max-width: 420px;
+    width: min(34vw, 420px);
+}
+
+.kf-search {
+    background: var(--kfn-ground);
+    border: 1px solid var(--kfn-line);
+    border-radius: 8px;
+    gap: 8px;
+    height: 32px;
+    max-width: 420px;
+    padding: 0 10px;
+    width: 100%;
+}
+
+.kf-search:focus-within {
+    border-color: var(--kfn-accent-line);
+    box-shadow: 0 0 0 2px var(--kfn-accent-wash);
+}
+
+.kf-search > .ph {
+    color: var(--kfn-muted);
+    font-size: 15px;
+    line-height: 1;
+}
+
+/* app.css gives every dark-theme input a slate fill and a grey placeholder
+   (`.dark-theme input`, an iOS Safari workaround). Both match this field at the
+   same specificity and win on source order, so the field has to out-specify
+   them or it paints #1e293b inside the search shell. The placeholder needs
+   -webkit-text-fill-color too — that property beats `color` in WebKit. */
+.kf-topbar .kf-search input {
+    background: transparent;
+    background-color: transparent;
+    border: 0;
+    color: var(--kfn-text);
+    font-size: 13px;
+}
+
+.kf-topbar .kf-search input::placeholder {
+    -webkit-text-fill-color: var(--kfn-muted);
+    color: var(--kfn-muted);
+    opacity: 1;
+}
+
+/* The type=search clear button is a UA control that ignores the palette. */
+.kf-topbar .kf-search input::-webkit-search-cancel-button {
+    filter: grayscale(1) opacity(0.5);
+}
+
+.kf-search kbd {
+    background: transparent;
+    border: 1px solid var(--kfn-line-strong);
+    border-radius: 4px;
+    color: var(--kfn-text-3);
+    font-size: 10px;
+    padding: 1px 5px;
+}
+
+/* Actions */
+.kf-topbar__actions {
+    gap: 6px;
+}
+
+/* The bell and the theme toggle drop the rule-and-inset treatment the
+   previous shell gave them: at 54px the band only has room for the
+   single divider that separates the actions from the profile chip. */
+.kf-topbar .kf-notification-button,
+.kf-topbar .kf-theme-toggle {
+    border-left: 0;
+    border-radius: 8px;
+    margin-left: 0;
+    padding-left: 0;
+    width: 30px;
+}
+
+.kf-topbar .kf-theme-toggle .ph {
+    color: var(--kfn-text-2);
+}
+
+.kf-topbar .kf-theme-toggle:hover .ph {
+    color: var(--kfn-text);
+}
+
+.kf-theme-toggle__icon {
+    height: 17px;
+    width: 17px;
+}
+
+.kf-notification-count {
+    background: var(--kfn-accent-ring);
+    border: 0;
+    box-shadow: inset 0 0 0 1px var(--kfn-accent-line);
+    color: var(--kfn-accent-text);
+    font-size: 9px;
+    font-weight: 600;
+    height: 14px;
+    min-width: 14px;
+    padding: 0 4px;
+    right: 0;
+    top: 0;
+}
+
+/* Profile chip */
+.kf-profile-menu {
+    border-left: 1px solid var(--kfn-line);
+    margin-left: 6px;
+    padding-left: 12px;
+}
+
+.kf-profile-menu > summary {
+    border-radius: 8px;
+    gap: 9px;
+    min-height: 0;
+    padding: 3px 8px 3px 3px;
+}
+
+.kf-profile-menu > summary:hover,
+.kf-profile-menu[open] > summary {
+    background: var(--kfn-raised-2);
+}
+
+.kf-avatar {
+    background: var(--kfn-accent-pill);
+    border: 1px solid var(--kfn-accent-line);
+    color: var(--kfn-accent-text);
+    font-size: 11px;
+    font-weight: 600;
+    height: 28px;
+    width: 28px;
+}
+
+.kf-user__copy strong,
+.kf-topbar .kf-user__copy strong {
+    color: var(--kfn-text);
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.kf-user__copy small,
+.kf-topbar .kf-user__copy small {
+    color: var(--kfn-muted);
+    font-size: 10.5px;
+}
+
+.kf-profile-chevron {
+    color: var(--kfn-muted);
+    font-size: 12px;
+    line-height: 1;
+    transition: transform .18s ease;
+}
+
+.kf-profile-menu[open] .kf-profile-chevron {
+    transform: rotate(180deg);
+}
+
+/* Sign-out lives in the profile menu, as it does in the design. A second
+   copy of it does not fit the 54px band. */
+.kf-topbar .kf-logout-button {
+    display: none;
+}
+
+/* ---- Popovers hung off the topbar -------------------------- */
+.kf-profile-dropdown,
+.kf-search-results,
+.kf-notification-panel {
+    background: var(--kfn-chrome);
+    border: 1px solid var(--kfn-line);
+    border-radius: 10px;
+    box-shadow: var(--kfn-shadow);
+    color: var(--kfn-text);
+}
+
+.kf-profile-dropdown {
+    padding: 6px;
+    top: calc(100% + 8px);
+}
+
+.kf-profile-dropdown__identity {
+    border-bottom: 1px solid var(--kfn-line);
+}
+
+.kf-profile-dropdown__identity strong {
+    color: var(--kfn-text);
+    font-size: 12.5px;
+}
+
+.kf-profile-dropdown__identity small {
+    color: var(--kfn-muted);
+    font-size: 10.5px;
+}
+
+.kf-profile-dropdown > a,
+.kf-profile-dropdown > button {
+    border-radius: 8px;
+    color: var(--kfn-text-2);
+    font-size: 12.5px;
+    min-height: 34px;
+    padding: 7px 9px;
+}
+
+/* A flex <button> is centred by the UA stylesheet, which left "Sign out"
+   inset from the links above it. */
+.kf-profile-dropdown > button {
+    justify-content: flex-start;
+}
+
+.kf-profile-dropdown > a:hover,
+.kf-profile-dropdown > button:hover {
+    background: var(--kfn-raised);
+    color: var(--kfn-text);
+}
+
+.kf-profile-dropdown .ph {
+    color: var(--kfn-accent-bright);
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* Search results */
+.kf-search-results__label {
+    color: var(--kfn-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+}
+
+.kf-search-results > button:hover,
+.kf-search-results > button.is-selected {
+    background: var(--kfn-raised);
+}
+
+.kf-search-result__icon {
+    background: var(--kfn-accent-pill);
+    border: 1px solid var(--kfn-accent-ring);
+    color: var(--kfn-accent-bright);
+}
+
+.kf-search-result__icon .ph {
+    font-size: 15px;
+    line-height: 1;
+}
+
+.kf-search-results > button strong {
+    color: var(--kfn-text);
+}
+
+.kf-search-results > button small,
+.kf-search-empty,
+.kf-search-loading {
+    color: var(--kfn-muted);
+}
+
+/* .kf-spinner is shared with the pages, so only the one in the search shell
+   moves off gold. */
+.kf-search-loading .kf-spinner {
+    border-color: var(--kfn-line-strong);
+    border-top-color: var(--kfn-accent);
+}
+
+.kf-search-results > button small b {
+    background: var(--kfn-accent-pill);
+    border: 1px solid var(--kfn-accent-ring);
+    color: var(--kfn-accent-text);
+}
+
+.kf-search-result__arrow,
+.kf-search-empty .ph {
+    color: var(--kfn-muted);
+    font-size: 15px;
+    line-height: 1;
+}
+
+/* app.css turns the arrow gold on the hovered/selected row; gold belongs to
+   the mark alone in this shell. */
+.kf-search-results > button:hover .kf-search-result__arrow,
+.kf-search-results > button.is-selected .kf-search-result__arrow {
+    color: var(--kfn-accent-bright);
+}
+
+/* Notifications */
+.kf-notification-header {
+    border-bottom: 1px solid var(--kfn-line);
+}
+
+.kf-notification-header button,
+.kf-notification-view-all {
+    color: var(--kfn-accent-bright);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.notification-item {
+    border-bottom: 1px solid var(--kfn-line);
+    color: var(--kfn-text-2);
+}
+
+.notification-item:hover,
+.notification-item.unread,
+.kf-notification-view-all:hover {
+    background: var(--kfn-raised);
+}
+
+.notification-item strong {
+    color: var(--kfn-text);
+    font-size: 12px;
+}
+
+.notification-item small,
+.notification-item time,
+.kf-notification-empty {
+    color: var(--kfn-muted);
+}
+
+.notification-item .ph,
+.kf-notification-empty .ph {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.kf-notification-empty .ph {
+    font-size: 22px;
+}
+
+.notification-item .ph-warning-circle {
+    color: #e5834f;
+}
+
+.notification-item .ph-x-circle {
+    color: #d9695f;
+}
+
+.notification-item .ph-check-circle {
+    color: #5fb894;
+}
+
+.notification-item .ph-info {
+    color: var(--kfn-accent-bright);
+}
+
+.kf-notification-view-all {
+    border-top: 1px solid var(--kfn-line);
+}
+
+/* ---- Sidebar ----------------------------------------------- */
+.kf-sidebar-scroll {
+    scrollbar-color: var(--kfn-line-strong) transparent;
+}
+
+.kf-sidebar-scroll::-webkit-scrollbar {
+    width: 4px;
+}
+
+.kf-sidebar-scroll::-webkit-scrollbar-thumb {
+    background: var(--kfn-line-strong);
+}
+
+html body .kf-drawer .kf-sidebar-scroll .nav-sidebar {
+    gap: 2px !important;
+    padding: 14px 10px 24px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .nav-section-label {
+    color: var(--kfn-muted) !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.16em !important;
+    margin: 0 !important;
+    padding: 16px 8px 6px !important;
+    text-transform: uppercase !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .nav-section-label:first-child {
+    padding-top: 2px !important;
+}
+
+/* Nocturne rules fade at both ends rather than stopping square. */
+html body .kf-drawer .kf-sidebar-scroll .nav-section-label.admin-label {
+    background: linear-gradient(to right, transparent, var(--kfn-line) 20px,
+        var(--kfn-line) calc(100% - 20px), transparent) no-repeat top / 100% 1px;
+    border-top: 0 !important;
+    color: var(--kfn-muted) !important;
+    margin-top: 10px !important;
+    padding-top: 18px !important;
+}
+
+/* Rows: 32px tall, 12.5px label, 16px glyph. Long labels wrap onto a
+   second line rather than being clipped — a handful of the report links
+   are wider than the column. */
+html body .kf-drawer .kf-sidebar-scroll .snav-link {
+    background: transparent !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    color: var(--kfn-text-2) !important;
+    font-size: 12.5px !important;
+    font-weight: 400 !important;
+    gap: 10px !important;
+    line-height: 1.35 !important;
+    margin: 0 !important;
+    min-height: 32px !important;
+    padding: 6px 8px !important;
+    position: relative !important;
+    transition: background .12s ease, color .12s ease !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link:hover {
+    background: var(--kfn-raised) !important;
+    color: var(--kfn-text) !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link.active {
+    background: var(--kfn-accent-pill) !important;
+    box-shadow: inset 0 0 0 1px var(--kfn-accent-ring) !important;
+    color: var(--kfn-text) !important;
+    font-weight: 500 !important;
+}
+
+/* The 2px rail sits inside the pill, at the row's own left edge. */
+html body .kf-drawer .kf-sidebar-scroll .snav-link.active::before {
+    background: var(--kfn-accent) !important;
+    border-radius: 2px !important;
+    bottom: 7px !important;
+    content: "" !important;
+    left: 0 !important;
+    position: absolute !important;
+    top: 7px !important;
+    width: 2px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-icon {
+    color: inherit !important;
+    flex: 0 0 16px !important;
+    height: 16px !important;
+    width: 16px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-icon .ph {
+    font-size: 16px !important;
+    line-height: 1 !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link.active .snav-icon {
+    color: var(--kfn-accent-bright) !important;
+}
+
+/* Sub-items sit under their parent on the label's left edge. They read one
+   step quieter than their parent, but on neutral-500 rather than the design's
+   neutral-600: these are navigation targets, and 600 lands at 3.8:1 on the
+   chrome ground. */
+html body .kf-drawer .kf-sidebar-scroll .snav-link.sub-link {
+    color: var(--kfn-text-3) !important;
+    font-size: 12px !important;
+    padding-left: 30px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link.sub-link .snav-icon {
+    flex: 0 0 14px !important;
+    height: 14px !important;
+    width: 14px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link.sub-link .snav-icon .ph {
+    font-size: 14px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link.sub-link:hover {
+    color: var(--kfn-text) !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link.sub-link.active {
+    color: var(--kfn-text) !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .nav-bottom-spacer {
+    height: 8px !important;
+}
+
+/* Mobile drawer keeps its own brand row, matched to the chrome band. */
+.kf-sidebar-brand {
+    border-bottom: 1px solid var(--kfn-line);
+    flex: 0 0 var(--kf-topbar-h);
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+    gap: 9px;
+    letter-spacing: normal;
+    padding: 0 10px 0 13px;
+}
+
+/* ---- Focus ------------------------------------------------- */
+.kf-topbar .kf-icon-button:focus-visible,
+.kf-topbar__brand:focus-visible,
+.kf-profile-menu > summary:focus-visible,
+.kf-profile-dropdown > a:focus-visible,
+.kf-profile-dropdown > button:focus-visible,
+.kf-search-results > button:focus-visible,
+.notification-item:focus-visible,
+.kf-notification-header button:focus-visible,
+.kf-notification-view-all:focus-visible,
+.kf-sidebar-brand .kf-sidebar-close:focus-visible,
+html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible {
+    outline: 2px solid var(--kfn-accent) !important;
+    outline-offset: 2px !important;
+}
+
+html body .kf-drawer .kf-sidebar-scroll .snav-link:focus-visible {
+    outline-offset: -2px !important;
+}
+
+/* ---- Responsive -------------------------------------------- */
+@media (max-width: 1199.98px) {
+    .kf-profile-menu {
+        padding-left: 10px;
+    }
+}
+
+@media (max-width: 959.98px) {
+    /* Below this width the drawer is temporary, so the content keeps no gutter
+       for it. app.css says the same thing in its own media query, but this file
+       is later in the cascade and would otherwise restore the desktop width. */
+    html body .staff-shell.kf-shell {
+        --mud-drawer-width-left: 0px;
+    }
+
+    .kf-topbar__lead {
+        border-right: 0;
+        flex: 0 0 auto;
+        margin-right: 8px;
+        padding-left: 10px;
+    }
+
+    .kf-search-shell {
+        width: min(40vw, 420px);
+    }
+}
+
+@media (max-width: 699.98px) {
+    .kf-topbar {
+        gap: 10px;
+        padding-right: 10px;
+    }
+
+    .kf-topbar__lead {
+        gap: 4px;
+        margin-right: 0;
+        padding-left: 6px;
+    }
+
+    .kf-topbar__brand .kf-brand__copy {
+        display: none;
+    }
+
+    .kf-profile-menu {
+        border-left: 0;
+        margin-left: 0;
+        padding-left: 0;
+    }
+}
