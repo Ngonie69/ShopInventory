@@ -1,0 +1,1469 @@
+/* ==========================================================================
+   Sync Status & Health — Nocturne
+
+   The page an operator opens when SAP "feels slow" or a screen shows old
+   numbers. It is drawn as one narrative rather than four stacked tables: a
+   verdict strip, then the link itself (latency shape, percentiles, which
+   endpoint is dragging), then what each cache is worth right now, then the
+   queue, then the raw request log for the person who wants the receipts.
+
+   Palette, spacing and type are the same system as driver-shop-access.css,
+   approval-process.css and business-partners.css — token names and values
+   are deliberately identical so the Administration pages stay one design.
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme
+   flashes.
+
+   Rules live here rather than an inline Razor <style> block for the same
+   reason as those three: app.css carries global `.dark-theme input/select`
+   rules that have to be out-specified, so every control carries a class and
+   every control selector is two classes deep, winning regardless of load
+   order. Headings are pinned to Nocturne's 500 because Bootstrap's global
+   `h1-h6 { font-weight: 600 }` would otherwise bolden them past the weight
+   this system allows.
+
+   Status is a coloured dot plus the word, never a filled pill — the same
+   rule batch-status.css follows. A monitoring page is read at a glance and
+   colour alone has to survive both schemes and colour-blind readers, so the
+   word always travels with it.
+   ========================================================================== */
+
+.syn {
+    --syn-bg: #f4f4f8;
+    --syn-surface: #ffffff;
+    --syn-wash: #ffffff;
+    --syn-ink: #1b1c26;
+    --syn-ink-2: #35374a;
+    --syn-mute: #4e5164;
+    --syn-mute-2: #656879;
+    --syn-mute-3: #7b7e8e;
+    --syn-faint: #a0a2ae;
+    --syn-divider: rgba(27, 28, 38, .14);
+    --syn-rule: rgba(27, 28, 38, .08);
+    --syn-hover: rgba(27, 28, 38, .04);
+    --syn-press: rgba(27, 28, 38, .09);
+    --syn-field-bg: rgba(27, 28, 38, .04);
+    --syn-field-edge: #d4d6e2;
+    --syn-field-edge-hi: #a9adc0;
+    --syn-accent: #5f52c4;
+    --syn-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses
+       --color-accent-200/300 (a pale lavender); on paper the same role has to
+       be the deep end of the ramp instead. */
+    --syn-accent-text: #473d99;
+    --syn-accent-ink: #ffffff;
+    --syn-track: #c9ccd8;
+
+    /* Verdict hues. Only three, and each one always arrives with a word. */
+    --syn-good: #2f7d4f;
+    --syn-good-rgb: 47, 125, 79;
+    --syn-good-text: #1f5433;
+    --syn-warn: #b07d1d;
+    --syn-warn-rgb: 176, 125, 29;
+    --syn-warn-text: #6b4c12;
+    --syn-danger: #b3352f;
+    --syn-danger-rgb: 179, 53, 47;
+    --syn-danger-text: #8f2621;
+    --syn-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --syn-s1: 2.8px;
+    --syn-s2: 5.6px;
+    --syn-s3: 8.4px;
+    --syn-s4: 11.2px;
+    --syn-s6: 16.8px;
+    --syn-s8: 22.4px;
+    --syn-r-sm: 4px;
+    --syn-r-md: 8px;
+    --syn-r-lg: 14px;
+
+    color-scheme: var(--syn-scheme);
+}
+
+.dark-theme .syn {
+    --syn-bg: #161826;
+    --syn-surface: #232532;
+    --syn-wash: rgba(35, 37, 50, .7);
+    --syn-ink: #e9e9ed;
+    --syn-ink-2: #e4e7f5;
+    --syn-mute: #cfd3e5;
+    --syn-mute-2: #b2b6ca;
+    --syn-mute-3: #9397ab;
+    --syn-faint: #75798c;
+    --syn-divider: rgba(233, 233, 237, .16);
+    --syn-rule: rgba(233, 233, 237, .08);
+    --syn-hover: rgba(243, 245, 254, .05);
+    --syn-press: rgba(243, 245, 254, .1);
+    --syn-field-bg: rgba(243, 245, 254, .05);
+    --syn-field-edge: rgba(233, 233, 237, .16);
+    --syn-field-edge-hi: #595d6c;
+    --syn-accent: #9184d9;
+    --syn-accent-rgb: 145, 132, 217;
+    --syn-accent-text: #d2cefd;
+    --syn-accent-ink: #f5f4ff;
+    --syn-track: #3f424d;
+    --syn-good: #7fc8a9;
+    --syn-good-rgb: 127, 200, 169;
+    --syn-good-text: #b7dcc5;
+    --syn-warn: #e0a44a;
+    --syn-warn-rgb: 224, 164, 74;
+    --syn-warn-text: #f2dfae;
+    --syn-danger: #e8697d;
+    --syn-danger-rgb: 232, 105, 125;
+    --syn-danger-text: #f2a6b1;
+    --syn-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.syn {
+    min-height: 100vh;
+    background: var(--syn-bg);
+    color: var(--syn-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.syn * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; inside this page that would flatten the accent
+   and the three verdict hues on WebKit, so hand the fill back to `color`. */
+.dark-theme .syn,
+.dark-theme .syn * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.syn :focus-visible {
+    outline: 2px solid var(--syn-accent);
+    outline-offset: 2px;
+}
+
+.syn ::selection {
+    background: rgba(var(--syn-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.syn h1,
+.syn h2,
+.syn h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.syn p {
+    margin: 0;
+}
+
+/* Every figure on this page is compared against the one above it, so they all
+   need to occupy the same width per digit. */
+.syn-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so Refresh, Live and the
+   as-of clock stay reachable while the request log scrolls. */
+
+.syn-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: color-mix(in srgb, var(--syn-bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--syn-divider);
+}
+
+.syn-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--syn-s6);
+}
+
+.syn-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--syn-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--syn-mute-3);
+}
+
+.syn-crumb-sep {
+    color: var(--syn-faint);
+}
+
+.syn-crumb-now {
+    color: var(--syn-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.syn-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--syn-s3);
+}
+
+/* The clock is load-bearing here: everything on the page is a snapshot, and a
+   stale snapshot of a staleness monitor is the one thing that would mislead. */
+.syn-asof {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--syn-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.syn-asof i {
+    font-size: 13px;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.syn .syn-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--syn-s2) calc(var(--syn-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--syn-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--syn-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.syn .syn-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.syn .syn-btn i {
+    font-size: 14px;
+    flex: none;
+}
+
+.syn .syn-btn-primary {
+    color: var(--syn-accent);
+    border-color: var(--syn-accent);
+    letter-spacing: .02em;
+}
+
+.syn .syn-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--syn-accent-rgb), .12);
+}
+
+.syn .syn-btn-primary:active:not(:disabled) {
+    background: rgba(var(--syn-accent-rgb), .22);
+}
+
+.syn .syn-btn-quiet {
+    color: var(--syn-mute-2);
+    border-color: var(--syn-divider);
+}
+
+.syn .syn-btn-quiet:hover:not(:disabled) {
+    color: var(--syn-ink);
+    border-color: var(--syn-field-edge-hi);
+    background: var(--syn-hover);
+}
+
+.syn .syn-btn-ghost {
+    color: var(--syn-accent);
+}
+
+.syn .syn-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--syn-accent-rgb), .1);
+}
+
+.syn .syn-btn-danger {
+    color: var(--syn-danger-text);
+}
+
+.syn .syn-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--syn-danger-rgb), .12);
+}
+
+.syn .syn-btn-sm {
+    height: 26px;
+    padding: 0 var(--syn-s3);
+    font-size: 12px;
+}
+
+/* Square icon-only button, for row actions where the label would be noise. */
+.syn .syn-btn-icon {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    flex: none;
+    border-color: var(--syn-divider);
+    color: var(--syn-mute-2);
+}
+
+.syn .syn-btn-icon:hover:not(:disabled) {
+    color: var(--syn-ink);
+    border-color: var(--syn-field-edge-hi);
+    background: var(--syn-hover);
+}
+
+.syn .syn-btn-icon-danger:hover:not(:disabled) {
+    color: var(--syn-danger-text);
+    border-color: rgba(var(--syn-danger-rgb), .5);
+    background: rgba(var(--syn-danger-rgb), .1);
+}
+
+/* The Live switch: a native checkbox in a label, so it keeps focus, the space
+   key and the "checked" a screen reader announces. */
+.syn-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--syn-s3);
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--syn-mute-2);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.syn-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.syn-switch-track {
+    position: relative;
+    width: 34px;
+    height: 18px;
+    flex: none;
+    border-radius: 9px;
+    border: 1px solid var(--syn-field-edge);
+    background: var(--syn-field-bg);
+    transition: background .18s, border-color .18s;
+}
+
+.syn-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--syn-mute-3);
+    transition: transform .18s, background .18s;
+}
+
+.syn-switch:hover .syn-switch-track {
+    border-color: var(--syn-accent);
+}
+
+.syn-switch input:checked + .syn-switch-track {
+    background: rgba(var(--syn-accent-rgb), .24);
+    border-color: var(--syn-accent);
+}
+
+.syn-switch input:checked + .syn-switch-track::after {
+    transform: translateX(16px);
+    background: var(--syn-accent);
+}
+
+.syn-switch input:focus-visible + .syn-switch-track {
+    outline: 2px solid var(--syn-accent);
+    outline-offset: 2px;
+}
+
+/* ── Body & hero ───────────────────────────────────────────────────────── */
+
+.syn-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--syn-s8);
+}
+
+.syn-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.syn-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--syn-accent-text);
+    margin-bottom: 9px;
+}
+
+.syn-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.syn-hero p {
+    font-size: 13.5px;
+    color: var(--syn-mute-2);
+    max-width: 62ch;
+    text-wrap: pretty;
+}
+
+/* The company database the whole page is describing. Small, but the first
+   thing to check when the numbers look like someone else's. */
+.syn-hero-facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--syn-s2);
+    align-items: flex-end;
+    font-size: 12px;
+    color: var(--syn-mute-3);
+}
+
+.syn-hero-fact {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.syn-hero-fact i {
+    font-size: 13px;
+    color: var(--syn-faint);
+}
+
+.syn-hero-fact strong {
+    font-weight: 500;
+    color: var(--syn-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── The verdict strip ─────────────────────────────────────────────────── */
+/* Four figures, in the order an operator asks them: is the link up, is the
+   system healthy, is anything waiting, is anything broken. */
+
+.syn-verdict {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--syn-s4);
+}
+
+.syn-fig {
+    display: flex;
+    flex-direction: column;
+    padding: var(--syn-s6) 18px;
+    border: 1px solid var(--syn-divider);
+    border-radius: var(--syn-r-lg);
+    background: var(--syn-surface);
+    min-width: 0;
+}
+
+/* Only the first card carries the accent — the design's way of saying which
+   figure the page is actually about. */
+.syn-fig-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--syn-accent-rgb), .12), transparent 62%),
+        var(--syn-surface);
+}
+
+.syn-fig-head {
+    display: flex;
+    align-items: center;
+    gap: var(--syn-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--syn-mute-2);
+}
+
+.syn-fig-lead .syn-fig-head {
+    color: var(--syn-accent-text);
+}
+
+.syn-fig-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--syn-mute-3);
+}
+
+.syn-fig-lead .syn-fig-rule {
+    background: var(--syn-accent);
+}
+
+.syn-fig-num {
+    margin-top: var(--syn-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* "Connected", "Disconnected", "Integration off" are words, not numbers, and
+   at 32px the longest of them wraps the card. */
+.syn-fig-num-word {
+    font-size: 25px;
+}
+
+/* The "/100" and "%" that belong to the figure but are not part of it. */
+.syn-fig-unit {
+    font-size: 16px;
+    color: var(--syn-mute-3);
+}
+
+.syn-fig-good {
+    color: var(--syn-good-text);
+}
+
+.syn-fig-warn {
+    color: var(--syn-warn-text);
+}
+
+.syn-fig-danger {
+    color: var(--syn-danger-text);
+}
+
+.syn-fig-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--syn-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.syn-fig-sub-danger {
+    color: var(--syn-danger-text);
+}
+
+.syn-fig-foot {
+    margin-top: auto;
+    padding-top: var(--syn-s3);
+}
+
+/* ── Meters ────────────────────────────────────────────────────────────── */
+/* One bar, used three ways: health score, cache freshness, queue mix. It is
+   always a proportion of something stated next to it — never a bare bar. */
+
+.syn-meter {
+    height: 5px;
+    border-radius: 999px;
+    background: var(--syn-track);
+    overflow: hidden;
+    display: flex;
+}
+
+.syn-meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--syn-accent);
+    transition: width .3s ease;
+}
+
+.syn-meter-fill-good {
+    background: var(--syn-good);
+}
+
+.syn-meter-fill-warn {
+    background: var(--syn-warn);
+}
+
+.syn-meter-fill-danger {
+    background: var(--syn-danger);
+}
+
+.syn-meter-sm {
+    height: 4px;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card — the design's one gradient. */
+
+.syn-card {
+    border: 1px solid var(--syn-divider);
+    border-radius: var(--syn-r-lg);
+    background: linear-gradient(to bottom, var(--syn-wash), transparent 240px);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.syn-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--syn-s4);
+    padding: var(--syn-s6) var(--syn-s8) var(--syn-s4);
+}
+
+.syn-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    border-radius: var(--syn-r-md);
+    background: rgba(var(--syn-accent-rgb), .14);
+    color: var(--syn-accent);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-accent-rgb), .32);
+    font-size: 16px;
+}
+
+.syn-card-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.syn-card-text h2 {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.syn-card-text p {
+    font-size: 12.5px;
+    color: var(--syn-mute-3);
+}
+
+.syn-card-tools {
+    margin-left: auto;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.syn-card-body {
+    padding: 0 var(--syn-s8) var(--syn-s6);
+}
+
+/* Two columns where the right one is a companion to the left, not a peer. */
+.syn-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: var(--syn-s6);
+    align-items: start;
+}
+
+.syn-split > * {
+    min-width: 0;
+}
+
+/* ── Latency shape ─────────────────────────────────────────────────────── */
+/* One bar per recent request, oldest on the left. The shape is the point: SAP
+   latency here is heavy-tailed, so a single slow call proves nothing and a
+   run of them proves everything. */
+
+.syn-spark {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 78px;
+    padding-top: var(--syn-s2);
+}
+
+.syn-spark-bar {
+    flex: 1;
+    min-width: 2px;
+    border-radius: 2px 2px 0 0;
+    background: rgba(var(--syn-accent-rgb), .34);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-accent-rgb), .5);
+    min-height: 2px;
+}
+
+.syn-spark-bar-slow {
+    background: rgba(var(--syn-warn-rgb), .38);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-warn-rgb), .55);
+}
+
+/* A failed request has no meaningful duration, so it is drawn full height in
+   the danger hue: the eye reads the gap in the run, not a bar length. */
+.syn-spark-bar-fail {
+    background: rgba(var(--syn-danger-rgb), .42);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-danger-rgb), .6);
+}
+
+.syn-spark-axis {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 6px;
+    font-size: 10.5px;
+    color: var(--syn-mute-3);
+}
+
+/* The percentiles under the shape. p50 is what it usually costs, p95 what it
+   costs when it hurts; the pair is the only honest summary of this tail. */
+.syn-pcts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: var(--syn-s3);
+    margin-top: var(--syn-s6);
+}
+
+.syn-pct {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--syn-s3) var(--syn-s4);
+    border-radius: var(--syn-r-md);
+    background: var(--syn-field-bg);
+    box-shadow: inset 0 0 0 1px var(--syn-rule);
+    min-width: 0;
+}
+
+.syn-pct span {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--syn-mute-3);
+    white-space: nowrap;
+}
+
+.syn-pct strong {
+    font-size: 17px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.syn-pct em {
+    font-style: normal;
+    font-size: 11px;
+    color: var(--syn-mute-3);
+}
+
+/* ── Endpoint breakdown ────────────────────────────────────────────────── */
+/* The log grouped by what was called, worst first. This is the difference
+   between "SAP is slow" and "one query is slow". */
+
+.syn-eps {
+    display: flex;
+    flex-direction: column;
+}
+
+.syn-ep {
+    display: flex;
+    align-items: center;
+    gap: var(--syn-s3);
+    padding: var(--syn-s3) 0;
+    border-top: 1px solid var(--syn-rule);
+    font-size: 13px;
+}
+
+.syn-ep:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.syn-ep-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.syn-ep-name {
+    font-weight: 500;
+    font-size: 12.5px;
+    font-family: 'Space Grotesk', ui-monospace, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.syn-ep-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--syn-s3);
+    font-size: 11.5px;
+    color: var(--syn-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.syn-ep-meta-fail {
+    color: var(--syn-danger-text);
+}
+
+.syn-ep-num {
+    flex: none;
+    text-align: right;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.syn-ep-num em {
+    display: block;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--syn-mute-3);
+}
+
+/* ── Status: a coloured dot plus the word, never a filled pill ─────────── */
+
+.syn-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+
+.syn-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--syn-mute-3);
+}
+
+.syn-state-good .syn-dot {
+    background: var(--syn-good);
+}
+
+.syn-state-good {
+    color: var(--syn-good-text);
+}
+
+.syn-state-warn .syn-dot {
+    background: var(--syn-warn);
+}
+
+.syn-state-warn {
+    color: var(--syn-warn-text);
+}
+
+.syn-state-danger .syn-dot {
+    background: var(--syn-danger);
+}
+
+.syn-state-danger {
+    color: var(--syn-danger-text);
+}
+
+.syn-state-busy .syn-dot {
+    background: var(--syn-accent);
+    animation: syn-pulse 1.4s ease-in-out infinite;
+}
+
+.syn-state-busy {
+    color: var(--syn-accent-text);
+}
+
+.syn-state-quiet {
+    color: var(--syn-mute-3);
+}
+
+@keyframes syn-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .syn-state-busy .syn-dot {
+        animation: none;
+    }
+}
+
+/* ── Cache freshness ───────────────────────────────────────────────────── */
+/* Not a table of last-synced times but a card per entity showing how much of
+   its freshness budget is spent — the question "is this about to go stale" is
+   the one that actually gets asked, and a timestamp cannot answer it.
+
+   Cards rather than rows because the bar has an honest maximum width: stretched
+   across a 1,400px row it stops reading as this entity's window and starts
+   reading as the page's own progress, and the entity name is left marooned at
+   the far end of it. */
+
+.syn-caches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+    gap: var(--syn-s4);
+}
+
+.syn-cache {
+    display: flex;
+    flex-direction: column;
+    gap: var(--syn-s3);
+    padding: var(--syn-s4) var(--syn-s6);
+    border-radius: var(--syn-r-md);
+    background: var(--syn-field-bg);
+    box-shadow: inset 0 0 0 1px var(--syn-rule);
+    min-width: 0;
+}
+
+/* Anything past its window carries the amber edge, so a stale cache is findable
+   without reading a word of it. */
+.syn-cache-late {
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-warn-rgb), .45);
+}
+
+.syn-cache-bad {
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-danger-rgb), .45);
+}
+
+.syn-cache-top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--syn-s3);
+    min-width: 0;
+}
+
+.syn-cache-name {
+    font-weight: 500;
+    font-size: 13.5px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.syn-cache-top .syn-state {
+    margin-left: auto;
+    flex: none;
+}
+
+.syn-cache-count {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    font-variant-numeric: tabular-nums;
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    line-height: 1.1;
+}
+
+.syn-cache-count em {
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--syn-mute-3);
+}
+
+/* Deliberately not pushed to the bottom of the card: the error text only one
+   card carries makes that card taller, and bottom-aligning would then hollow
+   out the middle of the other four. Top-aligned, every meter lines up. */
+.syn-cache-budget {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.syn-cache-budget-line {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--syn-s3);
+    font-size: 11.5px;
+    color: var(--syn-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.syn-cache-budget-line span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The recorded sync error, when there is one. It wraps rather than truncating:
+   squeezed onto one line it cut off after about three words, which is worse
+   than not showing it at all. */
+.syn-cache-err {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--syn-danger-text);
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.syn-cache-err i {
+    flex: none;
+    margin-top: 2px;
+    font-size: 12px;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+.syn-table-wrap {
+    overflow-x: auto;
+    border-radius: var(--syn-r-md);
+    box-shadow: inset 0 0 0 1px var(--syn-rule);
+}
+
+.syn-scroll {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.syn-table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.syn-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: var(--syn-s3) var(--syn-s4);
+    background: var(--syn-bg);
+    border-bottom: 1px solid var(--syn-divider);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--syn-mute-3);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.syn-table thead th.syn-right,
+.syn-table tbody td.syn-right {
+    text-align: right;
+}
+
+.syn-table thead th.syn-center,
+.syn-table tbody td.syn-center {
+    text-align: center;
+}
+
+.syn-table tbody td {
+    padding: var(--syn-s3) var(--syn-s4);
+    border-bottom: 1px solid var(--syn-rule);
+    vertical-align: middle;
+}
+
+.syn-table tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.syn-table tbody tr:hover td {
+    background: var(--syn-hover);
+}
+
+.syn-row-fail td {
+    background: rgba(var(--syn-danger-rgb), .06);
+}
+
+.syn-mono {
+    font-family: 'Space Grotesk', ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--syn-mute-2);
+}
+
+.syn-err-text {
+    display: inline-block;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    color: var(--syn-danger-text);
+    font-size: 12px;
+}
+
+.syn-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--syn-s2);
+    flex-wrap: nowrap;
+}
+
+/* Attempts as a meter: at-a-glance "one try left" versus "burnt out". */
+.syn-attempts {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--syn-s2);
+    white-space: nowrap;
+}
+
+.syn-pips {
+    display: flex;
+    gap: 2px;
+}
+
+.syn-pip {
+    width: 4px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--syn-track);
+}
+
+.syn-pip-used {
+    background: var(--syn-warn);
+}
+
+.syn-pip-out {
+    background: var(--syn-danger);
+}
+
+.syn-attempts-text {
+    font-size: 11.5px;
+    color: var(--syn-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────── */
+
+.syn-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--syn-s3);
+    padding: var(--syn-s3) var(--syn-s4);
+    border-radius: var(--syn-r-md);
+    font-size: 13px;
+}
+
+.syn-notice i {
+    font-size: 16px;
+    flex: none;
+    margin-top: 1px;
+}
+
+.syn-notice > div {
+    flex: 1;
+    min-width: 0;
+}
+
+.syn-notice-good {
+    background: rgba(var(--syn-good-rgb), .12);
+    color: var(--syn-good-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-good-rgb), .3);
+}
+
+.syn-notice-warn {
+    background: rgba(var(--syn-warn-rgb), .12);
+    color: var(--syn-warn-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-warn-rgb), .3);
+}
+
+.syn-notice-danger {
+    background: rgba(var(--syn-danger-rgb), .1);
+    color: var(--syn-danger-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--syn-danger-rgb), .3);
+}
+
+.syn-notice-quiet {
+    background: var(--syn-field-bg);
+    color: var(--syn-mute-2);
+    box-shadow: inset 0 0 0 1px var(--syn-rule);
+}
+
+.syn-notice-close {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--syn-r-sm);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: .7;
+}
+
+.syn-notice-close:hover {
+    opacity: 1;
+    background: var(--syn-hover);
+}
+
+/* Findings and advice, side by side: the health check already computes both,
+   and an issue without its remedy just moves the problem to the reader. */
+.syn-findings {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--syn-s6);
+}
+
+.syn-finding-col h3 {
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--syn-mute-3);
+    margin-bottom: var(--syn-s3);
+}
+
+.syn-finding-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--syn-s2);
+}
+
+.syn-finding-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--syn-s3);
+    font-size: 13px;
+    color: var(--syn-ink-2);
+}
+
+.syn-finding-list i {
+    flex: none;
+    margin-top: 3px;
+    font-size: 13px;
+}
+
+.syn-finding-issue i {
+    color: var(--syn-warn);
+}
+
+.syn-finding-fix i {
+    color: var(--syn-accent);
+}
+
+/* ── Empty, loading, footnotes ─────────────────────────────────────────── */
+
+.syn-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--syn-s3);
+    padding: var(--syn-s8) var(--syn-s4);
+    font-size: 13px;
+    color: var(--syn-mute-3);
+    text-align: center;
+}
+
+.syn-empty i {
+    font-size: 26px;
+    color: var(--syn-faint);
+}
+
+.syn-empty-good i {
+    color: var(--syn-good);
+}
+
+.syn-empty p {
+    max-width: 46ch;
+    text-wrap: pretty;
+}
+
+.syn-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--syn-s4);
+    padding: 96px 0;
+    font-size: 13px;
+    color: var(--syn-mute-3);
+}
+
+.syn-spin {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    border-radius: 50%;
+    border: 2px solid rgba(var(--syn-accent-rgb), .28);
+    border-top-color: var(--syn-accent);
+    animation: syn-spin .8s linear infinite;
+}
+
+.syn-spin-lg {
+    width: 30px;
+    height: 30px;
+    border-width: 3px;
+}
+
+@keyframes syn-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Where a number came from, or what it does not cover. Every derived figure on
+   this page reads over a bounded window, and saying so is cheaper than having
+   someone draw the wrong conclusion from it. */
+.syn-footnote {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--syn-s3);
+    padding-top: var(--syn-s4);
+    margin-top: var(--syn-s4);
+    font-size: 11.5px;
+    color: var(--syn-mute-3);
+    border-top: 1px solid var(--syn-rule);
+    text-wrap: pretty;
+}
+
+.syn-footnote i {
+    font-size: 13px;
+    flex: none;
+    margin-top: 1px;
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────────── */
+
+.syn-toast {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    gap: var(--syn-s3);
+    max-width: min(420px, calc(100vw - 48px));
+    padding: var(--syn-s3) var(--syn-s4);
+    border-radius: var(--syn-r-md);
+    background: var(--syn-surface);
+    box-shadow: 0 0 0 1px var(--syn-divider), 0 12px 32px rgba(0, 0, 0, .22);
+    font-size: 13px;
+    animation: syn-rise .2s ease;
+}
+
+.syn-toast i {
+    font-size: 16px;
+    flex: none;
+}
+
+.syn-toast span {
+    flex: 1;
+    min-width: 0;
+}
+
+.syn-toast-good i {
+    color: var(--syn-good);
+}
+
+.syn-toast-danger i {
+    color: var(--syn-danger);
+}
+
+@keyframes syn-rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .syn-toast {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.syn-scroll,
+.syn-table-wrap {
+    scrollbar-width: thin;
+    scrollbar-color: var(--syn-track) transparent;
+}
+
+.syn-scroll::-webkit-scrollbar,
+.syn-table-wrap::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.syn-scroll::-webkit-scrollbar-thumb,
+.syn-table-wrap::-webkit-scrollbar-thumb {
+    background: var(--syn-track);
+    border-radius: 999px;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .syn-split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .syn-verdict {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .syn-head-inner,
+    .syn-body {
+        padding-left: 18px;
+        padding-right: 18px;
+    }
+
+    .syn-card-head,
+    .syn-card-body {
+        padding-left: var(--syn-s6);
+        padding-right: var(--syn-s6);
+    }
+
+    .syn-hero-facts {
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .syn-verdict {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .syn-head-inner {
+        flex-wrap: wrap;
+        gap: var(--syn-s3);
+    }
+
+    /* Four controls do not fit a phone's width on one line, and without the
+       wrap the last of them — Test SAP connection — is simply cut off. */
+    .syn-head-actions {
+        width: 100%;
+        margin-left: 0;
+        flex-wrap: wrap;
+        row-gap: var(--syn-s2);
+    }
+
+    .syn-hero h1 {
+        font-size: 25px;
+    }
+}
