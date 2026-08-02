@@ -108,12 +108,20 @@
 
 /* Seated on the app bar, not the viewport top: the bar is fixed and 74px tall,
    so a header pinned at 0 parks itself underneath it and disappears. */
+
+/* Opaque, not frosted. The import draws this bar at 88% over a 10px backdrop
+   blur, and the missing 12% is only hidden while the compositor honours the
+   blur — where it doesn't, the settings panels pass under the bar and stay
+   legible through it. A bar whose job is to hide what scrolls beneath it cannot
+   depend on an effect the compositor is free to skip, and `@supports` is no
+   guard: it reports true in exactly those environments. The value was the
+   ground written out by hand (#161826 at 88%); as the token it stays tied to
+   the ground `.stg` actually paints. */
 .stg-header {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    backdrop-filter: blur(10px);
-    background: rgba(22, 24, 38, .88);
+    background: var(--stg-bg);
     border-radius: 12px 12px 0 0;
 }
 

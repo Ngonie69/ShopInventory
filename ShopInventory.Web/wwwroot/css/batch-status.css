@@ -167,13 +167,19 @@
 
 /* Seated on the app bar, not the viewport top: the bar is fixed and 74px tall,
    so a header pinned at 0 parks itself underneath it and disappears. */
+
+/* Opaque, not frosted. The import draws this bar at 88% over a 10px backdrop
+   blur, and the missing 12% is only hidden while the compositor honours the
+   blur — where it doesn't, the batch rows pass under the bar and stay legible
+   through it. A bar whose job is to hide what scrolls beneath it cannot depend
+   on an effect the compositor is free to skip, and `@supports` is no guard: it
+   reports true in exactly those environments. --bsc-bg *is* the page ground, so
+   the at-rest look is unchanged in both themes. */
 .bsc-header {
     position: sticky;
     top: var(--kf-topbar-h, 74px);
     z-index: 30;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    background: color-mix(in srgb, var(--bsc-bg) 88%, transparent);
+    background: var(--bsc-bg);
     border-radius: 12px 12px 0 0;
 }
 
