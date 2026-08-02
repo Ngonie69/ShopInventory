@@ -1,468 +1,361 @@
-@using Microsoft.AspNetCore.Components
+@* The imported Nocturne design (Sales Rep Dashboard.dc.html) is dark;
+   wwwroot/css/sales-rep-dashboard.css — linked from App.razor — carries it and
+   its light counterpart, and follows the app's theme toggle like every other
+   page.
 
-<style>
-    .srd-page {
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
+   The import draws the top bar and the sidebar as well. Those are the app's
+   own chrome, already built (and the sidebar items are exactly what
+   NavMenu.razor renders for the SalesRep role), so only the content column is
+   rebuilt here.
 
-    .srd-hero {
-        position: relative;
-        overflow: hidden;
-        margin-bottom: 1.5rem;
-        padding: 1.75rem;
-        border: 1px solid rgba(15, 23, 42, 0.08);
-        border-radius: 1.25rem;
-        background:
-            radial-gradient(circle at top right, rgba(15, 118, 110, 0.18), transparent 32%),
-            linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(255, 255, 255, 0.95));
-        box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
-    }
+   Two labels depart from the import because the data behind them does not
+   exist: the chart reads "all sales orders" rather than "your accounts only"
+   — nothing in the sales-order API scopes a list to one rep — and the
+   delivery-proof panel follows the range control rather than being pinned to
+   30 days, so the one control drives the whole page. *@
 
-    .srd-hero::after {
-        content: "";
-        position: absolute;
-        inset: auto -4rem -5rem auto;
-        width: 14rem;
-        height: 14rem;
-        border-radius: 999px;
-        background: rgba(14, 165, 233, 0.08);
-        filter: blur(8px);
-        pointer-events: none;
-    }
+<div class="srd">
 
-    .srd-hero-content {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 1.5rem;
-        flex-wrap: wrap;
-    }
-
-    .srd-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        margin-bottom: 0.9rem;
-        padding: 0.45rem 0.8rem;
-        border-radius: 999px;
-        background: rgba(15, 118, 110, 0.12);
-        color: #0f766e;
-        font-size: 0.78rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-    }
-
-    .srd-badge::before {
-        content: "";
-        width: 0.5rem;
-        height: 0.5rem;
-        border-radius: 999px;
-        background: currentColor;
-        box-shadow: 0 0 0 0.3rem rgba(15, 118, 110, 0.16);
-    }
-
-    .srd-hero h2 {
-        margin: 0 0 0.55rem;
-        color: #0f172a;
-        font-size: clamp(2rem, 3vw, 2.55rem);
-        font-weight: 700;
-        letter-spacing: -0.04em;
-    }
-
-    .srd-hero p {
-        max-width: 48rem;
-        margin: 0;
-        color: #475569;
-        font-size: 1rem;
-        line-height: 1.7;
-    }
-
-    .srd-hero-actions {
-        display: flex;
-        gap: 0.85rem;
-        flex-wrap: wrap;
-        align-self: center;
-    }
-
-    .srd-hero-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.55rem;
-        padding: 0.8rem 1.1rem;
-        border-radius: 0.95rem;
-        text-decoration: none;
-        font-weight: 600;
-        transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-    }
-
-    .srd-hero-link:hover {
-        transform: translateY(-2px);
-    }
-
-    .srd-hero-link-primary {
-        background: linear-gradient(135deg, #0f766e, #0f9d8a);
-        color: #f8fafc;
-        box-shadow: 0 14px 26px rgba(15, 118, 110, 0.22);
-    }
-
-    .srd-hero-link-secondary {
-        border: 1px solid rgba(15, 23, 42, 0.1);
-        background: rgba(255, 255, 255, 0.78);
-        color: #0f172a;
-        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
-    }
-
-    .srd-module {
-        display: block;
-        height: 100%;
-        padding: 1.35rem;
-        border: 1px solid rgba(15, 23, 42, 0.08);
-        border-radius: 1.1rem;
-        text-decoration: none;
-        transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
-        box-shadow: 0 16px 35px rgba(15, 23, 42, 0.07);
-    }
-
-    .srd-module:hover {
-        transform: translateY(-4px);
-        border-color: rgba(15, 118, 110, 0.26);
-        box-shadow: 0 20px 38px rgba(15, 23, 42, 0.1);
-    }
-
-    .srd-module-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-    }
-
-    .srd-module-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 3rem;
-        height: 3rem;
-        border-radius: 0.95rem;
-        font-size: 1.2rem;
-    }
-
-    .srd-module-tag {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.35rem 0.7rem;
-        border-radius: 999px;
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-    }
-
-    .srd-module h3 {
-        margin: 0 0 0.55rem;
-        color: #0f172a;
-        font-size: 1.1rem;
-        font-weight: 700;
-    }
-
-    .srd-module p {
-        margin: 0 0 1rem;
-        color: #475569;
-        line-height: 1.65;
-    }
-
-    .srd-module-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        color: #0f172a;
-        font-weight: 600;
-    }
-
-    .srd-accent-orders {
-        background: linear-gradient(180deg, rgba(224, 242, 254, 0.72), rgba(255, 255, 255, 0.98));
-    }
-
-    .srd-accent-orders .srd-module-icon,
-    .srd-accent-orders .srd-module-tag {
-        background: rgba(3, 105, 161, 0.12);
-        color: #0369a1;
-    }
-
-    .srd-accent-drafts {
-        background: linear-gradient(180deg, rgba(236, 253, 245, 0.78), rgba(255, 255, 255, 0.98));
-    }
-
-    .srd-accent-drafts .srd-module-icon,
-    .srd-accent-drafts .srd-module-tag {
-        background: rgba(5, 150, 105, 0.13);
-        color: #047857;
-    }
-
-    .srd-accent-poddash {
-        background: linear-gradient(180deg, rgba(240, 249, 255, 0.76), rgba(255, 255, 255, 0.98));
-    }
-
-    .srd-accent-poddash .srd-module-icon,
-    .srd-accent-poddash .srd-module-tag {
-        background: rgba(14, 165, 233, 0.12);
-        color: #0284c7;
-    }
-
-    .srd-accent-delivery {
-        background: linear-gradient(180deg, rgba(254, 249, 195, 0.56), rgba(255, 255, 255, 0.98));
-    }
-
-    .srd-accent-delivery .srd-module-icon,
-    .srd-accent-delivery .srd-module-tag {
-        background: rgba(202, 138, 4, 0.13);
-        color: #a16207;
-    }
-
-    .srd-accent-report {
-        background: linear-gradient(180deg, rgba(255, 241, 242, 0.7), rgba(255, 255, 255, 0.98));
-    }
-
-    .srd-accent-report .srd-module-icon,
-    .srd-accent-report .srd-module-tag {
-        background: rgba(225, 29, 72, 0.1);
-        color: #be123c;
-    }
-
-    .srd-panel {
-        border: 1px solid rgba(15, 23, 42, 0.08);
-        border-radius: 1.1rem;
-        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.06);
-    }
-
-    .srd-panel .card-body {
-        padding: 1.25rem;
-    }
-
-    .srd-step-list {
-        display: grid;
-        gap: 0.9rem;
-    }
-
-    .srd-step {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 0.9rem;
-        align-items: start;
-        padding: 0.95rem 1rem;
-        border-radius: 0.95rem;
-        background: #f8fafc;
-        border: 1px solid rgba(148, 163, 184, 0.22);
-    }
-
-    .srd-step-number {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 2rem;
-        height: 2rem;
-        border-radius: 999px;
-        background: #0f172a;
-        color: #f8fafc;
-        font-weight: 700;
-        font-size: 0.9rem;
-    }
-
-    .srd-step h4 {
-        margin: 0 0 0.25rem;
-        color: #0f172a;
-        font-size: 0.98rem;
-        font-weight: 700;
-    }
-
-    .srd-step p,
-    .srd-access-list li,
-    .srd-panel-note {
-        margin: 0;
-        color: #475569;
-        line-height: 1.6;
-    }
-
-    .srd-access-list {
-        display: grid;
-        gap: 0.8rem;
-        padding-left: 1.15rem;
-        margin: 0 0 1rem;
-    }
-
-    .srd-boundary {
-        padding: 0.95rem 1rem;
-        border-radius: 0.95rem;
-        background: rgba(15, 118, 110, 0.08);
-        border: 1px solid rgba(15, 118, 110, 0.14);
-        color: #134e4a;
-        font-weight: 600;
-    }
-
-    @@media (max-width: 768px) {
-        .srd-page {
-            padding: 1rem;
-        }
-
-        .srd-hero {
-            padding: 1.3rem;
-        }
-
-        .srd-hero h2 {
-            font-size: 1.8rem;
-        }
-
-        .srd-hero-actions,
-        .srd-hero-link {
-            width: 100%;
-            justify-content: center;
-        }
-    }
-</style>
-
-<div class="container-fluid fade-in staff-dashboard staff-shell srd-page">
-    <div class="srd-hero">
-        <div class="srd-hero-content">
-            <div>
-                <div class="srd-badge">Sales workspace</div>
-                <h2>Welcome back, @DisplayName</h2>
-                <p>
-                    This dashboard is tailored for sales reps. It keeps your sales-order and delivery follow-up tools in
-                    one place
-                    and intentionally removes cashier, invoicing, payments, and transfer workflows.
-                </p>
+    <header>
+        <div class="srd-shell">
+            <div class="srd-titles">
+                <div class="srd-kicker">Sales workspace · @Today.ToString("dddd dd MMMM")</div>
+                <h1 class="srd-title">@Greeting, @FirstName</h1>
+                <p class="srd-sub">@Standfirst</p>
             </div>
-
-            <div class="srd-hero-actions">
-                <a class="srd-hero-link srd-hero-link-primary" href="/sales-orders">
-                    <i class="bi bi-cart-check"></i>
-                    Open Sales Orders
+            <div class="srd-head-actions">
+                <div class="srd-seg" role="group" aria-label="Reporting range">
+                    @foreach (var option in RangeOptions)
+                    {
+                        <button type="button"
+                                class="srd-seg-opt @(option == rangeDays ? "is-on" : null)"
+                                aria-pressed="@(option == rangeDays)"
+                                disabled="@isLoading"
+                                @onclick="() => SelectRange(option)">
+                            @($"{option}d")
+                        </button>
+                    }
+                </div>
+                <a class="srd-btn srd-btn-quiet" href="/mobile-drafts">
+                    <i class="ph ph-device-mobile" aria-hidden="true"></i>Mobile orders
                 </a>
-                <a class="srd-hero-link srd-hero-link-secondary" href="/mobile-drafts">
-                    <i class="bi bi-phone"></i>
-                    Review Mobile Orders
+                <a class="srd-btn srd-btn-primary" href="/sales-orders/create">
+                    <i class="ph ph-plus" aria-hidden="true"></i>Create sale order
                 </a>
             </div>
         </div>
-    </div>
+        <div class="srd-rule"></div>
+    </header>
 
-    <div class="row g-4 mb-4">
-        @foreach (var module in Modules)
+    <div class="srd-body">
+
+        @if (loadError is not null)
         {
-            <div class="col-xl-4 col-md-6">
-                <a class="srd-module @module.AccentClass" href="@module.Href">
-                    <div class="srd-module-head">
-                        <span class="srd-module-icon">
-                            <i class="@module.IconClass"></i>
-                        </span>
-                        <span class="srd-module-tag">@module.Tag</span>
-                    </div>
-                    <h3>@module.Title</h3>
-                    <p>@module.Description</p>
-                    <span class="srd-module-link">
-                        Open module
-                        <i class="bi bi-arrow-right"></i>
-                    </span>
-                </a>
+            <div class="srd-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div>@loadError</div>
             </div>
         }
-    </div>
 
-    <div class="row g-4">
-        <div class="col-lg-7">
-            <div class="card dashboard-panel srd-panel h-100">
-                <div class="card-header dashboard-panel-header">
-                    <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <i class="bi bi-list-check"></i>
-                        Recommended Workflow
-                    </h5>
+        @* Figures read "—" until their numbers are in, rather than showing
+           zeroes that are about to jump. *@
+        <section class="srd-kpis" aria-label="Today's figures">
+            <div class="srd-kpi">
+                <div class="srd-kpi-top">
+                    <span class="srd-kpi-label">Orders today</span>
+                    <i class="ph ph-shopping-cart-simple" aria-hidden="true"></i>
                 </div>
-                <div class="card-body">
-                    <div class="srd-step-list">
-                        <div class="srd-step">
-                            <span class="srd-step-number">1</span>
-                            <div>
-                                <h4>Review incoming customer orders</h4>
-                                <p>Use Sales Orders to track status, update order details, and keep customer demand
-                                    moving.</p>
-                                </div>
-                            </div>
-                            <div class="srd-step">
-                                <span class="srd-step-number">2</span>
-                                <div>
-                                    <h4>Process mobile-submitted orders</h4>
-                                    <p>Open Mobile Orders to validate field submissions and continue the sales workflow
-                                        without stepping into cashier tasks.</p>
-                                    </div>
-                                </div>
-                                <div class="srd-step">
-                                    <span class="srd-step-number">3</span>
-                                    <div>
-                                        <h4>Close the delivery loop</h4>
-                                        <p>Use the POD tools to upload proof of delivery, monitor upload activity, and chase
-                                            outstanding documents.</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                <div class="srd-kpi-fig">
+                    <span class="srd-kpi-value">@Figure(ordersToday)</span>
+                    <span class="srd-kpi-unit">orders</span>
+                </div>
+                <div class="srd-kpi-foot">
+                    @if (hasOrders)
+                    {
+                        @TrendChip((ordersToday ?? 0) - ordersYesterday, "+0;-0;0")
+                        <span>vs yesterday</span>
+                    }
                 </div>
             </div>
 
+            <div class="srd-kpi">
+                <div class="srd-kpi-top">
+                    <span class="srd-kpi-label">Order value @($"{rangeDays}d")</span>
+                    <i class="ph ph-currency-circle-dollar" aria-hidden="true"></i>
+                </div>
+                <div class="srd-kpi-fig">
+                    <span class="srd-kpi-value">@(hasOrders ? Compact(rangeValue) : "—")</span>
+                </div>
+                <div class="srd-kpi-foot">
+                    @if (hasOrders && valueChangePercent is { } change)
+                    {
+                        @TrendChip(change, PercentFormat)
+                        <span>vs previous @($"{rangeDays}d")</span>
+                    }
+                    else if (hasOrders)
+                    {
+                        <span>No orders in the previous @($"{rangeDays} days")</span>
+                    }
+                </div>
+            </div>
+
+            <div class="srd-kpi">
+                <div class="srd-kpi-top">
+                    <span class="srd-kpi-label">Awaiting review</span>
+                    <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                </div>
+                <div class="srd-kpi-fig">
+                    <span class="srd-kpi-value">@Figure(mobilePending)</span>
+                    <span class="srd-kpi-unit">mobile</span>
+                </div>
+                <div class="srd-kpi-foot">
+                    <span>@MobileQueueNote</span>
+                </div>
+            </div>
+
+            <div class="srd-kpi">
+                <div class="srd-kpi-top">
+                    <span class="srd-kpi-label">POD compliance</span>
+                    <i class="ph ph-seal-check" aria-hidden="true"></i>
+                </div>
+                <div class="srd-kpi-fig">
+                    <span class="srd-kpi-value">@(podCoverage is { } pod ? $"{pod.Percent:0}%" : "—")</span>
+                </div>
+                <div class="srd-kpi-foot">
+                    @if (podCoverage is { } coverage)
+                    {
+                        <span>@coverage.Uploaded.ToString("N0") of @coverage.Total.ToString("N0") deliveries</span>
+                    }
+                </div>
+            </div>
+        </section>
+
+        <div class="srd-split">
+
+            <div class="srd-col">
+
+                <section class="srd-card" aria-label="Order value">
+                    <div class="srd-chart-head">
+                        <div>
+                            <span class="srd-card-title">Order value</span>
+                            <span class="srd-card-sub">
+                                Daily total, last @rangeDays days · all sales orders@(ordersTruncated ? $" · newest {OrderFetchSize:N0}" : null)
+                            </span>
+                        </div>
+                        <div class="srd-chart-total">
+                            <span class="srd-chart-total-value">@(hasOrders ? Compact(rangeValue) : "—")</span>
+                            @if (hasOrders && valueChangePercent is { } chartChange)
+                            {
+                                @TrendChip(chartChange, PercentFormat, showIcon: false)
+                            }
+                        </div>
+                    </div>
+
+                    <div class="srd-plot">
+                        <div class="srd-gridline is-top"></div>
+                        <div class="srd-gridline is-mid"></div>
+                        <div class="srd-gridline is-low"></div>
+                        <div class="srd-baseline"></div>
+                        @if (axisMax > 0)
+                        {
+                            <span class="srd-ytick is-top">@Compact(axisMax)</span>
+                            <span class="srd-ytick is-mid">@Compact(axisMax * 2m / 3m)</span>
+                            <span class="srd-ytick is-low">@Compact(axisMax / 3m)</span>
+                        }
+                        @foreach (var bar in bars)
+                        {
+                            <div class="srd-bar @bar.BandClass" style="height:@bar.Height" title="@bar.Label"></div>
+                        }
+                    </div>
+
+                    <div class="srd-xaxis">
+                        <span>@RangeStart.ToString("dd MMM")</span>
+                        <span>@RangeStart.AddDays(rangeDays / 2).ToString("dd MMM")</span>
+                        <span>Today</span>
+                    </div>
+                </section>
+
+                <section class="srd-card" aria-label="Recent orders">
+                    <div class="srd-card-head">
+                        <span class="srd-card-title">Recent orders</span>
+                        <a class="srd-link srd-card-note" href="/sales-orders">
+                            @(rangeOrderCount > 0 ? $"View all {rangeOrderCount:N0}" : "View all")
+                        </a>
+                    </div>
+
+                    <div class="srd-orders-head" aria-hidden="true">
+                        <span>Order</span>
+                        <span>Customer</span>
+                        <span>Channel</span>
+                        <span class="srd-order-value">Value</span>
+                        <span>Status</span>
+                        <span class="srd-order-age">Age</span>
+                    </div>
+
+                    @if (recentOrders.Count == 0)
+                    {
+                        <div class="srd-empty">@(isLoading ? "Loading orders…" : $"No sales orders in the last {rangeDays} days.")</div>
+                    }
+                    else
+                    {
+                        @foreach (var order in recentOrders)
+                        {
+                            <a class="srd-order" href="@OrderHref(order)">
+                                <span class="srd-order-id">@OrderLabel(order)</span>
+                                <span class="srd-order-name">@CustomerLabel(order)</span>
+                                <span class="srd-order-channel">@ChannelLabel(order)</span>
+                                <span class="srd-order-value">@Money(order.DocTotal)</span>
+                                <span class="srd-order-status">
+                                    <span class="srd-tag @StatusTone(order.Status)">@StatusLabel(order.Status)</span>
+                                </span>
+                                <span class="srd-order-age">@Age(OrderMoment(order))</span>
+                            </a>
+                        }
+                    }
+                </section>
+            </div>
+
+            <div class="srd-col">
+
+                <section class="srd-card" aria-label="Needs you today">
+                    <div class="srd-card-head">
+                        <span class="srd-card-title">Needs you today</span>
+                        <span class="srd-card-note">3 queues</span>
+                    </div>
+                    <div class="srd-queues">
+                        <a class="srd-queue" href="/mobile-drafts">
+                            <span class="srd-queue-icon"><i class="ph ph-device-mobile" aria-hidden="true"></i></span>
+                            <span class="srd-queue-body">
+                                <span class="srd-queue-label">Mobile orders to validate</span>
+                                <span class="srd-queue-note">@MobileQueueNote</span>
+                            </span>
+                            <span class="srd-queue-count">@Figure(mobilePending)</span>
+                            <i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </a>
+                        <a class="srd-queue" href="/pod-report">
+                            <span class="srd-queue-icon"><i class="ph ph-clipboard-text" aria-hidden="true"></i></span>
+                            <span class="srd-queue-body">
+                                <span class="srd-queue-label">PODs outstanding</span>
+                                <span class="srd-queue-note">@PodQueueNote</span>
+                            </span>
+                            <span class="srd-queue-count">@Figure(podCoverage?.Outstanding)</span>
+                            <i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </a>
+                        <a class="srd-queue" href="/timesheets">
+                            <span class="srd-queue-icon"><i class="ph ph-clock" aria-hidden="true"></i></span>
+                            <span class="srd-queue-body">
+                                <span class="srd-queue-label">Visits not checked out</span>
+                                <span class="srd-queue-note">@TimesheetQueueNote</span>
+                            </span>
+                            <span class="srd-queue-count">@Figure(openVisits)</span>
+                            <i class="ph ph-caret-right" aria-hidden="true"></i>
+                        </a>
+                    </div>
+                </section>
+
+                <section class="srd-card" aria-label="Delivery proof">
+                    <div class="srd-card-head">
+                        <span class="srd-card-title">Delivery proof</span>
+                        <span class="srd-card-note">Last @rangeDays days</span>
+                    </div>
+
+                    @if (podCoverage is { } proof)
+                    {
+                        <div class="srd-proof">
+                            <div class="srd-proof-fig">
+                                <span class="srd-proof-value">@($"{proof.Percent:0}")<small>%</small></span>
+                                <span class="srd-proof-cap">uploaded, @($"{proof.OnTimePercent:0}")% within 24h</span>
+                            </div>
+
+                            <div class="srd-meter" role="img"
+                                 aria-label="@($"{proof.OnTime} on time, {proof.Late} late, {proof.Outstanding} outstanding")">
+                                <div class="srd-meter-on" style="width:@Percent(proof.OnTime, proof.Total)"></div>
+                                <div class="srd-meter-late" style="width:@Percent(proof.Late, proof.Total)"></div>
+                                <div class="srd-meter-out" style="width:@Percent(proof.Outstanding, proof.Total)"></div>
+                            </div>
+
+                            <div class="srd-legend">
+                                <div class="srd-legend-row">
+                                    <span>Uploaded within 24h</span><span>@proof.OnTime.ToString("N0")</span>
+                                </div>
+                                <div class="srd-legend-row">
+                                    <span>Late upload</span><span>@proof.Late.ToString("N0")</span>
+                                </div>
+                                <div class="srd-legend-row @(proof.Outstanding > 0 ? "is-risk" : null)">
+                                    <span>Still outstanding</span><span>@proof.Outstanding.ToString("N0")</span>
+                                </div>
+                            </div>
+
+                            <a class="srd-btn srd-btn-primary srd-btn-block" href="/pod-report">
+                                Chase outstanding PODs
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="srd-empty">@(isLoading ? "Loading delivery proof…" : "Delivery proof is unavailable.")</div>
+                    }
+                </section>
+
+                <section class="srd-card" aria-label="Top customers">
+                    <div class="srd-card-head">
+                        <span class="srd-card-title">Top customers</span>
+                        <span class="srd-card-note">Last @rangeDays days</span>
+                    </div>
+
+                    @if (topCustomers.Count == 0)
+                    {
+                        <div class="srd-empty">@(isLoading ? "Loading customers…" : "No orders to rank yet.")</div>
+                    }
+                    else
+                    {
+                        <div class="srd-tops">
+                            @foreach (var customer in topCustomers)
+                            {
+                                <div class="srd-top">
+                                    <div class="srd-top-row">
+                                        <span class="srd-top-name">@customer.Name</span>
+                                        <span class="srd-top-value">@Compact(customer.Value)</span>
+                                    </div>
+                                    <div class="srd-top-track">
+                                        <div class="srd-top-fill" style="width:@customer.Width"></div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </section>
+            </div>
+        </div>
+
+        @* The workflow this dashboard has always described: the three modules a
+           sales rep owns, in the order the work runs. *@
+        <section class="srd-steps" aria-label="Recommended workflow">
+            @foreach (var step in Steps)
+            {
+                <div class="srd-step">
+                    <span class="srd-step-n">Step @step.Number</span>
+                    <span class="srd-step-title">@step.Title</span>
+                    <span class="srd-step-body">@step.Body</span>
+                    <a class="srd-link" href="@step.Href">@step.Cta →</a>
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
 @code {
-    [Parameter] public string Username { get; set; } = string.Empty;
-
-    private string DisplayName => string.IsNullOrWhiteSpace(Username) ? "Sales Rep" : Username;
-
-    private static readonly IReadOnlyList<DashboardModule> Modules = new[]
-    {
-        new DashboardModule(
-            "Sales Orders",
-            "Review order status, open customer orders, and continue order updates without crossing into invoicing.",
-            "/sales-orders",
-            "bi bi-cart-check",
-            "srd-accent-orders",
-            "Order flow"),
-        new DashboardModule(
-            "Mobile Orders",
-            "Pick up orders captured in the field and move them forward from a controlled sales workflow.",
-            "/mobile-drafts",
-            "bi bi-phone",
-            "srd-accent-drafts",
-            "Field sales"),
-        new DashboardModule(
-            "POD Dashboard",
-            "See your proof-of-delivery activity at a glance and monitor upload momentum.",
-            "/pod-dashboard",
-            "bi bi-speedometer2",
-            "srd-accent-poddash",
-            "Upload activity"),
-        new DashboardModule(
-            "Proof of Delivery",
-            "Upload and manage POD attachments for completed deliveries.",
-            "/pods",
-            "bi bi-clipboard-check",
-            "srd-accent-delivery",
-            "Delivery proof"),
-        new DashboardModule(
-            "POD Upload Report",
-            "Track uploaded versus pending delivery evidence so follow-up stays visible.",
-            "/pod-report",
-            "bi bi-clipboard-data",
-            "srd-accent-report",
-            "Status view")
-    };
-
-    private sealed record DashboardModule(
-        string Title,
-        string Description,
-        string Href,
-        string IconClass,
-        string AccentClass,
-        string Tag);
+    /// <summary>
+    /// The trend chip: Nocturne's arrow and a signed delta, in the ramp's green
+    /// or its warm step. The chart header reuses it without the arrow, matching
+    /// the import.
+    /// </summary>
+    private RenderFragment TrendChip(decimal delta, string format, bool showIcon = true) =>
+        @<span class="srd-trend @(delta < 0 ? "is-down" : "is-up")">
+            @if (showIcon)
+            {
+                <i class="ph @(delta < 0 ? "ph-trend-down" : "ph-trend-up")" aria-hidden="true"></i>
+            }
+            @delta.ToString(format)
+        </span>;
 }
