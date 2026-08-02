@@ -1,0 +1,98 @@
+using System.Security.Claims;
+using ShopInventory.Web.Data;
+
+namespace ShopInventory.Web.Common;
+
+/// <summary>
+/// Where a signed-in user belongs when no particular page was asked for.
+///
+/// Three surfaces need this answer and used to hold their own copy of it: the
+/// sign-in page after a successful login, <c>RedirectToLogin</c> when an
+/// authenticated user reaches a page their role cannot open, and the dashboard
+/// itself for the roles it does not serve. They disagreed — a POD operator was
+/// sent to the POD list by one and the dashboard by another — so the chain
+/// lives here once, ordered from the most specialised role to the least.
+/// </summary>
+public static class RoleLandingRoutes
+{
+    /// <summary>The route for roles with no landing page of their own.</summary>
+    public const string Fallback = "/security";
+
+    /// <summary>
+    /// The dashboard route. It serves two different pages: Home renders the
+    /// sales-rep dashboard for a SalesRep and the cashier one for everybody
+    /// else, so a rep signing in arrives at their own workspace.
+    /// </summary>
+    public const string Dashboard = "/dashboard";
+
+    public const string PodDashboard = "/pod-dashboard";
+
+    /// <summary>
+    /// Resolves the landing route from a role predicate, so a caller holding a
+    /// <see cref="ClaimsPrincipal"/> and one holding only the role name from a
+    /// login response both walk the same ordered chain.
+    /// </summary>
+    public static string For(Func<string, bool> isInRole)
+    {
+        ArgumentNullException.ThrowIfNull(isInRole);
+
+        // Lab and DepotController are checked against Admin because an
+        // administrator carrying one of those roles should still land on the
+        // dashboard rather than in a single-purpose workspace.
+        if (isInRole(UserRoles.Lab) && !isInRole(UserRoles.Admin))
+        {
+            return "/lab/batch-status";
+        }
+
+        if (isInRole(UserRoles.MerchandiserPurchaseOrderViewer))
+        {
+            return "/reports/merchandiser-purchase-orders";
+        }
+
+        // The operator runs a section: they get the POD dashboard, which reports
+        // on the whole section. A driver only uploads their own proof, so the
+        // POD list is the page they actually work in.
+        if (isInRole(UserRoles.PodOperator))
+        {
+            return PodDashboard;
+        }
+
+        if (isInRole(UserRoles.Driver) || isInRole("Operator"))
+        {
+            return "/pods";
+        }
+
+        if (isInRole(UserRoles.Merchandiser))
+        {
+            return "/mobile-drafts";
+        }
+
+        if (isInRole(UserRoles.DepotController) && !isInRole(UserRoles.Admin))
+        {
+            return "/inventory-transfers";
+        }
+
+        if (isInRole(UserRoles.Admin) ||
+            isInRole(UserRoles.Cashier) ||
+            isInRole(UserRoles.StockController) ||
+            isInRole(UserRoles.Manager) ||
+            isInRole(UserRoles.SalesRep))
+        {
+            return Dashboard;
+        }
+
+        return Fallback;
+    }
+
+    public static string For(ClaimsPrincipal? user) =>
+        user is null ? Fallback : For(user.IsInRole);
+
+    /// <summary>
+    /// Resolves from the single role string a login response carries. Accounts
+    /// hold one role, so this is the whole of what the sign-in page knows.
+    /// </summary>
+    public static string For(string? role) =>
+        string.IsNullOrWhiteSpace(role)
+            ? Fallback
+            : For(candidate => string.Equals(candidate, role.Trim(), StringComparison.OrdinalIgnoreCase));
+}

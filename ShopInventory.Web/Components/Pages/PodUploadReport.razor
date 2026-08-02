@@ -1318,45 +1318,14 @@
     private bool MatchesGeneratedLocationFilter(PodUploadStatusItem item) =>
         LocationMatchesFilter(item.CreatedLocation, generatedLocationFilter);
 
-    private static bool LocationMatchesFilter(string? location, string? filterValue)
-    {
-        if (string.IsNullOrWhiteSpace(location) || string.IsNullOrWhiteSpace(filterValue))
-        {
-            return false;
-        }
+    // The section mapping lives in AssignedSectionOptions so this report and the
+    // POD dashboard, which scopes an operator's figures to their own section,
+    // resolve the same spellings to the same place.
+    private static bool LocationMatchesFilter(string? location, string? filterValue) =>
+        AssignedSectionOptions.AreSameSection(location, filterValue);
 
-        return string.Equals(
-            NormalizeLocationValue(location),
-            NormalizeLocationValue(filterValue),
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeLocationValue(string? location)
-    {
-        if (string.IsNullOrWhiteSpace(location))
-        {
-            return string.Empty;
-        }
-
-        var trimmedLocation = location.Trim();
-        var normalizedLocation = NormalizeLocationText(trimmedLocation);
-
-        foreach (var option in AssignedSectionOptions.All)
-        {
-            if (string.Equals(NormalizeLocationText(option), normalizedLocation, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(NormalizeLocationText(AssignedSectionOptions.GetLabel(option)), normalizedLocation,
-StringComparison.OrdinalIgnoreCase))
-            {
-                return option;
-            }
-        }
-
-        return trimmedLocation;
-    }
-
-    private static string NormalizeLocationText(string value) =>
-        string.Concat(value.Trim().Where(character => !char.IsWhiteSpace(character) && character != '-'))
-            .ToUpperInvariant();
+    private static string NormalizeLocationValue(string? location) =>
+        AssignedSectionOptions.Normalize(location);
 
     private IEnumerable<PodUploadUserSummary> GetUploaderFilteredPodUploadedByUsers(PodUploadStatusItem item)
     {

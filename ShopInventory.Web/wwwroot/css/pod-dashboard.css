@@ -1,0 +1,1155 @@
+/* ==========================================================================
+   POD Dashboard — Nocturne
+
+   The proof-of-delivery workspace, and the page a POD operator lands on when
+   they sign in. Same system as the sales-rep dashboard: a greeting header
+   carrying the window control and the entry actions, a row of four figures,
+   then a 1.9fr/1fr split — the upload chart over the chase list and the recent
+   uploads on the left, the compliance panels stacked on the right — closing on
+   the workflow cards.
+
+   Token names and values are deliberately identical to sales-rep-dashboard.css
+   (and through it mobile-orders.css and business-partners.css) so the pages
+   stay one system: #161826 ground and #232532 surface in the dark scheme with
+   the #9184d9 blurple accent, and their daylight counterparts on paper with
+   the accent taken down to #5f52c4, which is the step that can carry text.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live here rather than an inline Razor <style> block because app.css
+   carries global `.dark-theme` rules that have to be out-specified, and
+   Bootstrap's `h1-h6 { font-weight: 600 }` would otherwise bolden headings past
+   the 500 Nocturne allows.
+   ========================================================================== */
+
+.pdo {
+    --pdo-bg: #f4f4f8;
+    --pdo-surface: #ffffff;
+    --pdo-sunken: #f4f4f8;
+    --pdo-ink: #1b1c26;
+    --pdo-ink-2: #35374a;
+    --pdo-mute: #4e5164;
+    --pdo-mute-2: #656879;
+    --pdo-mute-3: #7b7e8e;
+    --pdo-divider: rgba(27, 28, 38, .14);
+    --pdo-rule: rgba(27, 28, 38, .09);
+    --pdo-hairline: rgba(27, 28, 38, .06);
+    --pdo-hover: rgba(27, 28, 38, .04);
+    --pdo-edge-hi: #a9adc0;
+    --pdo-accent: #5f52c4;
+    --pdo-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --pdo-accent-text: #473d99;
+    --pdo-accent-soft: rgba(95, 82, 196, .1);
+    --pdo-accent-edge: rgba(95, 82, 196, .32);
+
+    /* The chart's four accent steps, oldest to newest, plus the step a quiet
+       day drops to. On paper the ramp runs pale to saturated, because the
+       ground it sits on is light. */
+    --pdo-bar-1: #cdc8ee;
+    --pdo-bar-2: #a99fe0;
+    --pdo-bar-3: #8577cf;
+    --pdo-bar-4: #5f52c4;
+    --pdo-bar-low: #e4e1f5;
+    --pdo-track: #eceaf6;
+
+    --pdo-ok: #0b6b4f;
+    --pdo-warn: #8a5a00;
+    --pdo-warn-bg: #fdf3e1;
+    --pdo-warn-edge: #e6cd9a;
+    /* The meter's outstanding segment is a fill rather than text, so it takes a
+       mid step of the amber; the text step is too dark to read as a band next
+       to the accent. */
+    --pdo-warn-fill: #d1922c;
+
+    --pdo-pdf: #a8402c;
+    --pdo-pdf-bg: #fbeae6;
+    --pdo-image: #1d5c9e;
+    --pdo-image-bg: #e6f0fa;
+
+    --pdo-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --pdo-s1: 2.8px;
+    --pdo-s2: 5.6px;
+    --pdo-s3: 8.4px;
+    --pdo-s4: 11.2px;
+    --pdo-s6: 16.8px;
+    --pdo-s8: 22.4px;
+    --pdo-r-sm: 4px;
+    --pdo-r-md: 8px;
+    --pdo-r-lg: 10px;
+
+    /* The chase list's five columns, declared once so the header strip and
+       every row cannot drift. */
+    --pdo-row-cols: 92px minmax(0, 1.6fr) 104px 78px 66px;
+
+    color-scheme: var(--pdo-scheme);
+}
+
+.dark-theme .pdo {
+    --pdo-bg: #161826;
+    --pdo-surface: #232532;
+    --pdo-sunken: #161826;
+    --pdo-ink: #e9e9ed;
+    --pdo-ink-2: #cfd3e5;
+    --pdo-mute: #b2b6ca;
+    --pdo-mute-2: #9397ab;
+    --pdo-mute-3: #75798c;
+    --pdo-divider: rgba(233, 233, 237, .16);
+    --pdo-rule: rgba(233, 233, 237, .1);
+    --pdo-hairline: rgba(233, 233, 237, .06);
+    --pdo-hover: rgba(233, 233, 237, .04);
+    --pdo-edge-hi: rgba(233, 233, 237, .45);
+    --pdo-accent: #9184d9;
+    --pdo-accent-rgb: 145, 132, 217;
+    --pdo-accent-text: #d2cefd;
+    --pdo-accent-soft: #2b2741;
+    --pdo-accent-edge: #423a6a;
+
+    --pdo-bar-1: #423a6a;
+    --pdo-bar-2: #5d5294;
+    --pdo-bar-3: #796cbf;
+    --pdo-bar-4: #9184d9;
+    --pdo-bar-low: #2b2741;
+    --pdo-track: #161826;
+
+    --pdo-ok: #8fe0c2;
+    --pdo-warn: #f0c987;
+    --pdo-warn-bg: rgba(109, 74, 21, .25);
+    --pdo-warn-edge: rgba(143, 103, 38, .45);
+    --pdo-warn-fill: #8f6726;
+
+    --pdo-pdf: #ef9179;
+    --pdo-pdf-bg: rgba(122, 47, 30, .3);
+    --pdo-image: #8fbdea;
+    --pdo-image-bg: rgba(28, 65, 105, .35);
+
+    --pdo-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.pdo {
+    min-height: 100vh;
+    background: var(--pdo-bg);
+    color: var(--pdo-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.pdo * {
+    box-sizing: border-box;
+}
+
+.pdo :focus-visible {
+    outline: 2px solid var(--pdo-accent);
+    outline-offset: 2px;
+}
+
+.pdo ::selection {
+    background: rgba(var(--pdo-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.pdo h1,
+.pdo h2,
+.pdo h3 {
+    margin: 0;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+}
+
+.pdo a {
+    text-decoration: none;
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-panel separators stay solid. */
+.pdo-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--pdo-divider) 48px,
+            var(--pdo-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Not sticky: the dashboard is a screenful of panels rather than a long
+   scroll, so nothing needs pinning. */
+
+.pdo-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--pdo-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--pdo-s8);
+}
+
+.pdo-titles {
+    margin-right: auto;
+    min-width: 0;
+}
+
+.pdo-kicker {
+    margin-bottom: var(--pdo-s2);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--pdo-accent-text);
+}
+
+.pdo-title {
+    margin: 0 0 5px;
+    font-size: 26px;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    color: var(--pdo-ink);
+}
+
+.pdo-sub {
+    margin: 0;
+    max-width: 62ch;
+    font-size: 13px;
+    color: var(--pdo-mute-2);
+    text-wrap: pretty;
+}
+
+.pdo-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--pdo-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.pdo-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--pdo-s6) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--pdo-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.pdo .pdo-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 13px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--pdo-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--pdo-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.pdo .pdo-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.pdo .pdo-btn i {
+    font-size: 15px;
+    line-height: 1;
+}
+
+.pdo .pdo-btn-primary {
+    color: var(--pdo-accent-text);
+    border-color: var(--pdo-accent);
+}
+
+.pdo .pdo-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--pdo-accent-rgb), .12);
+}
+
+.pdo .pdo-btn-primary:active:not(:disabled) {
+    background: rgba(var(--pdo-accent-rgb), .22);
+}
+
+.pdo .pdo-btn-quiet {
+    color: var(--pdo-mute);
+    border-color: var(--pdo-divider);
+}
+
+.pdo .pdo-btn-quiet:hover:not(:disabled) {
+    color: var(--pdo-ink);
+    border-color: var(--pdo-edge-hi);
+    background: var(--pdo-hover);
+}
+
+.pdo .pdo-btn-block {
+    width: 100%;
+    height: 30px;
+}
+
+.pdo-link {
+    font-size: 12px;
+    color: var(--pdo-accent-text);
+    transition: color .15s;
+}
+
+.pdo-link:hover {
+    color: var(--pdo-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* The refresh mark turns while a window is being read. */
+.pdo .is-spinning {
+    animation: pdo-spin 1.1s linear infinite;
+}
+
+@keyframes pdo-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pdo .is-spinning {
+        animation: none;
+    }
+}
+
+/* The window control — Nocturne's segmented choice, on native buttons. */
+
+.pdo-seg {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border-radius: var(--pdo-r-md);
+    background: var(--pdo-surface);
+    box-shadow: inset 0 0 0 1px var(--pdo-rule);
+}
+
+.pdo .pdo-seg-opt {
+    height: 24px;
+    padding: 0 11px;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 12px;
+    color: var(--pdo-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--pdo-r-sm);
+    cursor: pointer;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.pdo .pdo-seg-opt:hover:not(.is-on):not(:disabled) {
+    background: var(--pdo-hover);
+    color: var(--pdo-ink);
+}
+
+.pdo .pdo-seg-opt:disabled {
+    opacity: .45;
+    cursor: progress;
+}
+
+.pdo .pdo-seg-opt.is-on {
+    color: var(--pdo-accent-text);
+    background: var(--pdo-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--pdo-accent-edge);
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+/* On a dark ground elevation is an edge plus the surface step, never a stack
+   of shadows — so every panel is one inset hairline. */
+
+.pdo-card {
+    padding: var(--pdo-s6);
+    border-radius: var(--pdo-r-lg);
+    background: var(--pdo-surface);
+    box-shadow: inset 0 0 0 1px var(--pdo-rule);
+}
+
+.pdo-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--pdo-s3);
+    min-height: 22px;
+}
+
+.pdo-card-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--pdo-ink);
+}
+
+.pdo-card-note {
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--pdo-mute-2);
+    white-space: nowrap;
+}
+
+.pdo-card-sub {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--pdo-mute-2);
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+
+.pdo-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--pdo-s4);
+}
+
+.pdo-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 14px 15px;
+    border-radius: var(--pdo-r-lg);
+    background: var(--pdo-surface);
+    box-shadow: inset 0 0 0 1px var(--pdo-rule);
+}
+
+/* The one figure on the page that is a problem rather than a measurement
+   takes the amber edge when it is not zero. */
+.pdo-kpi.is-risk {
+    box-shadow: inset 0 0 0 1px var(--pdo-warn-edge);
+}
+
+.pdo-kpi.is-risk .pdo-kpi-value {
+    color: var(--pdo-warn);
+}
+
+.pdo-kpi-top {
+    display: flex;
+    align-items: center;
+    gap: var(--pdo-s3);
+}
+
+.pdo-kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-kpi-top i {
+    margin-left: auto;
+    font-size: 15px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-kpi-fig {
+    display: flex;
+    align-items: baseline;
+    gap: var(--pdo-s3);
+}
+
+.pdo-kpi-value {
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-kpi-unit {
+    font-size: 12px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-kpi-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--pdo-s3);
+    font-size: 11.5px;
+    color: var(--pdo-mute-2);
+    min-height: 18px;
+}
+
+/* ── The split ─────────────────────────────────────────────────────────── */
+
+.pdo-split {
+    display: grid;
+    grid-template-columns: 1.9fr minmax(0, 1fr);
+    gap: var(--pdo-s6);
+    align-items: start;
+}
+
+.pdo-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pdo-s6);
+    min-width: 0;
+}
+
+/* ── Upload chart ──────────────────────────────────────────────────────── */
+
+.pdo-chart-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pdo-s4);
+    margin-bottom: 18px;
+}
+
+.pdo-chart-total {
+    margin-left: auto;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.pdo-chart-total .pdo-card-note {
+    margin-left: 0;
+}
+
+.pdo-chart-total-value {
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The plot: gridlines drawn behind, bars laid on the baseline. The 34px gutter
+   is the y-axis, and the lines stop 40px short of the right edge so they read
+   as a scale rather than a border. */
+.pdo-plot {
+    position: relative;
+    height: 168px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 7px;
+    padding-left: 34px;
+}
+
+.pdo-gridline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+            var(--pdo-hairline),
+            var(--pdo-hairline) calc(100% - 40px),
+            transparent);
+}
+
+.pdo-gridline.is-top {
+    top: 0;
+    background: linear-gradient(90deg,
+            var(--pdo-rule),
+            var(--pdo-rule) calc(100% - 40px),
+            transparent);
+}
+
+.pdo-gridline.is-mid {
+    top: 33.33%;
+}
+
+.pdo-gridline.is-low {
+    top: 66.66%;
+}
+
+.pdo-baseline {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: var(--pdo-divider);
+}
+
+.pdo-ytick {
+    position: absolute;
+    left: 0;
+    font-size: 10.5px;
+    color: var(--pdo-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-ytick.is-top {
+    top: -6px;
+}
+
+.pdo-ytick.is-mid {
+    top: calc(33.33% - 6px);
+}
+
+.pdo-ytick.is-low {
+    top: calc(66.66% - 6px);
+}
+
+/* Capped, because a seven-day window across the wide column would otherwise
+   draw seven slabs rather than a chart. The plot spaces what is left over, so
+   the last bar still sits under the "Today" label. */
+.pdo-bar {
+    position: relative;
+    flex: 1;
+    min-width: 2px;
+    max-width: 62px;
+    border-radius: 3px 3px 0 0;
+    background: var(--pdo-bar-1);
+}
+
+.pdo-bar.is-band-2 {
+    background: var(--pdo-bar-2);
+}
+
+.pdo-bar.is-band-3 {
+    background: var(--pdo-bar-3);
+}
+
+.pdo-bar.is-band-4 {
+    background: var(--pdo-bar-4);
+}
+
+/* A day that had barely any uploads drops out of the recency ramp entirely, so
+   the quiet days read as quiet rather than as merely older. */
+.pdo-bar.is-quiet {
+    background: var(--pdo-bar-low);
+}
+
+.pdo-xaxis {
+    display: flex;
+    margin-top: 7px;
+    padding-left: 34px;
+    font-size: 10.5px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-xaxis span {
+    flex: 1;
+}
+
+.pdo-xaxis span:nth-child(2) {
+    text-align: center;
+}
+
+.pdo-xaxis span:last-child {
+    text-align: right;
+}
+
+/* ── The chase list ────────────────────────────────────────────────────── */
+
+.pdo-rows-head {
+    display: grid;
+    grid-template-columns: var(--pdo-row-cols);
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--pdo-rule);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-row {
+    display: grid;
+    grid-template-columns: var(--pdo-row-cols);
+    gap: 10px;
+    align-items: center;
+    padding: 10px 8px;
+    margin: 0 -8px;
+    border-bottom: 1px solid var(--pdo-hairline);
+    border-radius: var(--pdo-r-sm);
+    font-size: 12.5px;
+    color: var(--pdo-ink);
+    transition: background-color .15s;
+}
+
+.pdo-row:hover {
+    background: var(--pdo-hover);
+}
+
+.pdo-row:last-child {
+    border-bottom: 0;
+}
+
+.pdo-row-id {
+    color: var(--pdo-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdo-row-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-row-raised {
+    color: var(--pdo-mute-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.pdo-row-age {
+    text-align: right;
+}
+
+/* The status tag carries a duration rather than a word, so it keeps its case:
+   "6d" and "Yest." set in caps read as codes rather than as an age. */
+.pdo-tag {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: var(--pdo-r-sm);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .01em;
+    white-space: nowrap;
+    color: var(--pdo-accent-text);
+    background: var(--pdo-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--pdo-accent-edge);
+}
+
+.pdo-tag.is-risk {
+    color: var(--pdo-warn);
+    background: var(--pdo-warn-bg);
+    box-shadow: inset 0 0 0 1px var(--pdo-warn-edge);
+}
+
+/* ── Recent uploads ────────────────────────────────────────────────────── */
+
+.pdo-uploads {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 12px;
+}
+
+.pdo-upload {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 11px;
+    border-radius: var(--pdo-r-md);
+    background: var(--pdo-sunken);
+    box-shadow: inset 0 0 0 1px var(--pdo-hairline);
+}
+
+.pdo-upload-icon {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--pdo-r-md);
+    background: var(--pdo-accent-soft);
+    color: var(--pdo-accent-text);
+    font-size: 15px;
+}
+
+.pdo-upload-icon.is-pdf {
+    background: var(--pdo-pdf-bg);
+    color: var(--pdo-pdf);
+}
+
+.pdo-upload-icon.is-image {
+    background: var(--pdo-image-bg);
+    color: var(--pdo-image);
+}
+
+.pdo-upload-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pdo-upload-name {
+    font-size: 12.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdo-upload-note {
+    font-size: 11.5px;
+    color: var(--pdo-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdo-upload-size,
+.pdo-upload-age {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--pdo-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-upload-age {
+    width: 42px;
+    text-align: right;
+}
+
+/* ── Delivery proof ────────────────────────────────────────────────────── */
+
+.pdo-proof {
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+    margin-top: 13px;
+}
+
+.pdo-proof-fig {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+.pdo-proof-value {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-proof-value small {
+    font-size: 16px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-proof-cap {
+    padding-bottom: 3px;
+    font-size: 11.5px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-meter {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--pdo-track);
+    overflow: hidden;
+}
+
+.pdo-meter-on {
+    background: var(--pdo-accent);
+}
+
+.pdo-meter-late {
+    background: var(--pdo-bar-2);
+}
+
+.pdo-meter-out {
+    background: var(--pdo-warn-fill);
+}
+
+.pdo-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.pdo-legend-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--pdo-s4);
+    font-size: 11.5px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-legend-row span:last-child {
+    color: var(--pdo-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-legend-row.is-risk span,
+.pdo-legend-row.is-risk span:last-child {
+    color: var(--pdo-warn);
+}
+
+/* What the panel above is counting. Set apart by the rule rather than by being
+   dimmed: it qualifies the figures, and a reader who misses it reads them for
+   more than they are. */
+.pdo-scope {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding-top: 11px;
+    border-top: 1px solid var(--pdo-hairline);
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--pdo-mute-2);
+    text-wrap: pretty;
+}
+
+.pdo-scope i {
+    font-size: 13px;
+    line-height: 1.35;
+    flex: none;
+}
+
+/* ── Who is uploading ──────────────────────────────────────────────────── */
+
+.pdo-people {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.pdo-person {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.pdo-person-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.pdo-person-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdo-person-count {
+    font-size: 12px;
+    color: var(--pdo-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pdo-person-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--pdo-track);
+    overflow: hidden;
+}
+
+.pdo-person-fill {
+    height: 100%;
+    background: var(--pdo-bar-3);
+}
+
+.pdo-person-note {
+    font-size: 11px;
+    color: var(--pdo-mute-3);
+}
+
+/* ── Totals ────────────────────────────────────────────────────────────── */
+
+.pdo-totals {
+    display: flex;
+    flex-direction: column;
+    margin-top: 6px;
+}
+
+.pdo-total {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--pdo-s4);
+    padding: 9px 0;
+    border-bottom: 1px solid var(--pdo-hairline);
+    font-size: 12px;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-total:last-child {
+    border-bottom: 0;
+}
+
+.pdo-total span:last-child {
+    color: var(--pdo-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Workflow ──────────────────────────────────────────────────────────── */
+
+.pdo-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--pdo-s4);
+}
+
+.pdo-step {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--pdo-s4) var(--pdo-s6) 15px;
+    border-radius: var(--pdo-r-lg);
+    background: var(--pdo-surface);
+    box-shadow: inset 0 0 0 1px var(--pdo-rule);
+}
+
+/* The one short accent mark on the page — solid, per Nocturne, where the long
+   rules fade. */
+.pdo-step::before {
+    content: "";
+    position: absolute;
+    left: 16px;
+    top: 0;
+    width: 34px;
+    height: 2px;
+    background: var(--pdo-accent);
+}
+
+.pdo-step-n {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--pdo-mute-2);
+}
+
+.pdo-step-title {
+    font-size: 13.5px;
+    font-weight: 500;
+}
+
+.pdo-step-body {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--pdo-mute-2);
+    text-wrap: pretty;
+}
+
+.pdo-step .pdo-link {
+    margin-top: 3px;
+}
+
+/* ── Loading and empty states ──────────────────────────────────────────── */
+
+.pdo-empty {
+    padding: var(--pdo-s8) 0;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--pdo-mute-2);
+    text-wrap: pretty;
+}
+
+.pdo-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pdo-s3);
+    padding: var(--pdo-s3) var(--pdo-s4);
+    border-radius: var(--pdo-r-md);
+    background: var(--pdo-warn-bg);
+    box-shadow: inset 0 0 0 1px var(--pdo-warn-edge);
+    color: var(--pdo-warn);
+    font-size: 12.5px;
+}
+
+.pdo-alert i {
+    font-size: 16px;
+    line-height: 1.35;
+    flex: none;
+}
+
+/* ── Narrow ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .pdo-split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pdo-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .pdo-shell,
+    .pdo-body {
+        padding-inline: 20px;
+    }
+
+    .pdo-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--pdo-s4);
+    }
+
+    .pdo-head-actions {
+        justify-content: flex-start;
+    }
+
+    /* The chase list stops being a grid row and becomes a labelled card, the
+       same treatment the sales-rep queue takes. */
+    .pdo-rows-head {
+        display: none;
+    }
+
+    .pdo-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 10px;
+        padding: 11px 8px;
+    }
+
+    .pdo-row-id {
+        grid-column: 1;
+    }
+
+    .pdo-row-age {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+    }
+
+    .pdo-row-name {
+        grid-column: 1 / -1;
+    }
+
+    .pdo-row-raised {
+        grid-column: 1;
+    }
+
+    .pdo-row-value {
+        grid-column: 2;
+    }
+}
+
+@media (max-width: 560px) {
+    .pdo-kpis {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pdo-chart-head {
+        flex-direction: column;
+        gap: var(--pdo-s2);
+    }
+
+    .pdo-chart-total {
+        margin-left: 0;
+    }
+}

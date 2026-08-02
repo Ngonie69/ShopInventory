@@ -1,5 +1,6 @@
 @page "/login"
 @using Microsoft.AspNetCore.Authorization
+@using ShopInventory.Web.Common
 @using ShopInventory.Web.Data
 @using ShopInventory.Web.Models
 @using ShopInventory.Web.Services
@@ -874,7 +875,18 @@
         showPassword = !showPassword;
     }
 
-    private async Task NavigateAfterLogin()
+    /// <summary>
+    /// Sends the user on after a successful sign-in: back to whatever they were
+    /// reaching for when they were bounced here, or to the landing page their
+    /// role works from.
+    ///
+    /// The role is resolved here rather than left to the dashboard, because
+    /// /dashboard only admits the roles it serves — a POD operator sent there
+    /// would be refused and bounced on by RedirectToLogin, which flashed a
+    /// spinner between the two. A sales rep resolves to /dashboard, where Home
+    /// renders the sales-rep dashboard.
+    /// </summary>
+    private async Task NavigateAfterLogin(string? role)
     {
         await Task.Delay(100);
 
@@ -882,7 +894,18 @@
         var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
         var returnUrl = queryParams["returnUrl"];
 
-        var targetUrl = !string.IsNullOrEmpty(returnUrl) ? Uri.UnescapeDataString(returnUrl) : "/dashboard";
+        // A login response that carries no role keeps the old behaviour of
+        // heading for the dashboard, where RedirectToLogin resolves from the
+        // claims it can see — better than sending an administrator to the
+        // no-role fallback because one field came back empty.
+        var landing = string.IsNullOrWhiteSpace(role)
+            ? RoleLandingRoutes.Dashboard
+            : RoleLandingRoutes.For(role);
+
+        var targetUrl = !string.IsNullOrEmpty(returnUrl)
+            ? Uri.UnescapeDataString(returnUrl)
+            : landing;
+
         Logger.LogInformation("Navigating to: {Url}", targetUrl);
         NavigationManager.NavigateTo(targetUrl);
     }
@@ -924,7 +947,7 @@
 
                 await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username, response.User?.Role ??
 "User", "Auth", null, null, "/login");
-                await NavigateAfterLogin();
+                await NavigateAfterLogin(response.User?.Role);
             }
             else
             {
@@ -994,7 +1017,7 @@ false, message);
                     "Passkey login completed",
                     "/login");
 
-                await NavigateAfterLogin();
+                await NavigateAfterLogin(response.User?.Role);
             }
             else
             {
@@ -1041,7 +1064,7 @@ false, message);
 
                 await AuditService.LogAsync(AuditActions.Login, response.User?.Username ?? loginModel.Username,
                     response.User?.Role ?? "User", "Auth", null, "2FA login completed", "/login");
-                await NavigateAfterLogin();
+                await NavigateAfterLogin(response.User?.Role);
             }
             else
             {
