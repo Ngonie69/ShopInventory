@@ -5180,7 +5180,7 @@ public class ReportExportService : IReportExportService
     /// <summary>
     /// The Mobile Orders review queue as a workbook: the columns the page's
     /// table shows, plus the submission detail — device, sync state, capture
-    /// coordinates — that a row can only carry as a tooltip.
+    /// coordinates — that the page keeps in the drawer rather than the row.
     /// </summary>
     public byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title)
     {
@@ -5188,7 +5188,7 @@ public class ReportExportService : IReportExportService
         // Excel rejects a sheet name past 31 characters.
         var sheetName = title.Length > 31 ? title[..31] : title;
         var ws = workbook.Worksheets.Add(sheetName);
-        const int cols = 15;
+        const int cols = 14;
 
         var row = WriteReportHeader(ws, title, cols, subtitle: $"Orders listed: {orders.Count:N0}");
 
@@ -5201,7 +5201,7 @@ public class ReportExportService : IReportExportService
 
         var headers = new[]
         {
-            "Order #", "Customer", "Customer Code", "Lines", "Submitted By", "Device", "Sync",
+            "Order #", "Customer", "Customer Code", "Lines", "Device", "Sync",
             "Ordered", "Received (CAT)", "Delivery", "Status", "Currency", "Total", "SAP Doc #", "Captured At"
         };
 
@@ -5224,28 +5224,27 @@ public class ReportExportService : IReportExportService
             ws.Cell(row, 2).Value = order.CardName ?? string.Empty;
             ws.Cell(row, 3).Value = order.CardCode ?? string.Empty;
             ws.Cell(row, 4).Value = order.Lines?.Count ?? 0;
-            ws.Cell(row, 5).Value = order.CreatedByUserName ?? order.SalesPersonName ?? "Unknown";
-            ws.Cell(row, 6).Value = string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Not captured" : order.DeviceInfo.Trim();
-            ws.Cell(row, 7).Value = order.IsSynced ? "Synced" : "Queued";
+            ws.Cell(row, 5).Value = string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Not captured" : order.DeviceInfo.Trim();
+            ws.Cell(row, 6).Value = order.IsSynced ? "Synced" : "Queued";
             if (!order.IsSynced)
-                ws.Cell(row, 7).Style.Font.FontColor = WarningOrange;
+                ws.Cell(row, 6).Style.Font.FontColor = WarningOrange;
 
-            ws.Cell(row, 8).Value = order.OrderDate;
-            ws.Cell(row, 8).Style.NumberFormat.Format = "dd MMM yyyy";
-            ws.Cell(row, 9).Value = FormatCatDateTime(order.CreatedAt);
+            ws.Cell(row, 7).Value = order.OrderDate;
+            ws.Cell(row, 7).Style.NumberFormat.Format = "dd MMM yyyy";
+            ws.Cell(row, 8).Value = FormatCatDateTime(order.CreatedAt);
 
             if (order.DeliveryDate.HasValue)
             {
-                ws.Cell(row, 10).Value = order.DeliveryDate.Value;
-                ws.Cell(row, 10).Style.NumberFormat.Format = "dd MMM yyyy";
+                ws.Cell(row, 9).Value = order.DeliveryDate.Value;
+                ws.Cell(row, 9).Style.NumberFormat.Format = "dd MMM yyyy";
             }
             else
             {
-                ws.Cell(row, 10).Value = "-";
+                ws.Cell(row, 9).Value = "-";
             }
 
-            ws.Cell(row, 11).Value = order.Status.ToString();
-            ws.Cell(row, 11).Style.Font.FontColor = order.Status switch
+            ws.Cell(row, 10).Value = order.Status.ToString();
+            ws.Cell(row, 10).Style.Font.FontColor = order.Status switch
             {
                 SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => SuccessGreen,
                 SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => WarningOrange,
@@ -5253,13 +5252,13 @@ public class ReportExportService : IReportExportService
                 _ => XLColor.FromHtml("#616161")
             };
 
-            ws.Cell(row, 12).Value = order.Currency ?? string.Empty;
-            ws.Cell(row, 13).Value = order.DocTotal;
-            ws.Cell(row, 13).Style.NumberFormat.Format = "#,##0.00";
-            ws.Cell(row, 14).Value = order.SAPDocNum.HasValue
+            ws.Cell(row, 11).Value = order.Currency ?? string.Empty;
+            ws.Cell(row, 12).Value = order.DocTotal;
+            ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 13).Value = order.SAPDocNum.HasValue
                 ? order.SAPDocNum.Value.ToString(CultureInfo.InvariantCulture)
                 : order.Status == SalesOrderStatus.Approved ? "Pending" : "-";
-            ws.Cell(row, 15).Value = order.Latitude.HasValue && order.Longitude.HasValue
+            ws.Cell(row, 14).Value = order.Latitude.HasValue && order.Longitude.HasValue
                 ? $"{order.Latitude.Value.ToString("F6", CultureInfo.InvariantCulture)}, {order.Longitude.Value.ToString("F6", CultureInfo.InvariantCulture)}"
                 : "-";
 
@@ -5281,13 +5280,13 @@ public class ReportExportService : IReportExportService
 
         foreach (var currencyTotal in currencyTotals)
         {
-            ws.Cell(row, 11).Value = $"Total ({currencyTotal.Count():N0})";
+            ws.Cell(row, 10).Value = $"Total ({currencyTotal.Count():N0})";
+            ws.Cell(row, 10).Style.Font.Bold = true;
+            ws.Cell(row, 11).Value = currencyTotal.Key;
             ws.Cell(row, 11).Style.Font.Bold = true;
-            ws.Cell(row, 12).Value = currencyTotal.Key;
+            ws.Cell(row, 12).Value = currencyTotal.Sum(order => order.DocTotal);
             ws.Cell(row, 12).Style.Font.Bold = true;
-            ws.Cell(row, 13).Value = currencyTotal.Sum(order => order.DocTotal);
-            ws.Cell(row, 13).Style.Font.Bold = true;
-            ws.Cell(row, 13).Style.NumberFormat.Format = "#,##0.00";
+            ws.Cell(row, 12).Style.NumberFormat.Format = "#,##0.00";
             ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = TotalsBackground;
 
             for (var c = 1; c <= cols; c++)

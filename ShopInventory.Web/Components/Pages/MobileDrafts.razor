@@ -236,7 +236,6 @@
                             <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Customer)">
                                 Customer<span class="mox-sort-mark">@SortMark(OrderSortKey.Customer)</span>
                             </th>
-                            <th>Submitted by</th>
                             <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Ordered)">
                                 Ordered<span class="mox-sort-mark">@SortMark(OrderSortKey.Ordered)</span>
                             </th>
@@ -262,7 +261,7 @@
                             @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
                             {
                                 <tr>
-                                    @for (var skeletonCell = 0; skeletonCell < 11; skeletonCell++)
+                                    @for (var skeletonCell = 0; skeletonCell < 10; skeletonCell++)
                                     {
                                         <td><div class="mox-skel"></div></td>
                                     }
@@ -272,7 +271,7 @@
                         else if (pageOrders.Count == 0)
                         {
                             <tr>
-                                <td colspan="11">
+                                <td colspan="10">
                                     <div class="mox-empty">
                                         <i class="ph ph-device-mobile" aria-hidden="true"></i>
                                         @if (orders?.Any() == true)
@@ -319,21 +318,6 @@
                                         <div class="mox-cust">
                                             <span class="mox-cust-name" title="@order.CardName">@order.CardName</span>
                                             <span class="mox-cust-meta">@order.CardCode@(GetLineCountSuffix(order))</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="mox-by" title="@GetSubmittedByTitle(order)">
-                                            <span class="mox-avatar" aria-hidden="true">@GetInitials(order)</span>
-                                            <span class="mox-by-text">
-                                                <span class="mox-by-name">@GetSubmittedByName(order)</span>
-                                                <span class="mox-by-device">
-                                                    @GetDeviceLabel(order)
-                                                    @if (order.Latitude.HasValue && order.Longitude.HasValue)
-                                                    {
-                                                        <i class="ph ph-map-pin" aria-hidden="true"></i>
-                                                    }
-                                                </span>
-                                            </span>
                                         </div>
                                     </td>
                                     <td class="mox-when">
@@ -2666,40 +2650,13 @@
         return string.IsNullOrWhiteSpace(order.SalesPersonName) ? "Unknown" : order.SalesPersonName;
     }
 
-    private static string GetInitials(SalesOrderDto order)
-    {
-        var parts = GetSubmittedByName(order)
-            .Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
-
-        return parts.Length switch
-        {
-            0 => "?",
-            1 => parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant(),
-            _ => $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant()
-        };
-    }
-
     /// <summary>
-    /// The design's second line under the rep is "Android · v4.2.1 · Chinhoyi".
-    /// A submission carries a free-text device string and, when the rep allowed
-    /// it, coordinates — there is no place name to resolve, so the row shows a
-    /// pin and the drawer spells the coordinates out.
+    /// A submission carries a free-text device string, shown in the drawer.
+    /// Where the rep allowed it, the submission also carries coordinates; those
+    /// have no place name to resolve to, so the drawer spells them out instead.
     /// </summary>
     private static string GetDeviceLabel(SalesOrderDto order)
         => string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Device not captured" : order.DeviceInfo.Trim();
-
-    private static string GetSubmittedByTitle(SalesOrderDto order)
-    {
-        var title = $"{GetSubmittedByName(order)} — {GetDeviceLabel(order)}";
-
-        if (order.Latitude.HasValue && order.Longitude.HasValue)
-        {
-            title += $" · submitted from {order.Latitude.Value.ToString("F5", CultureInfo.InvariantCulture)}, "
-                + order.Longitude.Value.ToString("F5", CultureInfo.InvariantCulture);
-        }
-
-        return title;
-    }
 
     private static string GetLineCountSuffix(SalesOrderDto order)
     {
