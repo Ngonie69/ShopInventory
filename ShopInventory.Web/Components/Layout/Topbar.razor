@@ -1,4 +1,3 @@
-@using MudBlazor
 @using System.Security.Claims
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -11,7 +10,7 @@
     <div class="kf-topbar__lead">
         <button class="kf-icon-button kf-menu-toggle" type="button" @onclick="OnMenuClick"
                 aria-label="Toggle navigation menu">
-            <MudIcon Icon="@Icons.Material.Outlined.Menu" />
+            <i class="ph ph-list" aria-hidden="true"></i>
         </button>
 
         <a class="kf-topbar__brand" href="/dashboard" aria-label="Kefalos dashboard">
@@ -22,7 +21,7 @@
     <div class="kf-search-shell" @onfocusin="OpenSearch" @onfocusout="CloseSearch">
         <div class="kf-search" role="combobox" aria-haspopup="listbox"
              aria-expanded="@ShowSearchResults" aria-owns="dashboard-search-results">
-            <MudIcon Icon="@Icons.Material.Outlined.Search" aria-hidden="true" />
+            <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
             <label class="visually-hidden" for="dashboard-search">Search modules and documents</label>
             <input id="dashboard-search" type="search" value="@_searchQuery"
                    placeholder="Search invoices, customers, docs…" autocomplete="off"
@@ -50,20 +49,20 @@
                                 @onmouseenter="() => _selectedSearchIndex = resultIndex"
                                 @onclick="() => NavigateTo(choice.Url)">
                             <span class="kf-search-result__icon">
-                                <MudIcon Icon="@choice.Icon" />
+                                <i class="ph @choice.Icon" aria-hidden="true"></i>
                             </span>
                             <span>
                                 <strong>@choice.Label</strong>
                                 <small><b>@choice.Category</b>@choice.Description</small>
                             </span>
-                            <MudIcon Class="kf-search-result__arrow" Icon="@Icons.Material.Outlined.ArrowForward" />
+                            <i class="ph ph-arrow-right kf-search-result__arrow" aria-hidden="true"></i>
                         </button>
                     }
                 }
                 else if (!_isSearching)
                 {
                     <div class="kf-search-empty">
-                        <MudIcon Icon="@Icons.Material.Outlined.SearchOff" />
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
                         <span>No results found for “@_searchQuery”</span>
                     </div>
                 }
@@ -82,7 +81,7 @@
         <button class="kf-icon-button kf-notification-button" type="button" @onclick="OnNotificationsClick"
                 @ref="_notificationButton"
                 aria-label="@NotificationLabel" aria-expanded="@NotificationsOpen">
-            <MudIcon Icon="@Icons.Material.Outlined.Notifications" />
+            <i class="ph ph-bell" aria-hidden="true"></i>
             @if (UnreadCount > 0)
             {
                 <span class="kf-notification-count">@UnreadDisplay</span>
@@ -98,7 +97,7 @@
                     <strong>@_displayName</strong>
                     <small>@_displayRole</small>
                 </span>
-                <MudIcon Class="kf-profile-chevron" Icon="@Icons.Material.Outlined.KeyboardArrowDown" aria-hidden="true" />
+                <i class="ph ph-caret-down kf-profile-chevron" aria-hidden="true"></i>
             </summary>
             <div class="kf-profile-dropdown">
                 <div class="kf-profile-dropdown__identity">
@@ -109,26 +108,30 @@
                     </span>
                 </div>
                 <a href="/settings">
-                    <MudIcon Icon="@Icons.Material.Outlined.Settings" />
+                    <i class="ph ph-gear-six" aria-hidden="true"></i>
                     <span>Settings</span>
                 </a>
                 <AuthorizeView Roles="Admin">
                     <Authorized>
                         <a href="/user-management">
-                            <MudIcon Icon="@Icons.Material.Outlined.ManageAccounts" />
+                            <i class="ph ph-users-three" aria-hidden="true"></i>
                             <span>User management</span>
                         </a>
                     </Authorized>
                 </AuthorizeView>
                 <button type="button" @onclick="OnLogout">
-                    <MudIcon Icon="@Icons.Material.Outlined.Logout" />
+                    <i class="ph ph-sign-out" aria-hidden="true"></i>
                     <span>Sign out</span>
                 </button>
             </div>
         </details>
 
+        @* Hidden by the shell stylesheet: the 54px band carries the profile
+           chip only, and "Sign out" sits inside its dropdown. Kept in the
+           markup so the control still exists for narrow viewports if the
+           chip is ever dropped there. *@
         <button class="kf-logout-button" type="button" @onclick="OnLogout">
-            <MudIcon Icon="@Icons.Material.Outlined.Logout" />
+            <i class="ph ph-sign-out" aria-hidden="true"></i>
             <span>Logout</span>
         </button>
     </div>
@@ -370,11 +373,11 @@
 
     private static string GetRecordIcon(string category) => category switch
     {
-        "Invoice" => Icons.Material.Outlined.ReceiptLong,
-        "Product" => Icons.Material.Outlined.Inventory2,
-        "Customer" => Icons.Material.Outlined.Person,
-        "Payment" => Icons.Material.Outlined.Payments,
-        _ => Icons.Material.Outlined.Search
+        "Invoice" => "ph-receipt",
+        "Product" => "ph-package",
+        "Customer" => "ph-user",
+        "Payment" => "ph-credit-card",
+        _ => "ph-magnifying-glass"
     };
 
     private static string FormatDisplayName(string? identityName)
@@ -450,33 +453,33 @@
 
     private static readonly IReadOnlyList<SearchDestination> SearchDestinations =
     [
-        new("Dashboard", "Sales and operations overview", "/dashboard", Icons.Material.Outlined.GridView, UserRoles.DashboardRoles, "home", "overview"),
-        new("Invoices", "Find and manage customer invoices", "/invoices", Icons.Material.Outlined.ReceiptLong, UserRoles.InvoicingRoles, "billing", "documents"),
-        new("Create invoice", "Create a new customer invoice", "/invoices/create", Icons.Material.Outlined.NoteAdd, UserRoles.InvoicingRoles, "new invoice"),
-        new("Van sales invoices", "View van sales invoices", "/van-sales-invoices", Icons.Material.Outlined.LocalShipping, UserRoles.InvoicingRoles, "van"),
-        new("Payments", "Find incoming customer payments", "/payments", Icons.Material.Outlined.Payments, UserRoles.PaymentRoles, "receipts", "cash"),
-        new("Create payment", "Record an incoming payment", "/payments/create", Icons.Material.Outlined.AddCard, UserRoles.PaymentRoles, "new payment"),
-        new("Sales orders", "Find and manage sales orders", "/sales-orders", Icons.Material.Outlined.ShoppingCart, "Admin,Cashier,SalesRep", "orders"),
-        new("Create sales order", "Create a new sales order", "/sales-orders/create", Icons.Material.Outlined.AddShoppingCart, "Admin,Cashier,SalesRep", "new order"),
-        new("Mobile orders", "Review mobile and van sales orders", "/mobile-drafts", Icons.Material.Outlined.PhoneAndroid, UserRoles.SalesOrderRoles, "drafts", "van"),
-        new("Route customers", "Manage customers assigned to routes", "/route-customers", Icons.Material.Outlined.Route, "Admin,Manager,Cashier", "routes"),
-        new("Quotations", "Find and manage quotations", "/quotations", Icons.Material.Outlined.RequestQuote, UserRoles.InvoicingRoles, "quotes"),
-        new("Create quotation", "Create a new customer quotation", "/quotations/create", Icons.Material.Outlined.PostAdd, UserRoles.InvoicingRoles, "new quote"),
-        new("Credit notes", "Find and manage credit notes", "/credit-notes", Icons.Material.Outlined.NoteAlt, UserRoles.InvoicingRoles, "credits"),
-        new("Products", "Browse the product catalogue", "/products", Icons.Material.Outlined.Inventory2, UserRoles.CatalogueRoles, "items", "catalog"),
-        new("Prices", "View customer and product pricing", "/prices", Icons.Material.Outlined.Sell, UserRoles.CatalogueRoles, "pricing"),
-        new("Customers", "Find business partners and customers", "/customers", Icons.Material.Outlined.Groups, UserRoles.CatalogueRoles, "business partners"),
-        new("Stock", "View current warehouse stock", "/stock", Icons.Material.Outlined.Warehouse, UserRoles.CatalogueRoles, "inventory"),
-        new("Inventory transfers", "Manage stock movements between warehouses", "/inventory-transfers", Icons.Material.Outlined.SwapHoriz, UserRoles.InventoryTransferRoles, "transfers"),
-        new("Purchase orders", "Find and manage purchase orders", "/purchase-orders", Icons.Material.Outlined.ShoppingBag, UserRoles.PurchasingRoles, "purchasing"),
-        new("Reports", "Open sales and operations reports", "/reports", Icons.Material.Outlined.Assessment, UserRoles.InsightsRoles, "analytics"),
-        new("Notifications", "View system notifications", "/notifications", Icons.Material.Outlined.Notifications, UserRoles.SystemRoles, "alerts"),
-        new("Settings", "Configure application preferences", "/settings", Icons.Material.Outlined.Settings, UserRoles.Admin, "configuration", "preferences"),
-        new("User management", "Manage staff accounts and access", "/user-management", Icons.Material.Outlined.ManageAccounts, UserRoles.UserManagementRoles, "users", "roles"),
-        new("Security", "Review security configuration", "/security", Icons.Material.Outlined.Security, "", "authentication"),
-        new("Sync status", "Review synchronization health", "/sync-status", Icons.Material.Outlined.Sync, UserRoles.SystemRoles, "integration"),
-        new("Backups", "Manage application backups", "/backups", Icons.Material.Outlined.Backup, UserRoles.Admin, "restore"),
-        new("AI assistant", "Open the business assistant", "/ai-assistant", Icons.Material.Outlined.AutoAwesome, UserRoles.SystemRoles, "help"),
-        new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", Icons.Material.Outlined.Chat, UserRoles.Admin, "messages")
+        new("Dashboard", "Sales and operations overview", "/dashboard", "ph-squares-four", UserRoles.DashboardRoles, "home", "overview"),
+        new("Invoices", "Find and manage customer invoices", "/invoices", "ph-receipt", UserRoles.InvoicingRoles, "billing", "documents"),
+        new("Create invoice", "Create a new customer invoice", "/invoices/create", "ph-file-plus", UserRoles.InvoicingRoles, "new invoice"),
+        new("Van sales invoices", "View van sales invoices", "/van-sales-invoices", "ph-truck", UserRoles.InvoicingRoles, "van"),
+        new("Payments", "Find incoming customer payments", "/payments", "ph-credit-card", UserRoles.PaymentRoles, "receipts", "cash"),
+        new("Create payment", "Record an incoming payment", "/payments/create", "ph-plus-circle", UserRoles.PaymentRoles, "new payment"),
+        new("Sales orders", "Find and manage sales orders", "/sales-orders", "ph-shopping-cart", "Admin,Cashier,SalesRep", "orders"),
+        new("Create sales order", "Create a new sales order", "/sales-orders/create", "ph-plus-circle", "Admin,Cashier,SalesRep", "new order"),
+        new("Mobile orders", "Review mobile and van sales orders", "/mobile-drafts", "ph-device-mobile", UserRoles.SalesOrderRoles, "drafts", "van"),
+        new("Route customers", "Manage customers assigned to routes", "/route-customers", "ph-signpost", "Admin,Manager,Cashier", "routes"),
+        new("Quotations", "Find and manage quotations", "/quotations", "ph-file-text", UserRoles.InvoicingRoles, "quotes"),
+        new("Create quotation", "Create a new customer quotation", "/quotations/create", "ph-file-plus", UserRoles.InvoicingRoles, "new quote"),
+        new("Credit notes", "Find and manage credit notes", "/credit-notes", "ph-file-minus", UserRoles.InvoicingRoles, "credits"),
+        new("Products", "Browse the product catalogue", "/products", "ph-package", UserRoles.CatalogueRoles, "items", "catalog"),
+        new("Prices", "View customer and product pricing", "/prices", "ph-tag", UserRoles.CatalogueRoles, "pricing"),
+        new("Customers", "Find business partners and customers", "/customers", "ph-users-three", UserRoles.CatalogueRoles, "business partners"),
+        new("Stock", "View current warehouse stock", "/stock", "ph-warehouse", UserRoles.CatalogueRoles, "inventory"),
+        new("Inventory transfers", "Manage stock movements between warehouses", "/inventory-transfers", "ph-arrows-left-right", UserRoles.InventoryTransferRoles, "transfers"),
+        new("Purchase orders", "Find and manage purchase orders", "/purchase-orders", "ph-shopping-bag", UserRoles.PurchasingRoles, "purchasing"),
+        new("Reports", "Open sales and operations reports", "/reports", "ph-chart-bar", UserRoles.InsightsRoles, "analytics"),
+        new("Notifications", "View system notifications", "/notifications", "ph-bell", UserRoles.SystemRoles, "alerts"),
+        new("Settings", "Configure application preferences", "/settings", "ph-gear-six", UserRoles.Admin, "configuration", "preferences"),
+        new("User management", "Manage staff accounts and access", "/user-management", "ph-users-three", UserRoles.UserManagementRoles, "users", "roles"),
+        new("Security", "Review security configuration", "/security", "ph-shield-check", "", "authentication"),
+        new("Sync status", "Review synchronization health", "/sync-status", "ph-arrows-clockwise", UserRoles.SystemRoles, "integration"),
+        new("Backups", "Manage application backups", "/backups", "ph-cloud-arrow-up", UserRoles.Admin, "restore"),
+        new("AI assistant", "Open the business assistant", "/ai-assistant", "ph-sparkle", UserRoles.SystemRoles, "help"),
+        new("WhatsApp inbox", "Review WhatsApp conversations", "/whatsapp-inbox", "ph-chat-circle-dots", UserRoles.Admin, "messages")
     ];
 }
