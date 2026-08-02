@@ -13,230 +13,820 @@
 @rendermode InteractiveServer
 @layout EmptyLayout
 
-<PageTitle>Login - Shop Inventory</PageTitle>
+<PageTitle>Sign in - Shop Inventory</PageTitle>
 
-@* `sgn` is staff-signin.css's scope. This page runs on EmptyLayout, so it
-   carries its own ground; the customer portal's sign-in is the same
-   composition in the portal's teal. *@
-<div class="sgn">
+@* Nocturne staff sign-in. No MudBlazor on this page: MudButton renders its own
+   ripple span, uppercase label and .mud-button-root paddings, none of which the
+   design's outlined .btn can out-specify without !important on every property.
+   Native <button> elements carry the Nocturne classes directly instead. *@
+<div class="nsi">
 
-    <section class="sgn-hero">
-        <div class="sgn-brand">
-            <img src="images/kefalos-logo.jpg" alt="Kefalos Quality Dairy Produce" class="sgn-mark"
-                 onerror="this.style.display='none'" />
-            <div class="sgn-brand-rule"></div>
-            <div class="sgn-brand-text">
-                <span class="sgn-brand-name">Staff Portal</span>
+    <section class="nsi-brandside">
+        <div class="nsi-edge"></div>
+
+        <div class="nsi-brand">
+            <img class="nsi-brand-logo" src="images/kefalos-logo.jpg" alt="Kefalos Quality Dairy Produce" />
+            <div class="nsi-brand-rule"></div>
+            <div class="nsi-brand-text">
+                <div class="nsi-brand-name">Kefalos Network</div>
+                <div>Inventory Platform</div>
             </div>
         </div>
 
-        <div class="sgn-pitch">
-            <div class="sgn-eyebrow">Staff workspace</div>
-            <h1>Depot and sales, running on one SAP.</h1>
-            <p>
-                Track stock, approve orders, and run reports in one place &mdash; on the
-                same SAP the office is already working from.
+        <div class="nsi-hero">
+            <div class="nsi-kicker">Staff workspace</div>
+            <h1 class="nsi-title">Depot and sales, running on one SAP.</h1>
+            <p class="nsi-lede">
+                An SAP add-on for the depot and sales teams &mdash; track stock, approve orders, and run reports in one
+                place.
             </p>
-            <ul class="sgn-points">
-                <li>Stock levels updated as they move</li>
-                <li>Every order approval in one queue</li>
-                <li>Reports that export clean</li>
+            <ul class="nsi-points">
+                <li><span class="nsi-dash"></span>Stock levels updated as they move</li>
+                <li><span class="nsi-dash"></span>Every order approval in one queue</li>
+                <li><span class="nsi-dash"></span>Reports that export clean</li>
             </ul>
         </div>
 
-        <div class="sgn-hero-foot">
+        <div class="nsi-cross">
             <span>Customer access?</span>
             <a href="/customer-portal/login">
                 Customer portal
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M5 12h13" />
-                    <path d="M12 6l6 6-6 6" />
+                    <path d="M5 12h13"></path>
+                    <path d="M12 6l6 6-6 6"></path>
                 </svg>
             </a>
         </div>
     </section>
 
-    <section class="sgn-panel">
-        <div class="sgn-form">
-            <span class="sgn-tag">Staff login</span>
-            <h1>@(requiresTwoFactor ? "Two-step verification" : "Sign in")</h1>
-            <p class="sgn-sub">
-                @(requiresTwoFactor
-                    ? (isBackupCode
-                        ? "Enter one of your saved backup codes."
-                        : "Enter the 6-digit code from your authenticator app.")
-                    : "Use your staff credentials to continue.")
-            </p>
+    <section class="nsi-formside">
 
-            @if (!string.IsNullOrEmpty(errorMessage))
-            {
-                <div class="sgn-note" role="alert">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                         stroke-linecap="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" />
-                        <path d="M12 7.5v5.5" />
-                        <path d="M12 16.4v.1" />
-                    </svg>
-                    <span>@errorMessage</span>
+        @if (!requiresTwoFactor)
+        {
+            <EditForm class="nsi-formcard" Model="loginModel" OnValidSubmit="HandleLogin" FormName="LoginForm">
+                <span class="nsi-tag">Staff login</span>
+                <h2 class="nsi-formtitle">Sign in</h2>
+                <p class="nsi-formlede">Use your staff credentials to continue.</p>
+
+                <div class="nsi-field">
+                    <label for="username">Username or email</label>
+                    <div class="nsi-inputwrap">
+                        <svg class="nsi-inputicon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <circle cx="12" cy="8" r="3.6"></circle>
+                            <path d="M4.5 20c1.3-3.4 4.1-5.2 7.5-5.2s6.2 1.8 7.5 5.2"></path>
+                        </svg>
+                        <InputText id="username" class="nsi-input" autocomplete="username"
+                                   placeholder="Enter your username or email" @bind-Value="loginModel.Username" />
+                    </div>
                 </div>
-            }
 
-            @if (!requiresTwoFactor)
-            {
-                <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="LoginForm">
-                    <DataAnnotationsValidator />
-
-                    <div class="sgn-field">
-                        <label for="username">Username or email</label>
-                        <div class="sgn-control">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <circle cx="12" cy="8" r="3.6" />
-                                <path d="M4.5 20c1.3-3.4 4.1-5.2 7.5-5.2s6.2 1.8 7.5 5.2" />
-                            </svg>
-                            <InputText id="username" class="sgn-input" @bind-Value="loginModel.Username"
-                                       autocomplete="username" placeholder="Enter your username or email" />
-                        </div>
-                        <ValidationMessage For="@(() => loginModel.Username)" class="validation-msg" />
+                <div class="nsi-field nsi-field-pass">
+                    <label for="password">Password</label>
+                    <div class="nsi-inputwrap">
+                        <svg class="nsi-inputicon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <rect x="4.5" y="10" width="15" height="10" rx="2.5"></rect>
+                            <path d="M8.2 10V7.4a3.8 3.8 0 0 1 7.6 0V10"></path>
+                        </svg>
+                        <input id="password" type="@(showPassword ? "text" : "password")" class="nsi-input nsi-input-pass"
+                               autocomplete="current-password" placeholder="••••••••" @bind="loginModel.Password" />
+                        <button type="button" class="nsi-eye" @onclick="TogglePassword" tabindex="-1"
+                                aria-label="Show or hide password">
+                            @if (showPassword)
+                            {
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12z"></path>
+                                    <circle cx="12" cy="12" r="2.8"></circle>
+                                    <path d="M4 20L20 4"></path>
+                                </svg>
+                            }
+                            else
+                            {
+                                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12z"></path>
+                                    <circle cx="12" cy="12" r="2.8"></circle>
+                                </svg>
+                            }
+                        </button>
                     </div>
+                </div>
 
-                    <div class="sgn-field">
-                        <label for="password">Password</label>
-                        <div class="sgn-control">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <rect x="4.5" y="10" width="15" height="10" rx="2.5" />
-                                <path d="M8.2 10V7.4a3.8 3.8 0 0 1 7.6 0V10" />
-                            </svg>
-                            <input id="password" type="@(showPassword ? "text" : "password")"
-                                   class="sgn-input has-reveal" @bind="loginModel.Password"
-                                   placeholder="••••••••" autocomplete="current-password" />
-                            <button type="button" class="sgn-reveal" @onclick="TogglePassword"
-                                    aria-label="@(showPassword ? "Hide password" : "Show password")">
-                                @if (showPassword)
-                                {
-                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
-                                         aria-hidden="true">
-                                        <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12z" />
-                                        <circle cx="12" cy="12" r="2.8" />
-                                        <path d="M4 20L20 4" />
-                                    </svg>
-                                }
-                                else
-                                {
-                                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
-                                         aria-hidden="true">
-                                        <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12z" />
-                                        <circle cx="12" cy="12" r="2.8" />
-                                    </svg>
-                                }
-                            </button>
-                        </div>
-                        <ValidationMessage For="@(() => loginModel.Password)" class="validation-msg" />
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="nsi-error" role="alert">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5"></path>
+                            <path d="M12 16.4v.1"></path>
+                        </svg>
+                        <span>@errorMessage</span>
                     </div>
+                }
 
-                    <button type="submit" class="sgn-submit" disabled="@(isLoading || isPasskeyLoading)">
-                        @if (isLoading)
-                        {
-                            <span class="sgn-spinner"></span>
-                            <span>Signing in&hellip;</span>
-                        }
-                        else
-                        {
-                            <span>Sign in</span>
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                 stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                <path d="M5 12h12" />
-                                <path d="M11.5 6.5L18 12l-6.5 5.5" />
-                            </svg>
-                        }
-                    </button>
-                </EditForm>
-
-                <div class="sgn-or">or</div>
-
-                <button type="button" class="sgn-secondary" @onclick="HandlePasskeyLogin"
+                <button type="submit" class="nsi-btn nsi-btn-primary nsi-btn-block nsi-submit"
                         disabled="@(isLoading || isPasskeyLoading)">
-                    @if (isPasskeyLoading)
-                    {
-                        <span class="sgn-spinner"></span>
-                        <span>Checking passkey&hellip;</span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-fingerprint" aria-hidden="true"></i>
-                        <span>Use a passkey</span>
-                    }
+                    @(isLoading ? "Signing in…" : "Sign in")
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M5 12h12"></path>
+                        <path d="M11.5 6.5L18 12l-6.5 5.5"></path>
+                    </svg>
                 </button>
 
-                <p class="sgn-passkey-note">
-                    Windows Hello, Face ID, Touch ID, or your device PIN on a supported browser.
-                </p>
-            }
-            else
-            {
-                <div class="sgn-2fa-badge">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <rect x="4.5" y="10" width="15" height="10" rx="2.5" />
-                        <path d="M8.2 10V7.4a3.8 3.8 0 0 1 7.6 0V10" />
-                    </svg>
+                <div class="nsi-or">
+                    <span class="nsi-or-line-l"></span>
+                    <span class="nsi-or-label">or</span>
+                    <span class="nsi-or-line-r"></span>
                 </div>
 
-                <div class="sgn-field">
+                <button type="button" class="nsi-btn nsi-btn-secondary nsi-btn-block nsi-passkey"
+                        @onclick="HandlePasskeyLogin" disabled="@(isLoading || isPasskeyLoading)">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 4.2c-4.3 0-7.8 3.5-7.8 7.8v3.2"></path>
+                        <path d="M19.8 12c0-4.3-3.5-7.8-7.8-7.8"></path>
+                        <path d="M8 12a4 4 0 0 1 8 0v4.2"></path>
+                        <path d="M12 12v7.6"></path>
+                        <path d="M7.6 15.4v2.6"></path>
+                        <path d="M19.5 15.8c.2-1.2.3-2.5.3-3.8"></path>
+                    </svg>
+                    @(isPasskeyLoading ? "Checking passkey…" : "Use a passkey")
+                </button>
+
+                <p class="nsi-note">Windows Hello, Face ID, Touch ID, or your device PIN on a supported browser.</p>
+            </EditForm>
+        }
+        else
+        {
+            <div class="nsi-formcard">
+                <span class="nsi-tag">Two-factor</span>
+                <h2 class="nsi-formtitle">Verify it's you</h2>
+                <p class="nsi-formlede">
+                    Enter the @(isBackupCode ? "backup code" : "6-digit code from your authenticator app").
+                </p>
+
+                <div class="nsi-field">
                     <label for="twofactor-code">@(isBackupCode ? "Backup code" : "Authenticator code")</label>
-                    <div class="sgn-control">
-                        <input id="twofactor-code" type="text"
-                               class="@(isBackupCode ? "sgn-input sgn-code is-backup" : "sgn-input sgn-code")"
-                               @bind="twoFactorCode" @bind:event="oninput"
-                               placeholder="@(isBackupCode ? "XXXX-XXXX" : "000000")"
-                               maxlength="@(isBackupCode ? 9 : 6)"
-                               inputmode="@(isBackupCode ? "text" : "numeric")"
-                               autocomplete="one-time-code" />
+                    <div class="nsi-inputwrap">
+                        <svg class="nsi-inputicon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                             aria-hidden="true">
+                            <rect x="4.5" y="10" width="15" height="10" rx="2.5"></rect>
+                            <path d="M8.2 10V7.4a3.8 3.8 0 0 1 7.6 0V10"></path>
+                        </svg>
+                        <input id="twofactor-code" type="text" class="nsi-input" @bind="twoFactorCode"
+                               @bind:event="oninput" placeholder="@(isBackupCode ? "XXXX-XXXX" : "000000")"
+                               maxlength="@(isBackupCode ? 9 : 6)" autocomplete="one-time-code" inputmode="text" />
                     </div>
                 </div>
 
-                <label class="sgn-check">
+                <label class="nsi-check">
                     <input type="checkbox" @bind="isBackupCode" />
-                    <span class="dot"></span>
+                    <span class="nsi-dot"></span>
                     Use a backup code instead
                 </label>
 
-                <button type="button" class="sgn-submit" @onclick="HandleTwoFactorSubmit"
-                        disabled="@(isLoading || string.IsNullOrWhiteSpace(twoFactorCode))">
-                    @if (isLoading)
-                    {
-                        <span class="sgn-spinner"></span>
-                        <span>Verifying&hellip;</span>
-                    }
-                    else
-                    {
-                        <span>Verify</span>
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="nsi-error" role="alert">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <path d="M5 12h12" />
-                            <path d="M11.5 6.5L18 12l-6.5 5.5" />
+                             stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5"></path>
+                            <path d="M12 16.4v.1"></path>
                         </svg>
-                    }
+                        <span>@errorMessage</span>
+                    </div>
+                }
+
+                <button type="button" class="nsi-btn nsi-btn-primary nsi-btn-block nsi-submit"
+                        @onclick="HandleTwoFactorSubmit" disabled="@(isLoading || string.IsNullOrWhiteSpace(twoFactorCode))">
+                    @(isLoading ? "Verifying…" : "Verify")
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M5 12h12"></path>
+                        <path d="M11.5 6.5L18 12l-6.5 5.5"></path>
+                    </svg>
                 </button>
 
-                <button type="button" class="sgn-back" @onclick="CancelTwoFactor">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                <button type="button" class="nsi-btn nsi-btn-ghost nsi-back" @onclick="CancelTwoFactor">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M19 12H7" />
-                        <path d="M12.5 6.5L6 12l6.5 5.5" />
+                        <path d="M19 12H6"></path>
+                        <path d="M12 6l-6 6 6 6"></path>
                     </svg>
                     Back to sign in
                 </button>
-            }
-        </div>
+            </div>
+        }
 
-        <div class="sgn-copyright">&copy; 2026 Kefalos Cheese</div>
+        <div class="nsi-copy">© 2026 Kefalos Network</div>
     </section>
 </div>
+
+<style>
+    /* ──────────────────────────────────────────────────────────────────────
+       Nocturne staff sign-in.
+
+       Every class is namespaced `nsi-` rather than carrying Nocturne's own
+       `.btn` / `.btn-primary` / `.card` names, because App.razor loads
+       Bootstrap and app.css globally: a bare `.btn-primary` would pick up
+       Bootstrap's solid blue fill and lose the outlined treatment this system
+       is built on. The declarations below are Nocturne's, unchanged — only the
+       selectors are renamed.
+
+       The page is dark in both app themes. Nocturne is a dark system whose
+       tokens are literal values, not theme-dependent ones, so there is no
+       `.dark-theme` branch to write here.
+       ────────────────────────────────────────────────────────────────────── */
+
+    .nsi {
+        /* Nocturne tokens (styles.css :root), only the ones this page uses. */
+        --nsi-bg: #161826;
+        --nsi-surface: #232532;
+        --nsi-text: #e9e9ed;
+        --nsi-accent: #9184d9;
+        --nsi-accent-200: #e7e5fe;
+        --nsi-accent-300: #d2cefd;
+        --nsi-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+        --nsi-section: #262a60;
+        --nsi-section-glow: #353b80;
+        --nsi-radius-sm: 4px;
+        --nsi-radius-md: 8px;
+        /* Density 0.70x: --space-2 / --space-3 from the scale. */
+        --nsi-space-1: 2.8px;
+        --nsi-space-2: 5.6px;
+        --nsi-space-3: 8.4px;
+
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        background: var(--nsi-bg);
+        color: var(--nsi-text);
+        font-family: "Inter", system-ui, sans-serif;
+        font-size: 15px;
+        font-weight: 400;
+        line-height: 1.55;
+        /* Renders the password reveal, autofill chrome and scrollbars dark. */
+        color-scheme: dark;
+    }
+
+    /* app.css paints html/body from the app theme with !important, which shows
+       through as a light rim around this page in the light theme. */
+    body:has(.nsi) {
+        background: #161826 !important;
+    }
+
+    .nsi *,
+    .nsi *::before,
+    .nsi *::after {
+        box-sizing: border-box;
+    }
+
+    .nsi :focus {
+        outline: none;
+    }
+
+    .nsi :focus-visible {
+        outline: 2px solid var(--nsi-accent);
+        outline-offset: 2px;
+    }
+
+    .nsi ::selection {
+        background: color-mix(in srgb, var(--nsi-accent) 30%, transparent);
+    }
+
+    /* — left: brand and positioning — */
+
+    .nsi-brandside {
+        position: relative;
+        overflow: hidden;
+        padding: 44px 56px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 40px;
+        background:
+            radial-gradient(90% 70% at 12% 4%, color-mix(in srgb, var(--nsi-section-glow) 62%, transparent), transparent 62%),
+            radial-gradient(80% 60% at 88% 96%, color-mix(in srgb, var(--nsi-section) 78%, transparent), transparent 58%),
+            var(--nsi-bg);
+    }
+
+    /* The column edge, drawn as a Nocturne rule: it fades out over 48px at
+       both ends instead of stopping cleanly. */
+    .nsi-edge {
+        position: absolute;
+        inset: 0 0 0 auto;
+        width: 1px;
+        background: linear-gradient(to bottom,
+            transparent, var(--nsi-divider) 48px,
+            var(--nsi-divider) calc(100% - 48px), transparent);
+    }
+
+    .nsi-brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .nsi-brand-logo {
+        display: block;
+        width: 132px;
+        height: auto;
+        border-radius: var(--nsi-radius-md);
+    }
+
+    .nsi-brand-rule {
+        width: 1px;
+        align-self: stretch;
+        background: var(--nsi-divider);
+    }
+
+    .nsi .nsi-brand-text {
+        font-size: 13px;
+        line-height: 1.35;
+        color: color-mix(in srgb, var(--nsi-text) 62%, transparent);
+    }
+
+    .nsi .nsi-brand-name {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--nsi-text);
+    }
+
+    .nsi-hero {
+        max-width: 460px;
+    }
+
+    .nsi-kicker {
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--nsi-accent-300);
+        margin-bottom: 18px;
+    }
+
+    /* Two classes deep: app.css sets `h1, h2 … { font-weight: 600 }` and
+       `.dark-theme h1 … { color: … }`, and Nocturne headings stay at 500. */
+    .nsi .nsi-title {
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 52px;
+        line-height: 1.06;
+        letter-spacing: -0.02em;
+        margin: 0 0 18px;
+        color: var(--nsi-text);
+        text-wrap: pretty;
+    }
+
+    .nsi .nsi-lede {
+        font-size: 16px;
+        line-height: 1.6;
+        max-width: 400px;
+        margin: 0 0 34px;
+        color: color-mix(in srgb, var(--nsi-text) 72%, transparent);
+    }
+
+    .nsi .nsi-points {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        font-size: 14px;
+        color: color-mix(in srgb, var(--nsi-text) 78%, transparent);
+    }
+
+    .nsi .nsi-points li {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    /* A short accent mark: solid, unlike the rules, which fade. */
+    .nsi-dash {
+        width: 14px;
+        height: 1px;
+        flex: none;
+        background: var(--nsi-accent);
+    }
+
+    .nsi-cross {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: color-mix(in srgb, var(--nsi-text) 55%, transparent);
+    }
+
+    .nsi .nsi-cross a {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: inherit;
+        font-weight: 500;
+        color: var(--nsi-accent);
+        text-decoration: none;
+    }
+
+    .nsi .nsi-cross a:hover {
+        color: var(--nsi-accent-300);
+    }
+
+    /* — right: the form — */
+
+    .nsi-formside {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 44px 56px;
+    }
+
+    .nsi-formcard {
+        width: 100%;
+        max-width: 356px;
+        margin: 0 auto;
+        animation: nsi-rise 420ms ease both;
+    }
+
+    .nsi-tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        border: 1px solid var(--nsi-accent);
+        border-radius: calc(var(--nsi-radius-md) * 0.75);
+        color: var(--nsi-accent);
+    }
+
+    .nsi .nsi-formtitle {
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 34px;
+        line-height: 1.12;
+        letter-spacing: -0.02em;
+        margin: 18px 0 6px;
+        color: var(--nsi-text);
+    }
+
+    .nsi .nsi-formlede {
+        font-size: 14px;
+        margin: 0 0 28px;
+        color: color-mix(in srgb, var(--nsi-text) 60%, transparent);
+    }
+
+    .nsi-field {
+        margin-bottom: 16px;
+    }
+
+    /* The design pairs this field with a "Forgot?" link. There is no staff
+       password-reset route to point it at, so the link is left out rather
+       than shipped dead; the spacing it carried is folded in below. */
+    .nsi-field-pass {
+        margin-bottom: 28px;
+    }
+
+    .nsi .nsi-field > label {
+        display: block;
+        font-size: 12px;
+        font-weight: 400;
+        margin-bottom: 5px;
+        color: color-mix(in srgb, var(--nsi-text) 70%, transparent);
+    }
+
+    .nsi-inputwrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .nsi-inputicon {
+        position: absolute;
+        left: 11px;
+        display: block;
+        pointer-events: none;
+        color: color-mix(in srgb, var(--nsi-text) 45%, transparent);
+    }
+
+    .nsi .nsi-input {
+        width: 100%;
+        min-height: 44px;
+        padding: 6px 10px 6px 36px;
+        font: inherit;
+        font-size: 14px;
+        color: var(--nsi-text);
+        caret-color: var(--nsi-accent);
+        background: var(--nsi-surface);
+        border: 1px solid var(--nsi-divider);
+        border-radius: var(--nsi-radius-md);
+    }
+
+    .nsi .nsi-input-pass {
+        padding-right: 40px;
+    }
+
+    .nsi .nsi-input:hover {
+        border-color: color-mix(in srgb, var(--nsi-text) 45%, transparent);
+    }
+
+    .nsi .nsi-input:focus-visible {
+        border-color: var(--nsi-accent);
+        outline-offset: 0;
+    }
+
+    /* Chrome repaints autofilled fields with its own near-white ground, which
+       would put light-on-light text in the middle of a dark form. */
+    .nsi .nsi-input:-webkit-autofill,
+    .nsi .nsi-input:-webkit-autofill:hover,
+    .nsi .nsi-input:-webkit-autofill:focus {
+        -webkit-text-fill-color: var(--nsi-text);
+        -webkit-box-shadow: 0 0 0 1000px var(--nsi-surface) inset;
+        caret-color: var(--nsi-accent);
+    }
+
+    .nsi-eye {
+        position: absolute;
+        right: 6px;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        border: 0;
+        border-radius: var(--nsi-radius-sm);
+        cursor: pointer;
+        color: color-mix(in srgb, var(--nsi-text) 55%, transparent);
+    }
+
+    .nsi-eye:hover {
+        color: var(--nsi-accent);
+        background: color-mix(in srgb, var(--nsi-accent) 12%, transparent);
+    }
+
+    .nsi-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        margin: 0 0 22px;
+        font-size: 13px;
+        color: color-mix(in srgb, var(--nsi-text) 70%, transparent);
+        cursor: pointer;
+    }
+
+    .nsi-check input {
+        position: absolute;
+        opacity: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+    }
+
+    .nsi-check .nsi-dot {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        border: 1.5px solid var(--nsi-divider);
+        border-radius: 4px;
+    }
+
+    .nsi-check:hover .nsi-dot {
+        border-color: var(--nsi-accent);
+    }
+
+    .nsi-check input:checked + .nsi-dot {
+        border-color: var(--nsi-accent);
+        background: var(--nsi-accent);
+        box-shadow: inset 0 0 0 4px var(--nsi-bg);
+    }
+
+    .nsi-check input:focus-visible + .nsi-dot {
+        outline: 2px solid var(--nsi-accent);
+        outline-offset: 2px;
+    }
+
+    .nsi-error {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        margin-bottom: 14px;
+        font-size: 13px;
+        border-radius: var(--nsi-radius-md);
+        background: color-mix(in srgb, var(--nsi-accent) 12%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nsi-accent) 45%, transparent);
+        color: var(--nsi-accent-200);
+    }
+
+    .nsi-error svg {
+        flex: none;
+    }
+
+    /* — buttons — */
+
+    .nsi .nsi-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: var(--nsi-space-2) calc(var(--nsi-space-3) * 1.2);
+        font-family: inherit;
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 1.2;
+        color: var(--nsi-text);
+        text-decoration: none;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--nsi-radius-md);
+        cursor: pointer;
+    }
+
+    .nsi .nsi-btn svg {
+        display: block;
+    }
+
+    .nsi .nsi-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    /* Nocturne's primary is an accent outline, never a fill. */
+    .nsi .nsi-btn-primary {
+        color: var(--nsi-accent);
+        border-color: var(--nsi-accent);
+    }
+
+    .nsi .nsi-btn-primary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-accent) 12%, transparent);
+    }
+
+    .nsi .nsi-btn-primary:active:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-accent) 22%, transparent);
+    }
+
+    .nsi .nsi-btn-secondary {
+        border-color: var(--nsi-divider);
+    }
+
+    .nsi .nsi-btn-secondary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-text) 7%, transparent);
+    }
+
+    .nsi .nsi-btn-secondary:active:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-text) 14%, transparent);
+    }
+
+    .nsi .nsi-btn-ghost {
+        color: var(--nsi-accent);
+        padding-inline: var(--nsi-space-1);
+    }
+
+    .nsi .nsi-btn-ghost:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nsi-accent) 10%, transparent);
+    }
+
+    .nsi .nsi-btn-block {
+        width: 100%;
+        margin-top: var(--nsi-space-2);
+    }
+
+    .nsi .nsi-submit {
+        min-height: 46px;
+        margin-top: 0;
+        font-size: 15px;
+        letter-spacing: 0.01em;
+    }
+
+    .nsi .nsi-passkey {
+        min-height: 46px;
+        margin-top: 0;
+        font-size: 14px;
+        gap: 9px;
+    }
+
+    .nsi .nsi-back {
+        margin-top: 14px;
+    }
+
+    .nsi-or {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin: 20px 0;
+    }
+
+    .nsi-or-line-l {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(to right, transparent, var(--nsi-divider));
+    }
+
+    .nsi-or-line-r {
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(to left, transparent, var(--nsi-divider));
+    }
+
+    .nsi-or-label {
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: color-mix(in srgb, var(--nsi-text) 45%, transparent);
+    }
+
+    .nsi .nsi-note {
+        margin: 12px 0 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: color-mix(in srgb, var(--nsi-text) 48%, transparent);
+    }
+
+    .nsi-copy {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 26px;
+        text-align: center;
+        font-size: 12px;
+        color: color-mix(in srgb, var(--nsi-text) 38%, transparent);
+    }
+
+    @@keyframes nsi-rise {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: none; }
+    }
+
+    @@media (prefers-reduced-motion: reduce) {
+        .nsi-formcard {
+            animation: none;
+        }
+    }
+
+    /* Below the two-column breakpoint the columns stack, the column edge
+       becomes the seam between them, and the footer rejoins the flow. */
+    @@media (max-width: 900px) {
+        .nsi {
+            grid-template-columns: 1fr;
+        }
+
+        .nsi-edge {
+            inset: auto 0 0 0;
+            width: auto;
+            height: 1px;
+            background: linear-gradient(to right,
+                transparent, var(--nsi-divider) 48px,
+                var(--nsi-divider) calc(100% - 48px), transparent);
+        }
+
+        .nsi-brandside {
+            padding: 32px 28px;
+            gap: 28px;
+        }
+
+        .nsi .nsi-title {
+            font-size: 38px;
+        }
+
+        .nsi-formside {
+            padding: 36px 28px;
+        }
+
+        .nsi-copy {
+            position: static;
+            margin-top: 32px;
+        }
+    }
+
+    @@media (max-width: 520px) {
+        .nsi-brandside {
+            padding: 26px 20px;
+        }
+
+        .nsi-formside {
+            padding: 30px 20px;
+        }
+
+        .nsi .nsi-title {
+            font-size: 30px;
+        }
+
+        .nsi .nsi-formtitle {
+            font-size: 28px;
+        }
+    }
+</style>
 
 @code {
     private LoginModel loginModel = new();
@@ -299,6 +889,14 @@
 
     private async Task HandleLogin()
     {
+        // LoginModel carries no DataAnnotations, so EditForm's OnValidSubmit
+        // fires on an empty form too; the design states the check here.
+        if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrEmpty(loginModel.Password))
+        {
+            errorMessage = "Enter your username and password to continue.";
+            return;
+        }
+
         Logger.LogInformation("HandleLogin started for user: {Username}", loginModel.Username);
         isLoading = true;
         errorMessage = null;

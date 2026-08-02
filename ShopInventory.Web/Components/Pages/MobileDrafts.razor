@@ -19,1450 +19,814 @@
 
 <PageTitle>@(IsVanSalesView ? "Van Sales Orders - Shop Inventory" : "Mobile Orders - Shop Inventory")</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .md-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .md-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .md-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .md-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #2563eb, #1e40af);
-        box-shadow: 0 4px 14px rgba(37, 99, 235, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .md-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .md-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    /* ── Stat Cards ───────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 1rem 1.15rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: transform .15s, box-shadow .15s;
-    }
-
-    .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.total { background: #dbeafe; color: #2563eb; }
-    .stat-icon.pending { background: #fef3c7; color: #d97706; }
-    .stat-icon.approved { background: #d1fae5; color: #059669; }
-    .stat-icon.draft { background: #f3f4f6; color: #6b7280; }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.1;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .stat-info .stat-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-    }
-
-    /* ── Table Filters ───────────────────────────────── */
-    .md-table-tools {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: .6rem;
-        flex-wrap: wrap;
-    }
-
-    .md-clear-filters {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .35rem .7rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .78rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .md-clear-filters:hover {
-        background: #f3f4f6;
-    }
-
-    .md-clear-filters:disabled {
-        opacity: .55;
-        cursor: not-allowed;
-    }
-
-    /* ── Filter Panel ─────────────────────────────── */
-    .md-filter-panel {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: .85rem 1.25rem;
-        margin-bottom: .75rem;
-        box-shadow: 0 1px 4px rgba(0,0,0,.04);
-    }
-
-    /* A grid rather than a wrapping flex row: flex lets the items on the final
-       row grow to fill it, which stretched a lone "SAP Doc #" across the whole
-       panel. Grid columns are shared by every row, so each field keeps its width
-       wherever it lands. */
-    .md-filter-panel-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: .65rem .7rem;
-        align-items: end;
-    }
-
-    .md-filter-group {
-        display: flex;
-        flex-direction: column;
-        gap: .28rem;
-        min-width: 0;
-    }
-
-    /* Only widen once there are at least two columns to span, otherwise this
-       would create an implicit second column on a narrow screen. */
-    @@media (min-width: 640px) {
-        .md-filter-group.wide {
-            grid-column: span 2;
-        }
-    }
-
-    /* Its own full-width row, right-aligned. Letting it flow inline would drop it
-       into whichever column happened to be free, which moves as the panel resizes. */
-    .md-filter-actions {
-        display: flex;
-        grid-column: 1 / -1;
-        justify-content: flex-end;
-        min-width: 0;
-    }
-
-    .md-filter-label {
-        font-size: .72rem;
-        font-weight: 700;
-        color: #475569;
-        text-transform: uppercase;
-        letter-spacing: .45px;
-        white-space: nowrap;
-    }
-
-    .md-filter-input,
-    .md-filter-select {
-        width: 100%;
-        min-height: 34px;
-        padding: .4rem .55rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .8rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .md-filter-input::placeholder {
-        color: #94a3b8;
-    }
-
-    .md-filter-input:focus,
-    .md-filter-select:focus {
-        outline: none;
-        border-color: #2563eb;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #2563eb, #1e40af);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover { background: #f3f4f6; }
-
-    /* ── Table ───────────────────────────────────────── */
-    .md-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .md-table-wrap .mud-table-container {
-        overflow-x: auto;
-    }
-
-    .md-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .md-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .md-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .md-order-actions {
-        display: flex;
-        flex-wrap: nowrap;
-        align-items: center;
-        gap: .25rem;
-    }
-
-    .md-order-actions .mud-icon-button {
-        width: 30px !important;
-        height: 30px !important;
-        min-width: 30px !important;
-        padding: 4px !important;
-        flex-shrink: 0;
-    }
-
-    .md-order-actions .mud-icon-button .mud-icon-root {
-        font-size: 1rem !important;
-    }
-
-    .md-order-actions-header,
-    .md-order-actions-cell {
-        white-space: nowrap;
-        border-left: 1px solid #e5e7eb;
-    }
-
-    .md-table-wrap .mud-table-body .mud-table-row .md-order-actions-cell {
-        background: #fff;
-    }
-
-    .md-table-wrap .mud-table-body .mud-table-row:nth-of-type(even) .md-order-actions-cell {
-        background: #f8fafc;
-    }
-
-    .md-table-wrap .mud-table-body .mud-table-row:hover .md-order-actions-cell,
-    .md-table-wrap .mud-table-body .mud-table-row.mud-table-row-selected .md-order-actions-cell {
-        background: #eef2ff;
-    }
-
-    @@media (min-width:769px) {
-        .md-order-actions-header,
-        .md-order-actions-cell {
-            position: sticky;
-            right: 0;
-            box-shadow: -10px 0 18px -18px rgba(15, 23, 42, .7);
-        }
-
-        .md-order-actions-header {
-            background: #f8fafc;
-            z-index: 5;
-        }
-
-        .md-order-actions-cell {
-            z-index: 2;
-        }
-    }
-
-    /* ── Status Badges ───────────────────────────────── */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-badge.draft { background: #f3f4f6; color: #6b7280; }
-    .status-badge.pending { background: #fef3c7; color: #92400e; }
-    .status-badge.approved { background: #d1fae5; color: #065f46; }
-    .status-badge.partial { background: #e0e7ff; color: #3730a3; }
-    .status-badge.fulfilled { background: #dbeafe; color: #1e40af; }
-    .status-badge.delivered { background: #dcfce7; color: #166534; }
-    .status-badge.invoiced { background: #d1fae5; color: #065f46; }
-    .status-badge.cancelled {
-        background-color: #dc2626 !important;
-        color: #fff !important;
-        border: 1px solid #dc2626;
-    }
-    .status-badge.on-hold { background: #374151; color: #fff; }
-
-    /* ── Cell Styles ─────────────────────────────────── */
-    .doc-number {
-        font-weight: 700;
-        color: #2563eb;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    .customer-info .name {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-    }
-
-    .customer-info .code {
-        font-size: .75rem;
-        color: #9ca3af;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .amount-cell {
-        font-weight: 700;
-        color: #1a1a2e;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .88rem;
-    }
-
-    .sync-dot {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        font-size: .78rem;
-        font-weight: 600;
-    }
-
-    .sync-dot i { font-size: .7rem; }
-    .sync-dot.synced { color: #059669; }
-    .sync-dot.unsynced { color: #d97706; }
-
-    .btn-md-gradient {
-        background: linear-gradient(135deg, #2563eb, #1e40af);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        text-decoration: none;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(37, 99, 235, .25);
-        cursor: pointer;
-    }
-
-    .btn-md-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(37, 99, 235, .4);
-        color: #fff;
-    }
-
-    /* ── Drawer ──────────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #2563eb, #1e40af);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .drawer-header h5 { margin: 0; font-weight: 600; font-size: 1.05rem; }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover { background: rgba(255, 255, 255, .25); }
-
-    .drawer-body { flex: 1; overflow-y: auto; padding: 1.5rem; }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-        flex-wrap: wrap;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .15rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .detail-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .order-lines-heading {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: .75rem;
-        margin-bottom: .75rem;
-        flex-wrap: wrap;
-    }
-
-    .order-lines-heading .detail-section-title {
-        margin-bottom: 0;
-    }
-
-    .line-count-pills {
-        display: flex;
-        align-items: center;
-        gap: .45rem;
-        flex-wrap: wrap;
-    }
-
-    .line-count-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-        padding: .25rem .6rem;
-        border-radius: 999px;
-        background: #eff6ff;
-        color: #1d4ed8;
-        font-size: .75rem;
-        font-weight: 700;
-        white-space: nowrap;
-    }
-
-    .line-count-pill.items {
-        background: #ecfdf5;
-        color: #047857;
-    }
-
-    .lines-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .lines-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .lines-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-    }
-
-    .lines-table tr:last-child td { border-bottom: none; }
-
-    .lines-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .total-banner {
-        background: linear-gradient(135deg, #2563eb, #1e40af);
-        color: #fff;
-        border-radius: 10px;
-        padding: 1rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 1.25rem;
-    }
-
-    .total-banner .total-label { font-size: .9rem; font-weight: 500; }
-    .total-banner .total-value { font-size: 1.4rem; font-weight: 700; }
-
-    /* ── Empty / Loading ─────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #dbeafe;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #2563eb;
-    }
-
-    .empty-state h6 { font-weight: 600; color: #374151; margin-bottom: .35rem; }
-    .empty-state p { color: #9ca3af; font-size: .88rem; }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .btn-secondary-action:hover { background: #f9fafb; }
-
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .md-po-viewer-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(15, 23, 42, 0.65);
-        backdrop-filter: blur(4px);
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 1.5rem;
-    }
-
-    .md-po-viewer-container {
-        background: #fff;
-        border-radius: 16px;
-        width: min(1100px, 92vw);
-        max-height: calc(92vh - var(--kf-topbar-h, 74px));
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.22);
-    }
-
-    .md-po-viewer-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid #e2e8f0;
-    }
-
-    .md-po-viewer-header h6 {
-        color: #111827;
-        font-weight: 600;
-    }
-
-    .md-po-viewer-body {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #f8fafc;
-        overflow: auto;
-        min-height: 320px;
-        max-height: calc(92vh - var(--kf-topbar-h, 74px) - 78px);
-    }
-
-    .md-po-viewer-image {
-        max-width: 100%;
-        height: auto;
-        object-fit: contain;
-    }
-
-    .md-po-viewer-pdf {
-        width: 100%;
-        height: calc(92vh - var(--kf-topbar-h, 74px) - 78px);
-        border: none;
-        background: #fff;
-    }
-
-    .dark-theme .md-po-viewer-container {
-        background: #1e293b;
-        border: 1px solid #334155;
-    }
-
-    .dark-theme .md-po-viewer-header {
-        border-bottom-color: #334155;
-    }
-
-    .dark-theme .md-po-viewer-header h6 {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .md-po-viewer-body,
-    .dark-theme .md-po-viewer-pdf {
-        background: #0f172a;
-    }
-
-    .dark-theme .line-count-pill {
-        background: rgba(59, 130, 246, .18);
-        color: #93c5fd;
-    }
-
-    .dark-theme .line-count-pill.items {
-        background: rgba(16, 185, 129, .18);
-        color: #6ee7b7;
-    }
-
-    .dark-theme .status-badge.delivered {
-        background: rgba(34, 197, 94, .22);
-        color: #86efac;
-    }
-
-    @@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-    @@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-    @@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-
-    @@media (max-width:768px) {
-        .md-header { flex-direction: column; }
-        .md-table-tools { width: 100%; justify-content: space-between; }
-        .stat-row { grid-template-columns: 1fr 1fr; }
-        .detail-grid { grid-template-columns: 1fr; }
-        .md-po-viewer-overlay { padding: .75rem; }
-        .md-po-viewer-header { padding: .85rem 1rem; align-items: flex-start; }
-        .md-po-viewer-container { width: 100%; max-height: calc(94vh - var(--kf-topbar-h, 74px)); }
-    }
-</style>
-
-<div class="md-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="md-header">
-            <div class="md-header-left">
-                <div class="md-header-icon"><i class="bi bi-phone"></i></div>
-                <div>
-                    <h2>@(IsVanSalesView ? "Van Sales Orders" : "Mobile Orders")</h2>
-                    <p>@(IsVanSalesView ? "Review ADR and sales-person orders captured against route customers" : "Review pending sales orders submitted from the mobile app")</p>
-                </div>
+@* The imported Nocturne design (Mobile Orders.dc.html) is dark;
+   wwwroot/css/mobile-orders.css — linked from App.razor — carries it and its
+   light counterpart, and follows the app's theme toggle like every other page.
+
+   The import draws the sidebar and the top search bar as well. Those are the
+   app's own chrome, already built, so only the content column is rebuilt here.
+
+   Row actions draw their glyph as inline SVG rather than from the Phosphor
+   font: the glyph is the button's whole label, so a font that failed to load
+   would leave them reading as dead controls. *@
+
+@{
+    var pageOrders = GetPageOrders();
+    var filteredCount = GetVisibleOrderCount();
+}
+
+<div class="mox">
+
+    <header class="mox-head">
+        <div class="mox-shell">
+            <div class="mox-titles">
+                <div class="mox-kicker">Sales &amp; billing</div>
+                <h1 class="mox-title">@(IsVanSalesView ? "Van Sales Orders" : "Mobile Orders")</h1>
+                <p class="mox-sub">
+                    @(IsVanSalesView
+                        ? "ADR and sales-person orders captured against route customers, waiting on review before they post to SAP."
+                        : "Sales orders submitted from the field app, waiting on review before they post to SAP.")
+                </p>
+            </div>
+            <div class="mox-head-actions">
+                <button type="button" class="mox-btn mox-btn-secondary" title="Download the listed orders as a workbook"
+                        disabled="@(isExporting || filteredCount == 0)" @onclick="ExportToExcel">
+                    @if (isExporting)
+                    {
+                        <span class="mox-spin" aria-hidden="true"></span>
+                        <span>Exporting…</span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M6 3h8l5 5v13H6z"></path>
+                            <path d="M14 3v5h5"></path>
+                            <path d="M9.5 12.5l5 5M14.5 12.5l-5 5"></path>
+                        </svg>
+                        <span>@ExportLabel</span>
+                    }
+                </button>
             </div>
         </div>
+        <div class="mox-rule"></div>
+    </header>
 
-        <!-- ━━━ Alerts ━━━ -->
+    <div class="mox-body">
+
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close"
-                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                               OnClick="() => errorMessage = null" />
+            <div class="mox-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="mox-alert-body">@errorMessage</div>
+                <button type="button" class="mox-iconbtn" title="Dismiss" aria-label="Dismiss error"
+                        @onclick="() => errorMessage = null">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
             </div>
         }
 
-        <!-- ━━━ Stat Cards ━━━ -->
-        @if (orders?.Any() == true)
-        {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon total"><i class="bi bi-phone"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@totalCount</div>
-                        <div class="stat-label">Total Orders</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon draft"><i class="bi bi-pencil-square"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Draft)</div>
-                        <div class="stat-label">Draft</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon pending"><i class="bi bi-clock-history"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Pending)</div>
-                        <div class="stat-label">Pending</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon approved"><i class="bi bi-check-circle"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@orders.Count(o => o.Status == SalesOrderStatus.Approved)</div>
-                        <div class="stat-label">Approved</div>
-                    </div>
-                </div>
+        @* Counts read "—" until the orders are in, rather than showing four
+           zeroes that are about to jump. *@
+        <section class="mox-stats">
+            <div class="mox-stat is-lead">
+                <div class="mox-stat-label"><span class="mox-stat-mark"></span>Total orders</div>
+                <div class="mox-stat-value">@StatValue(totalCount)</div>
+                <div class="mox-stat-foot">@(IsVanSalesView ? "All time, van sales" : "All time, mobile app")</div>
             </div>
-        }
+            <div class="mox-stat">
+                <div class="mox-stat-label"><span class="mox-stat-mark"></span>Draft</div>
+                <div class="mox-stat-value is-quiet">@StatValue(CountByStatus(SalesOrderStatus.Draft))</div>
+                <div class="mox-stat-foot">Not yet submitted</div>
+            </div>
+            <div class="mox-stat is-live">
+                <div class="mox-stat-label"><span class="mox-stat-pip"></span>Pending review</div>
+                <div class="mox-stat-value">@StatValue(CountByStatus(SalesOrderStatus.Pending))</div>
+                <div class="mox-stat-foot">@OldestPendingLabel</div>
+            </div>
+            <div class="mox-stat">
+                <div class="mox-stat-label"><span class="mox-stat-mark"></span>Approved</div>
+                <div class="mox-stat-value is-quiet">@StatValue(CountByStatus(SalesOrderStatus.Approved))</div>
+                <div class="mox-stat-foot">Posted to SAP</div>
+            </div>
+        </section>
 
-        <!-- ━━━ Content ━━━ -->
-        @if (isLoading)
-        {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#2563eb;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading mobile orders...</p>
-            </div>
-        }
-        else if (orders?.Any() == true)
-        {
-            <!-- ━━━ Filter Panel ━━━ -->
-            <div class="md-filter-panel">
-                <div class="md-filter-panel-row">
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">Order #</label>
-                        <input class="md-filter-input" type="text" @bind="orderNumberFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Search" />
-                    </div>
-                    <div class="md-filter-group wide">
-                        <label class="md-filter-label">Customer</label>
-                        <input class="md-filter-input" type="text" @bind="customerFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Name or code" />
-                    </div>
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">Order Date</label>
-                        <input class="md-filter-input" type="date" @bind="orderDateFilter" @bind:after="ResetToFirstPage" />
-                    </div>
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">Delivery</label>
-                        <input class="md-filter-input" type="date" @bind="deliveryDateFilter" @bind:after="ResetToFirstPage" />
-                    </div>
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">Status</label>
-                        <select class="md-filter-select" @bind="statusFilter" @bind:after="ResetToFirstPage">
-                            <option value="">All</option>
-                            @foreach (var statusOption in GetStatusFilterOptions())
-                            {
-                                <option value="@statusOption.Value">@statusOption.Label</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">Currency</label>
-                        <select class="md-filter-select" @bind="currencyFilter" @bind:after="ResetToFirstPage">
-                            <option value="">All</option>
-                            @foreach (var currencyOption in GetCurrencyFilterOptions())
-                            {
-                                <option value="@currencyOption">@currencyOption</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">Total</label>
-                        <input class="md-filter-input" type="text" @bind="totalFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="Amount" />
-                    </div>
-                    <div class="md-filter-group">
-                        <label class="md-filter-label">SAP Doc #</label>
-                        <input class="md-filter-input" type="text" @bind="sapDocFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" placeholder="SAP #" />
-                    </div>
-                    @if (HasActiveFilters())
+        <section class="mox-card">
+
+            <div class="mox-toolbar">
+                <div class="mox-tabs" role="group" aria-label="Filter by status">
+                    @foreach (var tab in GetStatusTabs())
                     {
-                        <div class="md-filter-actions">
-                            <button type="button" class="md-clear-filters" @onclick="ClearFilter">
-                                <i class="bi bi-x-circle"></i> Clear
+                        <button type="button" class="mox-tab @(IsStatusTabActive(tab.Value) ? "is-on" : null)"
+                                aria-pressed="@IsStatusTabActive(tab.Value)"
+                                @onclick="() => SelectStatusTab(tab.Value)">
+                            @tab.Label
+                        </button>
+                    }
+                </div>
+                <span class="mox-shown">@filteredCount.ToString("N0") shown</span>
+
+                <div class="mox-toolbar-right">
+                    @if (SelectedOrderCount > 0)
+                    {
+                        <div class="mox-selbar">
+                            <span class="mox-selcount">@SelectedOrderCount selected</span>
+                            <button type="button" class="mox-btn mox-btn-sm mox-btn-solid"
+                                    title="@BulkApproveTitle" disabled="@(!CanBulkApprove)"
+                                    @onclick="BulkApproveSelected">
+                                @if (isBulkApproving)
+                                {
+                                    <span class="mox-spin" aria-hidden="true"></span>
+                                    <span>Approving…</span>
+                                }
+                                else
+                                {
+                                    <span>Approve</span>
+                                }
+                            </button>
+                            <button type="button" class="mox-btn mox-btn-sm mox-btn-ghost" @onclick="ClearSelection">
+                                Clear
                             </button>
                         </div>
                     }
+                    <button type="button" class="mox-btn mox-btn-secondary mox-btn-pill"
+                            aria-expanded="@showFilters" @onclick="ToggleFilters">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                             stroke-linecap="round" aria-hidden="true">
+                            <path d="M4 6h16M7 12h10M10 18h4"></path>
+                        </svg>
+                        <span>Filters</span>
+                        @if (ActiveFilterCount > 0)
+                        {
+                            <span class="mox-filter-count">@ActiveFilterCount</span>
+                        }
+                    </button>
                 </div>
             </div>
 
-            <div class="md-table-wrap">
-                <div class="md-table-header">
-                    <h6><i class="bi bi-phone"></i> Mobile Orders</h6>
-                    <div class="md-table-tools">
-                        <span class="md-count-badge">@GetOrderCountSummary()</span>
-                        @if (HasActiveFilters())
-                        {
-                            <button type="button" class="md-clear-filters" @onclick="ClearFilter">
-                                <i class="bi bi-x-circle"></i> Clear filters
-                            </button>
-                        }
+            @if (showFilters)
+            {
+                <section class="mox-filters">
+                    <div class="mox-field" style="width:148px">
+                        <label for="mox-f-number">Order #</label>
+                        <input id="mox-f-number" class="mox-input mox-input-num" type="text" placeholder="SO-…"
+                               @bind="orderNumberFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
                     </div>
-                </div>
-                <MudTable @ref="@_table" Items="@GetFilteredOrders()" RowsPerPage="@_pageSize" Hover="true" Striped="true" Dense="true"
-                          Breakpoint="Breakpoint.Sm" Loading="@isLoading" LoadingProgressColor="Color.Primary" T="SalesOrderDto"
-                          Elevation="0" Style="background:transparent;">
-                    <HeaderContent>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.OrderNumber ?? string.Empty)">Order #</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.CardName ?? string.Empty)">Customer</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.OrderDate)">Order Date</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.DeliveryDate ?? DateTime.MinValue)">Delivery</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => GetDisplayStatusSortOrder(x))">Status</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.Currency ?? string.Empty)">Currency</MudTableSortLabel></MudTh>
-                        <MudTh Style="text-align:right"><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.DocTotal)">Total</MudTableSortLabel></MudTh>
-                        <MudTh><MudTableSortLabel SortBy="new Func<SalesOrderDto, object>(x => x.SAPDocNum ?? 0)">SAP Doc #</MudTableSortLabel></MudTh>
-                        <MudTh Class="md-order-actions-header">Actions</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd DataLabel="Order #"><span class="doc-number">@context.OrderNumber</span></MudTd>
-                        <MudTd DataLabel="Customer">
-                            <div class="customer-info">
-                                <span class="name">@context.CardName</span>
-                                <span class="code">@context.CardCode</span>
-                            </div>
-                        </MudTd>
-                        <MudTd DataLabel="Order Date">
-                            <div style="display:flex; flex-direction:column; gap:.15rem;">
-                                <span style="font-size:.85rem;color:#374151;">@context.OrderDate.ToString("dd MMM yyyy")</span>
-                                <span style="font-size:.72rem;color:#6b7280;">Received @IAuditService.ToCAT(context.CreatedAt).ToString("HH:mm") CAT</span>
-                            </div>
-                        </MudTd>
-                        <MudTd DataLabel="Delivery"><span style="font-size:.85rem;color:#374151;">@(context.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")</span></MudTd>
-                        <MudTd DataLabel="Status">
-                            <span class="status-badge @GetDisplayStatusCssClass(context)">@GetDisplayStatusName(context)</span>
-                        </MudTd>
-                        <MudTd DataLabel="Currency"><span style="font-size:.85rem;color:#6b7280;">@context.Currency</span></MudTd>
-                        <MudTd DataLabel="Total" Style="text-align:right">
-                            <span class="amount-cell">@context.DocTotal.ToString("N2")</span>
-                        </MudTd>
-                        <MudTd DataLabel="SAP Doc #">
-                            @if (context.SAPDocNum.HasValue)
-                            {
-                                <span class="sap-doc-num" style="font-weight:700; color:#059669; font-family:'Space Grotesk',monospace; font-size:.88rem;">
-                                    <i class="bi bi-check-circle-fill me-1" style="font-size:.7rem;"></i>@context.SAPDocNum
-                                </span>
-                            }
-                            else if (context.IsSynced)
-                            {
-                                <span class="sync-dot synced"><i class="bi bi-circle-fill"></i> Synced</span>
-                            }
-                            else
-                            {
-                                <span class="sync-dot unsynced"><i class="bi bi-circle-fill"></i> Pending</span>
-                            }
-                        </MudTd>
-                        <MudTd DataLabel="Actions" Class="md-order-actions-cell">
-                            <div class="md-order-actions">
-                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.View) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Visibility)" Size="Size.Small"
-                                               Variant="Variant.Outlined" Color="Color.Primary" title="View Details"
-                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                               OnClick="() => ViewOrder(context)" />
-                                @if (CanViewOrderPod(context))
+                    <div class="mox-field" style="width:210px">
+                        <label for="mox-f-customer">Customer</label>
+                        <input id="mox-f-customer" class="mox-input" type="text" placeholder="Name or code"
+                               @bind="customerFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="mox-field" style="width:146px">
+                        <label for="mox-f-ordered">Order date</label>
+                        <input id="mox-f-ordered" class="mox-input mox-input-num" type="date"
+                               @bind="orderDateFilter" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="mox-field" style="width:146px">
+                        <label for="mox-f-delivery">Delivery</label>
+                        <input id="mox-f-delivery" class="mox-input mox-input-num" type="date"
+                               @bind="deliveryDateFilter" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="mox-field" style="width:118px">
+                        <label for="mox-f-currency">Currency</label>
+                        <div class="mox-select">
+                            <select id="mox-f-currency" class="mox-input" @bind="currencyFilter" @bind:after="ResetToFirstPage">
+                                <option value="">All</option>
+                                @foreach (var currencyOption in GetCurrencyFilterOptions())
                                 {
-                                    <MudIconButton Icon="@Icons.Material.Filled.LocalShipping" Size="Size.Small"
-                                                   Variant="Variant.Outlined" Color="Color.Success" title="View POD"
-                                                   Disabled="@IsOrderActionBusy(context.Id)"
-                                                   OnClick="() => NavigateToPod(context)" />
+                                    <option value="@currencyOption">@currencyOption</option>
                                 }
-                                @if ((context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending) && !context.IsSynced)
-                                {
-                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                   Variant="Variant.Outlined" Color="Color.Warning" title="Edit"
-                                                   Disabled="@IsOrderActionBusy(context.Id)"
-                                                   OnClick="() => NavigateToEdit(context.Id)" />
-                                }
-                                <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
-                                    <Authorized>
-                                        @if (context.Status == SalesOrderStatus.Approved && context.InvoiceId == null)
+                            </select>
+                            <span class="mox-caret" aria-hidden="true"></span>
+                        </div>
+                    </div>
+                    <div class="mox-field" style="width:130px">
+                        <label for="mox-f-total">Total</label>
+                        <input id="mox-f-total" class="mox-input mox-input-num" type="text" placeholder="Amount"
+                               @bind="totalFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="mox-field" style="width:130px">
+                        <label for="mox-f-sap">SAP doc #</label>
+                        <input id="mox-f-sap" class="mox-input mox-input-num" type="text" placeholder="SAP #"
+                               @bind="sapDocFilter" @bind:event="oninput" @bind:after="ResetToFirstPage" />
+                    </div>
+                    <div class="mox-filter-actions">
+                        <button type="button" class="mox-btn mox-btn-ghost" disabled="@(!HasActiveFilters())"
+                                @onclick="ClearFilter">
+                            Clear filters
+                        </button>
+                    </div>
+                </section>
+            }
+
+            <div class="mox-tablewrap">
+                <table class="mox-table">
+                    <thead>
+                        <tr>
+                            <th>
+                                <input class="mox-check" type="checkbox" title="Select the orders on this page"
+                                       aria-label="Select the orders on this page"
+                                       disabled="@(pageOrders.Count == 0)"
+                                       checked="@AreAllPageOrdersSelected(pageOrders)"
+                                       @onchange="() => ToggleAllPageOrders(pageOrders)" />
+                            </th>
+                            <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Number)">
+                                Order #<span class="mox-sort-mark">@SortMark(OrderSortKey.Number)</span>
+                            </th>
+                            <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Customer)">
+                                Customer<span class="mox-sort-mark">@SortMark(OrderSortKey.Customer)</span>
+                            </th>
+                            <th>Submitted by</th>
+                            <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Ordered)">
+                                Ordered<span class="mox-sort-mark">@SortMark(OrderSortKey.Ordered)</span>
+                            </th>
+                            <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Delivery)">
+                                Delivery<span class="mox-sort-mark">@SortMark(OrderSortKey.Delivery)</span>
+                            </th>
+                            <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.Status)">
+                                Status<span class="mox-sort-mark">@SortMark(OrderSortKey.Status)</span>
+                            </th>
+                            <th>Ccy</th>
+                            <th class="mox-th-sort mox-num" @onclick="() => SortBy(OrderSortKey.Total)">
+                                Total<span class="mox-sort-mark">@SortMark(OrderSortKey.Total)</span>
+                            </th>
+                            <th class="mox-th-sort" @onclick="() => SortBy(OrderSortKey.SapDoc)">
+                                SAP doc<span class="mox-sort-mark">@SortMark(OrderSortKey.SapDoc)</span>
+                            </th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (isLoading)
+                        {
+                            @for (var skeletonRow = 0; skeletonRow < 8; skeletonRow++)
+                            {
+                                <tr>
+                                    @for (var skeletonCell = 0; skeletonCell < 11; skeletonCell++)
+                                    {
+                                        <td><div class="mox-skel"></div></td>
+                                    }
+                                </tr>
+                            }
+                        }
+                        else if (pageOrders.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="11">
+                                    <div class="mox-empty">
+                                        <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                                        @if (orders?.Any() == true)
                                         {
-                                            <MudIconButton
-                                                Icon="@(IsOrderActionBusy(context.Id, OrderActionType.ConvertToInvoice) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Receipt)"
-                                                Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
-                                                title="Convert to Invoice" Disabled="@IsOrderActionBusy(context.Id)"
-                                                OnClick="() => ConvertToInvoice(context)" />
+                                            <strong>No orders match these filters</strong>
+                                            <span>Switch tab or clear the filters to see more orders.</span>
+                                            <button type="button" class="mox-btn mox-btn-secondary"
+                                                    disabled="@(!HasActiveFilters() && IsStatusTabActive(null))"
+                                                    @onclick="ResetAllFilters">
+                                                Reset filters
+                                            </button>
                                         }
-                                    </Authorized>
-                                </AuthorizeView>
-                                @if (!context.IsSynced)
-                                {
-                                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="approveAccess">
-                                        <Authorized>
-                                            @if (context.Status == SalesOrderStatus.Draft || context.Status == SalesOrderStatus.Pending)
-                                            {
-                                                @if (IsOrderActionBusy(context.Id, OrderActionType.Approve))
+                                        else
+                                        {
+                                            <strong>No mobile orders yet</strong>
+                                            <span>Orders submitted from the mobile app will appear here for review.</span>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var order in pageOrders)
+                            {
+                                <tr class="@(IsOrderSelected(order.Id) ? "is-selected" : null)">
+                                    <td>
+                                        <input class="mox-check" type="checkbox"
+                                               aria-label="@($"Select order {order.OrderNumber}")"
+                                               checked="@IsOrderSelected(order.Id)"
+                                               @onchange="() => ToggleOrderSelection(order.Id)" />
+                                    </td>
+                                    <td>
+                                        <button type="button" class="mox-docnum" title="View this order"
+                                                @onclick="() => ViewOrder(order)">
+                                            @order.OrderNumber
+                                        </button>
+                                        <span class="mox-sync @(order.IsSynced ? null : "is-queued")"
+                                              title="@(order.IsSynced ? "Posted to SAP" : "Not yet posted to SAP")">
+                                            <span class="mox-sync-dot"></span>@(order.IsSynced ? "Synced" : "Queued")
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div class="mox-cust">
+                                            <span class="mox-cust-name" title="@order.CardName">@order.CardName</span>
+                                            <span class="mox-cust-meta">@order.CardCode@(GetLineCountSuffix(order))</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="mox-by" title="@GetSubmittedByTitle(order)">
+                                            <span class="mox-avatar" aria-hidden="true">@GetInitials(order)</span>
+                                            <span class="mox-by-text">
+                                                <span class="mox-by-name">@GetSubmittedByName(order)</span>
+                                                <span class="mox-by-device">
+                                                    @GetDeviceLabel(order)
+                                                    @if (order.Latitude.HasValue && order.Longitude.HasValue)
+                                                    {
+                                                        <i class="ph ph-map-pin" aria-hidden="true"></i>
+                                                    }
+                                                </span>
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td class="mox-when">
+                                        @order.OrderDate.ToString("dd MMM yyyy")
+                                        <span class="mox-when-at">@IAuditService.ToCAT(order.CreatedAt).ToString("HH:mm") CAT</span>
+                                    </td>
+                                    <td class="mox-when">@(order.DeliveryDate?.ToString("dd MMM yyyy") ?? "—")</td>
+                                    <td>
+                                        <span class="mox-status @GetStatusToneClass(order)">
+                                            <span class="mox-dot"></span>@GetDisplayStatusName(order)
+                                        </span>
+                                    </td>
+                                    <td><span class="mox-ccy">@order.Currency</span></td>
+                                    <td class="mox-num mox-total">@order.DocTotal.ToString("N2")</td>
+                                    <td>
+                                        <span class="@GetSapDocClass(order)">@GetSapDocLabel(order)</span>
+                                    </td>
+                                    <td>
+                                        <div class="mox-rowactions">
+                                            <button type="button" class="mox-iconbtn" title="View details"
+                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                    @onclick="() => ViewOrder(order)">
+                                                @if (IsOrderActionBusy(order.Id, OrderActionType.View))
                                                 {
-                                                    <span class="spinner-border spinner-border-sm text-success" style="width:1rem;height:1rem;" role="status" aria-label="Approving order"></span>
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3v4l4 4 4-4V3M8 21v-4l4-4 4 4v4"></path></svg>
                                                 }
                                                 else
                                                 {
-                                                    <MudIconButton Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small"
-                                                                   Variant="Variant.Outlined" Color="Color.Success" title="Approve"
-                                                                   Disabled="@IsOrderActionBusy(context.Id)"
-                                                                   OnClick="() => ApproveOrder(context.Id)" />
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>
                                                 }
-                                            }
-                                        </Authorized>
-                                    </AuthorizeView>
-                                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="statusActionAccess">
-                                        <Authorized>
-                                            @if (CanCancelOrder(context))
+                                            </button>
+                                            @if (CanViewOrderPod(order))
                                             {
-                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Cancel)" Size="Size.Small"
-                                                               Variant="Variant.Outlined" Color="Color.Error" title="Cancel"
-                                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                                               OnClick="() => CancelOrder(context.Id)" />
+                                                <button type="button" class="mox-iconbtn" title="View POD"
+                                                        disabled="@IsOrderActionBusy(order.Id)"
+                                                        @onclick="() => NavigateToPod(order)">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><path d="M7 19a2 2 0 1 0 0-.01M18 19a2 2 0 1 0 0-.01"></path></svg>
+                                                </button>
                                             }
-                                            @if (CanRestoreToDraft(context))
+                                            @if ((order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending) && !order.IsSynced)
                                             {
-                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.UpdateStatus) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Undo)" Size="Size.Small"
-                                                               Variant="Variant.Outlined" Color="Color.Warning" title="Back to Draft"
-                                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                                               OnClick="() => RestoreOrderToDraft(context.Id)" />
+                                                <button type="button" class="mox-iconbtn" title="Edit"
+                                                        disabled="@IsOrderActionBusy(order.Id)"
+                                                        @onclick="() => NavigateToEdit(order.Id)">
+                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path></svg>
+                                                </button>
                                             }
-                                        </Authorized>
-                                    </AuthorizeView>
-                                    <AuthorizeView Roles="Admin" Context="deleteAccess">
-                                        <Authorized>
-                                            @if (CanDeleteOrder(context))
+                                            <AuthorizeView Roles="Admin,Cashier" Context="invoiceAccess">
+                                                <Authorized>
+                                                    @if (order.Status == SalesOrderStatus.Approved && order.InvoiceId == null)
+                                                    {
+                                                        <button type="button" class="mox-iconbtn" title="Convert to invoice"
+                                                                disabled="@IsOrderActionBusy(order.Id)"
+                                                                @onclick="() => ConvertToInvoice(order)">
+                                                            @if (IsOrderActionBusy(order.Id, OrderActionType.ConvertToInvoice))
+                                                            {
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3v4l4 4 4-4V3M8 21v-4l4-4 4 4v4"></path></svg>
+                                                            }
+                                                            else
+                                                            {
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path><path d="M9 8h6M9 12h6"></path></svg>
+                                                            }
+                                                        </button>
+                                                    }
+                                                </Authorized>
+                                            </AuthorizeView>
+                                            @if (!order.IsSynced)
                                             {
-                                                <MudIconButton Icon="@(IsOrderActionBusy(context.Id, OrderActionType.Delete) ? Icons.Material.Filled.HourglassTop : Icons.Material.Filled.Delete)" Size="Size.Small"
-                                                               Variant="Variant.Outlined" Color="Color.Error" title="Delete"
-                                                               Disabled="@IsOrderActionBusy(context.Id)"
-                                                               OnClick="() => DeleteOrder(context.Id)" />
+                                                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="approveAccess">
+                                                    <Authorized>
+                                                        @if (order.Status == SalesOrderStatus.Draft || order.Status == SalesOrderStatus.Pending)
+                                                        {
+                                                            <button type="button" class="mox-iconbtn is-accent" title="Approve"
+                                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                                    @onclick="() => ApproveOrder(order.Id)">
+                                                                @if (IsOrderActionBusy(order.Id, OrderActionType.Approve))
+                                                                {
+                                                                    <span class="mox-spin" aria-hidden="true"></span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
+                                                                }
+                                                            </button>
+                                                        }
+                                                    </Authorized>
+                                                </AuthorizeView>
+                                                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="statusActionAccess">
+                                                    <Authorized>
+                                                        @if (CanCancelOrder(order))
+                                                        {
+                                                            <button type="button" class="mox-iconbtn is-bad" title="Cancel"
+                                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                                    @onclick="() => CancelOrder(order.Id)">
+                                                                @if (IsOrderActionBusy(order.Id, OrderActionType.UpdateStatus))
+                                                                {
+                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3v4l4 4 4-4V3M8 21v-4l4-4 4 4v4"></path></svg>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M5.6 5.6l12.8 12.8"></path></svg>
+                                                                }
+                                                            </button>
+                                                        }
+                                                        @if (CanRestoreToDraft(order))
+                                                        {
+                                                            <button type="button" class="mox-iconbtn" title="Back to draft"
+                                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                                    @onclick="() => RestoreOrderToDraft(order.Id)">
+                                                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10H9"></path><path d="M8 5L4 9l4 4"></path></svg>
+                                                            </button>
+                                                        }
+                                                    </Authorized>
+                                                </AuthorizeView>
+                                                <AuthorizeView Roles="Admin" Context="deleteAccess">
+                                                    <Authorized>
+                                                        @if (CanDeleteOrder(order))
+                                                        {
+                                                            <button type="button" class="mox-iconbtn is-bad" title="Delete"
+                                                                    disabled="@IsOrderActionBusy(order.Id)"
+                                                                    @onclick="() => DeleteOrder(order.Id)">
+                                                                @if (IsOrderActionBusy(order.Id, OrderActionType.Delete))
+                                                                {
+                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M7 21h10M8 3v4l4 4 4-4V3M8 21v-4l4-4 4 4v4"></path></svg>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V5h6v2"></path><path d="M6 7l1 13h10l1-13"></path></svg>
+                                                                }
+                                                            </button>
+                                                        }
+                                                    </Authorized>
+                                                </AuthorizeView>
                                             }
-                                        </Authorized>
-                                    </AuthorizeView>
-                                }
-                            </div>
-                        </MudTd>
-                    </RowTemplate>
-                    <NoRecordsContent>
-                        <div class="empty-state py-4">
-                            <div class="empty-icon"><i class="bi bi-funnel"></i></div>
-                            <h6>No matching mobile orders</h6>
-                            <p>Adjust the header filters or clear them to see more orders.</p>
-                            <button type="button" class="md-clear-filters" @onclick="ClearFilter" disabled="@(!HasActiveFilters())">
-                                <i class="bi bi-x-circle"></i> Clear filters
-                            </button>
-                        </div>
-                    </NoRecordsContent>
-                    <PagerContent>
-                        <div class="pager-row">
-                            <div class="page-size-wrap">
-                                <span>Show</span>
-                                <select @bind="_pageSize" @bind:after="OnPageSizeChanged">
-                                    @foreach (var size in GetPageSizeOptions())
-                                    {
-                                        <option value="@size">@size</option>
-                                    }
-                                </select>
-                                <span>per page</span>
-                            </div>
-                            <MudPagination SelectedChanged="PageChanged"
-                                           Count="@GetVisiblePageCount()"
-                                           Class="pa-4" />
-                        </div>
-                    </PagerContent>
-                </MudTable>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
             </div>
-        }
-        else
-        {
-            <div class="empty-state">
-                <div class="empty-icon"><i class="bi bi-phone"></i></div>
-                <h6>No mobile orders found</h6>
-                <p>Orders submitted from the mobile app will appear here for review.</p>
+
+            <div class="mox-foot">
+                <span class="mox-foot-range">@GetRangeLabel(filteredCount)</span>
+                <div class="mox-pagesize">
+                    <span>Rows</span>
+                    <div class="mox-select">
+                        <select class="mox-input" aria-label="Rows per page" @bind="_pageSize" @bind:after="ResetToFirstPage">
+                            @foreach (var size in GetPageSizeOptions())
+                            {
+                                <option value="@size">@size</option>
+                            }
+                        </select>
+                        <span class="mox-caret" aria-hidden="true"></span>
+                    </div>
+                </div>
+                <div class="mox-pager">
+                    <button type="button" class="mox-btn mox-btn-secondary mox-btn-sm"
+                            disabled="@(_page <= 1)" @onclick="() => GoToPage(_page - 1)">
+                        Previous
+                    </button>
+                    <span class="mox-page-label">Page @_page of @GetVisiblePageCount()</span>
+                    <button type="button" class="mox-btn mox-btn-secondary mox-btn-sm"
+                            disabled="@(_page >= GetVisiblePageCount())" @onclick="() => GoToPage(_page + 1)">
+                        Next
+                    </button>
+                </div>
             </div>
-        }
+
+        </section>
     </div>
 </div>
 
-<!-- ━━━ View Order Drawer ━━━ -->
 @if (selectedOrder != null)
 {
-    <div class="modal-backdrop-custom" @onclick="ClearSelectedOrder"></div>
-    <div class="detail-drawer">
-        <div class="drawer-header">
-            <h5><i class="bi bi-phone me-2"></i>Mobile Order: @selectedOrder.OrderNumber</h5>
-            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer"
-                           OnClick="ClearSelectedOrder" />
-        </div>
-        <div class="drawer-body">
-            <div class="detail-grid">
-                <div class="detail-item">
-                    <div class="detail-label">Customer</div>
-                    <div class="detail-value">@selectedOrder.CardCode — @selectedOrder.CardName</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Order Date</div>
-                    <div class="detail-value">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Received From Mobile</div>
-                    <div class="detail-value">@IAuditService.ToCAT(selectedOrder.CreatedAt).ToString("dd MMM yyyy HH:mm") CAT</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Delivery Date</div>
-                    <div class="detail-value">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Status</div>
-                    <div class="detail-value"><span class="status-badge @GetSelectedOrderStatusCssClass()">@GetSelectedOrderStatusName()</span></div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Currency</div>
-                    <div class="detail-value">@selectedOrder.Currency</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Created By</div>
-                    <div class="detail-value">@selectedOrder.CreatedByUserName</div>
-                </div>
-                <div class="detail-item">
-                    <div class="detail-label">Customer PO Ref</div>
-                    <div class="detail-value">@(string.IsNullOrWhiteSpace(selectedOrder.CustomerRefNo) ? "—" : selectedOrder.CustomerRefNo)</div>
-                </div>
-                @if (selectedOrder.SAPDocNum.HasValue)
-                {
-                    <div class="detail-item">
-                        <div class="detail-label">SAP Document #</div>
-                        <div class="detail-value" style="color:#059669; font-family:'Space Grotesk',monospace;">@selectedOrder.SAPDocNum</div>
-                    </div>
-                }
-                @if (GetSelectedOrderInvoiceDocNum().HasValue)
-                {
-                    <div class="detail-item">
-                        <div class="detail-label">@(CanViewSelectedOrderPod() ? "POD Invoice #" : "Invoice #")</div>
-                        <div class="detail-value" style="color:#166534; font-family:'Space Grotesk',monospace;">@GetSelectedOrderInvoiceDocNum()</div>
-                    </div>
-                }
+    <div class="mox-overlay">
+        <div class="mox-scrim" @onclick="ClearSelectedOrder"></div>
+        <aside class="mox-drawer" aria-label="Mobile order detail">
+            <div class="mox-drawer-head">
+                <h2 class="mox-drawer-title">
+                    <i class="ph ph-device-mobile" aria-hidden="true"></i>
+                    <span>@selectedOrder.OrderNumber</span>
+                </h2>
+                <span class="mox-status @GetSelectedOrderToneClass()">
+                    <span class="mox-dot"></span>@GetSelectedOrderStatusName()
+                </span>
+                <button type="button" class="mox-iconbtn" title="Close" aria-label="Close"
+                        @onclick="ClearSelectedOrder">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                </button>
             </div>
 
-            <div style="background:#f8fafc; border:1px solid #dbe4f0; border-radius:10px; padding:.85rem 1rem; margin-bottom:1.25rem;">
-                <div style="font-size:.78rem; font-weight:600; color:#1e3a8a; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.45rem;">
-                    <i class="bi bi-file-earmark-pdf"></i> Physical Purchase Order
-                </div>
-                @if (string.IsNullOrWhiteSpace(GetPurchaseOrderReference(selectedOrder)))
-                {
-                    <p style="color:#475569; font-size:.88rem; margin:0;">No purchase order reference is available on this mobile order.</p>
-                }
-                else if (isLoadingPurchaseOrderAttachments)
-                {
-                    <div style="display:flex; align-items:center; gap:.5rem; color:#475569; font-size:.88rem;">
-                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                        <span>Loading uploaded purchase order files for reference <strong>@GetPurchaseOrderReference(selectedOrder)</strong>...</span>
+            <div class="mox-drawer-body">
+                <div class="mox-grid">
+                    <div>
+                        <div class="mox-dt">Customer</div>
+                        <div class="mox-dd">@selectedOrder.CardCode — @selectedOrder.CardName</div>
                     </div>
-                }
-                else if (!string.IsNullOrWhiteSpace(purchaseOrderAttachmentError))
-                {
-                    <p style="color:#b91c1c; font-size:.88rem; margin:0;">@purchaseOrderAttachmentError</p>
-                }
-                else if (purchaseOrderAttachments.Count == 0)
-                {
-                    <p style="color:#475569; font-size:.88rem; margin:0;">No uploaded physical purchase order was found for reference <strong>@GetPurchaseOrderReference(selectedOrder)</strong>.</p>
-                }
-                else
-                {
-                    <div style="display:flex; flex-direction:column; gap:.6rem;">
+                    <div>
+                        <div class="mox-dt">Order date</div>
+                        <div class="mox-dd">@selectedOrder.OrderDate.ToString("dd MMM yyyy")</div>
+                    </div>
+                    <div>
+                        <div class="mox-dt">Received from mobile</div>
+                        <div class="mox-dd">@IAuditService.ToCAT(selectedOrder.CreatedAt).ToString("dd MMM yyyy HH:mm") CAT</div>
+                    </div>
+                    <div>
+                        <div class="mox-dt">Delivery date</div>
+                        <div class="mox-dd">@(selectedOrder.DeliveryDate?.ToString("dd MMM yyyy") ?? "Not set")</div>
+                    </div>
+                    <div>
+                        <div class="mox-dt">Currency</div>
+                        <div class="mox-dd">@selectedOrder.Currency</div>
+                    </div>
+                    <div>
+                        <div class="mox-dt">Submitted by</div>
+                        <div class="mox-dd">@GetSubmittedByName(selectedOrder)</div>
+                    </div>
+                    <div>
+                        <div class="mox-dt">Device</div>
+                        <div class="mox-dd">@GetDeviceLabel(selectedOrder)</div>
+                    </div>
+                    <div>
+                        <div class="mox-dt">Customer PO ref</div>
+                        <div class="mox-dd">@(string.IsNullOrWhiteSpace(selectedOrder.CustomerRefNo) ? "—" : selectedOrder.CustomerRefNo)</div>
+                    </div>
+                    @if (selectedOrder.SAPDocNum.HasValue)
+                    {
+                        <div>
+                            <div class="mox-dt">SAP document #</div>
+                            <div class="mox-dd mox-num" style="text-align:left">@selectedOrder.SAPDocNum</div>
+                        </div>
+                    }
+                    @if (GetSelectedOrderInvoiceDocNum().HasValue)
+                    {
+                        <div>
+                            <div class="mox-dt">@(CanViewSelectedOrderPod() ? "POD invoice #" : "Invoice #")</div>
+                            <div class="mox-dd mox-num" style="text-align:left">@GetSelectedOrderInvoiceDocNum()</div>
+                        </div>
+                    }
+                </div>
+
+                <div>
+                    <div class="mox-sect">
+                        <i class="ph ph-file-pdf" aria-hidden="true"></i>Physical purchase order
+                    </div>
+                    @if (string.IsNullOrWhiteSpace(GetPurchaseOrderReference(selectedOrder)))
+                    {
+                        <div class="mox-note">No purchase order reference is available on this mobile order.</div>
+                    }
+                    else if (isLoadingPurchaseOrderAttachments)
+                    {
+                        <div class="mox-note">
+                            <span class="mox-spin" aria-hidden="true"></span>
+                            Loading uploaded purchase order files for reference @GetPurchaseOrderReference(selectedOrder)…
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(purchaseOrderAttachmentError))
+                    {
+                        <div class="mox-note is-bad">@purchaseOrderAttachmentError</div>
+                    }
+                    else if (purchaseOrderAttachments.Count == 0)
+                    {
+                        <div class="mox-note">
+                            No uploaded physical purchase order was found for reference
+                            @GetPurchaseOrderReference(selectedOrder).
+                        </div>
+                    }
+                    else
+                    {
                         @foreach (var attachment in purchaseOrderAttachments)
                         {
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:.7rem .85rem;">
-                                <div style="min-width:0;">
-                                    <div style="font-weight:600; color:#1f2937; font-size:.88rem; word-break:break-word;">@attachment.FileName</div>
-                                    <div style="font-size:.78rem; color:#64748b;">
+                            <div class="mox-file">
+                                <div style="min-width:0">
+                                    <div class="mox-file-name">@attachment.FileName</div>
+                                    <div class="mox-file-meta">
                                         @attachment.FileSizeFormatted
                                         @if (!string.IsNullOrWhiteSpace(attachment.UploadedByUserName))
                                         {
-                                            <span> · Uploaded by @attachment.UploadedByUserName</span>
+                                            <span> · @attachment.UploadedByUserName</span>
                                         }
                                         <span> · @IAuditService.ToCAT(attachment.UploadedAt).ToString("dd MMM yyyy HH:mm")</span>
                                     </div>
                                     @if (!string.IsNullOrWhiteSpace(attachment.Description))
                                     {
-                                        <div style="font-size:.78rem; color:#475569; margin-top:.15rem; word-break:break-word;">@attachment.Description</div>
+                                        <div class="mox-file-meta">@attachment.Description</div>
                                     }
                                 </div>
-                                <div style="display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; white-space:nowrap;">
+                                <div class="mox-file-actions">
                                     @if (IsViewablePurchaseOrderAttachment(attachment))
                                     {
-                                        <button type="button"
-                                                class="btn-search"
-                                                style="white-space:nowrap;"
+                                        <button type="button" class="mox-btn mox-btn-secondary mox-btn-sm"
                                                 @onclick="() => ViewPurchaseOrderAttachment(attachment)">
-                                            <i class="bi bi-eye"></i> View
+                                            View
                                         </button>
                                     }
-                                    <button type="button"
-                                            class="btn-search"
-                                            style="white-space:nowrap;"
+                                    <button type="button" class="mox-btn mox-btn-secondary mox-btn-sm"
                                             @onclick="() => DownloadPurchaseOrderAttachment(attachment)">
-                                        <i class="bi bi-download"></i> Download
+                                        Download
                                     </button>
                                 </div>
                             </div>
                         }
+                    }
+                </div>
+
+                @if (!string.IsNullOrEmpty(selectedOrder.MerchandiserNotes))
+                {
+                    <div>
+                        <div class="mox-sect"><i class="ph ph-chat-text" aria-hidden="true"></i>Merchandiser notes</div>
+                        <div class="mox-note"><p>@selectedOrder.MerchandiserNotes</p></div>
+                    </div>
+                }
+
+                @if (selectedOrder.Latitude.HasValue && selectedOrder.Longitude.HasValue)
+                {
+                    <div>
+                        <div class="mox-sect"><i class="ph ph-map-pin" aria-hidden="true"></i>Order location</div>
+                        <div class="mox-coords">
+                            <span>Lat @selectedOrder.Latitude.Value.ToString("F6")</span>
+                            <span>Lon @selectedOrder.Longitude.Value.ToString("F6")</span>
+                            <a class="mox-maplink" target="_blank" rel="noopener noreferrer"
+                               href="https://www.google.com/maps?q=@selectedOrder.Latitude.Value.ToString(CultureInfo.InvariantCulture),@selectedOrder.Longitude.Value.ToString(CultureInfo.InvariantCulture)">
+                                Open in Google Maps
+                            </a>
+                        </div>
+                        <div class="mox-map">
+                            <iframe title="Order location" scrolling="no"
+                                    src="https://www.openstreetmap.org/export/embed.html?bbox=@((selectedOrder.Longitude.Value - 0.005m).ToString(CultureInfo.InvariantCulture))%2C@((selectedOrder.Latitude.Value - 0.005m).ToString(CultureInfo.InvariantCulture))%2C@((selectedOrder.Longitude.Value + 0.005m).ToString(CultureInfo.InvariantCulture))%2C@((selectedOrder.Latitude.Value + 0.005m).ToString(CultureInfo.InvariantCulture))&marker=@(selectedOrder.Latitude.Value.ToString(CultureInfo.InvariantCulture))%2C@(selectedOrder.Longitude.Value.ToString(CultureInfo.InvariantCulture))">
+                            </iframe>
+                        </div>
+                    </div>
+                }
+
+                @if (selectedOrder.Lines?.Any() == true)
+                {
+                    <div>
+                        <div class="mox-lines-head">
+                            <div class="mox-sect"><i class="ph ph-list-bullets" aria-hidden="true"></i>Order lines</div>
+                            <div class="mox-pills" aria-label="Order item counts">
+                                <span class="mox-pill">@FormatOrderLineCount(selectedOrder)</span>
+                                <span class="mox-pill">@FormatOrderItemCount(selectedOrder)</span>
+                            </div>
+                        </div>
+                        <table class="mox-lines">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Description</th>
+                                    <th class="mox-num">Qty</th>
+                                    <th>UoM</th>
+                                    <th class="mox-num">Unit price</th>
+                                    <th class="mox-num">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in selectedOrder.Lines)
+                                {
+                                    <tr>
+                                        <td><span class="mox-item">@line.ItemCode</span></td>
+                                        <td>@line.ItemDescription</td>
+                                        <td class="mox-num">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
+                                        <td>@(string.IsNullOrWhiteSpace(line.UoMCode) ? "-" : line.UoMCode)</td>
+                                        <td class="mox-num">@line.UnitPrice.ToString("N2")</td>
+                                        <td class="mox-num">@line.LineTotal.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="5" class="mox-num">Item count</td>
+                                    <td class="mox-num">@FormatOrderItemCount(selectedOrder)</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="5" class="mox-num">Subtotal</td>
+                                    <td class="mox-num">@selectedOrder.SubTotal.ToString("N2")</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="5" class="mox-num">Tax</td>
+                                    <td class="mox-num">@selectedOrder.TaxAmount.ToString("N2")</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <div class="mox-grand">
+                        <span class="mox-grand-label">Total</span>
+                        <span class="mox-grand-value">@selectedOrder.Currency @selectedOrder.DocTotal.ToString("N2")</span>
                     </div>
                 }
             </div>
 
-            @if (!string.IsNullOrEmpty(selectedOrder.MerchandiserNotes))
-            {
-                <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:.85rem 1rem; margin-bottom:1.25rem;">
-                    <div style="font-size:.78rem; font-weight:600; color:#1e40af; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.35rem;">
-                        <i class="bi bi-chat-left-text"></i> Merchandiser Notes
-                    </div>
-                    <p style="color:#1e40af; font-size:.88rem; margin:0; white-space:pre-wrap;">@selectedOrder.MerchandiserNotes</p>
-                </div>
-            }
-
-            @if (selectedOrder.Latitude.HasValue && selectedOrder.Longitude.HasValue)
-            {
-                <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.85rem 1rem; margin-bottom:1.25rem;">
-                    <div style="font-size:.78rem; font-weight:600; color:#166534; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.5rem;">
-                        <i class="bi bi-geo-alt-fill"></i> Order Location
-                    </div>
-                    <div style="display:flex; gap:1.5rem; align-items:center; margin-bottom:.6rem;">
-                        <span style="font-size:.85rem; color:#166534;">
-                            <strong>Lat:</strong> @selectedOrder.Latitude.Value.ToString("F6")
-                        </span>
-                        <span style="font-size:.85rem; color:#166534;">
-                            <strong>Lon:</strong> @selectedOrder.Longitude.Value.ToString("F6")
-                        </span>
-                        <a href="https://www.google.com/maps?q=@selectedOrder.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),@selectedOrder.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                           target="_blank" rel="noopener noreferrer"
-                           style="font-size:.82rem; color:#2563eb; text-decoration:none; margin-left:auto;">
-                            <i class="bi bi-box-arrow-up-right"></i> Open in Google Maps
-                        </a>
-                    </div>
-                    <div style="border-radius:8px; overflow:hidden; border:1px solid #d1d5db;">
-                        <iframe width="100%" height="200" frameborder="0" scrolling="no" style="display:block;"
-                                src="https://www.openstreetmap.org/export/embed.html?bbox=@((selectedOrder.Longitude.Value - 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@((selectedOrder.Latitude.Value - 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@((selectedOrder.Longitude.Value + 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@((selectedOrder.Latitude.Value + 0.005m).ToString(System.Globalization.CultureInfo.InvariantCulture))&marker=@(selectedOrder.Latitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))%2C@(selectedOrder.Longitude.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))">
-                        </iframe>
-                    </div>
-                </div>
-            }
-
-            @if (selectedOrder.Lines?.Any() == true)
-            {
-                <div class="order-lines-heading">
-                    <div class="detail-section-title"><i class="bi bi-list-ul"></i> Order Lines</div>
-                    <div class="line-count-pills" aria-label="Order item counts">
-                        <span class="line-count-pill"><i class="bi bi-list-check"></i> @FormatOrderLineCount(selectedOrder)</span>
-                        <span class="line-count-pill items"><i class="bi bi-box-seam"></i> @FormatOrderItemCount(selectedOrder)</span>
-                    </div>
-                </div>
-                <table class="lines-table">
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th>Description</th>
-                            <th style="text-align:right">Qty</th>
-                            <th>UoM</th>
-                            <th style="text-align:right">Unit Price</th>
-                            <th style="text-align:right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var line in selectedOrder.Lines)
-                        {
-                            <tr>
-                                <td><span style="font-weight:600;color:#2563eb;">@line.ItemCode</span></td>
-                                <td>@line.ItemDescription</td>
-                                <td style="text-align:right;font-weight:600;">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                <td>@(string.IsNullOrWhiteSpace(line.UoMCode) ? "-" : line.UoMCode)</td>
-                                <td style="text-align:right;">@line.UnitPrice.ToString("N2")</td>
-                                <td style="text-align:right;font-weight:600;">@line.LineTotal.ToString("N2")</td>
-                            </tr>
-                        }
-                    </tbody>
-                    <tfoot>
-                        <tr>
-                            <td colspan="5" style="text-align:right;font-weight:600;">Item Count:</td>
-                            <td style="text-align:right;font-weight:600;">@FormatOrderItemCount(selectedOrder)</td>
-                        </tr>
-                        <tr>
-                            <td colspan="5" style="text-align:right;font-weight:600;">Subtotal:</td>
-                            <td style="text-align:right;font-weight:600;">@selectedOrder.SubTotal.ToString("N2")</td>
-                        </tr>
-                        <tr>
-                            <td colspan="5" style="text-align:right;font-weight:600;">Tax:</td>
-                            <td style="text-align:right;">@selectedOrder.TaxAmount.ToString("N2")</td>
-                        </tr>
-                    </tfoot>
-                </table>
-
-                <div class="total-banner">
-                    <span class="total-label">Total</span>
-                    <span class="total-value">@selectedOrder.DocTotal.ToString("N2")</span>
-                </div>
-            }
-        </div>
-        <div class="drawer-footer">
-            <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
-                       Disabled="@isGeneratingOrderPdf"
-                       OnClick="CreateSelectedOrderPdfAsync">
-                @if (isGeneratingOrderPdf)
+            <div class="mox-drawer-foot">
+                <button type="button" class="mox-btn mox-btn-secondary" disabled="@isGeneratingOrderPdf"
+                        @onclick="CreateSelectedOrderPdfAsync">
+                    @if (isGeneratingOrderPdf)
+                    {
+                        <span class="mox-spin" aria-hidden="true"></span>
+                        <span>Creating PDF…</span>
+                    }
+                    else
+                    {
+                        <span>Create PDF</span>
+                    }
+                </button>
+                @if (CanViewSelectedOrderPod())
                 {
-                    <span class="spinner-border spinner-border-sm me-1"></span>
-                    <span>Creating PDF...</span>
+                    <button type="button" class="mox-btn mox-btn-secondary" @onclick="NavigateToSelectedOrderPod">
+                        View POD
+                    </button>
                 }
-                else
+                @if (CanEditSelectedOrder())
                 {
-                    <i class="bi bi-file-earmark-pdf me-1"></i>
-                    <span>Create PDF</span>
+                    <button type="button" class="mox-btn mox-btn-secondary"
+                            disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                            @onclick="() => NavigateToEdit(selectedOrder.Id)">
+                        Edit
+                    </button>
+                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="drawerApproveAccess">
+                        <Authorized>
+                            <button type="button" class="mox-btn mox-btn-primary"
+                                    disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                    @onclick="() => ApproveOrder(selectedOrder.Id)">
+                                @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.Approve))
+                                {
+                                    <span class="mox-spin" aria-hidden="true"></span>
+                                    <span>Approving…</span>
+                                }
+                                else
+                                {
+                                    <span>Approve</span>
+                                }
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
                 }
-            </MudButton>
-            @if (CanViewSelectedOrderPod())
-            {
-                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#15803d,#166534);"
-                           OnClick="NavigateToSelectedOrderPod">
-                    <i class="bi bi-truck me-1"></i> View POD
-                </MudButton>
-            }
-            @if (CanEditSelectedOrder())
-            {
-                <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem;"
-                           Disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                           OnClick="() => NavigateToEdit(selectedOrder.Id)">
-                    <i class="bi bi-pencil-square me-1"></i> Edit
-                </MudButton>
-                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarApproveAccess">
-                    <Authorized>
-                        <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                                   Disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                                   OnClick="() => ApproveOrder(selectedOrder.Id)">
-                            @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.Approve))
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                                <span>Approving...</span>
-                            }
-                            else
-                            {
-                                <i class="bi bi-check-circle me-1"></i>
-                                <span>Approve</span>
-                            }
-                        </MudButton>
-                    </Authorized>
-                </AuthorizeView>
-            }
-            @if (CanPostSelectedOrderToSap())
-            {
-                <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="sidebarPostAccess">
-                    <Authorized>
-                        <MudButton Class="btn-md-gradient" Style="font-size:.82rem; padding:.45rem 1rem; background:linear-gradient(135deg,#059669,#047857);"
-                                   Disabled="@IsOrderActionBusy(selectedOrder.Id)"
-                                   OnClick="() => PostOrderToSAP(selectedOrder.Id)">
-                            @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                                <span>Posting...</span>
-                            }
-                            else
-                            {
-                                <i class="bi bi-cloud-upload me-1"></i>
-                                <span>Post to SAP</span>
-                            }
-                        </MudButton>
-                    </Authorized>
-                </AuthorizeView>
-            }
-            <MudButton Class="btn-secondary-action" OnClick="ClearSelectedOrder">Close</MudButton>
-        </div>
+                @if (CanPostSelectedOrderToSap())
+                {
+                    <AuthorizeView Roles="Admin,Cashier,SalesRep" Context="drawerPostAccess">
+                        <Authorized>
+                            <button type="button" class="mox-btn mox-btn-primary"
+                                    disabled="@IsOrderActionBusy(selectedOrder.Id)"
+                                    @onclick="() => PostOrderToSAP(selectedOrder.Id)">
+                                @if (IsOrderActionBusy(selectedOrder.Id, OrderActionType.PostToSap))
+                                {
+                                    <span class="mox-spin" aria-hidden="true"></span>
+                                    <span>Posting…</span>
+                                }
+                                else
+                                {
+                                    <span>Post to SAP</span>
+                                }
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
+                }
+                <button type="button" class="mox-btn mox-btn-ghost" @onclick="ClearSelectedOrder">Close</button>
+            </div>
+        </aside>
     </div>
 }
 
 @if (showPurchaseOrderViewer)
 {
-    <div class="md-po-viewer-overlay" @onclick="ClosePurchaseOrderViewer">
-        <div class="md-po-viewer-container" @onclick:stopPropagation>
-            <div class="md-po-viewer-header">
-                <h6 class="mb-0 text-truncate">@purchaseOrderViewerFileName</h6>
-                <div class="d-flex gap-2 flex-wrap justify-content-end">
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                               OnClick="() => DownloadPurchaseOrderAttachment(purchaseOrderViewerAttachment!)">
-                        <i class="bi bi-download me-1"></i> Download
-                    </MudButton>
-                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                               OnClick="ClosePurchaseOrderViewer">
-                        <i class="bi bi-x-lg"></i>
-                    </MudButton>
+    <div class="mox-overlay">
+        <div class="mox-viewer-wrap" @onclick="ClosePurchaseOrderViewer">
+            <div class="mox-viewer" @onclick:stopPropagation>
+                <div class="mox-viewer-head">
+                    <h2 class="mox-viewer-name">@purchaseOrderViewerFileName</h2>
+                    <button type="button" class="mox-btn mox-btn-secondary mox-btn-sm"
+                            @onclick="() => DownloadPurchaseOrderAttachment(purchaseOrderViewerAttachment!)">
+                        Download
+                    </button>
+                    <button type="button" class="mox-iconbtn" title="Close" aria-label="Close"
+                            @onclick="ClosePurchaseOrderViewer">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </button>
                 </div>
-            </div>
-            <div class="md-po-viewer-body">
-                @if (isLoadingPurchaseOrderViewer)
-                {
-                    <div class="d-flex justify-content-center align-items-center h-100">
-                        <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
-                    </div>
-                }
-                else if (purchaseOrderViewerMimeType?.StartsWith("image/") == true)
-                {
-                    <img src="@purchaseOrderViewerDataUri" alt="@purchaseOrderViewerFileName" class="md-po-viewer-image" />
-                }
-                else if (purchaseOrderViewerMimeType == "application/pdf")
-                {
-                    <iframe src="@purchaseOrderViewerDataUri" class="md-po-viewer-pdf" title="@purchaseOrderViewerFileName"></iframe>
-                }
+                <div class="mox-viewer-body">
+                    @if (isLoadingPurchaseOrderViewer)
+                    {
+                        <span class="mox-spin" aria-hidden="true"></span>
+                    }
+                    else if (purchaseOrderViewerMimeType?.StartsWith("image/") == true)
+                    {
+                        <img src="@purchaseOrderViewerDataUri" alt="@purchaseOrderViewerFileName" />
+                    }
+                    else if (purchaseOrderViewerMimeType == "application/pdf")
+                    {
+                        <iframe src="@purchaseOrderViewerDataUri" title="@purchaseOrderViewerFileName"></iframe>
+                    }
+                </div>
             </div>
         </div>
     </div>
@@ -1473,8 +837,14 @@
     private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
         .StartsWith("van-sales-orders", StringComparison.OrdinalIgnoreCase);
 
-    private MudTable<SalesOrderDto> _table = null!;
     private int _pageSize = 10;
+    private int _page = 1;
+    private bool showFilters;
+    private bool isExporting;
+    private bool isBulkApproving;
+    private readonly HashSet<int> selectedOrderIds = new();
+    private OrderSortKey sortKey = OrderSortKey.Ordered;
+    private bool sortDescending = true;
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;
     private readonly List<DocumentAttachmentDto> purchaseOrderAttachments = new();
@@ -1544,15 +914,26 @@
         Delete
     }
 
+    private enum OrderSortKey
+    {
+        Number,
+        Customer,
+        Ordered,
+        Delivery,
+        Status,
+        Total,
+        SapDoc
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _pageSize = ResolveInitialPageSize(AppSettings.PageSize);
         await LoadOrders();
     }
 
-    private void PageChanged(int i)
+    private void GoToPage(int page)
     {
-        _table?.NavigateTo(i - 1);
+        _page = Math.Clamp(page, 1, GetVisiblePageCount());
     }
 
     private IEnumerable<int> GetPageSizeOptions()
@@ -1570,16 +951,90 @@
             .ToArray();
     }
 
-    private Task OnPageSizeChanged()
+    private void ResetToFirstPage()
     {
-        _table?.NavigateTo(0);
-        return Task.CompletedTask;
+        _page = 1;
     }
 
-    private Task ResetToFirstPage()
+    /// <summary>
+    /// The filtered orders in sort order. The list is held whole in memory
+    /// (LoadOrders fetches every mobile order in one page), so sorting and
+    /// paging are both done here rather than round-tripping to the API.
+    /// </summary>
+    private List<SalesOrderDto> GetSortedOrders()
     {
-        _table?.NavigateTo(0);
-        return Task.CompletedTask;
+        var filtered = GetFilteredOrders();
+
+        // Id descends alongside creation, so it breaks ties into a stable order
+        // instead of leaving equal-key rows to shuffle between renders.
+        IOrderedEnumerable<SalesOrderDto> sorted = sortKey switch
+        {
+            OrderSortKey.Number => Order(filtered, order => order.OrderNumber ?? string.Empty),
+            OrderSortKey.Customer => Order(filtered, order => order.CardName ?? order.CardCode ?? string.Empty),
+            OrderSortKey.Delivery => Order(filtered, order => order.DeliveryDate ?? DateTime.MinValue),
+            OrderSortKey.Status => Order(filtered, GetDisplayStatusSortOrder),
+            OrderSortKey.Total => Order(filtered, order => order.DocTotal),
+            OrderSortKey.SapDoc => Order(filtered, order => order.SAPDocNum ?? 0),
+            _ => Order(filtered, order => order.OrderDate)
+        };
+
+        return sorted.ThenByDescending(order => order.Id).ToList();
+
+        IOrderedEnumerable<SalesOrderDto> Order<TKey>(IEnumerable<SalesOrderDto> source, Func<SalesOrderDto, TKey> key)
+            => sortDescending ? source.OrderByDescending(key) : source.OrderBy(key);
+    }
+
+    private List<SalesOrderDto> GetPageOrders()
+    {
+        if (orders == null)
+            return [];
+
+        var sorted = GetSortedOrders();
+        var pageCount = Math.Max(1, (sorted.Count + _pageSize - 1) / _pageSize);
+
+        // A page can fall off the end when a filter narrows the list; clamp on
+        // read so the table never renders empty with rows still to show.
+        if (_page > pageCount)
+            _page = pageCount;
+
+        return sorted.Skip((_page - 1) * _pageSize).Take(_pageSize).ToList();
+    }
+
+    private void SortBy(OrderSortKey key)
+    {
+        if (sortKey == key)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortKey = key;
+            sortDescending = key is OrderSortKey.Ordered or OrderSortKey.Delivery or OrderSortKey.Total or OrderSortKey.SapDoc;
+        }
+
+        ResetToFirstPage();
+    }
+
+    private string SortMark(OrderSortKey key)
+        => sortKey != key ? string.Empty : sortDescending ? "▼" : "▲";
+
+    private string GetRangeLabel(int filteredCount)
+    {
+        if (filteredCount == 0)
+            return "No orders to show";
+
+        var first = ((_page - 1) * _pageSize) + 1;
+        var last = Math.Min(_page * _pageSize, filteredCount);
+        var narrowed = filteredCount == totalCount
+            ? string.Empty
+            : $" (filtered from {totalCount:N0})";
+
+        return $"Showing {first:N0}–{last:N0} of {filteredCount:N0} orders{narrowed}";
+    }
+
+    private void ToggleFilters()
+    {
+        showFilters = !showFilters;
     }
 
     private static int ResolveInitialPageSize(int configuredPageSize)
@@ -1634,6 +1089,62 @@
 
     private bool HasDeliveredOrders()
         => orders?.Any(IsOrderDelivered) == true;
+
+    /// <summary>
+    /// The design's tab strip owns the status filter, so the filter panel has
+    /// no status control — one status filter, in one place. "All" is the empty
+    /// value the rest of the filter code already treats as unset.
+    /// </summary>
+    private IEnumerable<StatusFilterOption> GetStatusTabs()
+        => new[] { new StatusFilterOption(string.Empty, "All") }.Concat(GetStatusFilterOptions());
+
+    private bool IsStatusTabActive(string? value)
+        => string.Equals(statusFilter ?? string.Empty, value ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+    private void SelectStatusTab(string? value)
+    {
+        statusFilter = string.IsNullOrEmpty(value) ? null : value;
+        ClearSelection();
+        ResetToFirstPage();
+    }
+
+    private int CountByStatus(SalesOrderStatus status)
+        => orders?.Count(order => order.Status == status) ?? 0;
+
+    private string StatValue(int count) => orders == null ? "—" : count.ToString("N0");
+
+    /// <summary>
+    /// The design's "Oldest waiting 3 days" line under the pending tile —
+    /// measured from when the submission arrived, not from the order date the
+    /// rep keyed.
+    /// </summary>
+    private string OldestPendingLabel
+    {
+        get
+        {
+            if (orders == null)
+                return "—";
+
+            var oldest = orders
+                .Where(order => order.Status == SalesOrderStatus.Pending)
+                .Select(order => (DateTime?)order.CreatedAt)
+                .Min();
+
+            if (!oldest.HasValue)
+                return "Nothing waiting on review";
+
+            var days = (int)Math.Floor((DateTime.UtcNow - EnsureUtc(oldest.Value)).TotalDays);
+            return days switch
+            {
+                <= 0 => "Oldest arrived today",
+                1 => "Oldest waiting 1 day",
+                _ => $"Oldest waiting {days} days"
+            };
+        }
+    }
+
+    private static DateTime EnsureUtc(DateTime value)
+        => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
     private IEnumerable<string> GetCurrencyFilterOptions()
     {
@@ -1734,36 +1245,32 @@
         return true;
     }
 
-    private bool HasActiveFilters()
+    /// <summary>
+    /// The filter-panel filters only. Status is not counted: it lives on the
+    /// tab strip, where it is already visible, and counting it would light the
+    /// Filters button for a choice the user can see.
+    /// </summary>
+    private bool HasActiveFilters() => ActiveFilterCount > 0;
+
+    private int ActiveFilterCount
     {
-        return !string.IsNullOrWhiteSpace(orderNumberFilter)
-            || !string.IsNullOrWhiteSpace(customerFilter)
-            || orderDateFilter.HasValue
-            || deliveryDateFilter.HasValue
-            || !string.IsNullOrWhiteSpace(statusFilter)
-            || !string.IsNullOrWhiteSpace(currencyFilter)
-            || !string.IsNullOrWhiteSpace(totalFilter)
-            || !string.IsNullOrWhiteSpace(sapDocFilter);
+        get
+        {
+            var count = 0;
+            if (!string.IsNullOrWhiteSpace(orderNumberFilter)) count++;
+            if (!string.IsNullOrWhiteSpace(customerFilter)) count++;
+            if (orderDateFilter.HasValue) count++;
+            if (deliveryDateFilter.HasValue) count++;
+            if (!string.IsNullOrWhiteSpace(currencyFilter)) count++;
+            if (!string.IsNullOrWhiteSpace(totalFilter)) count++;
+            if (!string.IsNullOrWhiteSpace(sapDocFilter)) count++;
+            return count;
+        }
     }
 
     private int GetVisibleOrderCount()
     {
         return GetFilteredOrders().Count();
-    }
-
-    private string GetOrderCountSummary()
-    {
-        if (totalCount <= 0)
-        {
-            return "0 total";
-        }
-
-        if (!HasActiveFilters())
-        {
-            return $"{totalCount} total";
-        }
-
-        return $"{GetVisibleOrderCount()} of {totalCount}";
     }
 
     private int GetVisiblePageCount()
@@ -1805,6 +1312,7 @@
                 totalCount = response.TotalCount;
                 totalPages = response.TotalPages;
                 TrackAvailableStatusFilters(orders);
+                PruneSelection();
 
                 await PopulateMissingOrderPricesAsync(orders, loadVersion);
                 if (loadVersion != ordersLoadVersion)
@@ -1849,17 +1357,28 @@
             await InvokeAsync(StateHasChanged);
     }
 
+    /// <summary>
+    /// Clears the filter panel only. The status tab is left alone: it is its
+    /// own visible control, and the panel's Clear button should not silently
+    /// undo a choice made outside the panel.
+    /// </summary>
     private void ClearFilter()
     {
         orderNumberFilter = null;
         customerFilter = null;
         orderDateFilter = null;
         deliveryDateFilter = null;
-        statusFilter = null;
         currencyFilter = null;
         totalFilter = null;
         sapDocFilter = null;
-        _table?.NavigateTo(0);
+        ResetToFirstPage();
+    }
+
+    /// <summary>The empty state's way back: panel filters and the tab together.</summary>
+    private void ResetAllFilters()
+    {
+        ClearFilter();
+        SelectStatusTab(null);
     }
 
     private async Task ViewOrder(SalesOrderDto order)
@@ -2009,8 +1528,25 @@
     private string GetDisplayStatusName(SalesOrderDto order)
         => IsOrderDelivered(order) ? "Delivered" : order.Status.ToString();
 
-    private string GetDisplayStatusCssClass(SalesOrderDto order)
-        => IsOrderDelivered(order) ? "delivered" : GetStatusCssClass(order.Status);
+    /// <summary>
+    /// Nocturne is a mono palette, so the ramp does the separating rather than
+    /// a colour per status: settled work carries the accent, work still in the
+    /// queue carries it faintly and pulses, untouched work stays neutral, and
+    /// only a genuine failure leaves the accent for the bad ink.
+    /// </summary>
+    private string GetStatusToneClass(SalesOrderDto order)
+    {
+        if (IsOrderDelivered(order))
+            return "is-done";
+
+        return order.Status switch
+        {
+            SalesOrderStatus.Approved or SalesOrderStatus.Fulfilled or SalesOrderStatus.Invoiced => "is-done",
+            SalesOrderStatus.Pending or SalesOrderStatus.PartiallyFulfilled => "is-open",
+            SalesOrderStatus.Cancelled or SalesOrderStatus.Rejected => "is-bad",
+            _ => string.Empty
+        };
+    }
 
     private static int GetStatusSortOrder(SalesOrderStatus status) => status switch
     {
@@ -2628,10 +2164,10 @@
         return order == null ? SalesOrderStatus.Draft.ToString() : GetDisplayStatusName(order);
     }
 
-    private string GetSelectedOrderStatusCssClass()
+    private string GetSelectedOrderToneClass()
     {
         var order = GetSelectedOrderListState() ?? selectedOrder;
-        return order == null ? GetStatusCssClass(SalesOrderStatus.Draft) : GetDisplayStatusCssClass(order);
+        return order == null ? string.Empty : GetStatusToneClass(order);
     }
 
     private bool IsSelectedOrderSynced()
@@ -2859,18 +2395,6 @@
         }
     }
 
-    private string GetStatusCssClass(SalesOrderStatus status) => status switch
-    {
-        SalesOrderStatus.Draft => "draft",
-        SalesOrderStatus.Pending => "pending",
-        SalesOrderStatus.Approved => "approved",
-        SalesOrderStatus.PartiallyFulfilled => "partial",
-        SalesOrderStatus.Fulfilled => "fulfilled",
-        SalesOrderStatus.Cancelled => "cancelled",
-        SalesOrderStatus.OnHold => "on-hold",
-        _ => "draft"
-    };
-
     private static bool CanCancelOrder(SalesOrderDto order)
         => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.Approved or SalesOrderStatus.PartiallyFulfilled or SalesOrderStatus.OnHold;
 
@@ -2898,6 +2422,7 @@
         if (activeStatusFilter.HasValue && updatedOrder.Status != activeStatusFilter.Value)
         {
             orders.RemoveAt(index);
+            selectedOrderIds.Remove(updatedOrder.Id);
             totalCount = Math.Max(0, totalCount - 1);
             totalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
             return;
@@ -2914,6 +2439,7 @@
         }
 
         podStatusByOrderId.Remove(id);
+        selectedOrderIds.Remove(id);
 
         if (orders == null)
             return;
@@ -2924,5 +2450,278 @@
 
         totalCount = Math.Max(0, totalCount - removedCount);
         totalPages = totalCount == 0 ? 1 : (int)Math.Ceiling(totalCount / (double)pageSize);
+    }
+
+    // ── Row selection ──────────────────────────────────────────────────────
+
+    private int SelectedOrderCount => selectedOrderIds.Count;
+
+    private bool IsOrderSelected(int id) => selectedOrderIds.Contains(id);
+
+    private void ToggleOrderSelection(int id)
+    {
+        if (!selectedOrderIds.Add(id))
+        {
+            selectedOrderIds.Remove(id);
+        }
+    }
+
+    private void ClearSelection() => selectedOrderIds.Clear();
+
+    private bool AreAllPageOrdersSelected(IReadOnlyCollection<SalesOrderDto> pageOrders)
+        => pageOrders.Count > 0 && pageOrders.All(order => selectedOrderIds.Contains(order.Id));
+
+    private void ToggleAllPageOrders(IReadOnlyCollection<SalesOrderDto> pageOrders)
+    {
+        var selectAll = !AreAllPageOrdersSelected(pageOrders);
+
+        foreach (var order in pageOrders)
+        {
+            if (selectAll)
+            {
+                selectedOrderIds.Add(order.Id);
+            }
+            else
+            {
+                selectedOrderIds.Remove(order.Id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drops selections for orders that are no longer in the list, so a reload
+    /// cannot leave a count pointing at rows nobody can see.
+    /// </summary>
+    private void PruneSelection()
+    {
+        if (orders == null)
+        {
+            selectedOrderIds.Clear();
+            return;
+        }
+
+        var present = orders.Select(order => order.Id).ToHashSet();
+        selectedOrderIds.RemoveWhere(id => !present.Contains(id));
+    }
+
+    private List<SalesOrderDto> GetSelectedOrders()
+        => orders?.Where(order => selectedOrderIds.Contains(order.Id)).ToList() ?? [];
+
+    private static bool CanApproveOrder(SalesOrderDto order)
+        => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending;
+
+    private List<SalesOrderDto> GetApprovableSelectedOrders()
+        => GetSelectedOrders().Where(CanApproveOrder).ToList();
+
+    private bool CanBulkApprove => !isBulkApproving && GetApprovableSelectedOrders().Count > 0;
+
+    private string BulkApproveTitle
+    {
+        get
+        {
+            var approvable = GetApprovableSelectedOrders().Count;
+            if (approvable == 0)
+                return "None of the selected orders are waiting on approval";
+
+            var selected = SelectedOrderCount;
+            return approvable == selected
+                ? $"Approve {approvable} selected order{(approvable == 1 ? string.Empty : "s")}"
+                : $"Approve the {approvable} of {selected} selected orders still waiting on approval";
+        }
+    }
+
+    /// <summary>
+    /// Approval posts the order to SAP, so a batch is confirmed once up front
+    /// rather than silently firing one request per selected row.
+    /// </summary>
+    private async Task BulkApproveSelected()
+    {
+        if (isBulkApproving)
+            return;
+
+        var approvable = GetApprovableSelectedOrders();
+        if (approvable.Count == 0)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Approve orders",
+            $"Approve {approvable.Count} order{(approvable.Count == 1 ? string.Empty : "s")}? Each one posts to SAP.",
+            yesText: "Approve",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        isBulkApproving = true;
+        StateHasChanged();
+
+        var approved = 0;
+        var failures = new List<string>();
+
+        try
+        {
+            foreach (var order in approvable)
+            {
+                try
+                {
+                    var result = await SalesOrderService.ApproveAsync(order.Id);
+                    if (result != null)
+                    {
+                        approved++;
+                        selectedOrderIds.Remove(order.Id);
+                    }
+                    else
+                    {
+                        failures.Add(order.OrderNumber);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "Failed to approve mobile order {OrderId} during a bulk approval", order.Id);
+                    failures.Add(order.OrderNumber);
+                }
+
+                StateHasChanged();
+            }
+        }
+        finally
+        {
+            isBulkApproving = false;
+        }
+
+        if (approved > 0)
+        {
+            Snackbar.Add($"{approved} order{(approved == 1 ? string.Empty : "s")} approved.", Severity.Success);
+        }
+
+        if (failures.Count > 0)
+        {
+            var named = string.Join(", ", failures.Take(5));
+            var more = failures.Count > 5 ? "…" : string.Empty;
+            Snackbar.Add($"Could not approve {failures.Count} order{(failures.Count == 1 ? string.Empty : "s")}: {named}{more}", Severity.Error);
+        }
+
+        await LoadOrders();
+    }
+
+    // ── Export ─────────────────────────────────────────────────────────────
+
+    private string ExportLabel => SelectedOrderCount > 0
+        ? $"Export {SelectedOrderCount} to Excel"
+        : "Export to Excel";
+
+    /// <summary>
+    /// The design exports the selection when there is one and everything the
+    /// filters leave standing otherwise — the same rows the table is showing,
+    /// in the same order, not just the page on screen.
+    /// </summary>
+    private async Task ExportToExcel()
+    {
+        if (isExporting)
+            return;
+
+        var sorted = GetSortedOrders();
+        var rows = selectedOrderIds.Count > 0
+            ? sorted.Where(order => selectedOrderIds.Contains(order.Id)).ToList()
+            : sorted;
+
+        if (rows.Count == 0)
+        {
+            Snackbar.Add("There are no orders to export.", Severity.Info);
+            return;
+        }
+
+        isExporting = true;
+        StateHasChanged();
+
+        try
+        {
+            var title = IsVanSalesView ? "Van Sales Orders" : "Mobile Orders";
+            var bytes = ExportService.ExportMobileOrdersToExcel(rows, title);
+            var prefix = IsVanSalesView ? "Van_Sales_Orders" : "Mobile_Orders";
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"{prefix}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx",
+                Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to export mobile orders to Excel");
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            isExporting = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Row display ────────────────────────────────────────────────────────
+
+    private static string GetSubmittedByName(SalesOrderDto order)
+    {
+        if (!string.IsNullOrWhiteSpace(order.CreatedByUserName))
+            return order.CreatedByUserName;
+
+        return string.IsNullOrWhiteSpace(order.SalesPersonName) ? "Unknown" : order.SalesPersonName;
+    }
+
+    private static string GetInitials(SalesOrderDto order)
+    {
+        var parts = GetSubmittedByName(order)
+            .Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries);
+
+        return parts.Length switch
+        {
+            0 => "?",
+            1 => parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant(),
+            _ => $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant()
+        };
+    }
+
+    /// <summary>
+    /// The design's second line under the rep is "Android · v4.2.1 · Chinhoyi".
+    /// A submission carries a free-text device string and, when the rep allowed
+    /// it, coordinates — there is no place name to resolve, so the row shows a
+    /// pin and the drawer spells the coordinates out.
+    /// </summary>
+    private static string GetDeviceLabel(SalesOrderDto order)
+        => string.IsNullOrWhiteSpace(order.DeviceInfo) ? "Device not captured" : order.DeviceInfo.Trim();
+
+    private static string GetSubmittedByTitle(SalesOrderDto order)
+    {
+        var title = $"{GetSubmittedByName(order)} — {GetDeviceLabel(order)}";
+
+        if (order.Latitude.HasValue && order.Longitude.HasValue)
+        {
+            title += $" · submitted from {order.Latitude.Value.ToString("F5", CultureInfo.InvariantCulture)}, "
+                + order.Longitude.Value.ToString("F5", CultureInfo.InvariantCulture);
+        }
+
+        return title;
+    }
+
+    private static string GetLineCountSuffix(SalesOrderDto order)
+    {
+        var lineCount = order.Lines?.Count ?? 0;
+        return lineCount == 0
+            ? string.Empty
+            : $" · {lineCount:N0} {(lineCount == 1 ? "line" : "lines")}";
+    }
+
+    private static string GetSapDocLabel(SalesOrderDto order)
+    {
+        if (order.SAPDocNum.HasValue)
+            return order.SAPDocNum.Value.ToString(CultureInfo.InvariantCulture);
+
+        return order.Status == SalesOrderStatus.Approved ? "Pending" : "—";
+    }
+
+    private static string GetSapDocClass(SalesOrderDto order)
+    {
+        if (order.SAPDocNum.HasValue)
+            return "mox-sap";
+
+        return order.Status == SalesOrderStatus.Approved ? "mox-sap is-waiting" : "mox-sap is-none";
     }
 }
