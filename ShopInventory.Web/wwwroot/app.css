@@ -1232,6 +1232,17 @@ html, body {
     text-size-adjust: 100%;
 }
 
+/* `hidden` stays on the root, where it propagates to the viewport and costs
+   nothing — the viewport is the scrollport a sticky header should measure
+   against. On `body` it is the last box that would sit between the two: the
+   root's overflow is only special-cased onto `body` when the root is
+   `visible`, and it is not, so `body` keeps `auto` and becomes a scroll
+   container of its own. `clip` clips identically without being one. See
+   `.mud-layout` for the rest of this chain. */
+body {
+    overflow-x: clip;
+}
+
 /* Smooth Theme Transitions */
 html.theme-transitioning,
 html.theme-transitioning *,
@@ -1851,6 +1862,11 @@ a:hover {
     z-index: 1;
     max-width: 100%;
     overflow-x: hidden;
+    /* `clip` for the same reason as `.mud-main-content`: this box sits between
+       the shell and the page, so it is the *nearest* scrollport a sticky page
+       header would measure against. Clipping the shell alone is not enough —
+       the offset gets counted twice here instead. */
+    overflow-x: clip;
 }
 
 .staff-drawer {
@@ -8586,6 +8602,12 @@ html.dark-theme {
 /* MudBlazor Layout Fixes */
 .mud-layout {
     overflow-x: hidden;
+    /* `clip` for the same reason as `.mud-main-content` below — this is the
+       outermost of the three shell boxes that would otherwise stand between a
+       sticky page header and the viewport. All three have to be `clip`: the
+       header answers to the *nearest* scrollport, so one `hidden` left anywhere
+       in the chain is enough to break it. */
+    overflow-x: clip;
 }
 
 /* `clip`, not `hidden`: `overflow-x: hidden` computes `overflow-y` up from
@@ -12381,6 +12403,13 @@ canvas {
 
     body {
         overscroll-behavior-x: none;
+        /* Same split as the unconditional rule above: `hidden` stays on the
+           root, `body` takes `clip` so it does not become a scroll container
+           between a sticky page header and the viewport. Without this the
+           phone breakpoint quietly undoes the desktop fix — and it matches at
+           a 768px window too, because the scrollbar takes the CSS viewport
+           under 767.98. */
+        overflow-x: clip;
     }
 
     /* `clip` for the same reason as `.mud-main-content` above: on a phone these
