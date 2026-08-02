@@ -1089,6 +1089,580 @@
 }
 
 /* ==========================================================================
+   Sign-in
+
+   The portal's front door, on the split composition from the design: a hero
+   column carrying the mark and the pitch, a form column carrying the fields,
+   and one of Nocturne's fading rules between them.
+
+   Sign-in is the one portal page that renders outside CustomerPortalLayout —
+   it runs on EmptyLayout — so `cpx` sits on the page's own root instead of
+   the shell. The tokens then resolve exactly as they do inside the portal,
+   which is the point: the door is the same colour as the rooms behind it.
+
+   The design was drawn in stock Nocturne, whose ground is dark and whose
+   accent is the blurple. Composition, spacing and type are taken from it as
+   drawn; the palette is the portal's own, for the reason at the top of this
+   file.
+   ========================================================================== */
+
+.cpx.signin {
+    /* The hero ground: two washes of the accent over the page background,
+       strong enough to part the column from the form beside it and weak
+       enough to leave a black-on-white mark legible on top. */
+    --signin-wash: rgba(var(--cpx-accent-rgb), .13);
+    --signin-wash-2: rgba(var(--cpx-accent-rgb), .07);
+
+    display: grid;
+    grid-template-columns: 1.15fr .85fr;
+    min-height: 100dvh;
+    background: var(--cpx-bg);
+    color: var(--cpx-ink);
+}
+
+.dark-theme .cpx.signin {
+    --signin-wash: rgba(var(--cpx-accent-rgb), .17);
+    --signin-wash-2: rgba(var(--cpx-accent-rgb), .09);
+}
+
+/* Hero ------------------------------------------------------------------- */
+
+.cpx .signin-hero {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: clamp(24px, 3.6vw, 40px);
+    padding: clamp(26px, 3.4vw, 44px) clamp(24px, 4.4vw, 56px);
+    background:
+        radial-gradient(90% 70% at 12% 4%, var(--signin-wash), transparent 62%),
+        radial-gradient(80% 60% at 88% 96%, var(--signin-wash-2), transparent 58%),
+        var(--cpx-bg);
+}
+
+/* The column divider fades out over one 48px baseline unit at each end
+   rather than stopping square — the same rule shape the tables use. */
+.cpx .signin-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: 1px;
+    background: linear-gradient(to bottom,
+            transparent, var(--cpx-divider) 48px,
+            var(--cpx-divider) calc(100% - 48px), transparent);
+}
+
+.cpx .signin-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s6);
+}
+
+/* The mark is a black-on-white JPEG, so on the tinted hero it would carry a
+   white plate. Multiply drops the white on the light ground; on the dark one
+   the mark is inverted to white-on-black first and screen drops the black. */
+.cpx .signin-mark {
+    width: clamp(96px, 9vw, 128px);
+    height: auto;
+    flex: none;
+    mix-blend-mode: multiply;
+}
+
+.dark-theme .cpx .signin-mark {
+    filter: invert(1);
+    mix-blend-mode: screen;
+}
+
+.cpx .signin-brand-rule {
+    width: 1px;
+    align-self: stretch;
+    background: var(--cpx-divider);
+}
+
+.cpx .signin-brand-text {
+    font-size: var(--cpx-text-sm);
+    line-height: 1.35;
+    color: var(--cpx-mute);
+}
+
+.cpx .signin-brand-name {
+    display: block;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .signin-eyebrow {
+    margin-bottom: var(--cpx-s6);
+    font-size: .69rem;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--cpx-accent-text);
+}
+
+.cpx .signin-pitch {
+    max-width: 460px;
+}
+
+.cpx .signin-pitch h1 {
+    margin: 0 0 var(--cpx-s6);
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: clamp(1.75rem, 1.05rem + 2.6vw, 3.25rem);
+    font-weight: 600;
+    line-height: 1.06;
+    letter-spacing: -.02em;
+    text-wrap: pretty;
+    color: var(--cpx-ink);
+}
+
+.cpx .signin-pitch p {
+    max-width: 400px;
+    margin: 0 0 clamp(20px, 2.6vw, 34px);
+    font-size: clamp(.9rem, .86rem + .2vw, 1rem);
+    line-height: 1.6;
+    color: var(--cpx-mute);
+}
+
+.cpx .signin-points {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--cpx-text);
+    color: var(--cpx-ink-2);
+}
+
+.cpx .signin-points li {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s4);
+}
+
+/* A 14px accent rule instead of a tick: the design marks list items the way
+   it marks section breaks. */
+.cpx .signin-points li::before {
+    content: "";
+    width: 14px;
+    height: 1px;
+    flex: none;
+    background: var(--cpx-accent);
+}
+
+.cpx .signin-hero-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s3);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+}
+
+.cpx .signin-hero-foot a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .signin-hero-foot a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* Form column ------------------------------------------------------------ */
+
+.cpx .signin-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: clamp(26px, 3.4vw, 44px) clamp(24px, 4.4vw, 56px);
+}
+
+.cpx .signin-form {
+    width: 100%;
+    max-width: 356px;
+    margin: 0 auto;
+    animation: cpx-fade-in .32s ease-out both;
+}
+
+.cpx .signin-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border: 1px solid var(--cpx-accent);
+    border-radius: var(--cpx-r-sm);
+    font-size: .625rem;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--cpx-accent-text);
+}
+
+.cpx .signin-form h2 {
+    margin: var(--cpx-s6) 0 var(--cpx-s1);
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: clamp(1.5rem, 1.24rem + 1.05vw, 2.125rem);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    color: var(--cpx-ink);
+}
+
+.cpx .signin-sub {
+    margin: 0 0 var(--cpx-s8);
+    font-size: var(--cpx-text);
+    color: var(--cpx-mute);
+}
+
+/* Fields ----------------------------------------------------------------- */
+
+.cpx .signin-field {
+    margin-bottom: var(--cpx-s6);
+}
+
+.cpx .signin-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--cpx-mute);
+}
+
+.cpx .signin-label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--cpx-s4);
+}
+
+.cpx .signin-label-row a {
+    font-size: .75rem;
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .signin-label-row a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cpx .signin-control {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.cpx .signin-control>svg {
+    position: absolute;
+    left: 11px;
+    pointer-events: none;
+    color: var(--cpx-placeholder);
+}
+
+.cpx .signin-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 12px 6px 36px;
+    font: inherit;
+    font-size: var(--cpx-text);
+    font-weight: 500;
+    color: var(--cpx-ink);
+    caret-color: var(--cpx-accent);
+    background: var(--cpx-field);
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.cpx .signin-input::placeholder {
+    color: var(--cpx-placeholder);
+}
+
+.cpx .signin-input:hover {
+    border-color: var(--cpx-edge-hi);
+}
+
+.cpx .signin-input:focus {
+    outline: none;
+    border-color: var(--cpx-accent);
+    box-shadow: 0 0 0 3px var(--cpx-accent-soft);
+}
+
+.cpx .signin-input.has-reveal {
+    padding-right: 42px;
+}
+
+/* Autofill is the normal way into a sign-in page, so it has to be dressed
+   rather than left to the browser. app.css paints autofilled fields slate
+   (#1e293b) on the dark theme with `!important` at (0,2,1) — enough to beat
+   the rule above and leave a blue-grey box in a teal form — so this is
+   restated three classes deep in the portal's own ground. The light theme has
+   no app-wide rule at all; without one the browser's pale yellow lands on top
+   of a page toned to a quarter of a percent. */
+.cpx .signin-input:-webkit-autofill,
+.cpx .signin-input:-webkit-autofill:hover,
+.cpx .signin-input:-webkit-autofill:focus,
+.dark-theme .cpx .signin-input:-webkit-autofill,
+.dark-theme .cpx .signin-input:-webkit-autofill:hover,
+.dark-theme .cpx .signin-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--cpx-field) inset !important;
+    -webkit-text-fill-color: var(--cpx-ink) !important;
+    caret-color: var(--cpx-accent);
+    /* The browser re-applies its own background on a timer; outrunning it is
+       the standard trick. */
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+.cpx .signin-reveal {
+    position: absolute;
+    right: 6px;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: var(--cpx-r-sm);
+    color: var(--cpx-mute-2);
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.cpx .signin-reveal:hover {
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+}
+
+/* The 6-digit code is the only field with no leading icon, so it reclaims the
+   left inset. The trailing tracking is cancelled with a matching indent, or
+   the digits sit visibly left of centre. */
+.cpx .signin-input.signin-code {
+    padding-left: 12px;
+    text-align: center;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: 1.35rem;
+    letter-spacing: .45em;
+    text-indent: .45em;
+}
+
+.cpx .signin-field .validation-message,
+.cpx .signin-field .validation-msg {
+    display: block;
+    margin-top: var(--cpx-s1);
+    font-size: .75rem;
+    color: var(--cpx-bad);
+}
+
+/* Notices ---------------------------------------------------------------- */
+
+.cpx .signin-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-s3) var(--cpx-s4);
+    margin-bottom: var(--cpx-s4);
+    border: 1px solid transparent;
+    border-radius: var(--cpx-r-md);
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .signin-note svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.cpx .signin-note-error {
+    background: var(--cpx-bad-bg);
+    border-color: var(--cpx-bad-edge);
+    color: var(--cpx-bad);
+}
+
+.cpx .signin-note-ok {
+    background: var(--cpx-ok-bg);
+    border-color: var(--cpx-ok-edge);
+    color: var(--cpx-ok);
+}
+
+.cpx .signin-note-info {
+    background: var(--cpx-accent-soft);
+    border-color: var(--cpx-edge);
+    color: var(--cpx-accent-text);
+}
+
+/* Actions ---------------------------------------------------------------- */
+
+.cpx .signin-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s3);
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 16px;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: .95rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+    color: var(--cpx-on-accent);
+    background: var(--cpx-accent);
+    border: 1px solid var(--cpx-accent);
+    border-radius: var(--cpx-r-md);
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.cpx .signin-submit:hover:not(:disabled) {
+    background: var(--cpx-accent-text);
+    border-color: var(--cpx-accent-text);
+}
+
+.cpx .signin-submit:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+.cpx .signin-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s2);
+    width: 100%;
+    min-height: 40px;
+    margin-top: var(--cpx-s3);
+    padding: 8px 12px;
+    font: inherit;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    color: var(--cpx-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--cpx-r-md);
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease;
+}
+
+.cpx .signin-back:hover {
+    background: var(--cpx-hover);
+    color: var(--cpx-ink);
+}
+
+.cpx .signin-spinner {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border: 2px solid rgba(255, 255, 255, .4);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: cpx-spin .8s linear infinite;
+}
+
+@keyframes cpx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Footers ---------------------------------------------------------------- */
+
+.cpx .signin-foot {
+    margin-top: var(--cpx-s8);
+    padding-top: var(--cpx-s6);
+    background: linear-gradient(to right,
+            transparent, var(--cpx-divider) 48px,
+            var(--cpx-divider) calc(100% - 48px), transparent) no-repeat top / 100% 1px;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .signin-foot a {
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .signin-foot a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cpx .signin-secure {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s2);
+    margin-top: var(--cpx-s4);
+    font-size: .72rem;
+    color: var(--cpx-faint);
+}
+
+.cpx .signin-copyright {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 26px;
+    text-align: center;
+    font-size: .72rem;
+    color: var(--cpx-faint);
+}
+
+/* Below the split ---------------------------------------------------------
+   The two columns stack, and the divider turns with them. The hero keeps its
+   mark, eyebrow and headline; the three points stand down, because in one
+   column they push the fields off the first screen. */
+
+@media (max-width: 1024px) {
+    .cpx.signin {
+        grid-template-columns: 1fr;
+    }
+
+    .cpx .signin-hero {
+        justify-content: flex-start;
+        gap: var(--cpx-s6);
+    }
+
+    .cpx .signin-hero::after {
+        inset: auto 0 0 0;
+        width: auto;
+        height: 1px;
+        background: linear-gradient(to right,
+                transparent, var(--cpx-divider) 48px,
+                var(--cpx-divider) calc(100% - 48px), transparent);
+    }
+
+    .cpx .signin-points {
+        display: none;
+    }
+
+    .cpx .signin-pitch p {
+        margin-bottom: 0;
+    }
+
+    .cpx .signin-copyright {
+        position: static;
+        margin-top: var(--cpx-s8);
+    }
+}
+
+@media (max-width: 640px) {
+
+    /* The pitch paragraph goes too, so the mark, the headline and the first
+       field all land above the fold on a phone. */
+    .cpx .signin-pitch p {
+        display: none;
+    }
+
+    .cpx .signin-hero-foot {
+        flex-wrap: wrap;
+    }
+}
+
+/* ==========================================================================
    Motion
    ========================================================================== */
 
