@@ -27,7 +27,7 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
     private const string OpeningBalanceSql = GetCustomerStatementHandler.OpeningBalanceSql;
     private const string LedgerSql = GetCustomerStatementHandler.LedgerSql;
 
-    [SapFact]
+    [SapSqlFact]
     public async Task Statement_sql_is_accepted_with_bound_parameters()
     {
         var cardCode = await FindCustomerWithLedgerLinesAsync();
@@ -78,7 +78,7 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
     /// The point of the whole change: a statement run must not add SAP query objects, however many
     /// different customers and date ranges it is asked for.
     /// </summary>
-    [SapFact]
+    [SapSqlFact]
     public async Task Repeated_statement_runs_add_no_sap_query_objects()
     {
         var cardCode = await FindCustomerWithLedgerLinesAsync();
@@ -103,7 +103,7 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
     /// <summary>
     /// Card codes reach this query from the request body, so a quote in one must stay data.
     /// </summary>
-    [SapFact]
+    [SapSqlFact]
     public async Task A_quote_in_a_card_code_stays_inside_the_bound_value()
     {
         var real = await FindCustomerWithLedgerLinesAsync();

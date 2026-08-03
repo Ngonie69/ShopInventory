@@ -48,7 +48,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
         (new DateTime(2023, 9, 12), new DateTime(2023, 9, 13))
     ];
 
-    [SapFact]
+    [SapSqlFact]
     public async Task Every_report_statement_is_accepted()
     {
         var reports = CreateReportService();
@@ -100,7 +100,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
     /// renamed alias is not an error anywhere — the row simply has no such key, and the report
     /// quietly reports zero.
     /// </summary>
-    [SapFact]
+    [SapSqlFact]
     public async Task The_statements_return_the_columns_the_pivots_read()
     {
         // Five years, so a company with any history at all has invoices in range.
@@ -151,7 +151,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
     /// rejected outright, which silently dates every row to <see cref="DateTime.MinValue"/> — an
     /// invoice bucketed as 90+ regardless of its age, and a daily series that drops every point.
     /// </summary>
-    [SapFact]
+    [SapSqlFact]
     public async Task Sql_rows_carry_dates_in_the_compact_form_the_reports_parse()
     {
         var rows = await fixture.Client.ExecuteParameterisedSqlQueryAsync(
@@ -184,7 +184,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
     /// code. A failure here means SAP has started accepting the construct — the report could be
     /// simplified — not that anything is broken.
     /// </remarks>
-    [SapTheory]
+    [SapSqlTheory]
     [InlineData(
         "case expression",
         """SELECT SUM(CASE WHEN T0."DocCur" = 'USD' THEN 1 ELSE 0 END) AS "C" FROM OINV T0""")]
@@ -212,7 +212,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
     /// The point of the whole change: report views must not add SAP query objects, however many
     /// different date ranges they are asked for.
     /// </summary>
-    [SapFact]
+    [SapSqlFact]
     public async Task Further_date_ranges_add_no_sap_query_objects()
     {
         // One service for the whole run. Its caches are keyed by date range, so every range below
