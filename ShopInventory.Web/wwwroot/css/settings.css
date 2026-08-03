@@ -51,7 +51,7 @@
     --stg-accent-900: #2b2741;
 
     /* Roles the design system leaves to the product. Red matches the bad-state
-       red create-invoice.css already uses, so the two Nocturne pages agree. */
+       red sales-forms.css already uses, so the two Nocturne pages agree. */
     --stg-danger: #e8697d;
     --stg-danger-dim: #7d2e3b;
     --stg-warn: #e0a44a;

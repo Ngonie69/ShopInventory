@@ -25,7 +25,7 @@
    up on paper — a 42% mix of near-black on #f4f4f8 does not.
 
    Rules live in this file rather than an inline Razor <style> block for the
-   same two reasons as create-invoice.css: a scoped style block cannot reach
+   same two reasons as sales-forms.css: a scoped style block cannot reach
    native controls the way these selectors need to, and app.css carries global
    `.dark-theme input/select/textarea` rules that have to be out-specified —
    so every control carries a class and every control selector is two classes
