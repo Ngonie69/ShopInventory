@@ -5,6 +5,7 @@
 @using ShopInventory.Web.Models
 @inject ICustomerStatementService StatementService
 @inject ICustomerPortalSessionService CustomerSession
+@inject IAppSettingsProvider AppSettings
 @inject IJSRuntime JSRuntime
 @inject ILogger<CustomerStatements> Logger
 @attribute [AllowAnonymous]
@@ -13,356 +14,334 @@
 
 <PageTitle>My Statements - Customer Portal</PageTitle>
 
-<div class="container-fluid fade-in customer-statements">
+@* Nocturne. wwwroot/css/account-statement.css (linked from App.razor) carries
+   the design, built from "Account Statement.dc.html" in the design project.
+
+   The page is flat by design: no cards, no panels. Sections are separated by
+   rules that fade out at both ends, and the four headline figures share one
+   rule-divided row rather than sitting in four tinted tiles. That is the whole
+   point of the redesign — the old page put every group of numbers inside its
+   own bordered box, and on a statement, where nearly everything is a number,
+   the boxes were doing the reading instead of the figures.
+
+   Two departures from the .dc.html, both deliberate and both about not shipping
+   fiction: the design's aging buckets are steps of the accent, and are here the
+   portal's own severity ramp, because "how overdue" is the only thing that row
+   exists to say; and the design's footer names a contact address
+   (accounts@kefalos.co.zw) that appears nowhere in this codebase — the real
+   domain is kefaloscheese.com — so the footer points at the portal's own
+   Support page instead of inventing a mailbox for customers to write into.
+
+   The ledger folds its middle. A three-month statement runs to seventy-odd
+   rows, of which the ones anybody opens the page for are at the two ends, so
+   the first eight and last four stay and the rest collapse to one line that
+   still carries their count, their span and their totals. Nothing is hidden
+   without being counted, and Expand puts it all back.
+
+   The date fields are NocturneDateField for the reasons AuditTrail.razor gives:
+   it takes the shorthand people type here (`030826`) and draws a calendar a
+   stylesheet can actually reach. It carries the staff palette, which the sheet
+   repoints to the portal's teal — see its `.cst .ndf` block. *@
+
+<div class="cst fade-in">
     @if (isLoading && statement == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="text-muted mt-3 mb-0">Loading your statement...</p>
-            </div>
+        <div class="cst-loading">
+            <span class="cst-spin" aria-hidden="true"></span>
+            <span>Loading your statement&#8230;</span>
         </div>
     }
     else if (customerInfo == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
-                     class="mb-3">
-                    <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-                </svg>
-                <h2 class="mb-2">Authentication Required</h2>
-                <p class="text-muted mb-4">Please login to view your statements.</p>
-                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
-            </div>
+        <div class="cst-gate">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4.5" y="10.5" width="15" height="10" rx="2.5"></rect>
+                <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path>
+            </svg>
+            <h1>Authentication required</h1>
+            <p>Please sign in to view your statements.</p>
+            <a href="/customer-portal/login" class="cst-btn cst-btn-primary">Sign in to the portal</a>
         </div>
     }
     else
     {
-        <div class="dashboard-hero">
-            <div class="page-header">
-                <div class="dashboard-title">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" fill="currentColor"
-                             viewBox="0 0 16 16">
-                            <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zM4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4z" />
-                            <path d="M4.5 12.5A.5.5 0 0 1 5 12h3a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 10h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 8h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zm0-2A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5z" />
-                        </svg>
-                        Account Statement
-                    </h2>
-                    <span class="text-muted">Statement for @customerInfo.CardName</span>
+        <div class="cst-hero">
+            <div>
+                <div class="cst-hero-kicker">
+                    <span class="cst-tag">Statement</span>
+                    <span class="cst-period">@PeriodLabel</span>
                     @if (isMultiAccount)
                     {
-                        <div class="mt-1">
-                            @if (string.IsNullOrEmpty(selectedAccountFilter))
-                            {
-                                <span class="badge bg-info">Multi-account &mdash; all main accounts</span>
-                            }
-                            else
-                            {
-                                <span class="badge bg-info">
-                                    Filtered &mdash;
-                                    @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                        ?? selectedAccountFilter)
-                                </span>
-                            }
-                        </div>
+                        <span class="cst-tag cst-tag-neutral">@AccountScopeLabel</span>
                     }
                 </div>
-                <div class="dashboard-meta">
-                    <span class="meta-pill">
-                        <span class="meta-dot"></span>
-                        Statement
-                    </span>
-                    <span class="meta-subtitle">
-                        @if (statement != null)
-                        {
-                            @($"Closing balance {FormatCurrency(statement.ClosingBalance)}")
-                        }
-                        else
-                        {
-                            <text>Select a date range and generate</text>
-                        }
-                    </span>
-                    <div class="statement-actions">
-                        <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
-                        <MudButton Variant="Variant.Filled" Color="Color.Dark" Size="Size.Small" OnClick="DownloadPdf"
-                                   Disabled="@(isDownloading || statement == null)">
-                            @if (isDownloading)
+                <h1 class="cst-title">Account statement</h1>
+                <p class="cst-lede">
+                    @customerInfo.CardName &middot; account @customerInfo.CardCode &middot; all figures in @CurrencyCode
+                </p>
+            </div>
+            <div class="cst-hero-actions">
+                <a href="/customer-portal/dashboard" class="cst-btn cst-btn-secondary">Back to dashboard</a>
+                <button type="button" class="cst-btn cst-btn-primary" @onclick="DownloadPdf"
+                        disabled="@(isDownloading || statement == null)">
+                    @if (isDownloading)
+                    {
+                        <span class="cst-spin" aria-hidden="true"></span>
+                        <span>Preparing&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"></path>
+                        </svg>
+                        <span>Download PDF</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        <div class="cst-filters">
+            @* Not a <label>: the field carries a button and a popup, and a label
+               would swallow the clicks of both. *@
+            <div class="cst-field">
+                <span class="cst-label">From</span>
+                <NocturneDateField @bind-Date="fromDate" AriaLabel="Statement period start" />
+            </div>
+            <div class="cst-field">
+                <span class="cst-label">To</span>
+                <NocturneDateField @bind-Date="toDate" AriaLabel="Statement period end" />
+            </div>
+            @if (isMultiAccount && linkedAccounts.Any())
+            {
+                <label class="cst-field cst-field-wide">
+                    <span class="cst-label">Account</span>
+                    <span class="cst-select">
+                        <select class="cst-input" value="@selectedAccountFilter" @onchange="OnAccountFilterChanged">
+                            <option value="">All accounts</option>
+                            @foreach (var account in linkedAccounts)
                             {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                <span>Downloading...</span>
+                                <option value="@account.CardCode">
+                                    @account.CardName@(string.IsNullOrEmpty(account.Currency) ? "" : $" ({account.Currency})") &#8212; @account.CardCode
+                                </option>
                             }
-                            else
-                            {
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                     viewBox="0 0 16 16" class="me-1">
-                                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
-                                    <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
-                                </svg>
-                                <span>Download PDF</span>
-                            }
-                        </MudButton>
-                    </div>
-                </div>
+                        </select>
+                        <span class="cst-caret" aria-hidden="true"></span>
+                    </span>
+                </label>
+            }
+            <button type="button" class="cst-btn cst-btn-primary" @onclick="GenerateStatement" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="cst-spin" aria-hidden="true"></span>
+                    <span>Generating&#8230;</span>
+                }
+                else
+                {
+                    <span>Generate statement</span>
+                }
+            </button>
+            <div class="cst-quick">
+                @foreach (var range in QuickRanges)
+                {
+                    <button type="button" class="cst-btn cst-btn-ghost" disabled="@isLoading"
+                            aria-pressed="@(ActiveQuickRange == range ? "true" : "false")"
+                            @onclick="() => ApplyQuickRange(range)">
+                        @QuickRangeLabel(range)
+                    </button>
+                }
             </div>
         </div>
 
         @if (!string.IsNullOrWhiteSpace(errorMessage))
         {
-            <div class="alert alert-danger mb-3" role="alert">
-                @errorMessage
+            <div class="cst-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
             </div>
         }
-
-        <div class="card dashboard-panel mb-3">
-            <div class="card-header dashboard-panel-header">
-                <h5 class="mb-0 d-flex align-items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16"
-                         class="panel-icon">
-                        <path d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z" />
-                    </svg>
-                    Filters
-                </h5>
-            </div>
-            <div class="card-body">
-                @* A grid of auto-fitting tracks rather than fixed col-md-3s: the same markup gives
-                   four fields on a laptop, two on a tablet and one on a phone, and the multi-account
-                   selector can appear or not without the row re-flowing awkwardly. *@
-                <div class="statement-filters">
-                    <FlexibleDatePicker Label="From" @bind-Date="fromDate" />
-                    <FlexibleDatePicker Label="To" @bind-Date="toDate" />
-                    @if (isMultiAccount && linkedAccounts.Any())
-                    {
-                        <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                   ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
-                                   AnchorOrigin="Origin.BottomCenter">
-                            <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
-                            @foreach (var account in linkedAccounts)
-                            {
-                                <MudSelectItem T="string" Value="@account.CardCode">
-                                    @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
-                                    — @account.CardCode
-                                </MudSelectItem>
-                            }
-                        </MudSelect>
-                    }
-                    <div class="statement-filter-action">
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateStatement"
-                                   Disabled="@isLoading">
-                            @if (isLoading)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                <span>Loading...</span>
-                            }
-                            else
-                            {
-                                <span>Generate Statement</span>
-                            }
-                        </MudButton>
-                    </div>
-                </div>
-            </div>
-        </div>
 
         @if (statement != null)
         {
-            <div class="row mb-3 g-3 dashboard-stats">
-                <div class="col-6 col-xl-3">
-                    <div class="card stat-card staff-stat-card bg-secondary">
-                        <div class="card-body">
-                            <div class="stat-title">Opening Balance</div>
-                            <div class="stat-value">@FormatCurrency(statement.OpeningBalance)</div>
-                            <div class="stat-sub">@statement.FromDate.ToString("MMM dd, yyyy")</div>
-                        </div>
+            <section class="cst-figures">
+                <div class="cst-figure">
+                    <div class="cst-figure-label">Opening balance</div>
+                    <div class="cst-figure-num">@FormatCurrency(statement.OpeningBalance)</div>
+                    <div class="cst-figure-sub">as at @FormatDate(statement.FromDate)</div>
+                </div>
+                <div class="cst-figure">
+                    <div class="cst-figure-label">Total debits</div>
+                    <div class="cst-figure-num">@FormatCurrency(statement.TotalDebits)</div>
+                    <div class="cst-figure-sub">@Pluralise(DebitCount, "entry", "entries") charged</div>
+                </div>
+                <div class="cst-figure">
+                    <div class="cst-figure-label">Total credits</div>
+                    <div class="cst-figure-num">@FormatCurrency(statement.TotalCredits)</div>
+                    <div class="cst-figure-sub">receipts &amp; adjustments</div>
+                </div>
+                <div class="cst-figure cst-figure-close">
+                    <div class="cst-figure-label">Closing balance</div>
+                    <div class="cst-figure-num">@FormatCurrency(statement.ClosingBalance)</div>
+                    <div class="cst-figure-delta">
+                        <span class="cst-figure-mark" aria-hidden="true"></span>
+                        <span>@MovementLabel</span>
                     </div>
                 </div>
-                <div class="col-6 col-xl-3">
-                    <div class="card stat-card staff-stat-card bg-primary">
-                        <div class="card-body">
-                            <div class="stat-title">Total Debits</div>
-                            <div class="stat-value">@FormatCurrency(statement.TotalDebits)</div>
-                            <div class="stat-sub">Ledger debits in period</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-6 col-xl-3">
-                    <div class="card stat-card staff-stat-card bg-success">
-                        <div class="card-body">
-                            <div class="stat-title">Total Credits</div>
-                            <div class="stat-value">@FormatCurrency(statement.TotalCredits)</div>
-                            <div class="stat-sub">Ledger credits in period</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-6 col-xl-3">
-                    <div class="card stat-card staff-stat-card bg-dark">
-                        <div class="card-body">
-                            <div class="stat-title">Closing Balance</div>
-                            <div class="stat-value">@FormatCurrency(statement.ClosingBalance)</div>
-                            <div class="stat-sub">@statement.ToDate.ToString("MMM dd, yyyy")</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </section>
 
-            <div class="card dashboard-panel mb-3">
-                <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                    <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                             viewBox="0 0 16 16" class="panel-icon">
-                            <path d="M0 1.5A.5.5 0 0 1 .5 1H2a.5.5 0 0 1 .485.379L2.89 3H14.5a.5.5 0 0 1 .491.592l-1.5 8A.5.5 0 0 1 13 12H4a.5.5 0 0 1-.491-.408L2.01 3.607 1.61 2H.5a.5.5 0 0 1-.5-.5z" />
-                        </svg>
-                        Transaction Details
-                    </h5>
-                    <span class="text-muted small">
-                        @statement.FromDate.ToString("MMM dd, yyyy") &mdash; @statement.ToDate.ToString("MMM dd, yyyy")
+            <section class="cst-section">
+                <div class="cst-section-head">
+                    <h2>Transaction detail</h2>
+                    <span class="cst-section-note">
+                        @Pluralise(statement.Lines.Count, "entry", "entries") &middot; balance carried forward
+                    </span>
+                    <span class="cst-section-aside">@PeriodLabel</span>
+                </div>
+
+                @if (statement.Lines.Any())
+                {
+                    <div class="cst-ledger-wrap">
+                        <table class="cst-ledger">
+                            <caption class="visually-hidden-cst">
+                                Ledger entries for @customerInfo.CardName between @PeriodLabel, with a running balance.
+                            </caption>
+                            <colgroup>
+                                <col /><col /><col /><col /><col /><col /><col /><col />
+                            </colgroup>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Ref</th>
+                                    <th scope="col">Offset</th>
+                                    <th scope="col">Details</th>
+                                    <th scope="col" class="cst-num">Debit</th>
+                                    <th scope="col" class="cst-num">Credit</th>
+                                    <th scope="col" class="cst-num">Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="cst-row-open">
+                                    <td data-label="Date" class="cst-date">@FormatDate(statement.FromDate)</td>
+                                    <td data-label="Summary" colspan="4" class="cst-row-label">Opening balance</td>
+                                    <td data-label="Debit" class="cst-num cst-nil">&#8212;</td>
+                                    <td data-label="Credit" class="cst-num cst-nil">&#8212;</td>
+                                    <td data-label="Balance" class="cst-num cst-row-label">
+                                        @FormatCurrency(statement.OpeningBalance)
+                                    </td>
+                                </tr>
+
+                                @foreach (var line in HeadLines)
+                                {
+                                    @LedgerRow(line)
+                                }
+
+                                @if (IsFolded)
+                                {
+                                    var folded = FoldedLines;
+                                    <tr class="cst-row-fold">
+                                        <td colspan="8">
+                                            <div class="cst-fold">
+                                                <span class="cst-fold-span">
+                                                    @Pluralise(folded.Count, "entry", "entries") between
+                                                    @FormatDate(folded[0].Date) and
+                                                    @FormatDate(folded[^1].Date)
+                                                </span>
+                                                <span class="cst-fold-rule" aria-hidden="true"></span>
+                                                <span class="cst-fold-span">
+                                                    debits @FormatCurrency(folded.Sum(l => l.Debit))
+                                                </span>
+                                                <span class="cst-fold-span">
+                                                    credits @FormatCurrency(folded.Sum(l => l.Credit))
+                                                </span>
+                                                <button type="button" class="cst-btn cst-btn-ghost cst-fold-span"
+                                                        @onclick="() => ledgerExpanded = true">
+                                                    Expand
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+
+                                    @foreach (var line in TailLines)
+                                    {
+                                        @LedgerRow(line)
+                                    }
+                                }
+
+                                <tr class="cst-row-close">
+                                    <td data-label="Date" class="cst-date">@FormatDate(statement.ToDate)</td>
+                                    <td data-label="Summary" colspan="4" class="cst-row-label">Closing balance</td>
+                                    <td data-label="Debit" class="cst-num cst-total">
+                                        @FormatCurrency(statement.TotalDebits)
+                                    </td>
+                                    <td data-label="Credit" class="cst-num cst-total">
+                                        @FormatCurrency(statement.TotalCredits)
+                                    </td>
+                                    <td data-label="Balance" class="cst-num cst-closing">
+                                        @FormatCurrency(statement.ClosingBalance)
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <p class="cst-empty">No transactions were posted to this account in the selected period.</p>
+                }
+            </section>
+
+            <section class="cst-section cst-section-ruled">
+                <div class="cst-section-head">
+                    <h2>Aging</h2>
+                    <span class="cst-section-note">across all open invoices, not only this period</span>
+                    <span class="cst-aging-total">
+                        @FormatCurrency(statement.Aging.Total) <span>outstanding</span>
                     </span>
                 </div>
-                <div class="card-body p-0">
-                    @if (statement.Lines.Any())
+
+                @{
+                    var buckets = AgingBuckets;
+                }
+
+                <div class="cst-aging-bar" role="img" aria-label="@AgingBarLabel">
+                    @foreach (var bucket in buckets.Where(b => b.Share > 0))
                     {
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle dashboard-table mobile-card-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Origin</th>
-                                        <th>Origin No.</th>
-                                        <th>Offset Account</th>
-                                        <th>Details</th>
-                                        <th class="text-end">Debit</th>
-                                        <th class="text-end">Credit</th>
-                                        <th class="text-end">Balance</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr class="table-light mobile-table-summary">
-                                        <td data-label="Date">@statement.FromDate.ToString("MMM dd, yyyy")</td>
-                                        <td colspan="4" data-label="Summary"><strong>Opening Balance</strong></td>
-                                        <td data-label="Debit" class="text-end">-</td>
-                                        <td data-label="Credit" class="text-end">-</td>
-                                        <td data-label="Balance" class="text-end fw-bold">
-                                            @FormatCurrency(statement.OpeningBalance)
-                                        </td>
-                                    </tr>
-
-                                    @foreach (var line in statement.Lines)
-                                    {
-                                        <tr>
-                                            <td data-label="Date">@line.Date.ToString("MMM dd, yyyy")</td>
-                                            <td data-label="Origin">
-                                                @{
-                                                    var badgeClass = line.OriginCode switch
-                                                    {
-                                                        "RC" => "bg-success",
-                                                        "CN" => "bg-warning",
-                                                        "OB" => "bg-secondary",
-                                                        "JE" => "bg-info",
-                                                        _ => "bg-primary"
-                                                    };
-                                                }
-                                                <span class="badge @badgeClass">
-                                                    @(string.IsNullOrWhiteSpace(line.OriginCode) ? line.DocumentType : line.OriginCode)
-                                                </span>
-                                            </td>
-                                            <td data-label="Origin No.">@(line.OriginNumber ?? line.DocumentNumber)</td>
-                                            <td data-label="Offset Account">@(line.OffsetAccount ?? "-")</td>
-                                            <td data-label="Details">
-                                                @(line.Description ?? line.DocumentType)
-                                                @if (line.TransactionNumber > 0)
-                                                {
-                                                    <small class="d-block text-muted">Txn: @line.TransactionNumber</small>
-                                                }
-                                            </td>
-                                            <td data-label="Debit" class="text-end fw-semibold @(line.Debit > 0 ? "text-dark" : "")">
-                                                @(line.Debit > 0 ? FormatCurrency(line.Debit) : "-")
-                                            </td>
-                                            <td data-label="Credit" class="text-end fw-semibold @(line.Credit > 0 ? "text-success" : "")">
-                                                @(line.Credit > 0 ? FormatCurrency(line.Credit) : "-")
-                                            </td>
-                                            <td data-label="Balance" class="text-end fw-bold">@FormatCurrency(line.Balance)</td>
-                                        </tr>
-                                    }
-
-                                    <tr class="table-dark mobile-table-summary mobile-table-summary--closing">
-                                        <td data-label="Date">@statement.ToDate.ToString("MMM dd, yyyy")</td>
-                                        <td colspan="4" data-label="Summary"><strong>Closing Balance</strong></td>
-                                        <td data-label="Debit" class="text-end fw-bold">
-                                            @FormatCurrency(statement.TotalDebits)
-                                        </td>
-                                        <td data-label="Credit" class="text-end fw-bold">
-                                            @FormatCurrency(statement.TotalCredits)
-                                        </td>
-                                        <td data-label="Balance" class="text-end fw-bold">
-                                            @FormatCurrency(statement.ClosingBalance)
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
+                        <span class="cst-aging-seg cst-age-@bucket.Rank"
+                              style="flex-basis: @FormatPercent(bucket.Share)"></span>
                     }
-                    else
+                </div>
+
+                <div class="cst-buckets">
+                    @foreach (var bucket in buckets)
                     {
-                        <div class="text-center py-5 dashboard-empty">
-                            <p class="text-muted mb-0">No transactions found for this period.</p>
+                        <div class="cst-bucket @(bucket.Amount > 0 ? "" : "cst-bucket-nil")">
+                            <div class="cst-bucket-head">
+                                <span class="cst-dot @(bucket.Amount > 0 ? $"cst-age-{bucket.Rank}" : "cst-age-nil")"
+                                      aria-hidden="true"></span>
+                                <span class="cst-bucket-label">@bucket.Label</span>
+                            </div>
+                            <div class="cst-bucket-num">@FormatCurrency(bucket.Amount)</div>
                         </div>
                     }
                 </div>
-            </div>
-
-            <div class="card dashboard-panel mb-3">
-                <div class="card-header dashboard-panel-header">
-                    <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                             viewBox="0 0 16 16" class="panel-icon">
-                            <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
-                            <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
-                        </svg>
-                        Aging Summary
-                    </h5>
-                    <span class="text-muted small">Across all open invoices, not only this period</span>
-                </div>
-                <div class="card-body">
-                    <div class="aging-grid">
-                        <div class="aging-card aging-current">
-                            <span class="aging-lbl">Current</span>
-                            <span class="aging-val">@FormatCurrency(statement.Aging.Current)</span>
-                        </div>
-                        <div class="aging-card aging-b1">
-                            <span class="aging-lbl">@statement.Aging.Bucket1Label</span>
-                            <span class="aging-val">@FormatCurrency(statement.Aging.Days1To30)</span>
-                        </div>
-                        <div class="aging-card aging-b2">
-                            <span class="aging-lbl">@statement.Aging.Bucket2Label</span>
-                            <span class="aging-val">@FormatCurrency(statement.Aging.Days31To60)</span>
-                        </div>
-                        <div class="aging-card aging-b3">
-                            <span class="aging-lbl">@statement.Aging.Bucket3Label</span>
-                            <span class="aging-val">@FormatCurrency(statement.Aging.Days61To90)</span>
-                        </div>
-                        <div class="aging-card aging-b4">
-                            <span class="aging-lbl">@statement.Aging.Bucket4Label</span>
-                            <span class="aging-val">@FormatCurrency(statement.Aging.Over90Days)</span>
-                        </div>
-                        <div class="aging-card aging-total">
-                            <span class="aging-lbl">Total</span>
-                            <span class="aging-val">@FormatCurrency(statement.Aging.Total)</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            </section>
         }
 
-        <div class="statement-note">
-            <p class="mb-1">
-                Statement generated on
-                @IAuditService.ToCAT(DateTime.UtcNow).ToString("MMMM dd, yyyy 'at' HH:mm") CAT
-            </p>
-            <p class="mb-0">If you have any questions about this statement, please contact our accounts department.</p>
-        </div>
+        <footer class="cst-foot">
+            <div>
+                Generated @IAuditService.ToCAT(DateTime.UtcNow).ToString("dd MMMM yyyy, HH:mm", CultureInfo.InvariantCulture) CAT
+                &middot; @AppSettings.CompanyName
+            </div>
+            <div style="margin-top: 2px">
+                Queries on this statement go to <a href="/customer-portal/support">our accounts team</a>.
+            </div>
+        </footer>
     }
 </div>
 
@@ -378,6 +357,17 @@
     private string? errorMessage;
     private string selectedAccountFilter = "";
     private List<LinkedAccountInfo> linkedAccounts = new();
+
+    // How much of the ledger survives the fold. The two ends are what a
+    // statement is read for — what has just happened, and what it opened at —
+    // so they stay whole and the middle collapses to a line that still counts
+    // and totals itself. The threshold is deliberately above head + tail: there
+    // is no point folding four rows into a row that says it folded four rows.
+    private const int FoldHead = 8;
+    private const int FoldTail = 4;
+    private const int FoldFloor = FoldHead + FoldTail + 4;
+
+    private bool ledgerExpanded;
 
     private CustomerStatementRequest BuildRequest() => new()
     {
@@ -438,8 +428,10 @@
         }
     }
 
-    private void OnAccountFilterChanged(string value)
+    private async Task OnAccountFilterChanged(ChangeEventArgs e)
     {
+        var value = e.Value?.ToString() ?? string.Empty;
+
         if (!CustomerSession.CanAccessCardCode(portalSession, value))
         {
             Logger.LogWarning("Rejected unauthorized customer statement account filter {CardCode}", value);
@@ -448,6 +440,7 @@
         }
 
         selectedAccountFilter = value;
+        await GenerateStatement();
     }
 
     private async Task GenerateStatement()
@@ -456,6 +449,9 @@
 
         isLoading = true;
         errorMessage = null;
+        // A new period is a new ledger; carrying the previous one's expansion
+        // over would silently un-fold a statement the reader never opened.
+        ledgerExpanded = false;
 
         try
         {
@@ -575,6 +571,221 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    // — The quick ranges —————————————————————————————————————————————————————
+
+    private enum QuickRange
+    {
+        None,
+        Last30Days,
+        Quarter,
+        YearToDate
+    }
+
+    private static readonly QuickRange[] QuickRanges =
+    {
+        QuickRange.Last30Days, QuickRange.Quarter, QuickRange.YearToDate
+    };
+
+    private static string QuickRangeLabel(QuickRange range) => range switch
+    {
+        QuickRange.Last30Days => "Last 30 days",
+        QuickRange.Quarter => "Quarter",
+        QuickRange.YearToDate => "Year to date",
+        _ => string.Empty
+    };
+
+    private static (DateTime From, DateTime To) QuickRangeDates(QuickRange range)
+    {
+        var today = IAuditService.ToCAT(DateTime.UtcNow).Date;
+
+        return range switch
+        {
+            QuickRange.Last30Days => (today.AddDays(-30), today),
+            QuickRange.Quarter => (today.AddMonths(-3), today),
+            QuickRange.YearToDate => (new DateTime(today.Year, 1, 1), today),
+            _ => (today, today)
+        };
+    }
+
+    /// <summary>
+    /// Which preset the fields are currently sitting on, or None once they have been
+    /// edited by hand. Derived rather than remembered so that typing a date into the
+    /// field clears the pressed state without the field having to know about presets.
+    /// </summary>
+    private QuickRange ActiveQuickRange
+    {
+        get
+        {
+            foreach (var range in QuickRanges)
+            {
+                var (from, to) = QuickRangeDates(range);
+                if (fromDate?.Date == from && toDate?.Date == to)
+                {
+                    return range;
+                }
+            }
+
+            return QuickRange.None;
+        }
+    }
+
+    private async Task ApplyQuickRange(QuickRange range)
+    {
+        var (from, to) = QuickRangeDates(range);
+        fromDate = from;
+        toDate = to;
+        await GenerateStatement();
+    }
+
+    // — The ledger fold ——————————————————————————————————————————————————————
+
+    private List<StatementLine> AllLines => statement?.Lines ?? new List<StatementLine>();
+
+    private bool IsFolded => !ledgerExpanded && AllLines.Count >= FoldFloor;
+
+    private IEnumerable<StatementLine> HeadLines => IsFolded ? AllLines.Take(FoldHead) : AllLines;
+
+    private IEnumerable<StatementLine> TailLines =>
+        IsFolded ? AllLines.Skip(AllLines.Count - FoldTail) : Enumerable.Empty<StatementLine>();
+
+    private List<StatementLine> FoldedLines =>
+        IsFolded
+            ? AllLines.GetRange(FoldHead, AllLines.Count - FoldHead - FoldTail)
+            : new List<StatementLine>();
+
+    private RenderFragment LedgerRow(StatementLine line) =>
+    @<tr class="cst-row">
+        <td data-label="Date" class="cst-date">@FormatDate(line.Date)</td>
+        <td data-label="Type">
+            <span class="cst-tag cst-tag-neutral">
+                @(string.IsNullOrWhiteSpace(line.OriginCode) ? line.DocumentType : line.OriginCode)
+            </span>
+        </td>
+        <td data-label="Ref" class="cst-ref">@(line.OriginNumber ?? line.DocumentNumber)</td>
+        <td data-label="Offset" class="cst-offset">@(line.OffsetAccount ?? "—")</td>
+        @* One element between the cell and its contents, not two. On a phone the
+           cell is a subgrid of [label | value], and a second child would be laid
+           into the next row's label track — which put the Txn line in the
+           gutter, under the label rather than under the description. *@
+        <td data-label="Details">
+            <div class="cst-detail">
+                <div>@(line.Description ?? line.DocumentType)</div>
+                @if (line.TransactionNumber > 0)
+                {
+                    <div class="cst-txn">Txn @line.TransactionNumber</div>
+                }
+            </div>
+        </td>
+        <td data-label="Debit" class="cst-num @(line.Debit > 0 ? "" : "cst-nil")">
+            @(line.Debit > 0 ? FormatCurrency(line.Debit) : "—")
+        </td>
+        <td data-label="Credit" class="cst-num @(line.Credit > 0 ? "cst-credit" : "cst-nil")">
+            @(line.Credit > 0 ? FormatCurrency(line.Credit) : "—")
+        </td>
+        <td data-label="Balance" class="cst-num">@FormatCurrency(line.Balance)</td>
+    </tr>;
+
+    // — The aging row ————————————————————————————————————————————————————————
+
+    /// <param name="Rank">
+    /// 1-5, settled through seriously overdue. It picks the colour class rather than
+    /// the sheet naming five buckets, so the labels stay SAP's and only the position
+    /// in the ramp is ours.
+    /// </param>
+    private sealed record AgingBucket(int Rank, string Label, decimal Amount, decimal Share);
+
+    private List<AgingBucket> AgingBuckets
+    {
+        get
+        {
+            var aging = statement?.Aging ?? new AgingSummary();
+
+            var amounts = new (string Label, decimal Amount)[]
+            {
+                ("Current", aging.Current),
+                (aging.Bucket1Label, aging.Days1To30),
+                (aging.Bucket2Label, aging.Days31To60),
+                (aging.Bucket3Label, aging.Days61To90),
+                (aging.Bucket4Label, aging.Over90Days)
+            };
+
+            // Off the buckets, not off Aging.Total: the two are computed separately
+            // and a total that disagreed with its parts would give the bar segments
+            // that did not add up to the bar.
+            var span = amounts.Sum(a => Math.Max(a.Amount, 0m));
+
+            return amounts
+                .Select((a, i) => new AgingBucket(
+                    i + 1,
+                    a.Label,
+                    a.Amount,
+                    span > 0 ? Math.Max(a.Amount, 0m) / span * 100m : 0m))
+                .ToList();
+        }
+    }
+
+    private string AgingBarLabel =>
+        string.Join(", ", AgingBuckets
+            .Where(b => b.Amount > 0)
+            .Select(b => $"{b.Label} {FormatCurrency(b.Amount)}"))
+        is { Length: > 0 } parts
+            ? $"Outstanding by age: {parts}"
+            : "Nothing outstanding";
+
+    // — Labels ———————————————————————————————————————————————————————————————
+
+    private string PeriodLabel => statement != null
+        ? $"{FormatDate(statement.FromDate)} — {FormatDate(statement.ToDate)}"
+        : $"{FormatDate(fromDate)} — {FormatDate(toDate)}";
+
+    private string AccountScopeLabel => string.IsNullOrEmpty(selectedAccountFilter)
+        ? "All main accounts"
+        : linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName ?? selectedAccountFilter;
+
+    private int DebitCount => AllLines.Count(l => l.Debit > 0);
+
+    private string MovementLabel
+    {
+        get
+        {
+            if (statement == null)
+            {
+                return string.Empty;
+            }
+
+            var movement = statement.ClosingBalance - statement.OpeningBalance;
+
+            if (movement == 0)
+            {
+                return "unchanged over the period";
+            }
+
+            return $"{(movement > 0 ? "up" : "down")} {FormatCurrency(Math.Abs(movement))} over the period";
+        }
+    }
+
+    /// <summary>
+    /// The currency the lines are actually denominated in, which is not always the one
+    /// on the customer record — a linked account can be held in another.
+    /// </summary>
+    private string CurrencyCode =>
+        AllLines.Select(l => l.Currency).FirstOrDefault(c => !string.IsNullOrWhiteSpace(c))
+        ?? (string.IsNullOrWhiteSpace(customerInfo?.Currency) ? "USD" : customerInfo!.Currency!);
+
+    private static string Pluralise(int count, string one, string many) =>
+        $"{count:N0} {(count == 1 ? one : many)}";
+
+    private static string FormatDate(DateTime date) =>
+        date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+
+    private static string FormatDate(DateTime? date) =>
+        date.HasValue ? FormatDate(date.Value) : "—";
+
+    // Invariant, not current: a comma decimal separator in a flex-basis is not a
+    // length, and the bar would silently lay out with every segment at auto.
+    private static string FormatPercent(decimal share) =>
+        Math.Round(share, 3).ToString("0.###", CultureInfo.InvariantCulture) + "%";
 
     private string FormatCurrency(decimal amount)
     {

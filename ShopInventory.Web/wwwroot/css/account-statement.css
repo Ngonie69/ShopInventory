@@ -1,0 +1,1228 @@
+/* ==========================================================================
+   Account Statement — Nocturne
+   Design: "Account Statement.dc.html" (claude.ai design project
+   8ed39490-58f3-4c19-9449-294b3cd6ceda), imported 2026-08-03.
+
+   Scoped `.cst`, and it renders inside `.cpx` — CustomerPortalLayout's scope —
+   so this sheet is a *page* sheet layered on the portal's, not a replacement
+   for it. Three things follow from that:
+
+   - The palette is aliased from `--cpx-*` rather than restated. The design is
+     drawn in the staff blurple; the portal has been teal since customer-portal.css
+     was written, and that file's header says why (different audience, different
+     site, and the teal is what customers have already been looking at). The
+     chrome around this page is teal, so the page is too. What the import brings
+     is the *structure* — which is the part that actually changed.
+   - Headings take the portal's stack ("Space Grotesk") at 600, not the design's
+     Inter 500, for the same reason: every other portal page's title is set that
+     way, and one page in a different face reads as a mistake. Figures stay Inter
+     with tabular numerals, which is what the design asks for and what the rest
+     of the portal's money columns already use.
+   - No ground is painted here and the root carries no `min-height`. The shell
+     owns both; a page root that repaints them fights it — see
+     [[nocturne-overlay-root-class-min-height]] for how that goes wrong.
+
+   The design is dark-only, as they all are. Light is the base and `.dark-theme`
+   the override, matching the order App.razor's pre-paint script stamps the class
+   in. Every ink tint routes through `--cst-t*`, a named step of the design's own
+   text-mix ramp: dark keeps the design's alphas exactly, light lifts each by
+   ~.08 because thinned ink loses contrast faster than thinned light. Same recipe
+   as exception-center.css; see that file for the measured numbers.
+
+   Selectors are two classes deep throughout. app.css carries global
+   `.dark-theme table thead th` / `.dark-theme input` rules that would otherwise
+   repaint the ledger and the fields #0f172a regardless of load order, and it is
+   specificity, not source order, that has to beat them.
+   ========================================================================== */
+
+.cst {
+    /* Palette from customer-portal.css. Aliases, not copies — see the header. */
+    --cst-surface: var(--cpx-surface);
+    --cst-surface-2: var(--cpx-surface-2);
+    --cst-ink: var(--cpx-ink);
+    --cst-ink-rgb: var(--cpx-ink-rgb);
+    --cst-divider: var(--cpx-divider);
+    --cst-edge: var(--cpx-edge);
+    --cst-edge-hi: var(--cpx-edge-hi);
+    --cst-accent: var(--cpx-accent);
+    --cst-accent-rgb: var(--cpx-accent-rgb);
+    --cst-accent-text: var(--cpx-accent-text);
+    --cst-accent-soft: var(--cpx-accent-soft);
+    --cst-on-accent: var(--cpx-on-accent);
+    --cst-tag-bg: var(--cpx-tag-bg);
+    --cst-tag-ink: var(--cpx-tag-ink);
+    --cst-bad: var(--cpx-bad);
+    --cst-bad-bg: var(--cpx-bad-bg);
+    --cst-bad-edge: var(--cpx-bad-edge);
+
+    /* The design's text-mix ramp, one token per step it uses. The number is the
+       design's own percentage, so a call site can be read straight against the
+       .dc.html; the alpha is that percentage lifted for paper. */
+    --cst-t70: rgba(var(--cst-ink-rgb), .78);
+    --cst-t60: rgba(var(--cst-ink-rgb), .68);
+    --cst-t55: rgba(var(--cst-ink-rgb), .63);
+    --cst-t50: rgba(var(--cst-ink-rgb), .58);
+    --cst-t45: rgba(var(--cst-ink-rgb), .53);
+    --cst-t40: rgba(var(--cst-ink-rgb), .48);
+    --cst-t35: rgba(var(--cst-ink-rgb), .43);
+    /* Films rather than ink: these are backgrounds, so they do not get the lift.
+       A tint at .05 reads the same weight either way round. */
+    --cst-t08: rgba(var(--cst-ink-rgb), .08);
+    --cst-t05: rgba(var(--cst-ink-rgb), .05);
+    --cst-t04: rgba(var(--cst-ink-rgb), .04);
+
+    /* The aging ramp, carried over from the portal's own — settled through
+       seriously overdue. The design tints the buckets with steps of the accent
+       instead, which is a fine default but throws away the one thing the row is
+       for. Bar fills and 8px dots only; none of these ever carries text. */
+    --cst-age-1: var(--cpx-ok);
+    --cst-age-2: #6aa9a0;
+    --cst-age-3: var(--cpx-warn);
+    --cst-age-4: #d4761f;
+    --cst-age-5: var(--cpx-bad);
+    /* A bucket at zero drops out of the ramp rather than claiming a colour. */
+    --cst-age-nil: var(--cst-t35);
+
+    /* Nocturne's compact scale, at the portal's rounding. */
+    --cst-s1: 3px;
+    --cst-s2: 6px;
+    --cst-s3: 9px;
+    --cst-s4: 12px;
+    --cst-s6: 18px;
+    --cst-s8: 24px;
+    --cst-r-sm: 4px;
+    --cst-r-md: 8px;
+
+    /* Nocturne rules fade to nothing at both ends instead of stopping — 48px an
+       end on the deck. Held as a variable because eight elements paint one, and
+       shortened on narrow screens where 96px of fade would be most of the rule. */
+    --cst-fade: clamp(16px, 4vw, 48px);
+    --cst-rule: linear-gradient(to right, transparent, var(--cst-divider) var(--cst-fade), var(--cst-divider) calc(100% - var(--cst-fade)), transparent);
+    --cst-rule-row: linear-gradient(to right, transparent, var(--cst-t08) var(--cst-fade), var(--cst-t08) calc(100% - var(--cst-fade)), transparent);
+
+    max-width: 1240px;
+    color: var(--cst-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.cst *,
+.cst *::before,
+.cst *::after {
+    box-sizing: border-box;
+}
+
+/* ==========================================================================
+   Hero
+   ========================================================================== */
+
+.cst .cst-hero {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: var(--cst-s8);
+}
+
+.cst .cst-hero-kicker {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cst-s3);
+    margin-bottom: var(--cst-s2);
+}
+
+.cst .cst-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: var(--cst-accent-soft);
+    color: var(--cst-accent-text);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .02em;
+}
+
+.cst .cst-tag-neutral {
+    background: var(--cst-tag-bg);
+    color: var(--cst-tag-ink);
+}
+
+.cst .cst-period {
+    font-size: 12px;
+    color: var(--cst-t50);
+}
+
+.cst .cst-title {
+    margin: 0;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    /* 42px on the deck, down to 28px on a phone — the design's figure is set
+       for a 1240px page and does not survive a 360px one. */
+    font-size: clamp(1.75rem, 1.16rem + 2.5vw, 2.625rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -.02em;
+    color: var(--cst-ink);
+}
+
+.cst .cst-lede {
+    margin: var(--cst-s2) 0 0;
+    font-size: 15px;
+    color: var(--cst-t60);
+    text-wrap: pretty;
+}
+
+.cst .cst-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cst-s2);
+    margin-left: auto;
+    padding-bottom: 6px;
+}
+
+/* ==========================================================================
+   Buttons
+
+   Nocturne's are outlined, not filled, and its `.btn-primary` is the one class
+   Bootstrap most aggressively overrides — hence the `cst-` names rather than
+   the design's own. The primary keeps the portal's filled treatment, because
+   the portal's other fifteen pages have a filled primary and this page's
+   Generate is the same kind of button as theirs.
+   ========================================================================== */
+
+.cst .cst-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    /* Every tap target clears 40px, as the rest of the portal's do. */
+    min-height: 40px;
+    padding: var(--cst-s2) var(--cst-s4);
+    border: 1px solid transparent;
+    border-radius: var(--cst-r-md);
+    background: transparent;
+    color: var(--cst-ink);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.cst .cst-btn svg {
+    display: block;
+    flex: none;
+}
+
+.cst .cst-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.cst .cst-btn-primary {
+    border-color: var(--cst-accent);
+    background: var(--cst-accent);
+    color: var(--cst-on-accent);
+}
+
+.cst .cst-btn-primary:hover:not(:disabled),
+.cst .cst-btn-primary:focus-visible {
+    border-color: var(--cst-accent-text);
+    background: var(--cst-accent-text);
+    color: var(--cst-on-accent);
+}
+
+.cst .cst-btn-secondary {
+    border-color: var(--cst-edge);
+    color: var(--cst-ink);
+}
+
+.cst .cst-btn-secondary:hover:not(:disabled),
+.cst .cst-btn-secondary:focus-visible {
+    border-color: var(--cst-edge-hi);
+    background: var(--cst-t04);
+}
+
+.cst .cst-btn-ghost {
+    min-height: 32px;
+    padding-inline: var(--cst-s3);
+    color: var(--cst-accent-text);
+    font-size: 13px;
+}
+
+.cst .cst-btn-ghost:hover:not(:disabled),
+.cst .cst-btn-ghost:focus-visible {
+    background: rgba(var(--cst-accent-rgb), .1);
+}
+
+/* The quick range that is currently in the fields reads as chosen rather than
+   as another thing to press. */
+.cst .cst-btn-ghost[aria-pressed="true"] {
+    background: var(--cst-accent-soft);
+    color: var(--cst-accent-text);
+}
+
+.cst .cst-btn:focus-visible {
+    outline: 2px solid var(--cst-accent);
+    outline-offset: 2px;
+}
+
+.cst .cst-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: cst-spin .7s linear infinite;
+}
+
+@keyframes cst-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .cst .cst-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ==========================================================================
+   Filter bar
+   ========================================================================== */
+
+.cst .cst-filters {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: var(--cst-s4);
+    margin-top: var(--cst-s8);
+    padding: var(--cst-s4) 0;
+    background: var(--cst-rule) no-repeat bottom / 100% 1px;
+}
+
+.cst .cst-field {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    width: 150px;
+}
+
+/* The account selector carries whole customer names, so it gets the slack the
+   two date fields do not need. */
+.cst .cst-field-wide {
+    width: min(100%, 22rem);
+    flex: 1 1 14rem;
+}
+
+.cst .cst-label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cst-t70);
+}
+
+.cst .cst-select {
+    position: relative;
+    display: flex;
+}
+
+.cst .cst-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 1px solid var(--cst-edge);
+    border-radius: var(--cst-r-md);
+    background: var(--cst-surface);
+    color: var(--cst-ink);
+    caret-color: var(--cst-accent);
+    font: inherit;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cst .cst-select .cst-input {
+    padding-right: 30px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+.cst .cst-input:hover {
+    border-color: var(--cst-edge-hi);
+}
+
+.cst .cst-input:focus-visible {
+    border-color: var(--cst-accent);
+    outline: none;
+}
+
+.cst .cst-caret {
+    position: absolute;
+    top: 50%;
+    right: 11px;
+    width: 10px;
+    height: 7px;
+    margin-top: -3px;
+    pointer-events: none;
+    background: currentColor;
+    color: var(--cst-t50);
+    clip-path: polygon(0 0, 1.4px 0, 5px 4.2px, 8.6px 0, 10px 0, 5px 7px);
+}
+
+.cst .cst-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cst-s2);
+    margin-left: auto;
+}
+
+/* The date fields are NocturneDateField, which is a shared component and so
+   carries its own `--ndf-*` palette aliased from nocturne-tokens.css — the
+   staff blurple. It cannot see a page's tokens from inside itself, and the
+   tokens it does set sit on its own root, so an ancestor cannot out-inherit
+   them: repointing has to be a more specific rule on the same element. */
+.cst .ndf {
+    --ndf-surface: var(--cst-surface);
+    --ndf-ink: var(--cst-ink);
+    --ndf-ink-2: var(--cst-ink);
+    --ndf-mute-2: var(--cst-t60);
+    --ndf-mute-3: var(--cst-t50);
+    --ndf-faint: var(--cst-t40);
+    --ndf-placeholder: var(--cst-t45);
+    --ndf-divider: var(--cst-divider);
+    --ndf-hover: var(--cst-t04);
+    --ndf-press: var(--cst-t08);
+    --ndf-field-bg: var(--cst-surface);
+    --ndf-field-edge: var(--cst-edge);
+    --ndf-accent: var(--cst-accent);
+    --ndf-accent-rgb: var(--cst-accent-rgb);
+    --ndf-accent-text: var(--cst-accent-text);
+    --ndf-accent-ink: var(--cst-on-accent);
+    --ndf-bad: var(--cst-bad);
+    --ndf-bad-rgb: var(--cpx-bad-rgb);
+    --ndf-shadow: var(--cpx-shadow-lg);
+}
+
+/* ==========================================================================
+   Figures
+
+   Four numbers on one rule-divided row rather than four tiles. The dividers are
+   left borders, so they have to be re-cut at each column count or the first
+   item in a wrapped row carries a rule against nothing.
+   ========================================================================== */
+
+.cst .cst-figures {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    margin-top: var(--cst-s8);
+}
+
+.cst .cst-figure {
+    min-width: 0;
+    padding-inline: var(--cst-s6);
+    border-left: 1px solid var(--cst-divider);
+}
+
+.cst .cst-figure:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.cst .cst-figure:last-child {
+    padding-right: 0;
+}
+
+.cst .cst-figure-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--cst-t50);
+}
+
+.cst .cst-figure-num {
+    margin-top: var(--cst-s2);
+    font-size: clamp(1.35rem, 1.1rem + 1.1vw, 1.875rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    /* A six-figure balance must shrink the column, not overflow it. */
+    overflow-wrap: anywhere;
+}
+
+.cst .cst-figure-sub {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--cst-t45);
+}
+
+.cst .cst-figure-close .cst-figure-label {
+    color: var(--cst-accent-text);
+}
+
+.cst .cst-figure-close .cst-figure-num {
+    color: var(--cst-accent-text);
+}
+
+.cst .cst-figure-delta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--cst-t45);
+}
+
+.cst .cst-figure-mark {
+    width: 18px;
+    height: 2px;
+    flex: none;
+    border-radius: 1px;
+    background: var(--cst-accent);
+}
+
+/* ==========================================================================
+   Sections
+   ========================================================================== */
+
+.cst .cst-section {
+    margin-top: var(--cst-s8);
+}
+
+.cst .cst-section-ruled {
+    padding-top: var(--cst-s8);
+    background: var(--cst-rule) no-repeat top / 100% 1px;
+}
+
+.cst .cst-section-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--cst-s4);
+    margin-bottom: var(--cst-s3);
+}
+
+.cst .cst-section-head h2 {
+    margin: 0;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: clamp(1.05rem, .98rem + .34vw, 1.25rem);
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--cst-ink);
+}
+
+.cst .cst-section-note {
+    font-size: 12px;
+    color: var(--cst-t45);
+}
+
+.cst .cst-section-aside {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--cst-t45);
+}
+
+/* ==========================================================================
+   Ledger
+
+   Row rules are painted on the row, not the cell, so the fade spans the whole
+   row instead of restarting at every column edge. That is why the tinted rows
+   below re-declare the rule as a second background layer rather than replacing
+   it with a flat colour.
+   ========================================================================== */
+
+.cst .cst-ledger-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+}
+
+.cst .cst-ledger {
+    width: 100%;
+    min-width: 880px;
+    border-collapse: collapse;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Widths on the columns rather than the header cells, so they survive the head
+   being hidden on a phone. Details takes whatever is left. */
+.cst .cst-ledger col:nth-child(1) {
+    width: 96px;
+}
+
+.cst .cst-ledger col:nth-child(2) {
+    width: 58px;
+}
+
+.cst .cst-ledger col:nth-child(3) {
+    width: 92px;
+}
+
+.cst .cst-ledger col:nth-child(4) {
+    width: 110px;
+}
+
+.cst .cst-ledger col:nth-child(6),
+.cst .cst-ledger col:nth-child(7) {
+    width: 118px;
+}
+
+.cst .cst-ledger col:nth-child(8) {
+    width: 126px;
+}
+
+/* Three classes deep, not two, and `.cpx` is why. app.css carries
+       .dark-theme .customer-shell table thead th { background: #0f172a; color: #94a3b8 }
+       .dark-theme .customer-shell table tbody td  { color: #e2e8f0 }
+   which are (0,2,3): two classes and three elements, on the same element the
+   portal layout puts `.cpx` and `.customer-shell` on together. A `.cst .cst-x`
+   selector is (0,2,x) and loses the type count, so in dark the ledger came back
+   with a navy header band and one flat ink for every column — measured, not
+   guessed. Adding `.cpx` makes these (0,3,x), which wins outright rather than
+   on load order. Every rule that paints a cell needs it; the ones that only set
+   layout or weight do not, because app.css does not set those.
+
+   Colour-bearing cell rules are therefore kept together in this block rather
+   than filed by column, so the next person changing one cannot quietly drop the
+   prefix off a single rule and reintroduce half the bug. */
+.cpx .cst .cst-ledger th {
+    padding: var(--cst-s2);
+    border: none;
+    background: transparent;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--cst-t60);
+}
+
+.cst .cst-ledger thead tr {
+    background: var(--cst-rule) no-repeat bottom / 100% 1px;
+}
+
+.cpx .cst .cst-ledger td {
+    padding: var(--cst-s2);
+    border: none;
+    vertical-align: top;
+    color: var(--cst-ink);
+}
+
+.cpx .cst .cst-ledger .cst-nil {
+    color: var(--cst-t35);
+}
+
+.cpx .cst .cst-ledger .cst-credit {
+    color: var(--cst-accent-text);
+}
+
+.cpx .cst .cst-ledger .cst-date {
+    color: var(--cst-t70);
+}
+
+.cpx .cst .cst-ledger .cst-offset {
+    color: var(--cst-t60);
+}
+
+.cpx .cst .cst-ledger .cst-closing {
+    color: var(--cst-accent-text);
+}
+
+.cst .cst-ledger tbody tr {
+    background: var(--cst-rule-row) no-repeat bottom / 100% 1px;
+}
+
+.cst .cst-ledger tbody tr.cst-row:hover {
+    background:
+        linear-gradient(var(--cst-t04), var(--cst-t04)) no-repeat 0 0 / 100% 100%,
+        var(--cst-rule-row) no-repeat bottom / 100% 1px;
+}
+
+.cst .cst-num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cst .cst-date {
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.cst .cst-ref {
+    font-size: 13px;
+}
+
+.cst .cst-offset {
+    font-size: 13px;
+}
+
+.cst .cst-detail {
+    font-size: 14px;
+}
+
+.cst .cst-txn {
+    font-size: 11px;
+    color: var(--cst-t40);
+}
+
+/* The opening and closing rows are structure, not data: a tinted band to open
+   and the accent to close. */
+.cst .cst-ledger tbody tr.cst-row-open {
+    background:
+        linear-gradient(var(--cst-t05), var(--cst-t05)) no-repeat 0 0 / 100% 100%,
+        var(--cst-rule-row) no-repeat bottom / 100% 1px;
+}
+
+.cst .cst-ledger tbody tr.cst-row-close {
+    background: rgba(var(--cst-accent-rgb), .1);
+}
+
+.cst .cst-ledger tbody tr.cst-row-close td {
+    color: var(--cst-ink);
+}
+
+.cst .cst-row-label {
+    font-weight: 600;
+}
+
+.cst .cst-ledger tbody tr.cst-row-close .cst-total {
+    font-weight: 600;
+}
+
+.cst .cst-ledger tbody tr.cst-row-close .cst-closing {
+    font-weight: 600;
+}
+
+/* The elided middle ------------------------------------------------------- */
+
+.cst .cst-ledger tbody tr.cst-row-fold {
+    background: none;
+}
+
+.cst .cst-ledger tr.cst-row-fold td {
+    padding: var(--cst-s3) var(--cst-s2);
+}
+
+.cst .cst-fold {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cst-s4);
+    font-size: 13px;
+    color: var(--cst-t50);
+}
+
+.cst .cst-fold-span {
+    flex: none;
+}
+
+.cst .cst-fold-rule {
+    flex: 1 1 40px;
+    height: 1px;
+    min-width: 24px;
+    background: linear-gradient(to right, var(--cst-divider), transparent);
+}
+
+.cst .cst-empty {
+    padding: var(--cst-s8) 0;
+    font-size: 14px;
+    color: var(--cst-t50);
+}
+
+/* ==========================================================================
+   Aging
+   ========================================================================== */
+
+.cst .cst-aging-total {
+    margin-left: auto;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--cst-ink);
+}
+
+.cst .cst-aging-total span {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--cst-t45);
+}
+
+.cst .cst-aging-bar {
+    display: flex;
+    gap: 2px;
+    height: 8px;
+    margin-top: var(--cst-s6);
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--cst-t08);
+}
+
+/* `flex-basis` comes in on the element as a percentage of the outstanding total.
+   Shrinking is left on so the 2px gaps come out of the segments proportionally
+   rather than off the end of the last one; growing is not, or a single bucket
+   at 40% would fill the whole bar. */
+.cst .cst-aging-seg {
+    flex: 0 1 auto;
+    min-width: 2px;
+    background: var(--cst-seg, var(--cst-age-nil));
+}
+
+/* The rank the markup assigns picks the step; a bucket at zero takes none. */
+.cst .cst-age-1 {
+    --cst-seg: var(--cst-age-1);
+}
+
+.cst .cst-age-2 {
+    --cst-seg: var(--cst-age-2);
+}
+
+.cst .cst-age-3 {
+    --cst-seg: var(--cst-age-3);
+}
+
+.cst .cst-age-4 {
+    --cst-seg: var(--cst-age-4);
+}
+
+.cst .cst-age-5 {
+    --cst-seg: var(--cst-age-5);
+}
+
+.cst .cst-age-nil {
+    --cst-seg: var(--cst-age-nil);
+}
+
+.cst .cst-buckets {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    margin-top: var(--cst-s6);
+}
+
+.cst .cst-bucket {
+    min-width: 0;
+    padding-inline: var(--cst-s6);
+    border-left: 1px solid var(--cst-divider);
+}
+
+.cst .cst-bucket:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.cst .cst-bucket:last-child {
+    padding-right: 0;
+}
+
+.cst .cst-bucket-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cst .cst-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--cst-seg, var(--cst-age-nil));
+}
+
+.cst .cst-bucket-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cst-t55);
+}
+
+.cst .cst-bucket-num {
+    margin-top: var(--cst-s1);
+    font-size: clamp(1.1rem, 1rem + .45vw, 1.375rem);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.cst .cst-bucket-nil .cst-bucket-num {
+    color: var(--cst-t35);
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.cst .cst-foot {
+    margin-top: var(--cst-s8);
+    padding: var(--cst-s6) 0 var(--cst-s8);
+    background: var(--cst-rule) no-repeat top / 100% 1px;
+    font-size: 12px;
+    color: var(--cst-t40);
+}
+
+.cst .cst-foot a {
+    color: var(--cst-accent-text);
+    text-decoration: none;
+    text-underline-offset: 3px;
+}
+
+.cst .cst-foot a:hover {
+    text-decoration: underline;
+}
+
+/* ==========================================================================
+   Notices
+   ========================================================================== */
+
+.cst .cst-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cst-s3);
+    margin-top: var(--cst-s6);
+    padding: var(--cst-s3) var(--cst-s4);
+    border: 1px solid var(--cst-bad-edge);
+    border-radius: var(--cst-r-md);
+    background: var(--cst-bad-bg);
+    color: var(--cst-bad);
+    font-size: 14px;
+}
+
+.cst .cst-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.cst .cst-gate {
+    padding: clamp(2rem, 8vw, 4.5rem) 0;
+    text-align: center;
+}
+
+.cst .cst-gate svg {
+    margin: 0 auto var(--cst-s4);
+    color: var(--cst-t40);
+}
+
+.cst .cst-gate h1 {
+    margin: 0 0 var(--cst-s2);
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: clamp(1.25rem, 1.1rem + .7vw, 1.6rem);
+    font-weight: 600;
+    color: var(--cst-ink);
+}
+
+.cst .cst-gate p {
+    margin: 0 0 var(--cst-s6);
+    font-size: 14px;
+    color: var(--cst-t55);
+}
+
+.cst .cst-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cst-s3);
+    padding: clamp(2rem, 8vw, 4.5rem) 0;
+    font-size: 14px;
+    color: var(--cst-t55);
+}
+
+.cst .cst-loading .cst-spin {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+    color: var(--cst-accent);
+}
+
+.visually-hidden-cst {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* ==========================================================================
+   Narrower
+
+   Two things reshape rather than merely shrink: the rule-divided rows re-cut
+   their dividers at each column count, and the ledger becomes a stack of
+   labelled cards, driven by the same `data-label` attributes the rest of the
+   portal's tables use.
+   ========================================================================== */
+
+@media (max-width: 1099.98px) {
+
+    .cst .cst-buckets {
+        grid-template-columns: repeat(3, 1fr);
+        row-gap: var(--cst-s6);
+    }
+
+    .cst .cst-bucket:nth-child(3n+1) {
+        padding-left: 0;
+        border-left: none;
+    }
+
+    .cst .cst-bucket:nth-child(3n) {
+        padding-right: 0;
+    }
+
+    .cst .cst-bucket:nth-child(n+4) {
+        padding-top: var(--cst-s6);
+        border-top: 1px solid var(--cst-divider);
+    }
+}
+
+@media (max-width: 991.98px) {
+
+    .cst .cst-ledger-wrap {
+        overflow-x: visible;
+    }
+
+    /* The table box itself has to leave table layout, not just its rows. Left as
+       `display: table` it keeps sizing itself from the column algorithm, and the
+       colgroup's 718px of fixed columns then shrink-wraps the card stack: at
+       768px the cards came out about 150px wide with two thirds of the row
+       empty, while at 390px — where min-content already exceeded the container —
+       the same markup looked right. Blocks all the way down, and `width: 100%`
+       means what it says. */
+    .cpx .cst .cst-ledger,
+    .cpx .cst .cst-ledger tbody {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .cst .cst-ledger colgroup,
+    .cst .cst-ledger thead {
+        display: none;
+    }
+
+    .cst .cst-ledger tbody tr {
+        display: grid;
+        /* Label and value share a row on all but the narrowest phone, and the
+           value keeps the right edge the eye already reads totals against. */
+        grid-template-columns: minmax(6rem, auto) 1fr;
+        gap: 2px var(--cst-s3);
+        margin-bottom: var(--cst-s3);
+        padding: var(--cst-s3) var(--cst-s4);
+        border: 1px solid var(--cst-divider);
+        border-radius: var(--cst-r-md);
+        background: var(--cst-surface);
+    }
+
+    .cst .cst-ledger tbody tr.cst-row:hover {
+        background: var(--cst-surface);
+    }
+
+    .cst .cst-ledger tbody tr.cst-row-open {
+        background: var(--cst-surface-2);
+    }
+
+    .cst .cst-ledger tbody tr.cst-row-close {
+        border-color: var(--cst-accent);
+        background: var(--cst-accent-soft);
+    }
+
+    /* Carries `.cpx` for the same reason the desktop rule does, and for one
+       more: without it this would also lose its padding to that rule, which is
+       now a class heavier than this one. */
+    .cpx .cst .cst-ledger td {
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+        align-items: baseline;
+        padding: 3px 0;
+        text-align: left;
+    }
+
+    /* The cell is a grid, so its children stretch to the track by default — which
+       turned the two-letter type pill into a full-width bar as soon as the track
+       had room for one. Only the tag minds; text wants the whole track. */
+    .cst .cst-ledger td .cst-tag {
+        justify-self: start;
+    }
+
+    .cst .cst-ledger td::before {
+        content: attr(data-label);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--cst-t40);
+    }
+
+    /* An unlabelled cell — the fold row's summary — spans both tracks rather
+       than leaving an empty gutter. */
+    .cst .cst-ledger td:not([data-label]) {
+        display: block;
+    }
+
+    .cst .cst-ledger td:not([data-label])::before {
+        content: none;
+    }
+
+    .cst .cst-ledger tbody tr.cst-row-fold {
+        display: block;
+        margin-bottom: var(--cst-s3);
+        padding: var(--cst-s3) var(--cst-s4);
+        border-style: dashed;
+        background: none;
+    }
+
+    .cst .cst-num {
+        text-align: left;
+    }
+
+    /* Subgrid is broadly supported now, but a browser without it would collapse
+       the two tracks onto each other. Stacked is the safe shape. */
+    @supports not (grid-template-columns: subgrid) {
+
+        .cpx .cst .cst-ledger tbody tr,
+        .cpx .cst .cst-ledger td {
+            display: block;
+        }
+    }
+}
+
+@media (max-width: 899.98px) {
+
+    .cst .cst-figures {
+        grid-template-columns: repeat(2, 1fr);
+        row-gap: var(--cst-s6);
+    }
+
+    .cst .cst-figure:nth-child(odd) {
+        padding-left: 0;
+        border-left: none;
+    }
+
+    .cst .cst-figure:nth-child(even) {
+        padding-right: 0;
+    }
+
+    .cst .cst-figure:nth-child(n+3) {
+        padding-top: var(--cst-s6);
+        border-top: 1px solid var(--cst-divider);
+    }
+}
+
+@media (max-width: 767.98px) {
+
+    .cst .cst-hero-actions {
+        margin-left: 0;
+        padding-bottom: 0;
+    }
+
+    .cst .cst-quick {
+        margin-left: 0;
+    }
+
+    .cst .cst-field {
+        width: 100%;
+        flex: 1 1 8rem;
+    }
+}
+
+@media (max-width: 699.98px) {
+
+    .cst .cst-buckets {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .cst .cst-bucket:nth-child(odd) {
+        padding-left: 0;
+        border-left: none;
+    }
+
+    .cst .cst-bucket:nth-child(even) {
+        padding-right: 0;
+        border-left: 1px solid var(--cst-divider);
+    }
+
+    .cst .cst-bucket:nth-child(n+3) {
+        padding-top: var(--cst-s6);
+        border-top: 1px solid var(--cst-divider);
+    }
+}
+
+@media (max-width: 539.98px) {
+
+    .cst .cst-figures {
+        grid-template-columns: 1fr;
+        row-gap: 0;
+    }
+
+    .cst .cst-figure {
+        padding: var(--cst-s4) 0;
+        border-left: none;
+        border-top: 1px solid var(--cst-divider);
+    }
+
+    .cst .cst-figure:first-child {
+        padding-top: 0;
+        border-top: none;
+    }
+
+    .cst .cst-figure:nth-child(n+3) {
+        padding-top: var(--cst-s4);
+    }
+
+    .cst .cst-buckets {
+        grid-template-columns: 1fr;
+    }
+
+    .cst .cst-bucket {
+        padding: var(--cst-s4) 0;
+        border-left: none;
+        border-top: 1px solid var(--cst-divider);
+    }
+
+    .cst .cst-bucket:first-child {
+        padding-top: 0;
+        border-top: none;
+    }
+
+    .cst .cst-bucket:nth-child(n+3) {
+        padding-top: var(--cst-s4);
+    }
+}
+
+/* ==========================================================================
+   Dark
+
+   Only the tint alphas move: the palette itself flips at `.cpx`, and every
+   colour above is an alias of it. These are the design's own percentages,
+   which the light block above lifts.
+   ========================================================================== */
+
+.dark-theme .cst {
+    --cst-t70: rgba(var(--cst-ink-rgb), .70);
+    --cst-t60: rgba(var(--cst-ink-rgb), .60);
+    --cst-t55: rgba(var(--cst-ink-rgb), .55);
+    --cst-t50: rgba(var(--cst-ink-rgb), .50);
+    --cst-t45: rgba(var(--cst-ink-rgb), .45);
+    --cst-t40: rgba(var(--cst-ink-rgb), .40);
+    --cst-t35: rgba(var(--cst-ink-rgb), .35);
+
+    /* The two literals in the aging ramp are pitched for paper and go muddy on
+       the dark ground; the three that alias `--cpx-*` have already flipped.
+       Step 2 is a good deal deeper than its light counterpart is from step 1:
+       `--cpx-ok` lands at #8fe0c2 in dark, and the light ramp's #6aa9a0 sits
+       close enough to that to read as the same colour in an 8px bar. */
+    --cst-age-2: #63bda9;
+    --cst-age-4: #e8944a;
+}
+
+/* A dark field is a lifted film rather than a solid, matching the rest of the
+   portal's dark controls. */
+.dark-theme .cst .cst-input {
+    background: var(--cst-surface);
+}
