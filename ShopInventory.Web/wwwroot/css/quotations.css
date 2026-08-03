@@ -34,7 +34,8 @@
    business-partners.css gives its directory.
    ========================================================================== */
 
-.qtn {
+.qtn,
+.qtn-overlay {
     --qtn-bg: #f4f4f8;
     --qtn-surface: #ffffff;
     --qtn-raised: #f7f7fb;
@@ -102,7 +103,8 @@
     color-scheme: var(--qtn-scheme);
 }
 
-.dark-theme .qtn {
+.dark-theme .qtn,
+.dark-theme .qtn-overlay {
     --qtn-bg: #161826;
     --qtn-surface: #232532;
     --qtn-raised: #292b31;
@@ -156,16 +158,19 @@
     -webkit-font-smoothing: antialiased;
 }
 
-.qtn * {
+.qtn *,
+.qtn-overlay * {
     box-sizing: border-box;
 }
 
-.qtn :focus-visible {
+.qtn :focus-visible,
+.qtn-overlay :focus-visible {
     outline: 2px solid var(--qtn-accent);
     outline-offset: 2px;
 }
 
-.qtn ::selection {
+.qtn ::selection,
+.qtn-overlay ::selection {
     background: rgba(var(--qtn-accent-rgb), .3);
 }
 
@@ -173,7 +178,10 @@
    otherwise take them to 600. */
 .qtn h1,
 .qtn h2,
-.qtn h3 {
+.qtn h3,
+.qtn-overlay h1,
+.qtn-overlay h2,
+.qtn-overlay h3 {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 500;
     margin: 0;
@@ -187,7 +195,8 @@
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 /* Nocturne outlines its primary action rather than filling it. */
 
-.qtn .qtn-btn {
+.qtn .qtn-btn,
+.qtn-overlay .qtn-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -208,18 +217,21 @@
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.qtn .qtn-btn:hover:not(:disabled) {
+.qtn .qtn-btn:hover:not(:disabled),
+.qtn-overlay .qtn-btn:hover:not(:disabled) {
     color: var(--qtn-ink);
     border-color: var(--qtn-field-edge-hi);
     background: var(--qtn-hover);
 }
 
-.qtn .qtn-btn:disabled {
+.qtn .qtn-btn:disabled,
+.qtn-overlay .qtn-btn:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
 
-.qtn .qtn-btn i {
+.qtn .qtn-btn i,
+.qtn-overlay .qtn-btn i {
     font-size: 15px;
     line-height: 1;
 }
@@ -227,40 +239,47 @@
 /* Every glyph is a stroked path carrying fill="none" as a presentation
    attribute, which a `fill` declaration here would override — so the icon
    rules set geometry only. */
-.qtn .qtn-btn svg {
+.qtn .qtn-btn svg,
+.qtn-overlay .qtn-btn svg {
     display: block;
     flex: none;
     width: 15px;
     height: 15px;
 }
 
-.qtn .qtn-btn-primary {
+.qtn .qtn-btn-primary,
+.qtn-overlay .qtn-btn-primary {
     color: var(--qtn-accent-text);
     border-color: var(--qtn-accent);
 }
 
-.qtn .qtn-btn-primary:hover:not(:disabled) {
+.qtn .qtn-btn-primary:hover:not(:disabled),
+.qtn-overlay .qtn-btn-primary:hover:not(:disabled) {
     color: var(--qtn-accent-text);
     border-color: var(--qtn-accent);
     background: rgba(var(--qtn-accent-rgb), .12);
 }
 
-.qtn .qtn-btn-primary:active:not(:disabled) {
+.qtn .qtn-btn-primary:active:not(:disabled),
+.qtn-overlay .qtn-btn-primary:active:not(:disabled) {
     background: rgba(var(--qtn-accent-rgb), .22);
 }
 
-.qtn .qtn-btn-ghost {
+.qtn .qtn-btn-ghost,
+.qtn-overlay .qtn-btn-ghost {
     color: var(--qtn-mute-2);
     border-color: transparent;
 }
 
-.qtn .qtn-btn-ghost:hover:not(:disabled) {
+.qtn .qtn-btn-ghost:hover:not(:disabled),
+.qtn-overlay .qtn-btn-ghost:hover:not(:disabled) {
     color: var(--qtn-ink);
     border-color: transparent;
     background: var(--qtn-hover);
 }
 
-.qtn .qtn-btn-sm {
+.qtn .qtn-btn-sm,
+.qtn-overlay .qtn-btn-sm {
     height: 28px;
     font-size: 12px;
     padding-inline: var(--qtn-s4);
@@ -269,7 +288,8 @@
 /* Icon-only controls. Their glyph is their whole label, so every one of them
    draws it inline rather than from the Phosphor font: a font that failed to
    load would leave them reading as dead squares. */
-.qtn .qtn-icon-btn {
+.qtn .qtn-icon-btn,
+.qtn-overlay .qtn-icon-btn {
     display: grid;
     place-items: center;
     width: 26px;
@@ -284,19 +304,22 @@
     transition: background-color .13s, border-color .13s, color .13s;
 }
 
-.qtn .qtn-icon-btn svg {
+.qtn .qtn-icon-btn svg,
+.qtn-overlay .qtn-icon-btn svg {
     display: block;
     width: 14px;
     height: 14px;
 }
 
-.qtn .qtn-icon-btn:hover:not(:disabled) {
+.qtn .qtn-icon-btn:hover:not(:disabled),
+.qtn-overlay .qtn-icon-btn:hover:not(:disabled) {
     color: var(--qtn-accent-text);
     border-color: rgba(var(--qtn-accent-rgb), .55);
     background: rgba(var(--qtn-accent-rgb), .12);
 }
 
-.qtn .qtn-icon-btn:disabled {
+.qtn .qtn-icon-btn:disabled,
+.qtn-overlay .qtn-icon-btn:disabled {
     opacity: .4;
     cursor: not-allowed;
 }
@@ -588,7 +611,8 @@
 
 /* ── Controls ──────────────────────────────────────────────────────────── */
 
-.qtn .qtn-input {
+.qtn .qtn-input,
+.qtn-overlay .qtn-input {
     width: 100%;
     min-height: 32px;
     padding: 6px 11px;
@@ -606,28 +630,34 @@
     transition: border-color .15s, background-color .15s;
 }
 
-.qtn .qtn-input:hover:not(:disabled) {
+.qtn .qtn-input:hover:not(:disabled),
+.qtn-overlay .qtn-input:hover:not(:disabled) {
     border-color: var(--qtn-field-edge);
 }
 
-.qtn .qtn-input:focus-visible {
+.qtn .qtn-input:focus-visible,
+.qtn-overlay .qtn-input:focus-visible {
     border-color: rgba(var(--qtn-accent-rgb), .55);
     outline-offset: 0;
 }
 
 .qtn .qtn-input:disabled,
-.qtn .qtn-input[readonly] {
+.qtn .qtn-input[readonly],
+.qtn-overlay .qtn-input:disabled,
+.qtn-overlay .qtn-input[readonly] {
     color: var(--qtn-mute-2);
     cursor: not-allowed;
 }
 
-.qtn .qtn-input::placeholder {
+.qtn .qtn-input::placeholder,
+.qtn-overlay .qtn-input::placeholder {
     color: var(--qtn-placeholder);
     opacity: 1;
     -webkit-text-fill-color: var(--qtn-placeholder);
 }
 
-.qtn .qtn-input-num {
+.qtn .qtn-input-num,
+.qtn-overlay .qtn-input-num {
     font-variant-numeric: tabular-nums;
 }
 
@@ -635,30 +665,36 @@
    painted on hover, which clipped "15.5" to "15." in the line editor's
    narrowest columns. The step arrows are no loss: every one of these fields is
    typed into. */
-.qtn .qtn-input[type="number"] {
+.qtn .qtn-input[type="number"],
+.qtn-overlay .qtn-input[type="number"] {
     -moz-appearance: textfield;
 }
 
 .qtn .qtn-input[type="number"]::-webkit-outer-spin-button,
-.qtn .qtn-input[type="number"]::-webkit-inner-spin-button {
+.qtn .qtn-input[type="number"]::-webkit-inner-spin-button,
+.qtn-overlay .qtn-input[type="number"]::-webkit-outer-spin-button,
+.qtn-overlay .qtn-input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
     appearance: none;
     margin: 0;
 }
 
-.qtn textarea.qtn-input {
+.qtn textarea.qtn-input,
+.qtn-overlay textarea.qtn-input {
     min-height: 60px;
     resize: vertical;
 }
 
 /* The date field's own picker button is a UA control that ignores the
    palette, so it is tinted rather than restyled. */
-.qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
+.qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator,
+.qtn-overlay .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
     filter: grayscale(1) opacity(.55);
     cursor: pointer;
 }
 
-.dark-theme .qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
+.dark-theme .qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator,
+.dark-theme .qtn-overlay .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(1) grayscale(1) opacity(.6);
 }
 
@@ -686,7 +722,8 @@
     display: flex;
 }
 
-.qtn .qtn-select select.qtn-input {
+.qtn .qtn-select select.qtn-input,
+.qtn-overlay .qtn-select select.qtn-input {
     padding: 6px 28px 6px 11px;
     cursor: pointer;
 }
@@ -1226,6 +1263,29 @@
 /* Offset below the app bar: the page is a stacking context, so a drawer
    cannot paint over the topbar however high its z-index. */
 
+/* The drawer and the reprice modal both render outside the .qtn root, so the
+   overlay carries the palette itself — .qtn-overlay is paired with .qtn on the
+   token blocks and on every scoped rule the two of them use, the same
+   arrangement credit-notes.css uses for .cnx-overlay. Scoping it this way
+   rather than wrapping them in a second .qtn matters: .qtn also carries
+   min-height: 100vh and the page background, and a wrapper holding nothing but
+   fixed children still draws that as an empty, page-coloured viewport of dead
+   scroll below the page.
+
+   So this repeats the .qtn page rule minus exactly those two declarations. The
+   font size and line height have to come with it, not just the family: the
+   overlays carry controls that inherit rather than declare — .qtn-combo-opt
+   takes `font: inherit`, and the icon buttons, the select wrapper and the caret
+   set no size at all — and without them those fall through to Bootstrap's 16px
+   and its line height. */
+.qtn-overlay {
+    color: var(--qtn-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
 .qtn-scrim {
     position: fixed;
     inset: var(--kf-topbar-h, 74px) 0 0;
@@ -1549,7 +1609,8 @@
     box-shadow: var(--qtn-shadow-modal);
 }
 
-.qtn .qtn-combo-opt {
+.qtn .qtn-combo-opt,
+.qtn-overlay .qtn-combo-opt {
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -1564,7 +1625,8 @@
     cursor: pointer;
 }
 
-.qtn .qtn-combo-opt:hover {
+.qtn .qtn-combo-opt:hover,
+.qtn-overlay .qtn-combo-opt:hover {
     background: rgba(var(--qtn-accent-rgb), .14);
 }
 
@@ -1598,13 +1660,15 @@
     margin-right: auto;
 }
 
-.qtn .qtn-lines .qtn-input {
+.qtn .qtn-lines .qtn-input,
+.qtn-overlay .qtn-lines .qtn-input {
     min-height: 28px;
     padding: 4px 8px;
     font-size: 12px;
 }
 
-.qtn .qtn-lines .qtn-input-num {
+.qtn .qtn-lines .qtn-input-num,
+.qtn-overlay .qtn-lines .qtn-input-num {
     text-align: right;
 }
 
@@ -1819,7 +1883,8 @@
 
     /* 16px is the smallest size iOS will render a focused field at without
        zooming the page. */
-    .qtn .qtn-input {
+    .qtn .qtn-input,
+    .qtn-overlay .qtn-input {
         font-size: 16px;
     }
 
