@@ -5752,11 +5752,11 @@ html.dark-theme {
 }
 .dark-theme .sec-label {
     color: #94a3b8 !important;
+}
 .dark-theme .rxcn-code-block {
     background: #0f172a;
     border-color: #334155;
     color: #e2e8f0;
-}
 }
 .dark-theme .sec-input-group .btn-copy {
     background: #0f172a !important;
