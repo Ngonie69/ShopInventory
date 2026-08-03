@@ -108,5 +108,5 @@ Use the credentials configured in your ShopInventory API (typically `admin`/`adm
 | Invoices | GET/POST /api/invoice, GET /api/invoice/{docEntry}, GET /api/invoice/customer/{cardCode}, GET /api/invoice/date/{date} |
 | Inventory Transfers | GET /api/inventorytransfer/{warehouseCode}, GET /api/inventorytransfer/{warehouseCode}/paged |
 | Payments | GET /api/incomingpayment, GET /api/incomingpayment/{docEntry}, GET /api/incomingpayment/date/{date} |
-| Products | GET /api/product/warehouse/{warehouseCode}, GET /api/product/{itemCode}/batches/{warehouseCode} |
+| Products | GET /api/product/warehouse/{warehouseCode}, GET /api/product/warehouse/{warehouseCode}/item/{itemCode}/batches |
 | Prices | GET /api/price, GET /api/price/grouped, GET /api/price/item/{itemCode} |

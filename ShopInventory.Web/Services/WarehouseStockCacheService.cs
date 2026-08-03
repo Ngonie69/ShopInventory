@@ -12,10 +12,16 @@ public interface IWarehouseStockCacheService
     /// Gets cached stock for a warehouse. Returns cached data immediately if available,
     /// and triggers background sync if cache is stale.
     /// </summary>
+    /// <param name="search">
+    /// Optional item code / name / barcode substring, matched across the whole
+    /// warehouse before paging — so a caller's filter reaches every row rather than
+    /// only the page already in hand.
+    /// </param>
     Task<WarehouseProductsPagedResponse?> GetCachedStockAsync(
         string warehouseCode,
         int page = 1,
         int pageSize = 20,
+        string? search = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -31,6 +37,24 @@ public interface IWarehouseStockCacheService
     Task<IReadOnlyDictionary<string, ProductDto>> GetStockForItemsAsync(
         string warehouseCode,
         IEnumerable<string> itemCodes,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Finds one item in a warehouse by barcode, falling back to an item-code match
+    /// so a hand-typed code works in the same field. Served from the cache, which is
+    /// where the barcode already is — the paged stock query selects OITM.CodeBars.
+    /// </summary>
+    Task<ProductDto?> FindByBarcodeAsync(
+        string warehouseCode,
+        string barcode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Counts across every cached row for a warehouse, not just one page — so a
+    /// figure shown beside a paged list describes the warehouse it names.
+    /// </summary>
+    Task<WarehouseStockSummary> GetStockSummaryAsync(
+        string warehouseCode,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -76,6 +100,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         string warehouseCode,
         int page = 1,
         int pageSize = 20,
+        string? search = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("GetCachedStockAsync called for warehouse {WarehouseCode}, page {Page}, pageSize {PageSize}", warehouseCode, page, pageSize);
@@ -84,6 +109,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         _logger.LogDebug("DbContext created successfully");
 
         var cacheKey = $"WarehouseStock_{warehouseCode}";
+        var term = string.IsNullOrWhiteSpace(search) ? null : search.Trim().ToLowerInvariant();
 
         try
         {
@@ -94,20 +120,33 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                           (DateTime.UtcNow - syncInfo.LastSyncedAt) > _cacheExpiration ||
                           !syncInfo.SyncSuccessful;
 
-            // Get cached data
+            // Get cached data. The search is applied before both the count and the
+            // page, so the total describes the same set the rows came from.
             _logger.LogDebug("Attempting to query CachedWarehouseStocks table for warehouse {WarehouseCode}", warehouseCode);
-            var cachedCount = await dbContext.CachedWarehouseStocks
-                .Where(s => s.WarehouseCode == warehouseCode)
-                .CountAsync(cancellationToken);
+            var matching = dbContext.CachedWarehouseStocks
+                .AsNoTracking()
+                .Where(s => s.WarehouseCode == warehouseCode);
+
+            if (term is not null)
+            {
+                matching = matching.Where(s =>
+                    s.ItemCode.ToLower().Contains(term) ||
+                    (s.ItemName != null && s.ItemName.ToLower().Contains(term)) ||
+                    (s.BarCode != null && s.BarCode.ToLower().Contains(term)));
+            }
+
+            var cachedCount = await matching.CountAsync(cancellationToken);
             _logger.LogDebug("CachedWarehouseStocks count query completed. Count: {Count}", cachedCount);
 
-            if (cachedCount > 0)
+            // A search that matches nothing is an answer, not a cache miss — falling
+            // through to the API here would refetch the warehouse and still find
+            // nothing.
+            if (cachedCount > 0 || (term is not null && await dbContext.CachedWarehouseStocks
+                    .AnyAsync(s => s.WarehouseCode == warehouseCode, cancellationToken)))
             {
                 // Return cached data
                 var skip = (page - 1) * pageSize;
-                var cachedItems = await dbContext.CachedWarehouseStocks
-                    .AsNoTracking()
-                    .Where(s => s.WarehouseCode == warehouseCode)
+                var cachedItems = await matching
                     .OrderBy(s => s.ItemCode)
                     .Skip(skip)
                     .Take(pageSize)
@@ -186,14 +225,27 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
                     }
                 });
 
+                var products = apiResponse.Items.Select(MapStockToProduct).ToList();
+
+                // This branch runs only while the warehouse has no cache at all, so
+                // a search can only be applied to the page in hand. Count follows
+                // the rows so the two agree; HasMore tells the caller the figure is
+                // a floor, not a total.
+                if (term is not null)
+                {
+                    products = products
+                        .Where(p => Matches(p.ItemCode, term) || Matches(p.ItemName, term) || Matches(p.BarCode, term))
+                        .ToList();
+                }
+
                 return new WarehouseProductsPagedResponse
                 {
                     WarehouseCode = apiResponse.WarehouseCode,
                     Page = apiResponse.Page,
                     PageSize = apiResponse.PageSize,
-                    Count = apiResponse.Count,
+                    Count = term is null ? apiResponse.Count : products.Count,
                     HasMore = apiResponse.HasMore,
-                    Products = apiResponse.Items.Select(MapStockToProduct).ToList()
+                    Products = products
                 };
             }
         }
@@ -303,6 +355,89 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         }
 
         return null;
+    }
+
+    public async Task<ProductDto?> FindByBarcodeAsync(
+        string warehouseCode,
+        string barcode,
+        CancellationToken cancellationToken = default)
+    {
+        var term = barcode?.Trim();
+        if (string.IsNullOrWhiteSpace(warehouseCode) || string.IsNullOrWhiteSpace(term))
+            return null;
+
+        // Lowered here rather than inside the expression tree, so the comparison is
+        // unambiguously a parameter against a translated LOWER(column).
+        var lowered = term.ToLowerInvariant();
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var warehouseRows = dbContext.CachedWarehouseStocks
+            .AsNoTracking()
+            .Where(s => s.WarehouseCode == warehouseCode);
+
+        // Barcode first — that is what the field is for. The item-code fallback is
+        // for the half of the traffic that types rather than scans; both are exact,
+        // because a scan that resolved to "something similar" would be worse than
+        // no result at all.
+        var match = await warehouseRows
+            .Where(s => s.BarCode != null && s.BarCode.ToLower() == lowered)
+            .OrderBy(s => s.ItemCode)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? await warehouseRows
+                .Where(s => s.ItemCode.ToLower() == lowered)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        if (match is not null)
+            return MapCachedToProduct(match);
+
+        // With rows cached for this warehouse, no match is a real answer.
+        var cachedForWarehouse = await warehouseRows.AnyAsync(cancellationToken);
+        if (cachedForWarehouse)
+            return null;
+
+        // Nothing cached at all, so try SAP before saying no. Note the limit: the
+        // items endpoint takes item codes, so this rescues a typed item code and
+        // not a true barcode — a barcode still needs the warehouse synced. Which is
+        // why the page offers a sync when a warehouse comes back empty.
+
+        var apiItems = await FetchStockForItemsFromApiAsync(warehouseCode, [term], cancellationToken);
+        var apiMatch = apiItems.FirstOrDefault(item =>
+            string.Equals(item.BarCode?.Trim(), term, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(item.ItemCode?.Trim(), term, StringComparison.OrdinalIgnoreCase));
+
+        return apiMatch is null ? null : MapStockToProduct(apiMatch);
+    }
+
+    public async Task<WarehouseStockSummary> GetStockSummaryAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        // One aggregate round trip rather than materialising the warehouse.
+        var counts = await dbContext.CachedWarehouseStocks
+            .AsNoTracking()
+            .Where(s => s.WarehouseCode == warehouseCode)
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total = g.Count(),
+                InStock = g.Count(s => s.InStock > 0),
+                Committed = g.Count(s => s.Committed > 0),
+                OnOrder = g.Count(s => s.Ordered > 0)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (counts is null)
+            return new WarehouseStockSummary(0, 0, 0, 0, 0);
+
+        return new WarehouseStockSummary(
+            counts.Total,
+            counts.InStock,
+            counts.Total - counts.InStock,
+            counts.Committed,
+            counts.OnOrder);
     }
 
     public async Task<bool> SyncWarehouseStockAsync(string warehouseCode)
@@ -659,6 +794,18 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         await dbContext.SaveChangesAsync();
     }
 
+    private static bool Matches(string? value, string lowercaseTerm)
+        => value is not null && value.Contains(lowercaseTerm, StringComparison.OrdinalIgnoreCase);
+
+    // Ordered is carried, not dropped: Available is InStock - Committed + Ordered
+    // (SAPServiceLayerClient.ParseStockQuantitiesFromSqlResult), so a caller given
+    // only the first three cannot reconcile the fourth.
+    //
+    // ManagesBatches is false here because this row knows nothing about batches —
+    // the stock query reads OITM/OITW only. It is "not asked", not "no": callers
+    // that need batches fetch them per item from
+    // api/product/warehouse/{whs}/item/{item}/batches, and must not read this flag
+    // as an answer.
     private static ProductDto MapCachedToProduct(CachedWarehouseStock cached)
     {
         return new ProductDto
@@ -669,6 +816,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             QuantityInStock = cached.InStock,
             QuantityAvailable = cached.Available,
             QuantityCommitted = cached.Committed,
+            QuantityOrdered = cached.Ordered,
             QuantityOnStock = cached.InStock,
             UoM = cached.UoM,
             ManagesBatches = false,
@@ -686,6 +834,7 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
             QuantityInStock = stock.InStock,
             QuantityAvailable = stock.Available,
             QuantityCommitted = stock.Committed,
+            QuantityOrdered = stock.Ordered,
             QuantityOnStock = stock.InStock,
             UoM = stock.UoM,
             ManagesBatches = false,
@@ -693,6 +842,18 @@ public class WarehouseStockCacheService : IWarehouseStockCacheService
         };
     }
 }
+
+/// <summary>
+/// Warehouse-wide counts over the cached stock rows. Counts rather than summed
+/// quantities on purpose: a warehouse mixes Each, KG and Case, so adding the
+/// quantities together would produce a figure in no unit at all.
+/// </summary>
+public sealed record WarehouseStockSummary(
+    int TotalItems,
+    int InStockItems,
+    int OutOfStockItems,
+    int CommittedItems,
+    int OnOrderItems);
 
 // DTOs for stock API responses (internal to this service)
 internal class StockPagedApiResponse
