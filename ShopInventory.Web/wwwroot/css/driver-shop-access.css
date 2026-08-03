@@ -16,7 +16,10 @@
 
    Light is the base and `.dark-theme` the override, matching the rest of the
    app and the order App.razor's pre-paint script stamps the class in, so
-   neither scheme flashes.
+   neither scheme flashes. Both palettes live in nocturne-tokens.css and the
+   block below only aliases them; this sheet kept its own copy until the palette
+   was extracted, by which time dark --dsa-hover had drifted to .05 and was
+   corrected back to the system's .04.
 
    The design writes its muted text as `var(--color-neutral-400…700)`, which
    are steps off a dark ramp. Those are collapsed into four opaque ink steps
@@ -34,91 +37,68 @@
    ========================================================================== */
 
 .dsa {
-    --dsa-bg: #f4f4f8;
-    --dsa-surface: #ffffff;
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values. Folding this sheet in corrected one value that had
+       drifted from the system: dark --dsa-hover was .05, and is now the
+       system's .04. */
+    --dsa-bg: var(--noct-bg);
+    --dsa-surface: var(--noct-surface);
+    --dsa-wash: var(--noct-wash);
+    --dsa-ink: var(--noct-ink);
+    --dsa-ink-2: var(--noct-ink-2);
+    --dsa-mute: var(--noct-mute);
+    --dsa-mute-2: var(--noct-mute-2);
+    --dsa-mute-3: var(--noct-mute-3);
+    --dsa-faint: var(--noct-faint);
+    --dsa-placeholder: var(--noct-placeholder);
+    --dsa-divider: var(--noct-divider);
+    --dsa-hover: var(--noct-hover);
+    --dsa-press: var(--noct-press);
+    --dsa-field-bg: var(--noct-field-bg);
+    --dsa-field-edge: var(--noct-field-edge);
+    --dsa-field-edge-hi: var(--noct-field-edge-hi);
+    --dsa-accent: var(--noct-accent);
+    --dsa-accent-rgb: var(--noct-accent-rgb);
+    --dsa-accent-text: var(--noct-accent-text);
+    --dsa-box-on: var(--noct-box);
+    --dsa-accent-ink: var(--noct-on-box);
+    --dsa-dot-on: var(--noct-dot-on);
+    --dsa-dot-off: var(--noct-dot-off);
+    --dsa-thumb: var(--noct-thumb);
+    --dsa-caret: var(--noct-caret);
+    --dsa-clear: var(--noct-clear);
+    --dsa-scheme: var(--noct-scheme);
+
+    --dsa-s1: var(--noct-s1);
+    --dsa-s2: var(--noct-s2);
+    --dsa-s3: var(--noct-s3);
+    --dsa-s4: var(--noct-s4);
+    --dsa-s6: var(--noct-s6);
+    --dsa-s8: var(--noct-s8);
+    --dsa-r-sm: var(--noct-r-sm);
+    --dsa-r-md: var(--noct-r-md);
+    --dsa-r-lg: var(--noct-r-lg);
+
+    /* This page's own, and not the system's:
+
+       --dsa-field is an *opaque* field, which is why it is the surface on paper
+       rather than the system's thinned-ink fill; the shop pickers sit on the
+       catalogue wash and a translucent field would let it through.
+       --dsa-bar and --dsa-track are the allocation meter, --dsa-shadow-sm the
+       lift under a picker row. */
     --dsa-field: #ffffff;
-    /* The catalogue panel is a wash that fades into the ground over its first
-       200px rather than a filled card — the design's one gradient. */
-    --dsa-wash: #ffffff;
-    --dsa-ink: #1b1c26;
-    --dsa-ink-2: #35374a;
-    --dsa-mute: #4e5164;
-    --dsa-mute-2: #656879;
-    --dsa-mute-3: #7b7e8e;
-    --dsa-faint: #a0a2ae;
-    --dsa-placeholder: #9498a8;
-    --dsa-divider: rgba(27, 28, 38, .14);
-    --dsa-hover: rgba(27, 28, 38, .04);
-    --dsa-press: rgba(27, 28, 38, .09);
-    --dsa-field-bg: rgba(27, 28, 38, .04);
-    --dsa-field-edge: #d4d6e2;
-    --dsa-field-edge-hi: #a9adc0;
-    --dsa-accent: #5f52c4;
-    --dsa-accent-rgb: 95, 82, 196;
-    /* The accent's text-carrying step: on the dark ground the design uses
-       --color-accent-200/300 (a pale lavender); on paper the same role has to
-       be the deep end of the ramp instead. */
-    --dsa-accent-text: #473d99;
-    --dsa-accent-ink: #ffffff;
-    --dsa-box-on: #5f52c4;
     --dsa-bar: linear-gradient(90deg, #8579d6, #5f52c4);
     --dsa-track: rgba(27, 28, 38, .09);
-    --dsa-dot-on: #6d5fc4;
-    --dsa-dot-off: #c3c6d2;
-    --dsa-thumb: #c8cad6;
     --dsa-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
-    /* The select caret, whole: a var() inside the data URL's quoted string
-       would not be substituted, so each theme carries the finished image. */
-    --dsa-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --dsa-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --dsa-scheme: light;
-
-    /* Nocturne's compact scale — density 0.70x. */
-    --dsa-s1: 2.8px;
-    --dsa-s2: 5.6px;
-    --dsa-s3: 8.4px;
-    --dsa-s4: 11.2px;
-    --dsa-s6: 16.8px;
-    --dsa-s8: 22.4px;
-    --dsa-r-sm: 4px;
-    --dsa-r-md: 8px;
-    --dsa-r-lg: 14px;
 
     color-scheme: var(--dsa-scheme);
 }
 
 .dark-theme .dsa {
-    --dsa-bg: #161826;
-    --dsa-surface: #232532;
     --dsa-field: rgba(243, 245, 254, .05);
-    --dsa-wash: rgba(35, 37, 50, .6);
-    --dsa-ink: #e9e9ed;
-    --dsa-ink-2: #e4e7f5;
-    --dsa-mute: #cfd3e5;
-    --dsa-mute-2: #b2b6ca;
-    --dsa-mute-3: #9397ab;
-    --dsa-faint: #75798c;
-    --dsa-placeholder: #75798c;
-    --dsa-divider: rgba(233, 233, 237, .16);
-    --dsa-hover: rgba(243, 245, 254, .05);
-    --dsa-press: rgba(243, 245, 254, .1);
-    --dsa-field-bg: rgba(243, 245, 254, .05);
-    --dsa-field-edge: rgba(233, 233, 237, .16);
-    --dsa-field-edge-hi: rgba(233, 233, 237, .45);
-    --dsa-accent: #9184d9;
-    --dsa-accent-rgb: 145, 132, 217;
-    --dsa-accent-text: #d2cefd;
-    --dsa-accent-ink: #f5f4ff;
-    --dsa-box-on: #796cbf;
     --dsa-bar: linear-gradient(90deg, #796cbf, #9184d9);
     --dsa-track: rgba(243, 245, 254, .08);
-    --dsa-dot-on: #968ae0;
-    --dsa-dot-off: #595d6c;
-    --dsa-thumb: #3f424d;
     --dsa-shadow-sm: 0 0 0 1px #3f424d;
-    --dsa-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --dsa-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --dsa-scheme: dark;
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */

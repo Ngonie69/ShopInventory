@@ -11,1906 +11,589 @@
 
 <PageTitle>Audit Trail - Shop Inventory</PageTitle>
 
-<div class="audit-page">
-    <!-- Page Header -->
-    <div class="audit-header">
-        <div class="header-left">
-            <div class="header-icon">
-                <i class="bi bi-shield-check"></i>
+@* Nocturne. wwwroot/css/audit-trail.css (linked from App.razor) carries the
+   design and its light counterpart, and follows the app's theme toggle like
+   every other page. There is no Audit Trail.dc.html in the design project, so
+   the sheet is derived from business-partners.css — the same page shape — and
+   its header says what that costs.
+
+   Icons are drawn inline rather than from the Phosphor font: the search glyph
+   sits inside a field and the outcome glyph is what makes a failed row findable
+   at a glance, so a font that failed to load would leave both reading as
+   nothing.
+
+   The log is a plain CSS grid rather than a <table>. Each row has a per-column
+   treatment, and below 1040px the same markup re-lays as a labelled card —
+   which a table element cannot do.
+
+   The date filters are NocturneDateField, which keeps the shorthand entry the
+   FlexibleDatePicker here accepted (`030826`, `3/8/26`, …) and draws its own
+   calendar. Neither native control can do both: `<input type="date">` refuses
+   the shorthand and draws a calendar no stylesheet can reach, and the
+   MudDatePicker it replaces would have to be re-skinned against a stylesheet
+   that loads last. *@
+
+<div class="aud">
+
+    <header class="aud-head">
+        <div class="aud-head-inner">
+            <label class="aud-head-search">
+                <span class="visually-hidden">Search the events on this page</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="M20 20l-3.5-3.5"></path>
+                </svg>
+                @* Filters the page in hand; the date, user and action filters below
+                   are the ones that go back to the database. *@
+                <input class="aud-input aud-input-search" type="search" autocomplete="off"
+                       placeholder="Search this page&#8230;" @bind="_searchString" @bind:event="oninput" />
+            </label>
+            <div class="aud-head-meta">
+                <span class="aud-range">@DateRangeLabel</span>
+                <button type="button" class="aud-btn aud-btn-ghost" disabled="@isLoading" @onclick="RefreshLogs">
+                    @if (isLoading)
+                    {
+                        <span class="aud-spin" aria-hidden="true"></span>
+                        <span>Loading&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
             </div>
+        </div>
+    </header>
+
+    <div class="aud-body">
+
+        <section class="aud-hero">
             <div>
-                <h1 class="header-title">Audit Trail</h1>
-                <p class="header-subtitle">Monitor system activity, user actions, and security events</p>
+                <div class="aud-kicker">Security</div>
+                <h1>Audit trail</h1>
+                <p>Every action the system recorded &#8212; who took it, what it touched, and whether it succeeded.</p>
             </div>
-        </div>
-        <div class="header-actions">
-            <button class="btn-audit btn-audit-outline" @onclick="RefreshLogs">
-                <i class="bi bi-arrow-clockwise"></i>
-                <span>Refresh</span>
-            </button>
-            <button class="btn-audit btn-audit-gradient" @onclick="ExportLogs">
-                <i class="bi bi-download"></i>
-                <span>Export CSV</span>
-            </button>
-        </div>
-    </div>
+        </section>
 
-    <!-- Stat Cards -->
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-purple">
-                <i class="bi bi-list-check"></i>
+        @if (errorMessage != null)
+        {
+            <div class="aud-msg" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@errorMessage</span>
+                <button type="button" class="aud-msg-x" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
-            <div class="stat-content">
-                <span class="stat-value">@GetTotalCountText()</span>
-                <span class="stat-label">Total Events</span>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-blue">
-                <i class="bi bi-people"></i>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value">@distinctUsers.Count</span>
-                <span class="stat-label">Unique Users</span>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-amber">
-                <i class="bi bi-lightning"></i>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value">@distinctActions.Count</span>
-                <span class="stat-label">Action Types</span>
-            </div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-icon stat-icon-red">
-                <i class="bi bi-exclamation-triangle"></i>
-            </div>
-            <div class="stat-content">
-                <span class="stat-value">@failedCount</span>
-                <span class="stat-label">Failed Actions</span>
-            </div>
-        </div>
-    </div>
+        }
 
-    <!-- Filters Panel -->
-    <div class="filter-panel">
-        <div class="filter-header">
-            <i class="bi bi-funnel"></i>
-            <span>Filters</span>
-        </div>
-        <div class="filter-body">
-            <div class="filter-row">
-                <div class="filter-group">
-                    <FlexibleDatePicker Label="From Date" @bind-Date="fromDate" />
-                </div>
-                <div class="filter-group">
-                    <FlexibleDatePicker Label="To Date" @bind-Date="toDate" />
-                </div>
-                <div class="filter-group">
-                    <label class="filter-label">User</label>
-                    <select class="filter-select" @bind="selectedUser">
-                        <option value="">All Users</option>
-                        @foreach (var user in distinctUsers)
-                        {
-                            <option value="@user">@user</option>
-                        }
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label class="filter-label">Action</label>
-                    <select class="filter-select" @bind="selectedAction">
-                        <option value="">All Actions</option>
-                        @foreach (var action in distinctActions)
-                        {
-                            <option value="@action">@action</option>
-                        }
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label class="filter-label">Per Page</label>
-                    <select class="filter-select" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                        <option value="25">25</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                        <option value="200">200</option>
-                    </select>
-                </div>
-                <div class="filter-actions">
-                    <button class="btn-audit btn-search" @onclick="ApplyFilters">
-                        <i class="bi bi-search"></i> Search
-                    </button>
-                    <button class="btn-audit btn-clear" @onclick="ClearFilters">
-                        <i class="bi bi-x-lg"></i> Clear
+        <section class="aud-stats">
+            <div class="aud-stat aud-stat-lead">
+                <div class="aud-stat-head"><span class="aud-stat-rule" aria-hidden="true"></span>Total events</div>
+                <div class="aud-stat-num">@GetTotalCountText()</div>
+                <div class="aud-stat-sub">In the selected window</div>
+            </div>
+            <div class="aud-stat">
+                <div class="aud-stat-head"><span class="aud-stat-rule" aria-hidden="true"></span>Unique users</div>
+                <div class="aud-stat-num">@distinctUsers.Count.ToString("N0")</div>
+                <div class="aud-stat-sub">Everyone on record</div>
+            </div>
+            <div class="aud-stat">
+                <div class="aud-stat-head"><span class="aud-stat-rule" aria-hidden="true"></span>Action types</div>
+                <div class="aud-stat-num">@distinctActions.Count.ToString("N0")</div>
+                <div class="aud-stat-sub">Distinct kinds of event</div>
+            </div>
+            @* The count is of this page, not the window — the query that fills the
+               table is paged, so say which it is rather than let it read as a total. *@
+            <div class="aud-stat @(failedCount > 0 ? "aud-stat-alert" : "")">
+                <div class="aud-stat-head"><span class="aud-stat-rule" aria-hidden="true"></span>Failed actions</div>
+                <div class="aud-stat-num">@failedCount.ToString("N0")</div>
+                <div class="aud-stat-sub">On this page</div>
+            </div>
+        </section>
+
+        <section class="aud-panel">
+            <div class="aud-panel-head">
+                <h2>Activity log</h2>
+                <span class="aud-count">@GetRecordCountText()</span>
+                <div class="aud-panel-tools">
+                    <button type="button" class="aud-tool" disabled="@isLoading" @onclick="ExportLogs">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 3v12"></path>
+                            <path d="M7.5 10.5L12 15l4.5-4.5"></path>
+                            <path d="M4 19h16"></path>
+                        </svg>
+                        <span>Export CSV</span>
                     </button>
                 </div>
             </div>
-        </div>
-    </div>
 
-    @if (isLoading)
-    {
-        <div class="loading-state">
-            <div class="spinner"></div>
-            <p>Loading audit logs...</p>
-        </div>
-    }
-    else if (errorMessage != null)
-    {
-        <div class="alert-banner alert-error">
-            <i class="bi bi-exclamation-triangle-fill"></i>
-            <span>@errorMessage</span>
-            <button class="alert-close" @onclick="() => errorMessage = null">
-                <i class="bi bi-x-lg"></i>
-            </button>
-        </div>
-    }
-    else
-    {
-        <!-- Search Bar + Logs Table -->
-        <div class="table-container">
-            <div class="table-toolbar">
-                <div class="table-title">
-                    <i class="bi bi-journal-text"></i>
-                    <span>Activity Log</span>
-                    <span class="record-count">@GetRecordCountText()</span>
+            <div class="aud-filters">
+                @* Not a <label>: the field carries a button and a popup, which a
+                   label would swallow the clicks of. *@
+                <div class="aud-field">
+                    <span class="aud-label" id="aud-from-label">From date</span>
+                    <NocturneDateField @bind-Date="fromDate" AriaLabel="From date" />
                 </div>
-                <div class="search-box">
-                    <i class="bi bi-search"></i>
-                    <input type="text" placeholder="Quick search across all columns..." @bind="_searchString"
-                           @bind:event="oninput" />
+                <div class="aud-field">
+                    <span class="aud-label" id="aud-to-label">To date</span>
+                    <NocturneDateField @bind-Date="toDate" AriaLabel="To date" />
                 </div>
-            </div>
-
-            @if (filteredLogs.Any())
-            {
-                <div class="audit-table-wrap">
-                    <table class="audit-table">
-                        <thead>
-                            <tr>
-                                <th class="col-timestamp">Timestamp</th>
-                                <th class="col-user">User</th>
-                                <th class="col-role">Role</th>
-                                <th class="col-action">Action</th>
-                                <th class="col-details">Details</th>
-                                <th class="col-ip">IP Address</th>
-                                <th class="col-status">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var log in filteredLogs)
+                <label class="aud-field">
+                    <span class="aud-label">User</span>
+                    <span class="aud-select">
+                        <select class="aud-input" @bind="selectedUser">
+                            <option value="">All users</option>
+                            @foreach (var user in distinctUsers)
                             {
-                                <tr class="@(log.IsSuccess ? "" : "row-failed")" @onclick="() => SelectLog(log)">
-                                    <td class="col-timestamp" data-label="Timestamp">
-                                        <div class="timestamp-cell">
-                                            <span class="ts-date">@IAuditService.ToCAT(log.Timestamp).ToString("dd MMM yyyy")</span>
-                                            <span class="ts-time">@IAuditService.ToCAT(log.Timestamp).ToString("HH:mm:ss")</span>
-                                        </div>
-                                    </td>
-                                    <td class="col-user" data-label="User">
-                                        <div class="user-cell">
-                                            <div class="user-avatar">@GetInitials(log.Username)</div>
-                                            <span class="user-name">@log.Username</span>
-                                        </div>
-                                    </td>
-                                    <td class="col-role" data-label="Role">
-                                        <span class="role-badge @GetRoleBadgeClass(log.UserRole)">@log.UserRole</span>
-                                    </td>
-                                    <td class="col-action" data-label="Action">
-                                        <span class="action-badge @GetActionBadgeClass(log.Action)">@FormatAction(log.Action)</span>
-                                    </td>
-                                    <td class="col-details" data-label="Details">
-                                        <div class="details-cell">
-                                            @if (!string.IsNullOrEmpty(log.EntityType))
-                                            {
-                                                <span class="entity-tag">
-                                                    @log.EntityType@(string.IsNullOrEmpty(log.EntityId) ? "" : $" #{log.EntityId}")
-                                                </span>
-                                            }
-                                            @if (!string.IsNullOrEmpty(log.Details))
-                                            {
-                                                <span class="detail-text">@TruncateText(log.Details, 60)</span>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(log.AppVersion) || !string.IsNullOrWhiteSpace(log.DeviceModel))
-                                            {
-                                                <div class="client-meta">
-                                                    @if (!string.IsNullOrWhiteSpace(log.AppVersion))
-                                                    {
-                                                        <span class="entity-tag">@log.AppVersion</span>
-                                                    }
-                                                    @if (!string.IsNullOrWhiteSpace(log.DeviceModel))
-                                                    {
-                                                        <span class="detail-text">Device: @TruncateText(log.DeviceModel, 32)</span>
-                                                    }
-                                                </div>
-                                            }
-                                            @if (!log.IsSuccess && !string.IsNullOrEmpty(log.ErrorMessage))
-                                            {
-                                                <span class="error-text">@TruncateText(log.ErrorMessage, 50)</span>
-                                            }
-                                        </div>
-                                    </td>
-                                    <td class="col-ip" data-label="IP Address">
-                                        @if (!string.IsNullOrWhiteSpace(log.IpAddress))
-                                        {
-                                            <span class="ip-chip">@log.IpAddress</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="empty-ip">Not captured</span>
-                                        }
-                                    </td>
-                                    <td class="col-status" data-label="Status">
-                                        @if (log.IsSuccess)
-                                        {
-                                            <span class="status-badge status-success">
-                                                <i class="bi bi-check-circle-fill"></i> OK
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="status-badge status-failed">
-                                                <i class="bi bi-x-circle-fill"></i> Failed
-                                            </span>
-                                        }
-                                    </td>
-                                </tr>
+                                <option value="@user">@user</option>
                             }
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination -->
-                <div class="table-footer">
-                    <span class="page-info">
-                        @if (currentRangeStart == 0)
-                        {
-                            <text>No records</text>
-                        }
-                        else if (totalCount is int exactCount)
-                        {
-                            <text>Showing @currentRangeStart–@currentRangeEnd of @exactCount.ToString("N0")</text>
-                        }
-                        else
-                        {
-                            <text>Showing @currentRangeStart–@currentRangeEnd</text>
-                            @if (isTotalCountLoading)
-                            {
-                                <span class="page-status">Calculating total...</span>
-                            }
-                        }
+                        </select>
+                        <span class="aud-caret" aria-hidden="true"></span>
                     </span>
-                    <div class="pagination-controls">
-                        @if (totalCount.HasValue)
-                        {
-                            <button class="page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(1)">
-                                <i class="bi bi-chevron-double-left"></i>
-                            </button>
-                        }
-                        <button class="page-btn" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">
-                            <i class="bi bi-chevron-left"></i>
-                        </button>
-                        @if (totalCount.HasValue)
-                        {
-                            @foreach (var p in GetPageNumbers())
+                </label>
+                <label class="aud-field">
+                    <span class="aud-label">Action</span>
+                    <span class="aud-select">
+                        <select class="aud-input" @bind="selectedAction">
+                            <option value="">All actions</option>
+                            @foreach (var action in distinctActions)
                             {
-                                <button class="page-btn @(p == currentPage ? "page-active" : "")"
-                                        @onclick="() => GoToPage(p)">@p</button>
+                                <option value="@action">@FormatAction(action)</option>
                             }
-                        }
-                        else
-                        {
-                            <span class="page-status">Page @currentPage</span>
-                        }
-                        <button class="page-btn" disabled="@(totalCount.HasValue? currentPage >= totalPages : !hasMorePages)"
-                                @onclick="() => GoToPage(currentPage + 1)">
-                            <i class="bi bi-chevron-right"></i>
+                        </select>
+                        <span class="aud-caret" aria-hidden="true"></span>
+                    </span>
+                </label>
+                <label class="aud-field">
+                    <span class="aud-label">Per page</span>
+                    <span class="aud-select">
+                        <select class="aud-input" @bind="pageSize" @bind:after="OnPageSizeChanged">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                        <span class="aud-caret" aria-hidden="true"></span>
+                    </span>
+                </label>
+                @* These four go back to the database, so they are applied on the
+                   button rather than on change. *@
+                <div class="aud-field">
+                    <span class="aud-label">&nbsp;</span>
+                    <div class="aud-filter-actions">
+                        <button type="button" class="aud-btn aud-btn-primary" disabled="@isLoading"
+                                @onclick="ApplyFilters">
+                            Apply
                         </button>
-                        @if (totalCount.HasValue)
-                        {
-                            <button class="page-btn" disabled="@(currentPage >= totalPages)" @onclick="() => GoToPage(totalPages)">
-                                <i class="bi bi-chevron-double-right"></i>
-                            </button>
-                        }
+                        <button type="button" class="aud-btn aud-btn-quiet" disabled="@isLoading"
+                                @onclick="ClearFilters">
+                            Clear
+                        </button>
                     </div>
+                </div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="aud-loading">
+                    <span class="aud-spin" aria-hidden="true"></span>
+                    <span>Loading audit logs&#8230;</span>
                 </div>
             }
             else
             {
-                <div class="empty-state">
-                    <i class="bi bi-journal-x"></i>
-                    <h3>No audit logs found</h3>
-                    <p>Try adjusting your filters or date range.</p>
-                </div>
-            }
-        </div>
-    }
+                var rows = filteredLogs.ToList();
 
-    <!-- Detail Drawer -->
-    @if (selectedLog != null)
-    {
-        <div class="drawer-backdrop" @onclick="CloseDrawer"></div>
-        <div class="detail-drawer">
-            <div class="drawer-header">
-                <h3>Event Details</h3>
-                <button class="drawer-close" @onclick="CloseDrawer">
-                    <i class="bi bi-x-lg"></i>
-                </button>
+                if (rows.Count == 0)
+                {
+                    <div class="aud-empty">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path>
+                            <path d="M9 9h6M9 13h4"></path>
+                        </svg>
+                        @if (string.IsNullOrWhiteSpace(_searchString))
+                        {
+                            <span>No events were recorded in this window.</span>
+                            <div class="aud-empty-actions">
+                                <button type="button" class="aud-btn aud-btn-quiet" @onclick="ClearFilters">
+                                    Reset to the last seven days
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <span>No event on this page matches &#8220;@_searchString&#8221;.</span>
+                            <div class="aud-empty-actions">
+                                <button type="button" class="aud-btn aud-btn-quiet" @onclick="() => _searchString = string.Empty">
+                                    Clear the search
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="aud-scroll">
+                        <div class="aud-grid" role="table" aria-label="Audit events">
+                            <div class="aud-thead" role="row">
+                                <span role="columnheader">Timestamp</span>
+                                <span role="columnheader">User</span>
+                                <span role="columnheader">Role</span>
+                                <span role="columnheader">Action</span>
+                                <span role="columnheader">Details</span>
+                                <span role="columnheader">IP address</span>
+                                <span role="columnheader">Status</span>
+                            </div>
+
+                            @foreach (var log in rows)
+                            {
+                                var stamp = IAuditService.ToCAT(log.Timestamp);
+                                <div class="aud-row @(log.IsSuccess ? "" : "aud-row-failed")" role="row"
+                                     @onclick="() => SelectLog(log)">
+                                    <span class="aud-ts" role="cell">
+                                        <span class="aud-ts-date">@stamp.ToString("dd MMM yyyy")</span>
+                                        <span class="aud-ts-time">@stamp.ToString("HH:mm:ss")</span>
+                                    </span>
+                                    <span class="aud-user" role="cell">
+                                        <span class="aud-avatar" aria-hidden="true">@GetInitials(log.Username)</span>
+                                        <span class="aud-name">@log.Username</span>
+                                    </span>
+                                    <span class="aud-cell-role" role="cell">
+                                        <span class="aud-badge @GetRoleFamily(log.UserRole)">@log.UserRole</span>
+                                    </span>
+                                    <span class="aud-cell-action" role="cell">
+                                        <span class="aud-badge @GetActionFamily(log.Action)">@FormatAction(log.Action)</span>
+                                    </span>
+                                    <span class="aud-detail" role="cell">
+                                        @if (!string.IsNullOrEmpty(log.EntityType) || !string.IsNullOrWhiteSpace(log.AppVersion))
+                                        {
+                                            <span class="aud-detail-line">
+                                                @if (!string.IsNullOrEmpty(log.EntityType))
+                                                {
+                                                    <span class="aud-tag">
+                                                        @log.EntityType@(string.IsNullOrEmpty(log.EntityId) ? "" : $" #{log.EntityId}")
+                                                    </span>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(log.AppVersion))
+                                                {
+                                                    <span class="aud-tag">@log.AppVersion</span>
+                                                }
+                                            </span>
+                                        }
+                                        @if (!string.IsNullOrEmpty(log.Details))
+                                        {
+                                            <span class="aud-detail-text">
+                                                <span class="aud-rl">Details</span>@TruncateText(log.Details, 90)
+                                            </span>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(log.DeviceModel))
+                                        {
+                                            <span class="aud-detail-text">
+                                                <span class="aud-rl">Device</span>@TruncateText(log.DeviceModel, 40)
+                                            </span>
+                                        }
+                                        @if (!log.IsSuccess && !string.IsNullOrEmpty(log.ErrorMessage))
+                                        {
+                                            <span class="aud-err">
+                                                <span class="aud-rl">Error</span>@TruncateText(log.ErrorMessage, 80)
+                                            </span>
+                                        }
+                                    </span>
+                                    <span class="aud-cell-ip" role="cell">
+                                        @if (!string.IsNullOrWhiteSpace(log.IpAddress))
+                                        {
+                                            <span class="aud-ip"><span class="aud-rl">IP</span>@log.IpAddress</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="aud-ip-none"><span class="aud-rl">IP</span>Not captured</span>
+                                        }
+                                    </span>
+                                    <span class="aud-cell-status" role="cell">
+                                        @if (log.IsSuccess)
+                                        {
+                                            <span class="aud-badge aud-fam-good">
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                                                     stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+                                                     stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                                </svg>
+                                                OK
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="aud-badge aud-fam-bad">
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                                                     stroke="currentColor" stroke-width="2.4" stroke-linecap="round"
+                                                     aria-hidden="true">
+                                                    <path d="M6 6l12 12M18 6L6 18"></path>
+                                                </svg>
+                                                Failed
+                                            </span>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="aud-foot">
+                        <span class="aud-foot-info">
+                            @if (currentRangeStart == 0)
+                            {
+                                <text>No records</text>
+                            }
+                            else if (totalCount is int exactCount)
+                            {
+                                <text>Showing @currentRangeStart&#8211;@currentRangeEnd of @exactCount.ToString("N0")</text>
+                            }
+                            else
+                            {
+                                <text>Showing @currentRangeStart&#8211;@currentRangeEnd</text>
+                                @if (isTotalCountLoading)
+                                {
+                                    <text> · counting&#8230;</text>
+                                }
+                            }
+                        </span>
+                        <div class="aud-pages">
+                            @if (totalCount.HasValue)
+                            {
+                                <button type="button" class="aud-step" disabled="@(currentPage <= 1)"
+                                        aria-label="First page" @onclick="() => GoToPage(1)">
+                                    &#8676;
+                                </button>
+                            }
+                            <button type="button" class="aud-step" disabled="@(currentPage <= 1)"
+                                    aria-label="Previous page" @onclick="() => GoToPage(currentPage - 1)">
+                                Previous
+                            </button>
+                            @if (totalCount.HasValue)
+                            {
+                                @foreach (var p in GetPageNumbers())
+                                {
+                                    <button type="button" class="aud-page @(p == currentPage ? "aud-page-on" : "")"
+                                            aria-current="@(p == currentPage ? "page" : null)"
+                                            @onclick="() => GoToPage(p)">
+                                        @p
+                                    </button>
+                                }
+                            }
+                            else
+                            {
+                                <span class="aud-gap">Page @currentPage</span>
+                            }
+                            <button type="button" class="aud-step"
+                                    disabled="@(totalCount.HasValue ? currentPage >= totalPages : !hasMorePages)"
+                                    aria-label="Next page" @onclick="() => GoToPage(currentPage + 1)">
+                                Next
+                            </button>
+                            @if (totalCount.HasValue)
+                            {
+                                <button type="button" class="aud-step" disabled="@(currentPage >= totalPages)"
+                                        aria-label="Last page" @onclick="() => GoToPage(totalPages)">
+                                    &#8677;
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            }
+        </section>
+    </div>
+</div>
+
+@* The scrim and the drawer carry `.aud` themselves: they sit outside the page
+   element so it cannot clip them, and the class is what puts the tokens in
+   reach. *@
+@if (selectedLog is AuditLog detail)
+{
+    var detailStamp = IAuditService.ToCAT(detail.Timestamp);
+
+    <div class="aud aud-scrim" @onclick="CloseDrawer"></div>
+    <aside class="aud aud-drawer" role="dialog" aria-modal="true" aria-label="Event details">
+        <div class="aud-drawer-head">
+            <div>
+                <h2>@FormatAction(detail.Action)</h2>
+                <div class="aud-drawer-sub">@detailStamp.ToString("dd MMM yyyy, HH:mm:ss") CAT · @detail.Username</div>
             </div>
-            <div class="drawer-body">
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <span class="detail-label">Timestamp</span>
-                        <span class="detail-value">@IAuditService.ToCAT(selectedLog.Timestamp).ToString("dd MMM yyyy,      HH:mm:ss") CAT</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">User</span>
-                        <span class="detail-value">@selectedLog.Username</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">Role</span>
-                        <span class="detail-value"><span
-                            class="role-badge @GetRoleBadgeClass(selectedLog.UserRole)">@selectedLog.UserRole</span></span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Action</span>
-                            <span class="detail-value"><span
-                                class="action-badge @GetActionBadgeClass(selectedLog.Action)">@FormatAction(selectedLog.Action)</span></span>
-                            </div>
-                            @if (!string.IsNullOrEmpty(selectedLog.EntityType))
-                            {
-                                <div class="detail-item">
-                                    <span class="detail-label">Entity</span>
-                                    <span class="detail-value">@selectedLog.EntityType @(string.IsNullOrEmpty(selectedLog.EntityId) ? "" : $"#{selectedLog.EntityId}")</span>
-                                </div>
-                            }
-                            <div class="detail-item">
-                                <span class="detail-label">Status</span>
-                                <span class="detail-value">
-                                    @if (selectedLog.IsSuccess)
-                                    {
-                                        <span class="status-badge status-success"><i class="bi bi-check-circle-fill"></i> Success</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="status-badge status-failed"><i class="bi bi-x-circle-fill"></i> Failed</span>
-                                    }
-                                </span>
-                            </div>
-                            @if (!string.IsNullOrEmpty(selectedLog.Details))
-                            {
-                                <div class="detail-item detail-full">
-                                    <span class="detail-label">Details</span>
-                                    <span class="detail-value detail-pre">@selectedLog.Details</span>
-                                </div>
-                            }
-                            @if (!string.IsNullOrEmpty(selectedLog.ErrorMessage))
-                            {
-                                <div class="detail-item detail-full">
-                                    <span class="detail-label">Error</span>
-                                    <span class="detail-value error-text">@selectedLog.ErrorMessage</span>
-                                </div>
-                            }
-                            @if (HasClientMetadata(selectedLog))
-                            {
-                                <div class="detail-item detail-full">
-                                    <span class="detail-label">Client Metadata</span>
-                                    <div class="client-detail-stack">
-                                        @if (!string.IsNullOrWhiteSpace(selectedLog.IpAddress))
-                                        {
-                                            <div class="client-detail-row">
-                                                <span class="client-detail-label">IP Address</span>
-                                                <span class="client-detail-value">@selectedLog.IpAddress</span>
-                                                <button class="client-copy-btn" title="Copy IP address" @onclick="() => CopyClientDetail(selectedLog.IpAddress)">
-                                                    <i class="bi bi-clipboard"></i>
-                                                </button>
-                                            </div>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(selectedLog.UserAgent))
-                                        {
-                                            <div class="client-detail-row client-detail-row-long">
-                                                <span class="client-detail-label">User Agent</span>
-                                                <span class="client-detail-value">@selectedLog.UserAgent</span>
-                                                <button class="client-copy-btn" title="Copy user agent" @onclick="() => CopyClientDetail(selectedLog.UserAgent)">
-                                                    <i class="bi bi-clipboard"></i>
-                                                </button>
-                                            </div>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(selectedLog.AppVersion))
-                                        {
-                                            <div class="client-detail-row">
-                                                <span class="client-detail-label">App Version</span>
-                                                <span class="client-detail-value">@selectedLog.AppVersion</span>
-                                            </div>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(selectedLog.DeviceModel))
-                                        {
-                                            <div class="client-detail-row">
-                                                <span class="client-detail-label">Device Model</span>
-                                                <span class="client-detail-value">@selectedLog.DeviceModel</span>
-                                            </div>
-                                        }
-                                        @if (!string.IsNullOrWhiteSpace(selectedLog.PageUrl))
-                                        {
-                                            <div class="client-detail-row client-detail-row-long">
-                                                <span class="client-detail-label">Page URL</span>
-                                                <span class="client-detail-value">@selectedLog.PageUrl</span>
-                                                <button class="client-copy-btn" title="Copy page URL" @onclick="() => CopyClientDetail(selectedLog.PageUrl)">
-                                                    <i class="bi bi-clipboard"></i>
-                                                </button>
-                                            </div>
-                                        }
-                                    </div>
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
+            <button type="button" class="aud-icon-btn aud-drawer-x" aria-label="Close" @onclick="CloseDrawer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
         </div>
 
-        <style>
-            /* ===== Base ===== */
-            .audit-page {
-                padding: 1.5rem 2rem 3rem;
-                max-width: 1440px;
-                margin: 0 auto;
-                animation: fadeIn .3s ease;
-            }
-
-            @@keyframes fadeIn {
-                from {
-                    opacity: 0;
-                    transform: translateY(8px);
-                }
-
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-
-            @@keyframes slideInRight {
-                from {
-                    transform: translateX(100%);
-                }
-
-                to {
-                    transform: translateX(0);
-                }
-            }
-
-            /* ===== Header ===== */
-            .audit-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 1.5rem;
-                flex-wrap: wrap;
-                gap: 1rem;
-            }
-
-            .header-left {
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-            }
-
-            .header-icon {
-                width: 48px;
-                height: 48px;
-                border-radius: 12px;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: white;
-                font-size: 1.25rem;
-                flex-shrink: 0;
-            }
-
-            .header-title {
-                font-size: 1.5rem;
-                font-weight: 700;
-                color: #1a1a2e;
-                margin: 0;
-                line-height: 1.2;
-            }
-
-            .header-subtitle {
-                font-size: .82rem;
-                color: #6b7280;
-                margin: 2px 0 0;
-            }
-
-            .header-actions {
-                display: flex;
-                gap: .5rem;
-            }
-
-            /* ===== Buttons ===== */
-            .btn-audit {
-                display: inline-flex;
-                align-items: center;
-                gap: .4rem;
-                padding: .5rem 1rem;
-                border-radius: 8px;
-                font-size: .82rem;
-                font-weight: 600;
-                cursor: pointer;
-                border: none;
-                transition: all .15s ease;
-            }
-
-            .btn-audit-gradient {
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
-            }
-
-            .btn-audit-gradient:hover {
-                opacity: .9;
-                transform: translateY(-1px);
-            }
-
-            .btn-audit-outline {
-                background: white;
-                color: #374151;
-                border: 1px solid #d1d5db;
-            }
-
-            .btn-audit-outline:hover {
-                background: #f9fafb;
-                border-color: #9ca3af;
-            }
-
-            .btn-search {
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
-            }
-
-            .btn-search:hover {
-                opacity: .9;
-            }
-
-            .btn-clear {
-                background: white;
-                color: #6b7280;
-                border: 1px solid #d1d5db;
-            }
-
-            .btn-clear:hover {
-                background: #f3f4f6;
-            }
-
-            /* ===== Stats ===== */
-            .stats-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-                gap: 1rem;
-                margin-bottom: 1.5rem;
-            }
-
-            .stat-card {
-                background: white;
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                padding: 1.1rem 1.25rem;
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-                transition: box-shadow .2s ease, transform .2s ease;
-            }
-
-            .stat-card:hover {
-                box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
-                transform: translateY(-2px);
-            }
-
-            .stat-icon {
-                width: 42px;
-                height: 42px;
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 1.15rem;
-                flex-shrink: 0;
-            }
-
-            .stat-icon-purple {
-                background: #ede9fe;
-                color: #7c3aed;
-            }
-
-            .stat-icon-blue {
-                background: #dbeafe;
-                color: #2563eb;
-            }
-
-            .stat-icon-amber {
-                background: #fef3c7;
-                color: #d97706;
-            }
-
-            .stat-icon-red {
-                background: #fee2e2;
-                color: #dc2626;
-            }
-
-            .stat-content {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .stat-value {
-                font-size: 1.35rem;
-                font-weight: 700;
-                color: #1a1a2e;
-                line-height: 1.2;
-            }
-
-            .stat-label {
-                font-size: .72rem;
-                font-weight: 500;
-                color: #6b7280;
-                text-transform: uppercase;
-                letter-spacing: .5px;
-            }
-
-            /* ===== Filters ===== */
-            .filter-panel {
-                background: white;
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                margin-bottom: 1.5rem;
-                overflow: hidden;
-            }
-
-            .filter-header {
-                padding: .75rem 1.25rem;
-                background: #f8fafc;
-                border-bottom: 1px solid #e5e7eb;
-                font-weight: 600;
-                font-size: .85rem;
-                color: #374151;
-                display: flex;
-                align-items: center;
-                gap: .5rem;
-            }
-
-            .filter-body {
-                padding: 1.25rem;
-            }
-
-            .filter-row {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 1rem;
-                align-items: flex-end;
-            }
-
-            .filter-group {
-                flex: 1;
-                min-width: 140px;
-            }
-
-            .filter-label {
-                display: block;
-                font-size: .75rem;
-                font-weight: 600;
-                color: #6b7280;
-                text-transform: uppercase;
-                letter-spacing: .4px;
-                margin-bottom: .35rem;
-            }
-
-            .filter-select {
-                width: 100%;
-                padding: .5rem .75rem;
-                border: 1px solid #d1d5db;
-                border-radius: 8px;
-                font-size: .85rem;
-                color: #374151;
-                background: white;
-                transition: border-color .15s;
-            }
-
-            .filter-select:focus {
-                outline: none;
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-            }
-
-            .filter-actions {
-                display: flex;
-                gap: .5rem;
-                align-items: flex-end;
-                padding-bottom: 1px;
-            }
-
-            /* ===== Loading ===== */
-            .loading-state {
-                text-align: center;
-                padding: 4rem 1rem;
-                color: #6b7280;
-            }
-
-            .spinner {
-                width: 36px;
-                height: 36px;
-                border: 3px solid #e5e7eb;
-                border-top-color: #667eea;
-                border-radius: 50%;
-                animation: spin .7s linear infinite;
-                margin: 0 auto 1rem;
-            }
-
-            @@keyframes spin {
-                to {
-                    transform: rotate(360deg);
-                }
-            }
-
-            /* ===== Alert Banner ===== */
-            .alert-banner {
-                display: flex;
-                align-items: center;
-                gap: .75rem;
-                padding: .85rem 1.25rem;
-                border-radius: 10px;
-                font-size: .88rem;
-                margin-bottom: 1.5rem;
-                animation: fadeIn .3s ease;
-            }
-
-            .alert-error {
-                background: #fef2f2;
-                color: #991b1b;
-                border: 1px solid #fecaca;
-            }
-
-            .alert-close {
-                margin-left: auto;
-                background: none;
-                border: none;
-                cursor: pointer;
-                color: inherit;
-                opacity: .6;
-                font-size: .8rem;
-            }
-
-            .alert-close:hover {
-                opacity: 1;
-            }
-
-            /* ===== Table Container ===== */
-            .table-container {
-                background: white;
-                border: 1px solid #e5e7eb;
-                border-radius: 12px;
-                overflow: hidden;
-            }
-
-            .table-toolbar {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 1rem 1.25rem;
-                border-bottom: 1px solid #e5e7eb;
-                gap: 1rem;
-                flex-wrap: wrap;
-            }
-
-            .table-title {
-                display: flex;
-                align-items: center;
-                gap: .5rem;
-                font-weight: 600;
-                font-size: .95rem;
-                color: #1a1a2e;
-            }
-
-            .record-count {
-                font-weight: 400;
-                font-size: .78rem;
-                color: #9ca3af;
-                margin-left: .25rem;
-            }
-
-            .search-box {
-                display: flex;
-                align-items: center;
-                gap: .5rem;
-                background: #f9fafb;
-                border: 1px solid #e5e7eb;
-                border-radius: 8px;
-                padding: .4rem .75rem;
-                min-width: 260px;
-                transition: border-color .15s;
-            }
-
-            .search-box:focus-within {
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, .1);
-            }
-
-            .search-box i {
-                color: #9ca3af;
-                font-size: .85rem;
-            }
-
-            .search-box input {
-                border: none;
-                background: transparent;
-                outline: none;
-                font-size: .85rem;
-                color: #374151;
-                width: 100%;
-            }
-
-            /* ===== Audit Table ===== */
-            .audit-table-wrap {
-                overflow-x: auto;
-            }
-
-            .audit-table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-
-            .audit-table thead th {
-                background: #f8fafc;
-                padding: .65rem 1rem;
-                font-size: .72rem;
-                font-weight: 600;
-                color: #6b7280;
-                text-transform: uppercase;
-                letter-spacing: .5px;
-                text-align: left;
-                border-bottom: 1px solid #e5e7eb;
-                white-space: nowrap;
-            }
-
-            .audit-table tbody tr {
-                border-bottom: 1px solid #f3f4f6;
-                cursor: pointer;
-                transition: background .1s;
-            }
-
-            .audit-table tbody tr:hover {
-                background: #f9fafb;
-            }
-
-            .audit-table tbody tr.row-failed {
-                background: #fef2f2;
-            }
-
-            .audit-table tbody tr.row-failed:hover {
-                background: #fee2e2;
-            }
-
-            .audit-table td {
-                padding: .7rem 1rem;
-                font-size: .85rem;
-                color: #374151;
-                vertical-align: middle;
-            }
-
-            .col-timestamp {
-                width: 140px;
-            }
-
-            .col-user {
-                width: 160px;
-            }
-
-            .col-role {
-                width: 110px;
-            }
-
-            .col-action {
-                width: 130px;
-            }
-
-            .col-ip {
-                width: 150px;
-            }
-
-            .col-status {
-                width: 90px;
-            }
-
-            .ip-chip {
-                display: inline-flex;
-                align-items: center;
-                max-width: 145px;
-                padding: .18rem .55rem;
-                border-radius: 6px;
-                background: #eef2ff;
-                color: #4f46e5;
-                font-family: 'Space Grotesk', monospace;
-                font-size: .72rem;
-                font-weight: 600;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-            }
-
-            .empty-ip {
-                color: #9ca3af;
-                font-size: .74rem;
-                font-weight: 500;
-            }
-
-            /* Timestamp Cell */
-            .timestamp-cell {
-                display: flex;
-                flex-direction: column;
-                gap: 1px;
-            }
-
-            .ts-date {
-                font-size: .82rem;
-                font-weight: 500;
-                color: #374151;
-            }
-
-            .ts-time {
-                font-size: .72rem;
-                color: #9ca3af;
-                font-family: 'Space Grotesk', monospace;
-            }
-
-            /* User Cell */
-            .user-cell {
-                display: flex;
-                align-items: center;
-                gap: .6rem;
-            }
-
-            .user-avatar {
-                width: 30px;
-                height: 30px;
-                border-radius: 50%;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: .65rem;
-                font-weight: 700;
-                flex-shrink: 0;
-                text-transform: uppercase;
-            }
-
-            .user-name {
-                font-weight: 600;
-                color: #1a1a2e;
-                font-size: .84rem;
-            }
-
-            /* Role Badge */
-            .role-badge {
-                display: inline-block;
-                padding: .2rem .6rem;
-                border-radius: 6px;
-                font-size: .72rem;
-                font-weight: 600;
-                white-space: nowrap;
-            }
-
-            .role-admin {
-                background: #fee2e2;
-                color: #dc2626;
-            }
-
-            .role-cashier {
-                background: #dbeafe;
-                color: #2563eb;
-            }
-
-            .role-stock {
-                background: #e0f2fe;
-                color: #0284c7;
-            }
-
-            .role-depot {
-                background: #fef3c7;
-                color: #d97706;
-            }
-
-            .role-default {
-                background: #f3f4f6;
-                color: #6b7280;
-            }
-
-            /* Action Badge */
-            .action-badge {
-                display: inline-block;
-                padding: .2rem .6rem;
-                border-radius: 6px;
-                font-size: .72rem;
-                font-weight: 600;
-                white-space: nowrap;
-            }
-
-            .action-auth {
-                background: #d1fae5;
-                color: #059669;
-            }
-
-            .action-fail {
-                background: #fee2e2;
-                color: #dc2626;
-            }
-
-            .action-create {
-                background: #dbeafe;
-                color: #2563eb;
-            }
-
-            .action-update {
-                background: #fef3c7;
-                color: #d97706;
-            }
-
-            .action-delete {
-                background: #fee2e2;
-                color: #dc2626;
-            }
-
-            .action-view {
-                background: #e0f2fe;
-                color: #0284c7;
-            }
-
-            .action-sync {
-                background: #ede9fe;
-                color: #7c3aed;
-            }
-
-            .action-default {
-                background: #f3f4f6;
-                color: #6b7280;
-            }
-
-            /* Details Cell */
-            .details-cell {
-                display: flex;
-                flex-direction: column;
-                gap: 3px;
-                max-width: 350px;
-            }
-
-            .client-meta {
-                display: flex;
-                flex-wrap: wrap;
-                gap: .35rem;
-                align-items: center;
-            }
-
-            .entity-tag {
-                display: inline-block;
-                background: #f3f4f6;
-                color: #6b7280;
-                padding: .1rem .5rem;
-                border-radius: 4px;
-                font-size: .72rem;
-                font-weight: 500;
-                font-family: 'Space Grotesk', monospace;
-                width: fit-content;
-            }
-
-            .detail-text {
-                font-size: .78rem;
-                color: #6b7280;
-                line-height: 1.3;
-            }
-
-            .error-text {
-                font-size: .75rem;
-                color: #dc2626;
-                line-height: 1.3;
-            }
-
-            /* Status Badge */
-            .status-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: .3rem;
-                padding: .2rem .55rem;
-                border-radius: 6px;
-                font-size: .72rem;
-                font-weight: 600;
-                white-space: nowrap;
-            }
-
-            .status-success {
-                background: #d1fae5;
-                color: #059669;
-            }
-
-            .status-failed {
-                background: #fee2e2;
-                color: #dc2626;
-            }
-
-            /* ===== Pagination ===== */
-            .table-footer {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: .85rem 1.25rem;
-                border-top: 1px solid #e5e7eb;
-                flex-wrap: wrap;
-                gap: .5rem;
-            }
-
-            .page-info {
-                font-size: .78rem;
-                color: #6b7280;
-            }
-
-            .pagination-controls {
-                display: flex;
-                gap: .25rem;
-            }
-
-            .page-status {
-                font-size: .8rem;
-                font-weight: 600;
-                color: #6b7280;
-                padding: 0 .4rem;
-            }
-
-            .page-btn {
-                width: 32px;
-                height: 32px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border: 1px solid #e5e7eb;
-                border-radius: 6px;
-                background: white;
-                color: #374151;
-                font-size: .8rem;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all .15s;
-            }
-
-            .page-btn:hover:not(:disabled) {
-                background: #f3f4f6;
-                border-color: #d1d5db;
-            }
-
-            .page-btn:disabled {
-                opacity: .4;
-                cursor: not-allowed;
-            }
-
-            .page-active {
-                background: linear-gradient(135deg, #667eea, #764ba2) !important;
-                color: white !important;
-                border-color: transparent !important;
-            }
-
-            /* ===== Empty State ===== */
-            .empty-state {
-                text-align: center;
-                padding: 4rem 2rem;
-                color: #9ca3af;
-            }
-
-            .empty-state i {
-                font-size: 3rem;
-                opacity: .4;
-            }
-
-            .empty-state h3 {
-                font-size: 1.1rem;
-                color: #6b7280;
-                margin: 1rem 0 .3rem;
-                font-weight: 600;
-            }
-
-            .empty-state p {
-                font-size: .85rem;
-            }
-
-            /* ===== Detail Drawer ===== */
-            /* Offset below the app bar: the page container is a stacking context, so a drawer
-               cannot paint over the topbar however high its z-index. */
-            .drawer-backdrop {
-                position: fixed;
-                inset: var(--kf-topbar-h, 74px) 0 0;
-                background: rgba(0, 0, 0, .4);
-                z-index: 1040;
-                animation: fadeIn .2s ease;
-            }
-
-            .detail-drawer {
-                position: fixed;
-                top: var(--kf-topbar-h, 74px);
-                right: 0;
-                bottom: 0;
-                width: 480px;
-                max-width: 90vw;
-                background: white;
-                z-index: 1050;
-                display: flex;
-                flex-direction: column;
-                box-shadow: -4px 0 24px rgba(0, 0, 0, .12);
-                animation: slideInRight .25s ease;
-            }
-
-            .drawer-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 1.25rem 1.5rem;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                color: white;
-            }
-
-            .drawer-header h3 {
-                margin: 0;
-                font-size: 1.1rem;
-                font-weight: 600;
-            }
-
-            .drawer-close {
-                background: rgba(255, 255, 255, .2);
-                border: none;
-                color: white;
-                width: 32px;
-                height: 32px;
-                border-radius: 8px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                transition: background .15s;
-            }
-
-            .drawer-close:hover {
-                background: rgba(255, 255, 255, .35);
-            }
-
-            .drawer-body {
-                flex: 1;
-                overflow-y: auto;
-                padding: 1.5rem;
-            }
-
-            .detail-grid {
-                display: flex;
-                flex-direction: column;
-                gap: 1.1rem;
-            }
-
-            .detail-item {
-                display: flex;
-                flex-direction: column;
-                gap: .25rem;
-            }
-
-            .detail-full {
-                grid-column: 1 / -1;
-            }
-
-            .detail-label {
-                font-size: .72rem;
-                font-weight: 600;
-                color: #6b7280;
-                text-transform: uppercase;
-                letter-spacing: .5px;
-            }
-
-            .detail-value {
-                font-size: .88rem;
-                color: #1a1a2e;
-                font-weight: 500;
-            }
-
-            .detail-pre {
-                white-space: pre-wrap;
-                word-break: break-word;
-                background: #f9fafb;
-                padding: .6rem .85rem;
-                border-radius: 8px;
-                font-size: .82rem;
-                border: 1px solid #f3f4f6;
-            }
-
-            .client-detail-stack {
-                display: flex;
-                flex-direction: column;
-                gap: .55rem;
-            }
-
-            .client-detail-row {
-                display: grid;
-                grid-template-columns: 108px minmax(0, 1fr) 32px;
-                align-items: center;
-                gap: .6rem;
-                padding: .55rem .7rem;
-                background: #f9fafb;
-                border: 1px solid #f3f4f6;
-                border-radius: 8px;
-            }
-
-            .client-detail-row:not(:has(.client-copy-btn)) {
-                grid-template-columns: 108px minmax(0, 1fr);
-            }
-
-            .client-detail-label {
-                color: #6b7280;
-                font-size: .68rem;
-                font-weight: 700;
-                letter-spacing: .05em;
-                text-transform: uppercase;
-            }
-
-            .client-detail-value {
-                color: #1a1a2e;
-                font-family: 'Space Grotesk', monospace;
-                font-size: .8rem;
-                font-weight: 600;
-                overflow-wrap: anywhere;
-                word-break: break-word;
-            }
-
-            .client-detail-row-long {
-                align-items: start;
-            }
-
-            .client-copy-btn {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                width: 30px;
-                height: 30px;
-                border: 1px solid #e5e7eb;
-                border-radius: 6px;
-                background: white;
-                color: #6b7280;
-                cursor: pointer;
-                transition: all .15s ease;
-            }
-
-            .client-copy-btn:hover {
-                background: #eef2ff;
-                border-color: #c7d2fe;
-                color: #4f46e5;
-            }
-
-            /* ===== Dark Theme ===== */
-            [data-theme="dark"] .audit-page {
-                color: #e2e8f0;
-            }
-
-            [data-theme="dark"] .header-title {
-                color: #f1f5f9;
-            }
-
-            [data-theme="dark"] .header-subtitle {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .stat-card {
-                background: #1e293b;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .stat-value {
-                color: #f1f5f9;
-            }
-
-            [data-theme="dark"] .stat-label {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .filter-panel {
-                background: #1e293b;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .filter-header {
-                background: #0f172a;
-                border-color: #334155;
-                color: #cbd5e1;
-            }
-
-            [data-theme="dark"] .filter-select {
-                background: #0f172a;
-                border-color: #334155;
-                color: #e2e8f0;
-            }
-
-            [data-theme="dark"] .filter-label {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .btn-audit-outline {
-                background: #1e293b;
-                color: #cbd5e1;
-                border-color: #475569;
-            }
-
-            [data-theme="dark"] .btn-audit-outline:hover {
-                background: #334155;
-            }
-
-            [data-theme="dark"] .btn-clear {
-                background: #1e293b;
-                color: #94a3b8;
-                border-color: #475569;
-            }
-
-            [data-theme="dark"] .btn-clear:hover {
-                background: #334155;
-            }
-
-            [data-theme="dark"] .table-container {
-                background: #1e293b;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .table-toolbar {
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .table-title {
-                color: #f1f5f9;
-            }
-
-            [data-theme="dark"] .search-box {
-                background: #0f172a;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .search-box input {
-                color: #e2e8f0;
-            }
-
-            [data-theme="dark"] .audit-table thead th {
-                background: #0f172a;
-                color: #94a3b8;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .audit-table tbody tr {
-                border-color: #1e293b;
-            }
-
-            [data-theme="dark"] .audit-table tbody tr:hover {
-                background: #334155;
-            }
-
-            [data-theme="dark"] .audit-table td {
-                color: #cbd5e1;
-            }
-
-            [data-theme="dark"] .ts-date {
-                color: #e2e8f0;
-            }
-
-            [data-theme="dark"] .user-name {
-                color: #f1f5f9;
-            }
-
-            [data-theme="dark"] .entity-tag {
-                background: #334155;
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .ip-chip {
-                background: #1e1b4b;
-                color: #c7d2fe;
-            }
-
-            [data-theme="dark"] .empty-ip {
-                color: #64748b;
-            }
-
-            [data-theme="dark"] .detail-text {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .page-btn {
-                background: #1e293b;
-                border-color: #475569;
-                color: #cbd5e1;
-            }
-
-            [data-theme="dark"] .page-btn:hover:not(:disabled) {
-                background: #334155;
-            }
-
-            [data-theme="dark"] .page-info {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .table-footer {
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .empty-state h3 {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .detail-drawer {
-                background: #1e293b;
-            }
-
-            [data-theme="dark"] .detail-value {
-                color: #f1f5f9;
-            }
-
-            [data-theme="dark"] .detail-label {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .detail-pre {
-                background: #0f172a;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .client-detail-row {
-                background: #0f172a;
-                border-color: #334155;
-            }
-
-            [data-theme="dark"] .client-detail-label {
-                color: #94a3b8;
-            }
-
-            [data-theme="dark"] .client-detail-value {
-                color: #f1f5f9;
-            }
-
-            [data-theme="dark"] .client-copy-btn {
-                background: #1e293b;
-                border-color: #475569;
-                color: #cbd5e1;
-            }
-
-            [data-theme="dark"] .client-copy-btn:hover {
-                background: #334155;
-                border-color: #64748b;
-                color: #f8fafc;
-            }
-
-            [data-theme="dark"] .alert-error {
-                background: #450a0a;
-                color: #fca5a5;
-                border-color: #7f1d1d;
-            }
-
-            [data-theme="dark"] .audit-table tbody tr.row-failed {
-                background: #450a0a33;
-            }
-
-            [data-theme="dark"] .audit-table tbody tr.row-failed:hover {
-                background: #450a0a55;
-            }
-
-            /* Effective dark theme overrides for the app's .dark-theme root class */
-            .dark-theme .audit-page {
-                color: #e2e8f0;
-            }
-
-            .dark-theme .audit-page .header-title,
-            .dark-theme .audit-page .stat-value,
-            .dark-theme .audit-page .table-title,
-            .dark-theme .audit-page .ts-date,
-            .dark-theme .audit-page .user-name,
-            .dark-theme .audit-page .detail-value {
-                color: #f8fafc !important;
-            }
-
-            .dark-theme .audit-page .header-subtitle,
-            .dark-theme .audit-page .stat-label,
-            .dark-theme .audit-page .filter-label,
-            .dark-theme .audit-page .record-count,
-            .dark-theme .audit-page .ts-time,
-            .dark-theme .audit-page .detail-label,
-            .dark-theme .audit-page .detail-text,
-            .dark-theme .audit-page .page-info {
-                color: #94a3b8 !important;
-            }
-
-            .dark-theme .audit-page .stat-card,
-            .dark-theme .audit-page .filter-panel,
-            .dark-theme .audit-page .table-container,
-            .dark-theme .audit-page .detail-drawer {
-                background: #111827 !important;
-                border-color: #334155 !important;
-                color: #e2e8f0 !important;
-            }
-
-            .dark-theme .audit-page .filter-header,
-            .dark-theme .audit-page .audit-table thead th,
-            .dark-theme .audit-page .search-box,
-            .dark-theme .audit-page .filter-select,
-            .dark-theme .audit-page .page-btn,
-            .dark-theme .audit-page .detail-pre {
-                background: #0f172a !important;
-                border-color: #334155 !important;
-                color: #e2e8f0 !important;
-            }
-
-            .dark-theme .audit-page .filter-select,
-            .dark-theme .audit-page .search-box input {
-                color: #f8fafc !important;
-            }
-
-            .dark-theme .audit-page .search-box input::placeholder {
-                color: #64748b;
-            }
-
-            .dark-theme .audit-page .table-toolbar,
-            .dark-theme .audit-page .table-footer,
-            .dark-theme .audit-page .audit-table thead th,
-            .dark-theme .audit-page .audit-table tbody tr,
-            .dark-theme .audit-page .audit-table td {
-                border-color: #334155 !important;
-            }
-
-            .dark-theme .audit-page .audit-table td {
-                color: #cbd5e1 !important;
-            }
-
-            .dark-theme .audit-page .audit-table tbody tr:hover,
-            .dark-theme .audit-page .page-btn:hover:not(:disabled) {
-                background: #1e293b !important;
-            }
-
-            .dark-theme .audit-page .audit-table tbody tr.row-failed {
-                background: rgba(127, 29, 29, .32) !important;
-            }
-
-            .dark-theme .audit-page .audit-table tbody tr.row-failed:hover {
-                background: rgba(127, 29, 29, .48) !important;
-            }
-
-            .dark-theme .audit-page .detail-drawer {
-                box-shadow: -10px 0 32px rgba(0, 0, 0, .45);
-            }
-
-            .dark-theme .audit-page .drawer-body {
-                background: #111827 !important;
-            }
-
-            .dark-theme .audit-page .detail-pre {
-                white-space: pre-wrap;
-                word-break: break-word;
-            }
-
-            .dark-theme .audit-page .entity-tag,
-            .dark-theme .audit-page .ip-chip,
-            .dark-theme .audit-page .role-default,
-            .dark-theme .audit-page .action-default {
-                background: #1e293b !important;
-                color: #cbd5e1 !important;
-            }
-
-            .dark-theme .audit-page .empty-ip {
-                color: #64748b !important;
-            }
-
-            .dark-theme .audit-page .client-detail-row {
-                background: #0f172a !important;
-                border-color: #334155 !important;
-            }
-
-            .dark-theme .audit-page .client-detail-label {
-                color: #94a3b8 !important;
-            }
-
-            .dark-theme .audit-page .client-detail-value {
-                color: #f8fafc !important;
-            }
-
-            .dark-theme .audit-page .client-copy-btn {
-                background: #1e293b !important;
-                border-color: #475569 !important;
-                color: #cbd5e1 !important;
-            }
-
-            .dark-theme .audit-page .client-copy-btn:hover {
-                background: #334155 !important;
-                color: #f8fafc !important;
-            }
-
-            .dark-theme .audit-page .empty-state h3 {
-                color: #cbd5e1 !important;
-            }
-
-            .dark-theme .audit-page .empty-state,
-            .dark-theme .audit-page .empty-state p {
-                color: #94a3b8 !important;
-            }
-
-            .dark-theme .audit-page .alert-error {
-                background: #450a0a !important;
-                border-color: #7f1d1d !important;
-                color: #fca5a5 !important;
-            }
-
-            /* ===== Responsive ===== */
-            @@media (max-width: 768px) {
-                .audit-page {
-                    padding: 1rem;
-                }
-
-                .audit-header {
-                    flex-direction: column;
-                    align-items: flex-start;
-                }
-
-                .filter-row {
-                    flex-direction: column;
-                }
-
-                .filter-group {
-                    min-width: 100%;
-                }
-
-                .filter-actions {
-                    flex-direction: row;
-                    width: 100%;
-                    justify-content: flex-start;
-                }
-
-                .table-toolbar {
-                    align-items: stretch;
-                }
-
-                .search-box {
-                    min-width: 0;
-                    width: 100%;
-                }
-
-                .stats-grid {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-
-                .audit-table thead {
-                    display: none;
-                }
-
-                .audit-table,
-                .audit-table tbody,
-                .audit-table tr,
-                .audit-table td {
-                    display: block;
-                    width: 100%;
-                }
-
-                .audit-table-wrap {
-                    padding: .85rem;
-                }
-
-                .audit-table tbody {
-                    display: grid;
-                    gap: .85rem;
-                }
-
-                .audit-table tbody tr {
-                    border: 1px solid #e5e7eb;
-                    border-radius: 12px;
-                    overflow: hidden;
-                    background: white;
-                    box-shadow: 0 8px 20px rgba(15, 23, 42, .06);
-                }
-
-                .dark-theme .audit-page .audit-table tbody tr {
-                    background: #111827 !important;
-                    border-color: #334155 !important;
-                    box-shadow: 0 8px 20px rgba(0, 0, 0, .22);
-                }
-
-                .audit-table td {
-                    display: grid;
-                    grid-template-columns: minmax(88px, 104px) minmax(0, 1fr);
-                    gap: .75rem;
-                    padding: .75rem 1rem;
-                    border-bottom: 1px solid #f3f4f6;
-                }
-
-                .audit-table td:last-child {
-                    border-bottom: none;
-                }
-
-                .audit-table td::before {
-                    content: attr(data-label);
-                    font-size: .68rem;
-                    font-weight: 700;
-                    color: #6b7280;
-                    text-transform: uppercase;
-                    letter-spacing: .08em;
-                    padding-top: .15rem;
-                }
-
-                .dark-theme .audit-page .audit-table td::before {
-                    color: #94a3b8;
-                }
-
-                .col-timestamp,
-                .col-user,
-                .col-role,
-                .col-action,
-                .col-ip,
-                .col-status {
-                    width: auto;
-                }
-
-                .user-cell,
-                .timestamp-cell,
-                .status-badge,
-                .role-badge,
-                .action-badge {
-                    min-width: 0;
-                }
-
-                .user-name,
-                .detail-text,
-                .error-text,
-                .entity-tag,
-                .ip-chip,
-                .client-detail-value {
-                    overflow-wrap: anywhere;
-                    word-break: break-word;
-                }
-
-                .client-detail-row,
-                .client-detail-row:not(:has(.client-copy-btn)) {
-                    grid-template-columns: 1fr;
-                    align-items: stretch;
-                }
-
-                .client-copy-btn {
-                    justify-self: start;
-                }
-
-                .table-footer {
-                    flex-direction: column;
-                    align-items: center;
-                }
-
-                .col-details {
-                    display: none;
-                }
-
-                .detail-drawer {
-                    width: 100%;
-                    max-width: 100%;
-                }
-            }
-
-            @@media (max-width: 480px) {
-                .stats-grid {
-                    grid-template-columns: 1fr;
-                }
-
-                .audit-table-wrap {
-                    padding: .65rem;
-                }
-
-                .audit-table td {
-                    grid-template-columns: 1fr;
-                    gap: .35rem;
-                    padding: .7rem .85rem;
-                }
-
-                .audit-table td::before {
-                    padding-top: 0;
-                }
-            }
-        </style>
+        <div class="aud-drawer-body">
+            <section class="aud-section">
+                <h3>Event</h3>
+                <div class="aud-dl">
+                    <div>
+                        <div class="aud-dt">Timestamp</div>
+                        <div class="aud-dd aud-dd-num">@detailStamp.ToString("dd MMM yyyy, HH:mm:ss") CAT</div>
+                    </div>
+                    <div>
+                        <div class="aud-dt">Outcome</div>
+                        <div class="aud-dd">
+                            @if (detail.IsSuccess)
+                            {
+                                <span class="aud-badge aud-fam-good">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                                         aria-hidden="true">
+                                        <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                    </svg>
+                                    Success
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="aud-badge aud-fam-bad">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2.4" stroke-linecap="round" aria-hidden="true">
+                                        <path d="M6 6l12 12M18 6L6 18"></path>
+                                    </svg>
+                                    Failed
+                                </span>
+                            }
+                        </div>
+                    </div>
+                    <div>
+                        <div class="aud-dt">User</div>
+                        <div class="aud-dd">@detail.Username</div>
+                    </div>
+                    <div>
+                        <div class="aud-dt">Role</div>
+                        <div class="aud-dd">
+                            <span class="aud-badge @GetRoleFamily(detail.UserRole)">@detail.UserRole</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="aud-dt">Action</div>
+                        <div class="aud-dd">
+                            <span class="aud-badge @GetActionFamily(detail.Action)">@FormatAction(detail.Action)</span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(detail.EntityType))
+                    {
+                        <div>
+                            <div class="aud-dt">Entity</div>
+                            <div class="aud-dd">
+                                @detail.EntityType@(string.IsNullOrEmpty(detail.EntityId) ? "" : $" #{detail.EntityId}")
+                            </div>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            @if (!string.IsNullOrEmpty(detail.Details))
+            {
+                <section class="aud-section">
+                    <h3>Details</h3>
+                    <pre class="aud-pre">@detail.Details</pre>
+                </section>
+            }
+
+            @if (!string.IsNullOrEmpty(detail.ErrorMessage))
+            {
+                <section class="aud-section">
+                    <h3>Error</h3>
+                    <pre class="aud-pre aud-pre-err">@detail.ErrorMessage</pre>
+                </section>
+            }
+
+            @if (HasClientMetadata(detail))
+            {
+                <section class="aud-section">
+                    <h3>Client</h3>
+                    <div class="aud-meta">
+                        @if (!string.IsNullOrWhiteSpace(detail.IpAddress))
+                        {
+                            <div class="aud-meta-row">
+                                <span class="aud-meta-label">IP address</span>
+                                <span class="aud-meta-value">@detail.IpAddress</span>
+                                <button type="button" class="aud-icon-btn" title="Copy IP address"
+                                        aria-label="Copy IP address" @onclick="() => CopyClientDetail(detail.IpAddress)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                                         aria-hidden="true">
+                                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                                        <path d="M5 15V5a2 2 0 0 1 2-2h8"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(detail.UserAgent))
+                        {
+                            <div class="aud-meta-row aud-meta-row-long">
+                                <span class="aud-meta-label">User agent</span>
+                                <span class="aud-meta-value">@detail.UserAgent</span>
+                                <button type="button" class="aud-icon-btn" title="Copy user agent"
+                                        aria-label="Copy user agent" @onclick="() => CopyClientDetail(detail.UserAgent)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                                         aria-hidden="true">
+                                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                                        <path d="M5 15V5a2 2 0 0 1 2-2h8"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(detail.AppVersion))
+                        {
+                            <div class="aud-meta-row">
+                                <span class="aud-meta-label">App version</span>
+                                <span class="aud-meta-value">@detail.AppVersion</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(detail.DeviceModel))
+                        {
+                            <div class="aud-meta-row">
+                                <span class="aud-meta-label">Device model</span>
+                                <span class="aud-meta-value">@detail.DeviceModel</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(detail.PageUrl))
+                        {
+                            <div class="aud-meta-row aud-meta-row-long">
+                                <span class="aud-meta-label">Page URL</span>
+                                <span class="aud-meta-value">@detail.PageUrl</span>
+                                <button type="button" class="aud-icon-btn" title="Copy page URL"
+                                        aria-label="Copy page URL" @onclick="() => CopyClientDetail(detail.PageUrl)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                                         aria-hidden="true">
+                                        <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                                        <path d="M5 15V5a2 2 0 0 1 2-2h8"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    </aside>
+}
 
 @code {
     private List<AuditLog> logs = new();
@@ -1948,25 +631,39 @@
         ? logs
         : logs.Where(MatchesQuickSearch);
 
-    private string GetRoleBadgeClass(string? role) => role switch
+    // The window the figures above the table are counted over, said in the header
+    // so a screenshot of this page carries its own scope.
+    private string DateRangeLabel => (fromDate, toDate) switch
     {
-        UserRoles.Admin => "role-admin",
-        UserRoles.Cashier => "role-cashier",
-        UserRoles.StockController => "role-stock",
-        UserRoles.DepotController => "role-depot",
-        _ => "role-default"
+        ({ } from, { } to) => $"{from:d MMM} – {to:d MMM yyyy}",
+        ({ } from, null) => $"From {from:d MMM yyyy}",
+        (null, { } to) => $"Up to {to:d MMM yyyy}",
+        _ => "All dates"
     };
 
-    private string GetActionBadgeClass(string? action) => action switch
+    // Roles and actions are drawn as one badge whose hue comes from a family
+    // token, so both of these return a family class rather than a bespoke one.
+    private string GetRoleFamily(string? role) => role switch
     {
-        AuditActions.Login or AuditActions.Logout => "action-auth",
-        AuditActions.LoginFailed => "action-fail",
-        var a when a != null && a.StartsWith("Create") => "action-create",
-        var a when a != null && a.StartsWith("Update") => "action-update",
-        var a when a != null && a.StartsWith("Delete") => "action-delete",
-        var a when a != null && a.StartsWith("View") => "action-view",
-        var a when a != null && a.StartsWith("Sync") => "action-sync",
-        _ => "action-default"
+        UserRoles.Admin => "aud-fam-accent",
+        UserRoles.Cashier => "aud-fam-info",
+        UserRoles.StockController => "aud-fam-good",
+        UserRoles.DepotController => "aud-fam-warn",
+        _ => "aud-fam-neutral"
+    };
+
+    // Views are the noise floor of an audit log, so they take the neutral family
+    // and recede; the writes and the failures are what the page is scanned for.
+    private string GetActionFamily(string? action) => action switch
+    {
+        AuditActions.Login or AuditActions.Logout => "aud-fam-good",
+        AuditActions.LoginFailed => "aud-fam-bad",
+        var a when a != null && a.StartsWith("Create") => "aud-fam-info",
+        var a when a != null && a.StartsWith("Update") => "aud-fam-warn",
+        var a when a != null && a.StartsWith("Delete") => "aud-fam-bad",
+        var a when a != null && a.StartsWith("View") => "aud-fam-neutral",
+        var a when a != null && a.StartsWith("Sync") => "aud-fam-accent",
+        _ => "aud-fam-neutral"
     };
 
     private static string GetInitials(string? name)
@@ -1996,7 +693,7 @@
     private static string TruncateText(string text, int maxLen) =>
         text.Length <= maxLen ? text : text[..maxLen] + "...";
 
-    private string GetTotalCountText() => totalCount?.ToString("N0") ?? "...";
+    private string GetTotalCountText() => totalCount?.ToString("N0") ?? "…";
 
     private string GetRecordCountText() => totalCount is int count
         ? $"{count:N0} records"
@@ -2203,8 +900,6 @@ StringComparison.Ordinal))
         await LoadFilterOptions();
         await LoadLogs(refreshTotalCount: true);
     }
-
-    private async Task OnPageChanged(int page) => await GoToPage(page);
 
     private async Task GoToPage(int page)
     {

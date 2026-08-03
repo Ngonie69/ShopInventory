@@ -1,0 +1,224 @@
+@using System.Globalization
+
+@* A date field for the Nocturne pages.
+
+   It exists because the two things asked of a date control here cannot both be
+   had from one native element. `<input type="date">` draws its own calendar,
+   which no stylesheet can reach — it arrives in the browser's colours, not the
+   design's — and it refuses free text, so the shorthand this app's users type
+   (`030826`) is rejected. A text input takes the shorthand but has no calendar
+   at all. So the input is text, the parsing is FlexibleDatePicker's own format
+   list, and the calendar is drawn here.
+
+   Styles live in wwwroot/css/nocturne-date-field.css under the `ndf-` prefix,
+   with the same palette as the page sheets, so the field reads as part of
+   whichever Nocturne page hosts it.
+
+   Outside clicks are caught by a fixed veil behind the popup rather than by a
+   document listener, which keeps the whole component free of JS interop. *@
+
+<div class="ndf @(_open ? "ndf-open" : "")" @onkeydown="OnKeyDown">
+    <input type="text" class="ndf-input @(_invalid ? "ndf-input-bad" : "")" id="@Id"
+           value="@_text" @onchange="OnTextChanged" placeholder="@Placeholder"
+           disabled="@Disabled" autocomplete="off" inputmode="numeric"
+           aria-label="@AriaLabel" aria-invalid="@(_invalid ? "true" : null)" />
+
+    <button type="button" class="ndf-cal" disabled="@Disabled" @onclick="Toggle"
+            aria-label="@(_open ? "Close the calendar" : "Open the calendar")" aria-expanded="@_open">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3.5" y="5" width="17" height="16" rx="2.5"></rect>
+            <path d="M3.5 10h17M8 3v4M16 3v4"></path>
+        </svg>
+    </button>
+
+    @if (_open)
+    {
+        <div class="ndf-veil" @onclick="Close"></div>
+        <div class="ndf-pop" role="dialog" aria-label="Choose a date" aria-modal="false">
+            <div class="ndf-pop-head">
+                <span class="ndf-month" aria-live="polite">@_view.ToString("MMMM yyyy", CultureInfo.InvariantCulture)</span>
+                <span class="ndf-steps">
+                    <button type="button" class="ndf-step" aria-label="Previous month"
+                            @onclick="() => _view = _view.AddMonths(-1)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M14.5 5.5L8 12l6.5 6.5"></path>
+                        </svg>
+                    </button>
+                    <button type="button" class="ndf-step" aria-label="Next month"
+                            @onclick="() => _view = _view.AddMonths(1)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M9.5 5.5L16 12l-6.5 6.5"></path>
+                        </svg>
+                    </button>
+                </span>
+            </div>
+
+            <div class="ndf-week" aria-hidden="true">
+                @foreach (var d in WeekdayNames)
+                {
+                    <span>@d</span>
+                }
+            </div>
+
+            <div class="ndf-days" role="grid">
+                @foreach (var day in VisibleDays())
+                {
+                    var outside = day.Month != _view.Month;
+                    var selected = _value?.Date == day.Date;
+                    var today = day.Date == Today;
+                    <button type="button" role="gridcell"
+                            class="ndf-day @(outside ? "ndf-day-out" : "") @(selected ? "ndf-day-on" : "") @(today ? "ndf-day-today" : "")"
+                            aria-label="@day.ToString("d MMMM yyyy", CultureInfo.InvariantCulture)"
+                            aria-selected="@selected" @onclick="() => Pick(day)">
+                        @day.Day
+                    </button>
+                }
+            </div>
+
+            <div class="ndf-pop-foot">
+                <button type="button" class="ndf-act" @onclick="ClearValue">Clear</button>
+                <button type="button" class="ndf-act ndf-act-key" @onclick="() => Pick(Today)">Today</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public DateTime? Date { get; set; }
+    [Parameter] public EventCallback<DateTime?> DateChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "dd.MM.yyyy";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private const string DisplayFormat = "dd.MM.yyyy";
+
+    private static readonly string[] WeekdayNames = { "Mo", "Tu", "We", "Th", "Fr", "Sa", "Su" };
+
+    // The formats FlexibleDatePicker accepted, unchanged: the point of this
+    // control is that what people already type keeps working.
+    private static readonly string[] AcceptedFormats =
+    {
+        "ddMMyy", "ddMMyyyy",
+        "dd.MM.yyyy", "dd.M.yyyy", "d.MM.yyyy", "d.M.yyyy",
+        "dd.MM.yy", "dd.M.yy", "d.MM.yy", "d.M.yy",
+        "dd/MM/yyyy", "dd/M/yyyy", "d/MM/yyyy", "d/M/yyyy",
+        "dd/MM/yy", "dd/M/yy", "d/MM/yy", "d/M/yy",
+        "dd-MM-yyyy", "dd-M-yyyy", "d-MM-yyyy", "d-M-yyyy",
+        "dd-MM-yy", "dd-M-yy", "d-MM-yy", "d-M-yy",
+        "yyyy-MM-dd"
+    };
+
+    private DateTime? _value;
+    private string _text = string.Empty;
+    private bool _invalid;
+    private bool _open;
+    private DateTime _view;
+
+    private static DateTime Today => DateTime.Today;
+
+    protected override void OnParametersSet()
+    {
+        // Only resync from the parameter when it actually moved — otherwise a
+        // re-render mid-edit would overwrite what is being typed.
+        if (Date != _value)
+        {
+            _value = Date;
+            _text = Format(Date);
+            _invalid = false;
+        }
+    }
+
+    private static string Format(DateTime? date) =>
+        date?.ToString(DisplayFormat, CultureInfo.InvariantCulture) ?? string.Empty;
+
+    private IEnumerable<DateTime> VisibleDays()
+    {
+        var first = new DateTime(_view.Year, _view.Month, 1);
+        // DayOfWeek counts from Sunday; this grid starts on Monday.
+        var offset = ((int)first.DayOfWeek + 6) % 7;
+        var start = first.AddDays(-offset);
+
+        // Six rows always, so the popup does not change height between months.
+        for (var i = 0; i < 42; i++)
+        {
+            yield return start.AddDays(i);
+        }
+    }
+
+    private async Task OnTextChanged(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString()?.Trim() ?? string.Empty;
+        _text = raw;
+
+        if (string.IsNullOrEmpty(raw))
+        {
+            _invalid = false;
+            await Commit(null);
+            return;
+        }
+
+        if (DateTime.TryParseExact(raw, AcceptedFormats, CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var parsed))
+        {
+            _invalid = false;
+            _text = Format(parsed);
+            await Commit(parsed);
+            return;
+        }
+
+        // Keep what was typed so it can be corrected rather than retyped, and
+        // say the field is not carrying a date right now.
+        _invalid = true;
+        await Commit(null);
+    }
+
+    private void Toggle()
+    {
+        _open = !_open;
+        if (_open)
+        {
+            _view = new DateTime((_value ?? Today).Year, (_value ?? Today).Month, 1);
+        }
+    }
+
+    private void Close() => _open = false;
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            _open = false;
+        }
+    }
+
+    private async Task Pick(DateTime day)
+    {
+        _invalid = false;
+        _text = Format(day);
+        _open = false;
+        await Commit(day.Date);
+    }
+
+    private async Task ClearValue()
+    {
+        _invalid = false;
+        _text = string.Empty;
+        _open = false;
+        await Commit(null);
+    }
+
+    private async Task Commit(DateTime? value)
+    {
+        if (_value == value)
+        {
+            return;
+        }
+
+        _value = value;
+        await DateChanged.InvokeAsync(value);
+    }
+}

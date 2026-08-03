@@ -16,9 +16,17 @@
 
    Light is the base and `.dark-theme` the override, matching the rest of the
    app and the order App.razor's pre-paint script stamps the class in, so
-   neither scheme flashes. Token names and values are deliberately identical
-   to driver-shop-access.css and approval-process.css so the three pages stay
-   one system.
+   neither scheme flashes. Both palettes now live in nocturne-tokens.css and the
+   block below only aliases them; this sheet no longer carries values of its own
+   beyond the grid.
+
+   This header used to claim the tokens were "deliberately identical to
+   driver-shop-access.css and approval-process.css". They were not: by the time
+   the palette was extracted, dark --hover had drifted to .05 in both of those,
+   and approval-process had also moved --wash and --field-edge-hi. All three
+   sheets now alias nocturne-tokens.css, so those four values are back on the
+   system and the claim is true again — this time because it cannot drift rather
+   than because someone kept it in step.
 
    Rules live here rather than an inline Razor <style> block for the same
    reasons as those two: app.css carries global `.dark-theme input/select`
@@ -36,97 +44,62 @@
 
 .bp,
 .bp-overlay {
-    --bp-bg: #f4f4f8;
-    --bp-surface: #ffffff;
-    --bp-wash: #ffffff;
-    --bp-ink: #1b1c26;
-    --bp-ink-2: #35374a;
-    --bp-mute: #4e5164;
-    --bp-mute-2: #656879;
-    --bp-mute-3: #7b7e8e;
-    --bp-faint: #a0a2ae;
-    --bp-placeholder: #9498a8;
-    --bp-divider: rgba(27, 28, 38, .14);
-    --bp-rule: rgba(27, 28, 38, .08);
-    --bp-hover: rgba(27, 28, 38, .04);
-    --bp-press: rgba(27, 28, 38, .09);
-    --bp-field-bg: rgba(27, 28, 38, .04);
-    --bp-field-edge: #d4d6e2;
-    --bp-field-edge-hi: #a9adc0;
-    --bp-accent: #5f52c4;
-    --bp-accent-rgb: 95, 82, 196;
-    /* The accent's text-carrying step: on the dark ground the design uses
-       --color-accent-200/300 (a pale lavender); on paper the same role has to
-       be the deep end of the ramp instead. */
-    --bp-accent-text: #473d99;
-    --bp-accent-ink: #ffffff;
-    --bp-avatar-bg: rgba(27, 28, 38, .07);
-    --bp-dot-on: #6d5fc4;
-    --bp-dot-off: #c3c6d2;
-    --bp-thumb: #c8cad6;
-    --bp-scrim: rgba(27, 28, 38, .45);
-    --bp-warn-bg: #fdf6e6;
-    --bp-warn-edge: #e5cd94;
-    --bp-warn-ink: #6b4c12;
-    --bp-shadow-lg: 0 0 0 1px rgba(27, 28, 38, .1), -14px 0 44px rgba(27, 28, 38, .16);
-    /* The select caret, whole: a var() inside the data URL's quoted string
-       would not be substituted, so each theme carries the finished image. */
-    --bp-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --bp-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --bp-scheme: light;
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. Only what this page
+       actually uses is aliased.
 
-    /* Nocturne's compact scale — density 0.70x. */
-    --bp-s1: 2.8px;
-    --bp-s2: 5.6px;
-    --bp-s3: 8.4px;
-    --bp-s4: 11.2px;
-    --bp-s6: 16.8px;
-    --bp-s8: 22.4px;
-    --bp-r-sm: 4px;
-    --bp-r-md: 8px;
-    --bp-r-lg: 14px;
+       The overlay takes the same tokens. The drawer and its scrim sit outside
+       the page element and carry `.bp-overlay` rather than `.bp`, so that they
+       reach the palette without also inheriting `.bp`'s `min-height: 100vh` —
+       which beats their own height and hangs the drawer a topbar below the
+       fold. */
+    --bp-bg: var(--noct-bg);
+    --bp-surface: var(--noct-surface);
+    --bp-wash: var(--noct-wash);
+    --bp-ink: var(--noct-ink);
+    --bp-ink-2: var(--noct-ink-2);
+    --bp-mute: var(--noct-mute);
+    --bp-mute-2: var(--noct-mute-2);
+    --bp-mute-3: var(--noct-mute-3);
+    --bp-faint: var(--noct-faint);
+    --bp-placeholder: var(--noct-placeholder);
+    --bp-divider: var(--noct-divider);
+    --bp-rule: var(--noct-rule);
+    --bp-hover: var(--noct-hover);
+    --bp-press: var(--noct-press);
+    --bp-field-bg: var(--noct-field-bg);
+    --bp-field-edge: var(--noct-field-edge);
+    --bp-field-edge-hi: var(--noct-field-edge-hi);
+    --bp-accent: var(--noct-accent);
+    --bp-accent-rgb: var(--noct-accent-rgb);
+    --bp-accent-text: var(--noct-accent-text);
+    --bp-avatar-bg: var(--noct-avatar-bg);
+    --bp-dot-on: var(--noct-dot-on);
+    --bp-dot-off: var(--noct-dot-off);
+    --bp-thumb: var(--noct-thumb);
+    --bp-scrim: var(--noct-scrim);
+    --bp-warn-bg: var(--noct-warn-bg);
+    --bp-warn-edge: var(--noct-warn-edge);
+    --bp-warn-ink: var(--noct-warn-ink);
+    --bp-shadow-lg: var(--noct-shadow-lg);
+    --bp-caret: var(--noct-caret);
+    --bp-clear: var(--noct-clear);
+    --bp-scheme: var(--noct-scheme);
 
-    /* The directory's nine columns, declared once. */
+    --bp-s1: var(--noct-s1);
+    --bp-s2: var(--noct-s2);
+    --bp-s3: var(--noct-s3);
+    --bp-s4: var(--noct-s4);
+    --bp-s6: var(--noct-s6);
+    --bp-s8: var(--noct-s8);
+    --bp-r-sm: var(--noct-r-sm);
+    --bp-r-md: var(--noct-r-md);
+    --bp-r-lg: var(--noct-r-lg);
+
+    /* The directory's nine columns — this page's own, not the system's. */
     --bp-cols: 92px minmax(0, 1.7fr) 100px minmax(0, 1fr) minmax(0, 1fr) 70px minmax(0, .9fr) 100px 76px;
 
     color-scheme: var(--bp-scheme);
-}
-
-.dark-theme .bp,
-.dark-theme .bp-overlay {
-    --bp-bg: #161826;
-    --bp-surface: #232532;
-    --bp-wash: rgba(35, 37, 50, .6);
-    --bp-ink: #e9e9ed;
-    --bp-ink-2: #e4e7f5;
-    --bp-mute: #cfd3e5;
-    --bp-mute-2: #b2b6ca;
-    --bp-mute-3: #9397ab;
-    --bp-faint: #75798c;
-    --bp-placeholder: #75798c;
-    --bp-divider: rgba(233, 233, 237, .16);
-    --bp-rule: rgba(243, 245, 254, .07);
-    --bp-hover: rgba(243, 245, 254, .04);
-    --bp-press: rgba(243, 245, 254, .1);
-    --bp-field-bg: rgba(243, 245, 254, .05);
-    --bp-field-edge: rgba(233, 233, 237, .16);
-    --bp-field-edge-hi: rgba(233, 233, 237, .45);
-    --bp-accent: #9184d9;
-    --bp-accent-rgb: 145, 132, 217;
-    --bp-accent-text: #d2cefd;
-    --bp-accent-ink: #f5f4ff;
-    --bp-avatar-bg: rgba(243, 245, 254, .07);
-    --bp-dot-on: #968ae0;
-    --bp-dot-off: #595d6c;
-    --bp-thumb: #3f424d;
-    --bp-scrim: rgba(10, 11, 18, .6);
-    --bp-warn-bg: rgba(120, 83, 15, .28);
-    --bp-warn-edge: #9a7b3d;
-    --bp-warn-ink: #f2dfae;
-    --bp-shadow-lg: 0 0 0 1px #3f424d, -14px 0 44px rgba(0, 0, 0, .6);
-    --bp-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --bp-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --bp-scheme: dark;
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */

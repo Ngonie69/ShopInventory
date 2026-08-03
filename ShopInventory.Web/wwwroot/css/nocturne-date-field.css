@@ -1,0 +1,348 @@
+/* ==========================================================================
+   Nocturne date field — Components/NocturneDateField.razor
+
+   Shared rather than page-scoped: unlike a page sheet this dresses one control
+   that any Nocturne page can drop in, so it carries its own `ndf-` prefix
+   rather than reading a page's `--<page>-*` tokens, which it cannot see from
+   inside a component.
+
+   The values come from nocturne-tokens.css, the same place the page sheets take
+   theirs, so the field reads as part of whatever page hosts it. One token is
+   deliberately not the system's: `--ndf-accent-ink` is the ink *on* an accent
+   fill, so it inverts when the fill does — see that file.
+
+   The popup takes nocturne-shell.css's popover treatment — 10px radius, a
+   hairline border, the shell's elevation — because it is the same kind of
+   object as the topbar's own menus, just hung off a field instead.
+
+   Every control selector is two classes deep (`.ndf .ndf-input`) to out-specify
+   app.css's global `.dark-theme input/select` rules, which would otherwise
+   repaint the field #1e293b regardless of load order.
+   ========================================================================== */
+
+.ndf {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --ndf-surface: var(--noct-surface);
+    --ndf-ink: var(--noct-ink);
+    --ndf-ink-2: var(--noct-ink-2);
+    --ndf-mute-2: var(--noct-mute-2);
+    --ndf-mute-3: var(--noct-mute-3);
+    --ndf-faint: var(--noct-faint);
+    --ndf-placeholder: var(--noct-placeholder);
+    --ndf-divider: var(--noct-divider);
+    --ndf-hover: var(--noct-hover);
+    --ndf-press: var(--noct-press);
+    --ndf-field-bg: var(--noct-field-bg);
+    --ndf-field-edge: var(--noct-field-edge);
+    --ndf-accent: var(--noct-accent);
+    --ndf-accent-rgb: var(--noct-accent-rgb);
+    --ndf-accent-text: var(--noct-accent-text);
+    /* The ink on the selected day's accent fill, which inverts rather than
+       tracking the other inks — see nocturne-tokens.css. */
+    --ndf-accent-ink: var(--noct-on-accent);
+    --ndf-bad: var(--noct-fam-bad);
+    --ndf-bad-rgb: var(--noct-fam-bad-rgb);
+    --ndf-shadow: var(--noct-shadow-pop);
+
+    --ndf-r-sm: var(--noct-r-sm);
+    --ndf-r-md: var(--noct-r-md);
+
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.ndf * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix, which would flatten the accent on the selected day on WebKit. */
+.ndf,
+.ndf * {
+    -webkit-text-fill-color: currentColor;
+}
+
+/* When the calendar is up the field has to out-stack the rows beneath it. */
+.ndf-open {
+    z-index: 40;
+}
+
+/* ── The field ─────────────────────────────────────────────────────────── */
+
+.ndf .ndf-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 34px 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.3;
+    color: var(--ndf-ink);
+    caret-color: var(--ndf-accent);
+    background: var(--ndf-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--ndf-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.ndf .ndf-input:hover:not(:disabled) {
+    border-color: var(--ndf-field-edge);
+}
+
+.ndf .ndf-input:focus-visible {
+    border-color: rgba(var(--ndf-accent-rgb), .55);
+    outline: 2px solid var(--ndf-accent);
+    outline-offset: 0;
+}
+
+.ndf .ndf-input::placeholder {
+    color: var(--ndf-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--ndf-placeholder);
+}
+
+.ndf .ndf-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* Typed text that is not a date the field can read. The ring is the only
+   signal, so it has to survive being the only signal. */
+.ndf .ndf-input-bad {
+    border-color: rgba(var(--ndf-bad-rgb), .7);
+    background: rgba(var(--ndf-bad-rgb), .07);
+}
+
+.ndf .ndf-cal {
+    position: absolute;
+    right: 3px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ndf-r-sm);
+    background: transparent;
+    color: var(--ndf-mute-3);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.ndf .ndf-cal:hover:not(:disabled) {
+    background: var(--ndf-press);
+    color: var(--ndf-ink);
+}
+
+.ndf .ndf-cal:focus-visible {
+    outline: 2px solid var(--ndf-accent);
+    outline-offset: 1px;
+}
+
+.ndf .ndf-cal:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ndf-open .ndf-cal {
+    color: var(--ndf-accent);
+    background: rgba(var(--ndf-accent-rgb), .12);
+}
+
+/* ── The calendar ──────────────────────────────────────────────────────── */
+
+/* Catches the click that dismisses the popup, so the component needs no
+   document-level listener and therefore no JS interop. */
+.ndf-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    background: transparent;
+}
+
+.ndf-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 2;
+    width: 270px;
+    padding: 10px;
+    background: var(--ndf-surface);
+    border: 1px solid var(--ndf-divider);
+    border-radius: 10px;
+    box-shadow: var(--ndf-shadow);
+    color: var(--ndf-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    animation: ndf-drop .13s ease;
+}
+
+/* Near the right edge of a narrow viewport a left-anchored popup would run off
+   the screen; past that width it hangs off the field's right instead. */
+@media (max-width: 560px) {
+    .ndf-pop {
+        left: auto;
+        right: 0;
+    }
+}
+
+@keyframes ndf-drop {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ndf-pop {
+        animation: none;
+    }
+}
+
+.ndf-pop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 2px 2px 8px;
+}
+
+.ndf-month {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+}
+
+.ndf-steps {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.ndf .ndf-step {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ndf-r-sm);
+    background: transparent;
+    color: var(--ndf-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.ndf .ndf-step:hover {
+    background: var(--ndf-press);
+    color: var(--ndf-ink);
+}
+
+.ndf-week,
+.ndf-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+}
+
+.ndf-week {
+    padding-bottom: 4px;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ndf-faint);
+    text-align: center;
+}
+
+.ndf .ndf-day {
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--ndf-r-sm);
+    background: transparent;
+    color: var(--ndf-ink-2);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background-color .12s, color .12s;
+}
+
+.ndf .ndf-day:hover {
+    background: var(--ndf-hover);
+    color: var(--ndf-ink);
+}
+
+/* The days either side of the shown month stay reachable — clicking one is a
+   quicker way across a boundary than stepping the month — but recede to say
+   they are not what the grid is about. */
+.ndf .ndf-day-out {
+    color: var(--ndf-faint);
+}
+
+/* Today is named by a ring, the selection by a fill, so a day that is both
+   still reads as both. */
+.ndf .ndf-day-today {
+    box-shadow: inset 0 0 0 1px rgba(var(--ndf-accent-rgb), .55);
+    color: var(--ndf-accent-text);
+}
+
+.ndf .ndf-day-on,
+.ndf .ndf-day-on:hover {
+    background: var(--ndf-accent);
+    color: var(--ndf-accent-ink);
+    font-weight: 500;
+}
+
+.ndf .ndf-day:focus-visible {
+    outline: 2px solid var(--ndf-accent);
+    outline-offset: -2px;
+}
+
+.ndf-pop-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--ndf-divider);
+}
+
+.ndf .ndf-act {
+    padding: 5px 9px;
+    border: 0;
+    border-radius: var(--ndf-r-sm);
+    background: transparent;
+    color: var(--ndf-mute-2);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.ndf .ndf-act:hover {
+    background: var(--ndf-hover);
+    color: var(--ndf-ink);
+}
+
+.ndf .ndf-act-key {
+    color: var(--ndf-accent);
+}
+
+.ndf .ndf-act-key:hover {
+    background: rgba(var(--ndf-accent-rgb), .12);
+    color: var(--ndf-accent);
+}
+
+/* 16px is the smallest size iOS will render a focused field at without zooming
+   the page. */
+@media (max-width: 760px) {
+    .ndf .ndf-input {
+        font-size: 16px;
+    }
+}

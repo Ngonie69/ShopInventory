@@ -29,6 +29,9 @@
     rel="stylesheet">
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
+    @* First of the Nocturne sheets: the palette itself, which the page sheets
+       below alias rather than restate. See its header for which ones do. *@
+    <link rel="stylesheet" href="@Assets["css/nocturne-tokens.css"]" />
     <link rel="stylesheet" href="@Assets["css/inventory-transfers.css"]" />
     <link rel="stylesheet" href="@Assets["css/transfer-forms.css"]" />
     @* All six sales document forms — the five create/edit screens and
@@ -54,6 +57,13 @@
     <link rel="stylesheet" href="@Assets["css/payments.css"]" />
     <link rel="stylesheet" href="@Assets["css/pods.css"]" />
     <link rel="stylesheet" href="@Assets["css/order-fulfillment.css"]" />
+    @* Sibling of business-partners.css, sharing its palette: the audit trail is
+       the same page shape. See that file's header for what the sharing costs. *@
+    <link rel="stylesheet" href="@Assets["css/audit-trail.css"]" />
+    <link rel="stylesheet" href="@Assets["css/local-stock.css"]" />
+    @* Not a page: the shared Nocturne date field, which carries its own copy of
+       the palette because a component cannot see a page's own tokens. *@
+    <link rel="stylesheet" href="@Assets["css/nocturne-date-field.css"]" />
     @* Last of the app stylesheets: it re-skins the staff topbar and sidebar on
        the Nocturne design and has to land after app.css's shell rules. *@
     <link rel="stylesheet" href="@Assets["css/nocturne-shell.css"]" />
