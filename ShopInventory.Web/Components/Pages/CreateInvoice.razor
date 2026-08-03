@@ -23,27 +23,32 @@
 
 <PageTitle>Create Invoice - Shop Inventory</PageTitle>
 
-@* Styles live in wwwroot/css/create-invoice.css (linked from App.razor). The
-   imported design is a dark scheme; that file carries it and its light
-   counterpart, and follows the app's theme toggle like every other page. *@
+@* Styles live in wwwroot/css/sales-forms.css (linked from App.razor), shared
+   with the other five sales document forms — see that file's header. The
+   imported design is a dark scheme; the sheet carries it and its light
+   counterpart, and follows the app's theme toggle like every other page.
 
-<div class="civ">
-    <div class="civ-accentbar"></div>
-    <div class="civ-shell">
+   `is-invoice` selects this form's line-editor columns from the sheet: it is
+   the widest of the six, naming a warehouse per line and carrying the batch
+   tag, because stock leaves the building on this document. *@
+
+<div class="sfm is-invoice">
+    <div class="sfm-accentbar"></div>
+    <div class="sfm-shell">
 
         <!-- ── Breadcrumb strip ───────────────────────────────────────── -->
-        <div class="civ-crumbs">
+        <div class="sfm-crumbs">
             <a href="/invoices">Invoices</a>
-            <span class="civ-crumb-sep">/</span>
-            <span class="civ-crumb-now">Create new</span>
-            <span class="civ-spacer"></span>
-            <span class="civ-pill @CacheStateClass">
-                <span class="civ-dot"></span>@CacheStateLabel
+            <span class="sfm-crumb-sep">/</span>
+            <span class="sfm-crumb-now">Create new</span>
+            <span class="sfm-spacer"></span>
+            <span class="sfm-pill @CacheStateClass">
+                <span class="sfm-dot"></span>@CacheStateLabel
             </span>
-            <button type="button" class="civ-btn" @onclick="RefreshMasterData" disabled="@isRefreshingCache">
+            <button type="button" class="sfm-btn" @onclick="RefreshMasterData" disabled="@isRefreshingCache">
                 @if (isRefreshingCache)
                 {
-                    <span class="civ-spin"></span>
+                    <span class="sfm-spin"></span>
                 }
                 else
                 {
@@ -51,31 +56,31 @@
                 }
                 Refresh
             </button>
-            <a href="/invoices" class="civ-btn"><i class="ph ph-arrow-left"></i>Back</a>
+            <a href="/invoices" class="sfm-btn"><i class="ph ph-arrow-left"></i>Back</a>
         </div>
 
         <!-- ── Head ───────────────────────────────────────────────────── -->
-        <div class="civ-head">
-            <div class="civ-head-main">
+        <div class="sfm-head">
+            <div class="sfm-head-main">
                 <h1>Create invoice</h1>
                 <p>Sales invoice with batch tracking &middot; posts directly to SAP Business One</p>
             </div>
-            <div class="civ-stats">
-                <div class="civ-stat">
-                    <div class="civ-stat-k">Lines</div>
-                    <div class="civ-stat-v">@invoice.Lines.Count</div>
+            <div class="sfm-stats">
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Lines</div>
+                    <div class="sfm-stat-v">@invoice.Lines.Count</div>
                 </div>
-                <div class="civ-stat">
-                    <div class="civ-stat-k">Subtotal</div>
-                    <div class="civ-stat-v">@CalculateSubtotal().ToString("N2")</div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Subtotal</div>
+                    <div class="sfm-stat-v">@CalculateSubtotal().ToString("N2")</div>
                 </div>
-                <div class="civ-stat">
-                    <div class="civ-stat-k">VAT @VatLabel</div>
-                    <div class="civ-stat-v is-vat">@CalculateVatAmount().ToString("N2")</div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">VAT @VatLabel</div>
+                    <div class="sfm-stat-v is-vat">@CalculateVatAmount().ToString("N2")</div>
                 </div>
-                <div class="civ-stat">
-                    <div class="civ-stat-k">Invoice total</div>
-                    <div class="civ-stat-v is-total">@CalculateTotalInclVat().ToString("N2")</div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Invoice total</div>
+                    <div class="sfm-stat-v is-total">@CalculateTotalInclVat().ToString("N2")</div>
                 </div>
             </div>
         </div>
@@ -83,52 +88,52 @@
         <!-- ── Alerts ─────────────────────────────────────────────────── -->
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="civ-alert is-ok">
+            <div class="sfm-alert is-ok">
                 <i class="ph-fill ph-check-circle"></i>
-                <div class="civ-alert-bd">
+                <div class="sfm-alert-bd">
                     @successMessage
                     @if (lastCreatedInvoice != null)
                     {
-                        <button type="button" class="civ-btn civ-gap-sm" @onclick="OpenPrintDialog"
+                        <button type="button" class="sfm-btn sfm-gap-sm" @onclick="OpenPrintDialog"
                                 disabled="@isPrinting">
                             <i class="ph ph-printer"></i>Print invoice
                         </button>
                     }
                 </div>
-                <button type="button" class="civ-alert-x" @onclick="DismissSuccess" aria-label="Dismiss">
+                <button type="button" class="sfm-alert-x" @onclick="DismissSuccess" aria-label="Dismiss">
                     <i class="ph ph-x"></i>
                 </button>
             </div>
         }
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="civ-alert is-err">
+            <div class="sfm-alert is-err">
                 <i class="ph-fill ph-warning-octagon"></i>
-                <div class="civ-alert-bd">@((MarkupString)errorMessage)</div>
-                <button type="button" class="civ-alert-x" @onclick="() => errorMessage = null" aria-label="Dismiss">
+                <div class="sfm-alert-bd">@((MarkupString)errorMessage)</div>
+                <button type="button" class="sfm-alert-x" @onclick="() => errorMessage = null" aria-label="Dismiss">
                     <i class="ph ph-x"></i>
                 </button>
             </div>
         }
 
-        <div class="civ-grid">
-            <div class="civ-main">
+        <div class="sfm-grid">
+            <div class="sfm-main">
 
                 <!-- ── Customer ───────────────────────────────────────── -->
-                <section class="civ-card">
-                    <div class="civ-card-hd">
+                <section class="sfm-card">
+                    <div class="sfm-card-hd">
                         <i class="ph ph-user-circle"></i>
                         <h2>Customer</h2>
-                        <span class="civ-spacer"></span>
-                        <span class="civ-note">@allBusinessPartners.Count.ToString("N0") cached</span>
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-note">@allBusinessPartners.Count.ToString("N0") cached</span>
                     </div>
-                    <div class="civ-card-bd civ-fields">
+                    <div class="sfm-card-bd sfm-fields">
                         @* Not a <label>: the field carries a clear button and a result list, and a
                            label would forward stray clicks on them back to the input. *@
-                        <div class="civ-lab civ-span2">
-                            <span class="civ-lab-t">Customer <span class="civ-req">*</span></span>
-                            <div class="civ-combo">
-                                <input class="civ-input @(validationErrors.ContainsKey("Customer") ? "is-bad" : "")"
+                        <div class="sfm-lab sfm-span2">
+                            <span class="sfm-lab-t">Customer <span class="sfm-req">*</span></span>
+                            <div class="sfm-combo">
+                                <input class="sfm-input @(validationErrors.ContainsKey("Customer") ? "is-bad" : "")"
                                        value="@customerSearch"
                                        @oninput="e => OnCustomerInput(e.Value?.ToString())"
                                        @onfocus="OnCustomerFocus" @onblur="OnCustomerBlur"
@@ -136,32 +141,32 @@
                                        disabled="@isLoadingBPs" autocomplete="off" />
                                 @if (selectedBusinessPartner != null)
                                 {
-                                    <button type="button" class="civ-combo-clear" @onclick="ClearCustomer"
+                                    <button type="button" class="sfm-combo-clear" @onclick="ClearCustomer"
                                             title="Clear customer">
                                         <i class="ph ph-x"></i>
                                     </button>
                                 }
                                 @if (showCustomerDrop)
                                 {
-                                    <div class="civ-drop is-wide">
+                                    <div class="sfm-drop is-wide">
                                         @if (customerMatches.Count == 0)
                                         {
-                                            <div class="civ-drop-empty">No customers match that search.</div>
+                                            <div class="sfm-drop-empty">No customers match that search.</div>
                                         }
                                         else
                                         {
                                             @foreach (var bp in customerMatches)
                                             {
-                                                <button type="button" class="civ-drop-i"
+                                                <button type="button" class="sfm-drop-i"
                                                         @onmousedown:preventDefault="true"
                                                         @onclick="() => PickCustomerAsync(bp)">
                                                     <span>
-                                                        <span class="civ-drop-code">@bp.CardCode</span>
-                                                        <span class="civ-drop-sub">@bp.CardName</span>
+                                                        <span class="sfm-drop-code">@bp.CardCode</span>
+                                                        <span class="sfm-drop-sub">@bp.CardName</span>
                                                     </span>
                                                     @if (!string.IsNullOrEmpty(bp.Currency))
                                                     {
-                                                        <span class="civ-note">@bp.Currency</span>
+                                                        <span class="sfm-note">@bp.Currency</span>
                                                     }
                                                 </button>
                                             }
@@ -171,40 +176,40 @@
                             </div>
                             @if (validationErrors.ContainsKey("Customer"))
                             {
-                                <div class="civ-field-err">@validationErrors["Customer"]</div>
+                                <div class="sfm-field-err">@validationErrors["Customer"]</div>
                             }
                         </div>
-                        <label class="civ-lab">
-                            <span class="civ-lab-t">Customer reference</span>
-                            <input class="civ-input" @bind="invoice.NumAtCard" placeholder="PO / reference number" />
+                        <label class="sfm-lab">
+                            <span class="sfm-lab-t">Customer reference</span>
+                            <input class="sfm-input" @bind="invoice.NumAtCard" placeholder="PO / reference number" />
                         </label>
-                        <label class="civ-lab">
-                            <span class="civ-lab-t">Currency</span>
-                            <select class="civ-select" @bind="invoice.DocCurrency">
+                        <label class="sfm-lab">
+                            <span class="sfm-lab-t">Currency</span>
+                            <select class="sfm-select" @bind="invoice.DocCurrency">
                                 <option value="USD">USD &mdash; US Dollar</option>
                                 <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
                             </select>
                         </label>
-                        <label class="civ-lab">
-                            <span class="civ-lab-t">Crates expected</span>
+                        <label class="sfm-lab">
+                            <span class="sfm-lab-t">Crates expected</span>
                             <input type="number" min="0" step="0.01"
-                                   class="civ-input @(validationErrors.ContainsKey("CrateQuantity") ? "is-bad" : "")"
+                                   class="sfm-input @(validationErrors.ContainsKey("CrateQuantity") ? "is-bad" : "")"
                                    @bind="invoice.CrateQuantity" placeholder="0" />
                             @if (validationErrors.ContainsKey("CrateQuantity"))
                             {
-                                <div class="civ-field-err">@validationErrors["CrateQuantity"]</div>
+                                <div class="sfm-field-err">@validationErrors["CrateQuantity"]</div>
                             }
                         </label>
-                        <label class="civ-lab civ-span3">
-                            <span class="civ-lab-t">Comments</span>
-                            <input class="civ-input" @bind="invoice.Comments"
+                        <label class="sfm-lab sfm-span3">
+                            <span class="sfm-lab-t">Comments</span>
+                            <input class="sfm-input" @bind="invoice.Comments"
                                    placeholder="Optional notes shown on the printed invoice" />
                         </label>
                         @if (selectedBusinessPartner != null)
                         {
-                            <div class="civ-lab">
-                                <span class="civ-lab-t">Price list</span>
-                                <div class="civ-field-meta">
+                            <div class="sfm-lab">
+                                <span class="sfm-lab-t">Price list</span>
+                                <div class="sfm-field-meta">
                                     @if (customerPriceListNum.HasValue)
                                     {
                                         <i class="ph ph-tag"></i>
@@ -212,7 +217,7 @@
                                         <span>#@customerPriceListNum</span>
                                         @if (isLoadingCustomerPrices)
                                         {
-                                            <span class="civ-spin"></span>
+                                            <span class="sfm-spin"></span>
                                         }
                                         else
                                         {
@@ -232,21 +237,21 @@
                 </section>
 
                 <!-- ── Invoice lines ──────────────────────────────────── -->
-                <section class="civ-card">
-                    <div class="civ-card-hd">
+                <section class="sfm-card">
+                    <div class="sfm-card-hd">
                         <i class="ph ph-list-dashes"></i>
                         <h2>Invoice lines</h2>
-                        <span class="civ-count">@invoice.Lines.Count</span>
-                        <span class="civ-spacer"></span>
-                        <button type="button" class="civ-btn civ-btn-accent" @onclick="AddLine">
+                        <span class="sfm-count">@invoice.Lines.Count</span>
+                        <span class="sfm-spacer"></span>
+                        <button type="button" class="sfm-btn sfm-btn-accent" @onclick="AddLine">
                             <i class="ph ph-plus"></i>Add line
                         </button>
                     </div>
 
-                    <div class="civ-defaults">
-                        <span class="civ-defaults-k">Defaults</span>
-                        <label class="civ-inline-lab">Warehouse
-                            <select class="civ-select is-sm" value="@warehouseCode"
+                    <div class="sfm-defaults">
+                        <span class="sfm-defaults-k">Defaults</span>
+                        <label class="sfm-inline-lab">Warehouse
+                            <select class="sfm-select is-sm" value="@warehouseCode"
                                     @onchange="e => OnDefaultWarehouseChanged(e.Value?.ToString())">
                                 <option value="">Select&hellip;</option>
                                 @foreach (var warehouse in cachedWarehouses)
@@ -255,8 +260,8 @@
                                 }
                             </select>
                         </label>
-                        <label class="civ-inline-lab">Cost centre
-                            <select class="civ-select is-sm" value="@defaultCostCentre"
+                        <label class="sfm-inline-lab">Cost centre
+                            <select class="sfm-select is-sm" value="@defaultCostCentre"
                                     @onchange="e => OnDefaultCostCentreChanged(e.Value?.ToString())">
                                 <option value="">Default</option>
                                 @foreach (var centre in cachedCostCentres.Where(c => c.IsActive))
@@ -267,31 +272,31 @@
                                 }
                             </select>
                         </label>
-                        <span class="civ-spacer"></span>
-                        <span class="civ-batchmode" title="Batches are always allocated first-expired-first-out">
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-batchmode" title="Batches are always allocated first-expired-first-out">
                             <i class="ph ph-sparkle"></i>Auto batch (FEFO)
                         </span>
                     </div>
 
-                    <div class="civ-lines @(IsPickingProduct ? "is-picking" : "")">
-                        <div class="civ-lines-inner">
-                            <div class="civ-row is-head">
+                    <div class="sfm-lines @(IsPickingProduct ? "is-picking" : "")">
+                        <div class="sfm-lines-inner">
+                            <div class="sfm-row is-head">
                                 <div></div>
-                                <div>Item code <span class="civ-req">*</span></div>
+                                <div>Item code <span class="sfm-req">*</span></div>
                                 <div>Description</div>
-                                <div>Warehouse <span class="civ-req">*</span></div>
-                                <div class="civ-r">Qty</div>
-                                <div class="civ-r">Unit price</div>
-                                <div class="civ-r">Disc</div>
+                                <div>Warehouse <span class="sfm-req">*</span></div>
+                                <div class="sfm-r">Qty</div>
+                                <div class="sfm-r">Unit price</div>
+                                <div class="sfm-r">Disc</div>
                                 <div>Batch</div>
-                                <div class="civ-r">Amount</div>
+                                <div class="sfm-r">Amount</div>
                                 <div></div>
                             </div>
 
                             @if (isLoadingMasterData)
                             {
-                                <div class="civ-loading">
-                                    <span class="civ-spin"></span>Loading products and warehouses&hellip;
+                                <div class="sfm-loading">
+                                    <span class="sfm-spin"></span>Loading products and warehouses&hellip;
                                 </div>
                             }
                             else
@@ -303,10 +308,10 @@
                                     var lineState = GetLineState(index);
                                     var lineErrors = GetLineValidationErrors(index);
 
-                                    <div class="civ-row">
-                                        <div class="civ-n">@(index + 1)</div>
-                                        <div class="civ-combo">
-                                            <input class="civ-input civ-cell @(lineErrors.ContainsKey("ItemCode") ? "is-bad" : "")"
+                                    <div class="sfm-row">
+                                        <div class="sfm-n">@(index + 1)</div>
+                                        <div class="sfm-combo">
+                                            <input class="sfm-input sfm-cell @(lineErrors.ContainsKey("ItemCode") ? "is-bad" : "")"
                                                    value="@line.ItemCode"
                                                    @oninput="e => OnItemCodeInput(index, e.Value?.ToString())"
                                                    @onkeydown="e => OnItemCodeKeyDown(index, e)"
@@ -315,20 +320,20 @@
                                                    placeholder="Select&hellip;" autocomplete="off" />
                                             @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
                                             {
-                                                <div class="civ-drop is-wide">
+                                                <div class="sfm-drop is-wide">
                                                     @foreach (var product in lineState.FilteredProducts.Take(15))
                                                     {
                                                         var pricing = GetPricingForItem(product.ItemCode, product.Price);
                                                         var isCustomerPrice = customerPricing.ContainsKey(product.ItemCode ?? string.Empty);
                                                         <button type="button"
-                                                                class="civ-drop-i @(lineState.SuggestedProduct == product ? "is-sel" : "")"
+                                                                class="sfm-drop-i @(lineState.SuggestedProduct == product ? "is-sel" : "")"
                                                                 @onmousedown:preventDefault="true"
                                                                 @onclick="() => SelectProduct(index, product)">
                                                             <span>
-                                                                <span class="civ-drop-code">@product.ItemCode</span>
-                                                                <span class="civ-drop-sub">@TruncateName(product.ItemName, 30)</span>
+                                                                <span class="sfm-drop-code">@product.ItemCode</span>
+                                                                <span class="sfm-drop-sub">@TruncateName(product.ItemName, 30)</span>
                                                             </span>
-                                                            <span class="civ-drop-price @(isCustomerPrice ? "is-customer" : "")">
+                                                            <span class="sfm-drop-price @(isCustomerPrice ? "is-customer" : "")">
                                                                 @GetDisplayPrice(pricing.NetPrice).ToString("N2")
                                                                 <small>@DisplayPriceLabel</small>
                                                             </span>
@@ -337,9 +342,9 @@
                                                 </div>
                                             }
                                         </div>
-                                        <input class="civ-input civ-desc" @bind="line.ItemDescription"
+                                        <input class="sfm-input sfm-desc" @bind="line.ItemDescription"
                                                placeholder="Description" />
-                                        <select class="civ-select civ-cell @(lineErrors.ContainsKey("Warehouse") ? "is-bad" : "")"
+                                        <select class="sfm-select sfm-cell @(lineErrors.ContainsKey("Warehouse") ? "is-bad" : "")"
                                                 value="@line.WarehouseCode"
                                                 @onchange="e => OnLineWarehouseChanged(index, e.Value?.ToString())">
                                             <option value="">Select&hellip;</option>
@@ -349,27 +354,27 @@
                                             }
                                         </select>
                                         <input type="number" min="0.001" step="0.001"
-                                               class="civ-input civ-num @(lineErrors.ContainsKey("Quantity") ? "is-bad" : "")"
+                                               class="sfm-input sfm-num @(lineErrors.ContainsKey("Quantity") ? "is-bad" : "")"
                                                value="@line.Quantity"
                                                @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
                                         <input type="number" min="0" step="0.001"
-                                               class="civ-input civ-num @(lineErrors.ContainsKey("UnitPrice") ? "is-bad" : "")"
+                                               class="sfm-input sfm-num @(lineErrors.ContainsKey("UnitPrice") ? "is-bad" : "")"
                                                value="@(line.UnitPrice ?? 0)"
                                                @onchange="e => OnUnitPriceChange(index, e.Value?.ToString())" />
                                         @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                         <input type="number" min="0" max="100" step="0.000001"
-                                               class="civ-input civ-num" @bind="line.DiscountPercent" />
+                                               class="sfm-input sfm-num" @bind="line.DiscountPercent" />
                                         <div>
-                                            <span class="civ-tag">Auto FEFO</span>
+                                            <span class="sfm-tag">Auto FEFO</span>
                                         </div>
-                                        <div class="civ-r">
-                                            <div class="civ-amt-v">@GetDisplayLineTotal(line).ToString("N2")</div>
-                                            <div class="civ-amt-x">@AlternatePriceLabel @GetAlternateLineTotal(line).ToString("N2")</div>
+                                        <div class="sfm-r">
+                                            <div class="sfm-amt-v">@GetDisplayLineTotal(line).ToString("N2")</div>
+                                            <div class="sfm-amt-x">@AlternatePriceLabel @GetAlternateLineTotal(line).ToString("N2")</div>
                                         </div>
                                         @* The glyph is drawn inline, not set in the icon font: it is this
                                            button's only label, so a font that fails to load would leave an
                                            empty square that reads as a broken control. *@
-                                        <button type="button" class="civ-btn-x" title="Remove line"
+                                        <button type="button" class="sfm-btn-x" title="Remove line"
                                                 aria-label="Remove line @(index + 1)"
                                                 @onclick="() => RemoveLine(index)">
                                             <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
@@ -378,14 +383,14 @@
                                         </button>
                                         @if (lineErrors.Any())
                                         {
-                                            <div class="civ-row-err">
+                                            <div class="sfm-row-err">
                                                 @string.Join(" · ", lineErrors.Values)
                                             </div>
                                         }
                                     </div>
                                 }
 
-                                <button type="button" class="civ-addline" @onclick="AddLine">
+                                <button type="button" class="sfm-addline" @onclick="AddLine">
                                     <i class="ph ph-plus"></i>@(invoice.Lines.Any() ? "Add another line" : "Add the first line")
                                 </button>
                             }
@@ -395,26 +400,26 @@
             </div>
 
             <!-- ── Aside ──────────────────────────────────────────────── -->
-            <aside class="civ-aside">
+            <aside class="sfm-aside">
 
-                <div class="civ-card civ-total-card">
-                    <div class="civ-total-hd">
-                        <span class="civ-total-k">Total incl. VAT</span>
-                        <span class="civ-total-cur">@invoice.DocCurrency</span>
+                <div class="sfm-card sfm-total-card">
+                    <div class="sfm-total-hd">
+                        <span class="sfm-total-k">Total incl. VAT</span>
+                        <span class="sfm-total-cur">@invoice.DocCurrency</span>
                     </div>
-                    <div class="civ-total-v">@CalculateTotalInclVat().ToString("N2")</div>
-                    <div class="civ-total-sub">
+                    <div class="sfm-total-v">@CalculateTotalInclVat().ToString("N2")</div>
+                    <div class="sfm-total-sub">
                         @invoice.Lines.Count line(s) &middot; VAT @VatLabel = @CalculateVatAmount().ToString("N2")
                     </div>
 
-                    <label class="civ-check">
+                    <label class="sfm-check">
                         <input type="checkbox" @bind="notifyCustomerByEmail" />Email customer notification
                     </label>
 
                     @if (validationErrors.Any() || lineValidationErrors.Any())
                     {
-                        <div class="civ-err-panel">
-                            <div class="civ-err-panel-t">
+                        <div class="sfm-err-panel">
+                            <div class="sfm-err-panel-t">
                                 <i class="ph ph-warning"></i>Please fix the following
                             </div>
                             <ul>
@@ -433,10 +438,10 @@
                         </div>
                     }
 
-                    <button type="button" class="civ-btn-solid" @onclick="SubmitInvoice" disabled="@isSubmitting">
+                    <button type="button" class="sfm-btn-solid" @onclick="SubmitInvoice" disabled="@isSubmitting">
                         @if (isSubmitting)
                         {
-                            <span class="civ-spin on-solid"></span>
+                            <span class="sfm-spin on-solid"></span>
                             <span>Creating&hellip;</span>
                         }
                         else
@@ -445,55 +450,55 @@
                             <span>Create invoice</span>
                         }
                     </button>
-                    <button type="button" class="civ-btn civ-btn-wide civ-btn-danger civ-gap-sm" @onclick="ClearForm"
+                    <button type="button" class="sfm-btn sfm-btn-wide sfm-btn-danger sfm-gap-sm" @onclick="ClearForm"
                             disabled="@isSubmitting">
                         <i class="ph ph-arrow-counter-clockwise"></i>Clear form
                     </button>
                 </div>
 
-                <div class="civ-card civ-panel">
-                    <div class="civ-panel-hd">
+                <div class="sfm-card sfm-panel">
+                    <div class="sfm-panel-hd">
                         <i class="ph ph-shield-check"></i>
-                        <span class="civ-panel-t">Pre-flight checks</span>
-                        <span class="civ-spacer"></span>
-                        <span class="civ-note">@PassedCheckCount/3</span>
+                        <span class="sfm-panel-t">Pre-flight checks</span>
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-note">@PassedCheckCount/3</span>
                     </div>
-                    <div class="civ-checks">
-                        <div class="civ-checks-i @(HasCustomer ? "" : "is-no")">
-                            <span class="civ-checks-ic"><i class="ph-fill @(HasCustomer ? "ph-check" : "ph-x")"></i></span>
+                    <div class="sfm-checks">
+                        <div class="sfm-checks-i @(HasCustomer ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(HasCustomer ? "ph-check" : "ph-x")"></i></span>
                             <span>Customer selected</span>
                         </div>
-                        <div class="civ-checks-i @(HasLines ? "" : "is-no")">
-                            <span class="civ-checks-ic"><i class="ph-fill @(HasLines ? "ph-check" : "ph-x")"></i></span>
+                        <div class="sfm-checks-i @(HasLines ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(HasLines ? "ph-check" : "ph-x")"></i></span>
                             <span>Line items added</span>
                         </div>
-                        <div class="civ-checks-i @(LinesComplete ? "" : "is-no")">
-                            <span class="civ-checks-ic"><i class="ph-fill @(LinesComplete ? "ph-check" : "ph-x")"></i></span>
+                        <div class="sfm-checks-i @(LinesComplete ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(LinesComplete ? "ph-check" : "ph-x")"></i></span>
                             <span>All lines complete</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="civ-card civ-panel">
-                    <div class="civ-panel-hd">
+                <div class="sfm-card sfm-panel">
+                    <div class="sfm-panel-hd">
                         <i class="ph ph-database"></i>
-                        <span class="civ-panel-t">Cached data</span>
+                        <span class="sfm-panel-t">Cached data</span>
                     </div>
-                    <div class="civ-cache">
-                        <div class="civ-cache-i"><i class="ph ph-users"></i>@allBusinessPartners.Count.ToString("N0") customers</div>
-                        <div class="civ-cache-i"><i class="ph ph-cube"></i>@cachedProducts.Count.ToString("N0") products</div>
-                        <div class="civ-cache-i"><i class="ph ph-buildings"></i>@cachedWarehouses.Count.ToString("N0") warehouses</div>
-                        <div class="civ-cache-i"><i class="ph ph-git-fork"></i>@cachedCostCentres.Count.ToString("N0") centres</div>
+                    <div class="sfm-cache">
+                        <div class="sfm-cache-i"><i class="ph ph-users"></i>@allBusinessPartners.Count.ToString("N0") customers</div>
+                        <div class="sfm-cache-i"><i class="ph ph-cube"></i>@cachedProducts.Count.ToString("N0") products</div>
+                        <div class="sfm-cache-i"><i class="ph ph-buildings"></i>@cachedWarehouses.Count.ToString("N0") warehouses</div>
+                        <div class="sfm-cache-i"><i class="ph ph-git-fork"></i>@cachedCostCentres.Count.ToString("N0") centres</div>
                     </div>
                     @if (lastCacheRefresh.HasValue)
                     {
-                        <div class="civ-cache-ft">
+                        <div class="sfm-cache-ft">
                             <i class="ph ph-clock"></i>Last sync @lastCacheRefresh.Value.ToString("HH:mm:ss")
                         </div>
                     }
                 </div>
 
-                <div class="civ-info-note">
+                <div class="sfm-info-note">
                     <i class="ph ph-info"></i>
                     <span>Invoices post directly to SAP Business One. Verify batch allocation and pricing before
                         submitting &mdash; posted documents can only be reversed by credit note.</span>
@@ -506,26 +511,26 @@
 <!-- ── Print dialog ───────────────────────────────────────────────────── -->
 @if (showPrintDialog)
 {
-    <div class="civ-modal" @onclick="() => showPrintDialog = false">
-        <div class="civ-dialog" @onclick:stopPropagation="true">
-            <div class="civ-dialog-hd">
+    <div class="sfm-modal" @onclick="() => showPrintDialog = false">
+        <div class="sfm-dialog" @onclick:stopPropagation="true">
+            <div class="sfm-dialog-hd">
                 <i class="ph-fill ph-printer"></i>
                 <h3>Print invoice #@(lastCreatedInvoice?.DocNum)</h3>
-                <span class="civ-spacer"></span>
-                <button type="button" class="civ-alert-x" @onclick="() => showPrintDialog = false"
+                <span class="sfm-spacer"></span>
+                <button type="button" class="sfm-alert-x" @onclick="() => showPrintDialog = false"
                         aria-label="Close">
                     <i class="ph ph-x"></i>
                 </button>
             </div>
-            <div class="civ-dialog-bd">
-                <label class="civ-lab civ-w-narrow">
-                    <span class="civ-lab-t">Copies</span>
-                    <input type="number" min="1" max="10" class="civ-input" @bind="printCopies" />
+            <div class="sfm-dialog-bd">
+                <label class="sfm-lab sfm-w-narrow">
+                    <span class="sfm-lab-t">Copies</span>
+                    <input type="number" min="1" max="10" class="sfm-input" @bind="printCopies" />
                 </label>
 
                 @* A web page cannot name a printer or set a copy count on a job — the browser's own
                    dialog owns both. So this is guidance for the operator, not a device setting. *@
-                <div class="civ-field-meta">
+                <div class="sfm-field-meta">
                     Your browser's print dialog opens next — choose the printer
                     @if (printCopies > 1)
                     {
@@ -534,15 +539,15 @@
                     there.
                 </div>
             </div>
-            <div class="civ-dialog-ft">
-                <button type="button" class="civ-btn" @onclick="DownloadInvoicePdf" disabled="@isPrinting">
+            <div class="sfm-dialog-ft">
+                <button type="button" class="sfm-btn" @onclick="DownloadInvoicePdf" disabled="@isPrinting">
                     <i class="ph ph-download-simple"></i>Download PDF
                 </button>
-                <button type="button" class="civ-btn" @onclick="() => showPrintDialog = false">Cancel</button>
-                <button type="button" class="civ-btn-solid" @onclick="ExecutePrint" disabled="@isPrinting">
+                <button type="button" class="sfm-btn" @onclick="() => showPrintDialog = false">Cancel</button>
+                <button type="button" class="sfm-btn-solid" @onclick="ExecutePrint" disabled="@isPrinting">
                     @if (isPrinting)
                     {
-                        <span class="civ-spin on-solid"></span>
+                        <span class="sfm-spin on-solid"></span>
                     }
                     else
                     {
