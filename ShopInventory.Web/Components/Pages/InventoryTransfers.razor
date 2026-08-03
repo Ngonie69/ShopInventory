@@ -658,7 +658,7 @@
                                 value="@pendingStatusFilter"
                                 @onchange="e => ChangePendingStatusFilter(e.Value?.ToString())">
                             <option value="@PendingTransferStatuses.AwaitingApproval">Awaiting approval</option>
-                            <option value="@PendingTransferStatuses.Approved">Approved — posting</option>
+                            <option value="@PendingTransferStatuses.Approved">Approved — not posted</option>
                             <option value="@PendingTransferStatuses.Posted">Posted to SAP</option>
                             <option value="@PendingTransferStatuses.PostFailed">Failed to post</option>
                             <option value="@PendingTransferStatuses.Rejected">Rejected</option>
@@ -751,12 +751,14 @@
                                                     Reject
                                                 </button>
                                             }
-                                            else if (pending.Status == PendingTransferStatuses.PostFailed)
+                                            @* Approved belongs here too: the post runs inside the approval request, so a
+                                               record still sitting at Approved is one whose post never finished. *@
+                                            else if (pending.Status is PendingTransferStatuses.PostFailed or PendingTransferStatuses.Approved)
                                             {
                                                 <button type="button" class="itx-btn itx-btn-sm" disabled="@isDecidingPending"
-                                                        title="Retry posting to SAP"
+                                                        title="Post this approved transfer to SAP"
                                                         @onclick="() => RetryPendingTransferAsync(pending)">
-                                                    <i class="bi bi-arrow-clockwise"></i> Retry post
+                                                    <i class="bi bi-arrow-clockwise"></i> Post to SAP
                                                 </button>
                                             }
                                             else if (pending.Status == PendingTransferStatuses.AwaitingApproval && pending.CreatedByUserId == currentUserId)
@@ -882,6 +884,18 @@
                     <div class="itx-alert-body">@selectedPendingTransfer.LastError</div>
                 </div>
             }
+            else if (selectedPendingTransfer.Status == PendingTransferStatuses.Approved)
+            {
+                @* Approval is complete but SAP never took the document, so no stock has moved.
+                   Nothing retries on its own — say so rather than leave it looking in progress. *@
+                <div class="itx-alert warn">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <div class="itx-alert-body">
+                        This transfer is fully approved but has not reached SAP, so no stock has moved.
+                        Use <strong>Post to SAP</strong> below to complete it.
+                    </div>
+                </div>
+            }
 
             <div class="itx-section"><i class="bi bi-diagram-3"></i> Approval stages</div>
             <ul class="itx-stagelist">
@@ -972,6 +986,14 @@
                     @onclick="() => PrintPendingTransferDraft(selectedPendingTransfer)">
                 <i class="bi bi-printer"></i> Print Draft
             </button>
+            @if (selectedPendingTransfer.Status is PendingTransferStatuses.Approved or PendingTransferStatuses.PostFailed)
+            {
+                <button type="button" class="itx-btn itx-btn-primary" disabled="@isDecidingPending"
+                        title="Post this approved transfer to SAP"
+                        @onclick="() => RetryPendingTransferAsync(selectedPendingTransfer)">
+                    <i class="bi bi-arrow-clockwise"></i> Post to SAP
+                </button>
+            }
             <button type="button" class="itx-btn" @onclick="ClosePendingTransfer">Close</button>
         </div>
     </div>
@@ -1801,7 +1823,7 @@
     private static string FormatPendingScope(string filter) => filter switch
     {
         PendingTransferStatuses.AwaitingApproval => "Awaiting approval",
-        PendingTransferStatuses.Approved => "Approved — posting",
+        PendingTransferStatuses.Approved => "Approved — not posted",
         PendingTransferStatuses.Posted => "Posted to SAP",
         PendingTransferStatuses.PostFailed => "Failed to post",
         PendingTransferStatuses.Rejected => "Rejected",
@@ -2374,7 +2396,9 @@
     private static string FormatPendingStatus(PendingInventoryTransferDto pending) => pending.Status switch
     {
         PendingTransferStatuses.AwaitingApproval => "Awaiting approval",
-        PendingTransferStatuses.Approved => "Approved — posting",
+        // Not "posting": nothing is in flight. The post runs inside the approval request, so a
+        // record read back at Approved is one whose post never finished and needs running again.
+        PendingTransferStatuses.Approved => "Approved — not posted",
         PendingTransferStatuses.PostFailed => "Failed to post",
         PendingTransferStatuses.Posted => $"Posted (#{pending.SapDocNum})",
         PendingTransferStatuses.Cancelled => "Withdrawn",

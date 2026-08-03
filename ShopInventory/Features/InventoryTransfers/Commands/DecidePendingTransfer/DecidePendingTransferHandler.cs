@@ -108,7 +108,7 @@ public sealed class DecidePendingTransferHandler(
                 pending.DecidedAtUtc = DateTime.UtcNow;
                 await context.SaveChangesAsync(cancellationToken);
 
-                var posted = await poster.PostAsync(pending, command.UserId, cancellationToken);
+                var posted = await poster.PostAsync(pending, command.UserId);
                 if (posted.IsError)
                 {
                     // The approval itself stands; only the SAP post failed, so surface the error

@@ -21,10 +21,16 @@ public interface IPendingInventoryTransferPoster
     /// <see cref="PendingInventoryTransferStatuses.PostFailed"/> so it can be retried.
     /// The caller is responsible for saving the tracked entity.
     /// </summary>
+    /// <remarks>
+    /// Deliberately takes no <see cref="CancellationToken"/>. Every caller reaches here with the
+    /// approval already committed, so the post is a durable obligation: handed the request's token
+    /// (which ASP.NET binds to <c>HttpContext.RequestAborted</c>), a browser disconnect or a proxy
+    /// timeout would abandon the transfer at <see cref="PendingInventoryTransferStatuses.Approved"/>
+    /// with no error and no retry offered. The SAP client's own timeout still bounds the call.
+    /// </remarks>
     Task<ErrorOr<InventoryTransferDto>> PostAsync(
         PendingInventoryTransferEntity pending,
-        Guid postedByUserId,
-        CancellationToken cancellationToken);
+        Guid postedByUserId);
 }
 
 public sealed class PendingInventoryTransferPoster(
@@ -38,9 +44,12 @@ public sealed class PendingInventoryTransferPoster(
 {
     public async Task<ErrorOr<InventoryTransferDto>> PostAsync(
         PendingInventoryTransferEntity pending,
-        Guid postedByUserId,
-        CancellationToken cancellationToken)
+        Guid postedByUserId)
     {
+        // The approval is already committed, so nothing downstream may cancel this. See the
+        // interface for why the caller's request token is not threaded through.
+        var cancellationToken = CancellationToken.None;
+
         CreateInventoryTransferRequest payload;
         try
         {
@@ -102,9 +111,21 @@ public sealed class PendingInventoryTransferPoster(
             await NotifyPostedAsync(pending, transfer.DocEntry, transfer.DocNum, cancellationToken);
             return transferDto;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception)
         {
-            return Errors.InventoryTransfer.CreationFailed("Request was canceled by the client");
+            // Nothing cancels this token, so an OCE here is the SAP client's own timeout: the
+            // request reached SAP and the answer was never read. The document may well exist, so
+            // the record is failed — visible and retryable — but says so rather than inviting a
+            // blind retry that would move the stock twice.
+            logger.LogError(exception,
+                "The SAP post for approved inventory transfer {PendingId} timed out; the outcome is unknown", pending.Id);
+            await FailAsync(
+                pending,
+                "The SAP post timed out before SAP answered, so it is not known whether the transfer was created. "
+                + "Check SAP for this transfer before retrying — retrying will post it again.",
+                cancellationToken);
+            return Errors.InventoryTransfer.CreationFailed(
+                "The transfer was approved, but SAP did not answer in time. Check SAP before retrying the post.");
         }
         catch (Exception exception)
         {
@@ -128,10 +149,6 @@ public sealed class PendingInventoryTransferPoster(
             var (_, stages) = await approvalService.GetProgressAsync(
                 ApprovalDocumentContext.ForPendingTransfer(pending), cancellationToken);
             return stages;
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
         }
         catch (Exception exception)
         {
