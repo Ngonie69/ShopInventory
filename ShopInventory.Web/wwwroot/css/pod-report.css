@@ -1,0 +1,1253 @@
+/* ==========================================================================
+   Product and Crate POD Upload Report — Nocturne
+
+   Imported from `POD Report.dc.html` in the claude.ai design project
+   c1fbdfac-3c24-4b01-a378-e8dc569b49c7. Only the content region is built here;
+   the sidebar and top bar the design draws are the app's own chrome, carried by
+   nocturne-shell.css.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in,
+   so neither scheme flashes.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input/select`
+   rules at (0,1,1) that would otherwise repaint every field #1e293b, so each
+   control carries a class and each control selector is two classes deep,
+   winning regardless of load order. Headings are pinned to Nocturne's 500
+   because Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them
+   past the weight this system allows.
+
+   Two departures from the design, both because of what the data actually is:
+
+   - The design draws the invoice grid as a <table>. Here it is a CSS grid, so
+     that below 1040px the same markup can re-lay as a labelled card — the
+     treatment the sibling sheets use, and the one the page it replaces had.
+   - The design's status columns are quiet by intent: an uploaded POD is the
+     accent, a missing one is a hollow ring in muted ink. Missing is the
+     actionable state, but marking it in red would put a warning on most of a
+     normal day's rows; the tabs above the grid are what isolate it. A third
+     state the design has no cell for is carried in the same shape — an invoice
+     is either a product invoice or a crate one, never both, so the column that
+     does not apply reads as a dash rather than as missing.
+   ========================================================================== */
+
+.podr {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --podr-bg: var(--noct-bg);
+    --podr-surface: var(--noct-surface);
+    --podr-wash: var(--noct-wash);
+    --podr-ink: var(--noct-ink);
+    --podr-ink-2: var(--noct-ink-2);
+    --podr-mute: var(--noct-mute);
+    --podr-mute-2: var(--noct-mute-2);
+    --podr-mute-3: var(--noct-mute-3);
+    --podr-faint: var(--noct-faint);
+    --podr-placeholder: var(--noct-placeholder);
+    --podr-divider: var(--noct-divider);
+    --podr-rule: var(--noct-rule);
+    --podr-hover: var(--noct-hover);
+    --podr-press: var(--noct-press);
+    --podr-field-bg: var(--noct-field-bg);
+    --podr-field-edge: var(--noct-field-edge);
+    --podr-field-edge-hi: var(--noct-field-edge-hi);
+    --podr-accent: var(--noct-accent);
+    --podr-accent-rgb: var(--noct-accent-rgb);
+    --podr-accent-text: var(--noct-accent-text);
+    --podr-thumb: var(--noct-thumb);
+    --podr-warn-bg: var(--noct-warn-bg);
+    --podr-warn-edge: var(--noct-warn-edge);
+    --podr-warn-ink: var(--noct-warn-ink);
+    --podr-caret: var(--noct-caret);
+    --podr-clear: var(--noct-clear);
+    --podr-scheme: var(--noct-scheme);
+
+    --podr-fam-neutral: var(--noct-fam-neutral);
+    --podr-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --podr-fam-accent: var(--noct-fam-accent);
+    --podr-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --podr-fam-warn: var(--noct-fam-warn);
+    --podr-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --podr-fam-bad: var(--noct-fam-bad);
+    --podr-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --podr-s1: var(--noct-s1);
+    --podr-s2: var(--noct-s2);
+    --podr-s3: var(--noct-s3);
+    --podr-s4: var(--noct-s4);
+    --podr-s6: var(--noct-s6);
+    --podr-s8: var(--noct-s8);
+    --podr-r-sm: var(--noct-r-sm);
+    --podr-r-md: var(--noct-r-md);
+    --podr-r-lg: var(--noct-r-lg);
+
+    /* The meter's track, and the ring a missing POD is drawn with. Both are
+       this page's own: the track is a recess rather than any surface the system
+       names, and the hollow dot needs an edge that reads on both grounds. */
+    --podr-track: rgba(var(--podr-fam-neutral-rgb), .22);
+    --podr-dot-off: var(--podr-mute-3);
+
+    /* The grid's eight columns, declared once so the header strip and every row
+       cannot drift. Invoice and uploader take the slack; the rest are sized to
+       what actually goes in them. */
+    --podr-cols:
+        minmax(0, 1.5fr) 122px 132px 116px 116px 124px minmax(0, 1.25fr) 104px;
+
+    color-scheme: var(--podr-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.podr {
+    min-height: 100vh;
+    background: var(--podr-bg);
+    color: var(--podr-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.podr * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the hues the status dots and
+   the credit tags carry on WebKit, so hand the fill back to `color`. */
+.podr,
+.podr * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.podr :focus-visible {
+    outline: 2px solid var(--podr-accent);
+    outline-offset: 2px;
+}
+
+.podr ::selection {
+    background: rgba(var(--podr-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.podr h1,
+.podr h2,
+.podr h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.podr a {
+    text-decoration: none;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the run stamp and the
+   two actions stay reachable while a window of invoices scrolls past.
+
+   Opaque, not frosted — the frosted bar's missing 12% lets the page title read
+   straight through it wherever the compositor skips the blur. --podr-bg is the
+   page ground, so the at-rest look is unchanged. */
+
+.podr-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--podr-bg);
+    border-bottom: 1px solid var(--podr-divider);
+}
+
+.podr-head-inner {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--podr-s4);
+    flex-wrap: wrap;
+}
+
+.podr-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--podr-mute-3);
+}
+
+.podr-crumbs span[aria-current] {
+    color: var(--podr-ink-2);
+}
+
+.podr-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--podr-s3);
+    flex-wrap: wrap;
+}
+
+/* When the report was read. Stated because a stale window of figures looks
+   exactly like a fresh one. */
+.podr-stamp {
+    font-size: 12px;
+    color: var(--podr-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.podr-body {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 26px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--podr-s6);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.podr-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.podr-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--podr-accent-text);
+    margin-bottom: 9px;
+}
+
+.podr-hero h1 {
+    margin: 0 0 7px;
+    font-size: 28px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.podr-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--podr-mute-2);
+    max-width: 60ch;
+    text-wrap: pretty;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.podr .podr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--podr-s2) calc(var(--podr-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--podr-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--podr-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.podr .podr-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.podr .podr-btn svg {
+    display: block;
+    flex: none;
+}
+
+.podr .podr-btn-primary {
+    color: var(--podr-accent);
+    border-color: var(--podr-accent);
+    letter-spacing: .02em;
+}
+
+.podr .podr-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--podr-accent-rgb), .12);
+}
+
+.podr .podr-btn-primary:active:not(:disabled) {
+    background: rgba(var(--podr-accent-rgb), .22);
+}
+
+.podr .podr-btn-quiet {
+    color: var(--podr-mute-2);
+    border-color: var(--podr-divider);
+}
+
+.podr .podr-btn-quiet:hover:not(:disabled) {
+    color: var(--podr-ink);
+    border-color: var(--podr-field-edge-hi);
+    background: var(--podr-hover);
+}
+
+.podr .podr-btn-ghost {
+    color: var(--podr-accent);
+    padding-inline: var(--podr-s2);
+}
+
+.podr .podr-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--podr-accent-rgb), .1);
+}
+
+.podr .podr-btn-sm {
+    height: 26px;
+    font-size: 12px;
+    padding-inline: var(--podr-s3);
+}
+
+.podr-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: podr-spin .7s linear infinite;
+}
+
+@keyframes podr-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .podr-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.podr .podr-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--podr-ink);
+    caret-color: var(--podr-accent);
+    background: var(--podr-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--podr-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.podr .podr-input:hover {
+    border-color: var(--podr-field-edge);
+}
+
+.podr .podr-input:focus-visible {
+    border-color: rgba(var(--podr-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.podr .podr-input::placeholder {
+    color: var(--podr-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--podr-placeholder);
+}
+
+.podr .podr-input-search {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.podr .podr-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--podr-s2);
+    background: var(--podr-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.podr .podr-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+.podr-select {
+    position: relative;
+    display: flex;
+}
+
+.podr .podr-select select.podr-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.podr-select .podr-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--podr-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.podr-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 220px;
+}
+
+.podr-search svg {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    color: var(--podr-mute-3);
+}
+
+/* The window control — Nocturne's segmented choice, on native buttons. */
+
+.podr-seg {
+    display: flex;
+    flex: none;
+    padding: 3px;
+    gap: 3px;
+    border-radius: var(--podr-r-md);
+    box-shadow: inset 0 0 0 1px var(--podr-divider);
+}
+
+.podr .podr-seg-opt {
+    height: 26px;
+    padding: 0 11px;
+    display: grid;
+    place-items: center;
+    font: inherit;
+    font-size: 12px;
+    color: var(--podr-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--podr-r-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.podr .podr-seg-opt:hover:not(.is-on) {
+    background: var(--podr-hover);
+    color: var(--podr-ink);
+}
+
+.podr .podr-seg-opt.is-on {
+    color: var(--podr-accent-text);
+    background: rgba(var(--podr-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--podr-accent-rgb), .38);
+}
+
+/* ── The filter panel ──────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card — the design's one gradient, shared with the grid below it. */
+
+.podr-panel {
+    border: 1px solid var(--podr-divider);
+    border-radius: var(--podr-r-lg);
+    background: linear-gradient(to bottom, var(--podr-wash), transparent 240px);
+}
+
+.podr-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--podr-s4);
+    padding: var(--podr-s4) var(--podr-s6);
+    flex-wrap: wrap;
+}
+
+/* The date pair. Not a <label>: NocturneDateField carries a button and a popup,
+   which a label would swallow the clicks of. */
+.podr-dates {
+    display: flex;
+    align-items: center;
+    gap: var(--podr-s2);
+    flex: none;
+}
+
+.podr-dates .ndf {
+    width: 150px;
+}
+
+.podr-dates-arrow {
+    color: var(--podr-mute-3);
+    font-size: 13px;
+}
+
+/* Disclosed filters. `align-items: end` so a field whose label wraps still
+   lines its control up with the rest. */
+.podr-more {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+    gap: var(--podr-s4);
+    padding: var(--podr-s4) var(--podr-s6) var(--podr-s6);
+    border-top: 1px solid var(--podr-rule);
+    align-items: end;
+}
+
+.podr-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.podr-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--podr-mute-3);
+}
+
+.podr-pair {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+/* The first is wider than the other three: it is the one figure the page is
+   actually about, and it carries a meter the others do not. */
+
+.podr-figs {
+    display: grid;
+    grid-template-columns: 1.35fr repeat(3, minmax(0, 1fr));
+    gap: var(--podr-s4);
+}
+
+.podr-fig {
+    display: flex;
+    flex-direction: column;
+    gap: var(--podr-s2);
+    padding: var(--podr-s6) 18px;
+    border: 1px solid var(--podr-divider);
+    border-radius: var(--podr-r-lg);
+    background: var(--podr-surface);
+    min-width: 0;
+}
+
+.podr-fig-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--podr-accent-rgb), .12), transparent 62%),
+        var(--podr-surface);
+}
+
+/* A count of what is outstanding changes meaning when it is not zero, so it
+   takes the amber edge only then — a permanently marked card would say
+   "something is wrong" on a clean day. */
+.podr-fig-risk {
+    background:
+        linear-gradient(155deg, rgba(var(--podr-fam-warn-rgb), .12), transparent 62%),
+        var(--podr-surface);
+}
+
+.podr-fig-top {
+    display: flex;
+    align-items: baseline;
+    gap: var(--podr-s3);
+    min-width: 0;
+}
+
+.podr-fig-num {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1.05;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.podr-fig-risk .podr-fig-num {
+    color: var(--podr-fam-warn);
+}
+
+.podr-fig-of {
+    font-size: 12px;
+    color: var(--podr-mute-2);
+}
+
+.podr-fig-label {
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--podr-mute-2);
+}
+
+.podr-fig-lead .podr-fig-label {
+    color: var(--podr-accent-text);
+}
+
+.podr-fig-risk .podr-fig-label {
+    color: var(--podr-fam-warn);
+}
+
+.podr-fig-sub {
+    font-size: 12px;
+    color: var(--podr-mute-2);
+    text-wrap: pretty;
+}
+
+.podr-meter {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--podr-track);
+    overflow: hidden;
+}
+
+.podr-meter-on {
+    height: 100%;
+    background: var(--podr-accent);
+}
+
+/* ── The tab strip ─────────────────────────────────────────────────────── */
+
+.podr-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: var(--podr-s3) var(--podr-s4);
+    border-bottom: 1px solid var(--podr-rule);
+    flex-wrap: wrap;
+}
+
+.podr .podr-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 11px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--podr-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--podr-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, color .15s, box-shadow .15s;
+}
+
+.podr .podr-tab:hover:not(.is-on) {
+    background: var(--podr-hover);
+    color: var(--podr-ink);
+}
+
+.podr .podr-tab.is-on {
+    color: var(--podr-accent-text);
+    background: rgba(var(--podr-accent-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--podr-accent-rgb), .38);
+}
+
+.podr-tab-n {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: rgba(var(--podr-fam-neutral-rgb), .16);
+    font-variant-numeric: tabular-nums;
+}
+
+.podr .podr-tab.is-on .podr-tab-n {
+    background: rgba(var(--podr-accent-rgb), .2);
+}
+
+.podr-tabs-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--podr-s4);
+    padding-right: 4px;
+}
+
+.podr-count {
+    font-size: 12px;
+    color: var(--podr-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── The credit-note notice ────────────────────────────────────────────── */
+/* Stated rather than hidden: the credit column is blank while the sync catches
+   up, and a blank cell otherwise reads as "not credited". */
+
+.podr-note {
+    display: flex;
+    align-items: center;
+    gap: var(--podr-s3);
+    padding: var(--podr-s3) var(--podr-s6);
+    border-bottom: 1px solid var(--podr-rule);
+    font-size: 12.5px;
+    color: var(--podr-warn-ink);
+    background: var(--podr-warn-bg);
+    flex-wrap: wrap;
+}
+
+.podr-note svg {
+    flex: none;
+}
+
+.podr-note .podr-btn {
+    margin-left: auto;
+}
+
+.podr-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--podr-s3);
+    padding: var(--podr-s3) var(--podr-s4);
+    border: 1px solid rgba(var(--podr-fam-bad-rgb), .4);
+    border-radius: var(--podr-r-md);
+    background: rgba(var(--podr-fam-bad-rgb), .1);
+    color: var(--podr-fam-bad);
+    font-size: 13px;
+}
+
+.podr-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.podr-scroll {
+    overflow-x: auto;
+}
+
+.podr-grid {
+    min-width: 1180px;
+}
+
+.podr-thead,
+.podr-row {
+    display: grid;
+    grid-template-columns: var(--podr-cols);
+    align-items: center;
+    gap: var(--podr-s4);
+}
+
+.podr-thead {
+    padding: var(--podr-s3) var(--podr-s6);
+    border-bottom: 1px solid var(--podr-rule);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--podr-mute-3);
+}
+
+/* A sortable heading is a button so it is reachable from the keyboard; the
+   ones that are not sortable stay plain text rather than looking clickable. */
+.podr .podr-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: color .14s;
+}
+
+.podr .podr-sort:hover {
+    color: var(--podr-ink);
+}
+
+.podr .podr-sort.is-on {
+    color: var(--podr-accent-text);
+}
+
+.podr-sort-mark {
+    font-size: 9px;
+    line-height: 1;
+}
+
+.podr-row {
+    padding: 11px var(--podr-s6);
+    border-bottom: 1px solid var(--podr-rule);
+    transition: background-color .12s ease;
+}
+
+.podr-row:last-child {
+    border-bottom: 0;
+}
+
+.podr-row:hover {
+    background: var(--podr-hover);
+}
+
+.podr-cell {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.podr-strong {
+    font-size: 13.5px;
+    color: var(--podr-ink);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.podr-docnum {
+    color: var(--podr-accent-text);
+}
+
+.podr-weak {
+    font-size: 12px;
+    color: var(--podr-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.podr-amount {
+    text-align: right;
+    align-items: flex-end;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* The status dot. Uploaded takes the accent; missing is a hollow ring in muted
+   ink, and a column that does not apply to this invoice is a dash. */
+.podr-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--podr-mute-2);
+    white-space: nowrap;
+}
+
+.podr-state.is-on {
+    color: var(--podr-accent-text);
+}
+
+.podr-state.is-na {
+    color: var(--podr-faint);
+}
+
+.podr-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--podr-dot-off);
+}
+
+.podr-state.is-on .podr-dot {
+    background: var(--podr-accent);
+    box-shadow: inset 0 0 0 1px var(--podr-accent);
+}
+
+.podr-state.is-na .podr-dot {
+    box-shadow: inset 0 0 0 1px var(--podr-faint);
+    opacity: .6;
+}
+
+.podr-files {
+    font-size: 11.5px;
+    color: var(--podr-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Credit notes are drawn as one tag whose hue says whether the invoice was
+   fully credited — a fully credited invoice is one nobody should still be
+   chasing a POD for. */
+.podr-tag {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: var(--podr-r-sm);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--podr-fam-neutral);
+    background: rgba(var(--podr-fam-neutral-rgb), .14);
+    box-shadow: inset 0 0 0 1px rgba(var(--podr-fam-neutral-rgb), .3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.podr-tag-credited {
+    color: var(--podr-fam-bad);
+    background: rgba(var(--podr-fam-bad-rgb), .12);
+    box-shadow: inset 0 0 0 1px rgba(var(--podr-fam-bad-rgb), .3);
+}
+
+.podr-none {
+    color: var(--podr-faint);
+}
+
+.podr-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+/* Row labels, carried for the card layout below 1040px and hidden above it. */
+.podr-rl {
+    display: none;
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.podr-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--podr-s6);
+    padding: var(--podr-s4) var(--podr-s6);
+    border-top: 1px solid var(--podr-divider);
+    font-size: 12.5px;
+    color: var(--podr-mute-3);
+    flex-wrap: wrap;
+}
+
+.podr-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.podr-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.podr .podr-step {
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--podr-mute-2);
+    background: transparent;
+    border: 1px solid var(--podr-divider);
+    border-radius: var(--podr-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.podr .podr-step:hover:not(:disabled) {
+    color: var(--podr-ink);
+    border-color: var(--podr-field-edge-hi);
+}
+
+.podr .podr-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.podr .podr-page {
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--podr-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--podr-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
+}
+
+.podr .podr-page:hover {
+    color: var(--podr-ink);
+    background: var(--podr-hover);
+}
+
+.podr .podr-page-on {
+    padding-inline: 11px;
+    color: var(--podr-accent-text);
+    background: rgba(var(--podr-accent-rgb), .16);
+}
+
+/* ── Loading, empty and unloaded ───────────────────────────────────────── */
+
+.podr-skeletons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--podr-s3);
+    padding: var(--podr-s6);
+}
+
+.podr-skeleton {
+    height: 34px;
+    border-radius: var(--podr-r-md);
+    background: rgba(var(--podr-fam-neutral-rgb), .18);
+    animation: podr-skel 1.4s ease-in-out infinite;
+}
+
+@keyframes podr-skel {
+
+    0%,
+    100% {
+        opacity: .3;
+    }
+
+    50% {
+        opacity: .62;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .podr-skeleton {
+        animation: none;
+        opacity: .45;
+    }
+}
+
+.podr-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--podr-s3);
+    padding: 56px var(--podr-s6);
+    font-size: 13px;
+    color: var(--podr-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.podr-empty svg {
+    color: var(--podr-accent);
+    opacity: .7;
+}
+
+.podr-empty-actions {
+    margin-top: var(--podr-s3);
+    display: flex;
+    gap: var(--podr-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* The unloaded state is a panel of its own rather than an empty grid: nothing
+   has been asked for yet, so there is no result to be empty. */
+.podr-unloaded {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--podr-s3);
+    padding: 52px 40px;
+    border: 1px solid var(--podr-divider);
+    border-radius: var(--podr-r-lg);
+    background: var(--podr-surface);
+}
+
+.podr-unloaded svg {
+    color: var(--podr-accent);
+    opacity: .8;
+}
+
+.podr-unloaded h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+}
+
+.podr-unloaded p {
+    margin: 0;
+    max-width: 52ch;
+    font-size: 13px;
+    color: var(--podr-mute-2);
+    text-wrap: pretty;
+}
+
+.podr-unloaded .podr-btn {
+    margin-top: var(--podr-s2);
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.podr-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.podr-scroll::-webkit-scrollbar-thumb {
+    background: var(--podr-thumb);
+    border-radius: 8px;
+}
+
+.podr-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1240px) {
+    .podr-figs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below here the grid row stops being a row and becomes a labelled card — the
+   treatment the sibling sheets take, and the reason this is a CSS grid rather
+   than a <table>. */
+@media (max-width: 1040px) {
+    .podr-scroll {
+        overflow-x: visible;
+    }
+
+    .podr-grid {
+        min-width: 0;
+    }
+
+    .podr-thead {
+        display: none;
+    }
+
+    .podr-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 7px var(--podr-s4);
+        padding: 13px var(--podr-s4);
+        align-items: start;
+    }
+
+    .podr-row>* {
+        grid-column: auto;
+    }
+
+    .podr-cell-invoice {
+        grid-column: 1;
+    }
+
+    .podr-amount {
+        grid-column: 2;
+        grid-row: 1;
+        text-align: right;
+    }
+
+    .podr-cell-delivered,
+    .podr-cell-uploader {
+        grid-column: 1 / -1;
+    }
+
+    .podr-cell-product {
+        grid-column: 1;
+    }
+
+    .podr-cell-crate {
+        grid-column: 2;
+        justify-self: end;
+    }
+
+    .podr-cell-credit {
+        grid-column: 1 / -1;
+    }
+
+    /* A credit cell holding only the column's placeholder dash. The grid needs
+       it; a card has no column to hold open, so the line goes. */
+    .podr-cell-blank {
+        display: none;
+    }
+
+    .podr-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+    }
+
+    .podr-rl {
+        display: inline;
+        margin-right: 6px;
+        font-size: 10.5px;
+        letter-spacing: .09em;
+        text-transform: uppercase;
+        color: var(--podr-faint);
+    }
+}
+
+@media (max-width: 860px) {
+
+    .podr-head-inner,
+    .podr-body {
+        padding-inline: 18px;
+    }
+
+    .podr-controls,
+    .podr-more,
+    .podr-thead,
+    .podr-foot,
+    .podr-note {
+        padding-inline: var(--podr-s4);
+    }
+
+    .podr-search {
+        min-width: 100%;
+    }
+
+    .podr-dates {
+        flex: 1;
+    }
+
+    .podr-dates .ndf {
+        width: auto;
+        flex: 1;
+    }
+
+    .podr-foot {
+        justify-content: center;
+        text-align: center;
+    }
+}
+
+@media (max-width: 620px) {
+    .podr-figs {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .podr-hero h1 {
+        font-size: 24px;
+    }
+
+    .podr-head-meta {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .podr-seg {
+        width: 100%;
+    }
+
+    .podr .podr-seg-opt {
+        flex: 1;
+    }
+}

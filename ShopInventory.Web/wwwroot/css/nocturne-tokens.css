@@ -24,7 +24,8 @@
    system, and it keeps this refactor to the token blocks.
 
    Aliasing sheets: business-partners.css, audit-trail.css, local-stock.css,
-   nocturne-date-field.css, driver-shop-access.css, approval-process.css.
+   nocturne-date-field.css, driver-shop-access.css, approval-process.css,
+   pod-report.css.
 
    The last two had drifted. Their headers claimed to be identical to
    business-partners.css and were not, so folding them in changed four values
