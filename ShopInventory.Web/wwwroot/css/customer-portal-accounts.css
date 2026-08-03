@@ -1,0 +1,1839 @@
+/* ==========================================================================
+   Customer portal accounts — Nocturne
+
+   Replicates the imported design (Portal Management.dc.html): a stated hero
+   with the sync stamp and the two actions beside it, one summary card whose
+   lead panel carries the active/total meter, and then the page's real shape —
+   a list on the left and a sticky 336px detail panel on the right, so an
+   admin can change a credential, a statement preference or a two-factor
+   setting without leaving the row they are looking at.
+
+   The design is drawn as a single dark scheme against the Nocturne system's
+   own `--color-*` ramps. Those are not carried here: the palette lives once in
+   nocturne-tokens.css and the block below only aliases it, so this page follows
+   the app's theme toggle in both directions like every other Nocturne page.
+   See that file for why these are aliases rather than values.
+
+   Where the design reaches for a ramp step rather than a role, the step is
+   translated to the role it was standing in for — `--color-accent-900` as a
+   selected row's ground becomes a 16% wash of the accent, because #2b2741 is
+   a dark-scheme value and there is no light counterpart to copy. The same goes
+   for the toggle's track, the code chips and the neutral tags.
+
+   Rules live here rather than an inline Razor <style> block because app.css
+   carries global rules this page has to out-specify, and they are not gentle:
+
+     - `.dark-theme input/textarea/select` (0,1,1) paints every field #1e293b,
+     - `.dark-theme table thead th` and `.dark-theme table tbody tr` (0,1,2)
+       repaint any table's head and row rules,
+     - Bootstrap's `h1-h6 { font-weight: 600 }` boldens headings past the 500
+       this system allows,
+     - and `.btn-primary` would pick up Bootstrap's solid fill.
+
+   So every control and every table rule is written two classes deep and every
+   class is namespaced `cpa-`, which wins on specificity regardless of load
+   order. `cpa` rather than `cpm`: the old page's `.cpm-*` classes had a block
+   of `!important` dark-mode overrides in app.css, and a fresh prefix means a
+   stray survivor cannot reach this page.
+
+   Below 1100px the detail panel stops being a column and becomes a full-width
+   block above the list; below 820px the table stops being a table and each row
+   becomes a labelled card, the same treatment business-partners.css gives its
+   directory.
+   ========================================================================== */
+
+.cpa,
+.cpa-overlay {
+    /* Palette from nocturne-tokens.css. Only what this page uses is aliased.
+
+       The modals render outside the page element and carry `.cpa-overlay`
+       rather than `.cpa`, so they reach the palette without also inheriting
+       `.cpa`'s `min-height: 100vh` — which beats a dialog's own height and
+       hangs it a topbar below the fold. */
+    --cpa-bg: var(--noct-bg);
+    --cpa-surface: var(--noct-surface);
+    --cpa-wash: var(--noct-wash);
+    --cpa-ink: var(--noct-ink);
+    --cpa-ink-2: var(--noct-ink-2);
+    --cpa-mute: var(--noct-mute);
+    --cpa-mute-2: var(--noct-mute-2);
+    --cpa-mute-3: var(--noct-mute-3);
+    --cpa-faint: var(--noct-faint);
+    --cpa-placeholder: var(--noct-placeholder);
+    --cpa-divider: var(--noct-divider);
+    --cpa-rule: var(--noct-rule);
+    --cpa-hover: var(--noct-hover);
+    --cpa-press: var(--noct-press);
+    --cpa-avatar-bg: var(--noct-avatar-bg);
+    --cpa-field-bg: var(--noct-field-bg);
+    --cpa-field-edge: var(--noct-field-edge);
+    --cpa-field-edge-hi: var(--noct-field-edge-hi);
+    --cpa-accent: var(--noct-accent);
+    --cpa-accent-rgb: var(--noct-accent-rgb);
+    --cpa-accent-text: var(--noct-accent-text);
+    --cpa-dot-off: var(--noct-dot-off);
+    --cpa-bad: var(--noct-fam-bad);
+    --cpa-bad-rgb: var(--noct-fam-bad-rgb);
+    --cpa-good: var(--noct-fam-good);
+    --cpa-thumb: var(--noct-thumb);
+    --cpa-scrim: var(--noct-scrim);
+    --cpa-warn-bg: var(--noct-warn-bg);
+    --cpa-warn-edge: var(--noct-warn-edge);
+    --cpa-warn-ink: var(--noct-warn-ink);
+    --cpa-shadow-pop: var(--noct-shadow-pop);
+    --cpa-caret: var(--noct-caret);
+    --cpa-clear: var(--noct-clear);
+    --cpa-scheme: var(--noct-scheme);
+
+    --cpa-s1: var(--noct-s1);
+    --cpa-s2: var(--noct-s2);
+    --cpa-s3: var(--noct-s3);
+    --cpa-s4: var(--noct-s4);
+    --cpa-s6: var(--noct-s6);
+    --cpa-s8: var(--noct-s8);
+    --cpa-r-sm: var(--noct-r-sm);
+    --cpa-r-md: var(--noct-r-md);
+    --cpa-r-lg: var(--noct-r-lg);
+
+    /* This page's own: the detail column's width, from the design. */
+    --cpa-side-w: 336px;
+
+    color-scheme: var(--cpa-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.cpa {
+    min-height: 100vh;
+    background: var(--cpa-bg);
+    color: var(--cpa-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cpa *,
+.cpa-overlay * {
+    box-sizing: border-box;
+}
+
+.cpa :focus-visible,
+.cpa-overlay :focus-visible {
+    outline: 2px solid var(--cpa-accent);
+    outline-offset: 2px;
+}
+
+.cpa ::selection,
+.cpa-overlay ::selection {
+    background: rgba(var(--cpa-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.cpa h1,
+.cpa h2,
+.cpa h3,
+.cpa h4,
+.cpa h5,
+.cpa-overlay h1,
+.cpa-overlay h2,
+.cpa-overlay h3,
+.cpa-overlay h4,
+.cpa-overlay h5 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.015em;
+    margin: 0;
+}
+
+.cpa-body {
+    max-width: 1420px;
+    padding: 24px 24px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.cpa-hero {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.cpa-hero-text {
+    min-width: 0;
+}
+
+.cpa-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    color: var(--cpa-mute-3);
+    margin-bottom: 7px;
+}
+
+.cpa-hero h1 {
+    font-size: 25px;
+    margin-bottom: 5px;
+}
+
+.cpa-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--cpa-mute-2);
+    max-width: 62ch;
+    text-wrap: pretty;
+}
+
+.cpa-hero-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--cpa-s3);
+    flex-wrap: wrap;
+}
+
+.cpa-synced {
+    font-size: 11.5px;
+    color: var(--cpa-mute-3);
+    margin-right: 6px;
+    white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.cpa .cpa-btn,
+.cpa-overlay .cpa-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: var(--cpa-s2) calc(var(--cpa-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--cpa-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--cpa-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.cpa .cpa-btn svg,
+.cpa-overlay .cpa-btn svg {
+    display: block;
+    flex: none;
+}
+
+.cpa .cpa-btn:disabled,
+.cpa-overlay .cpa-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.cpa .cpa-btn-primary,
+.cpa-overlay .cpa-btn-primary {
+    color: var(--cpa-accent);
+    border-color: var(--cpa-accent);
+}
+
+.cpa .cpa-btn-primary:hover:not(:disabled),
+.cpa-overlay .cpa-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--cpa-accent-rgb), .12);
+}
+
+.cpa .cpa-btn-primary:active:not(:disabled),
+.cpa-overlay .cpa-btn-primary:active:not(:disabled) {
+    background: rgba(var(--cpa-accent-rgb), .22);
+}
+
+.cpa .cpa-btn-quiet,
+.cpa-overlay .cpa-btn-quiet {
+    color: var(--cpa-mute);
+    border-color: var(--cpa-divider);
+}
+
+.cpa .cpa-btn-quiet:hover:not(:disabled),
+.cpa-overlay .cpa-btn-quiet:hover:not(:disabled) {
+    color: var(--cpa-ink);
+    border-color: var(--cpa-field-edge-hi);
+    background: var(--cpa-hover);
+}
+
+.cpa .cpa-btn-ghost,
+.cpa-overlay .cpa-btn-ghost {
+    color: var(--cpa-accent-text);
+    padding-inline: var(--cpa-s2);
+}
+
+.cpa .cpa-btn-ghost:hover:not(:disabled),
+.cpa-overlay .cpa-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--cpa-accent-rgb), .1);
+}
+
+/* Destructive actions recede until they are reached for — the design gives
+   "Delete account" the same muted ink as the surrounding notes, and only the
+   hover names it. */
+.cpa .cpa-btn-danger,
+.cpa-overlay .cpa-btn-danger {
+    color: var(--cpa-mute-3);
+    padding-inline: var(--cpa-s2);
+}
+
+.cpa .cpa-btn-danger:hover:not(:disabled),
+.cpa-overlay .cpa-btn-danger:hover:not(:disabled) {
+    color: var(--cpa-bad);
+    background: rgba(var(--cpa-bad-rgb), .12);
+}
+
+.cpa .cpa-btn-block,
+.cpa-overlay .cpa-btn-block {
+    width: 100%;
+}
+
+.cpa .cpa-btn-sm,
+.cpa-overlay .cpa-btn-sm {
+    min-height: 28px;
+    font-size: 12.5px;
+    padding-block: 3px;
+}
+
+.cpa .cpa-icon-btn,
+.cpa-overlay .cpa-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--cpa-r-sm);
+    background: transparent;
+    color: var(--cpa-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.cpa .cpa-icon-btn:hover:not(:disabled),
+.cpa-overlay .cpa-icon-btn:hover:not(:disabled) {
+    background: var(--cpa-press);
+    color: var(--cpa-ink);
+}
+
+/* ── The summary card ──────────────────────────────────────────────────── */
+/* One card, four panels divided by hairlines — the lead panel states the
+   total and the share of it that is active, the other three the breakdown. */
+
+.cpa-summary {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+    overflow: hidden;
+}
+
+.cpa-sum-lead {
+    flex: 1.4;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 15px 18px;
+}
+
+.cpa-sum-headline {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.cpa-sum-total {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+
+.cpa-sum-of {
+    font-size: 12.5px;
+    color: var(--cpa-mute-2);
+}
+
+.cpa-meter {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--cpa-press);
+    overflow: hidden;
+}
+
+.cpa-meter-fill {
+    height: 100%;
+    background: var(--cpa-accent);
+    transition: width .3s ease;
+}
+
+.cpa-sum-cell {
+    flex: 1;
+    min-width: 150px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 15px 18px;
+    border-left: 1px solid var(--cpa-divider);
+}
+
+.cpa-sum-num {
+    font-size: 30px;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--cpa-mute-2);
+}
+
+/* Only the first figure is the page's subject, so only it takes full ink. */
+.cpa-sum-num-lead {
+    color: var(--cpa-ink);
+}
+
+.cpa-sum-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpa-mute-3);
+}
+
+.cpa-sum-note {
+    font-size: 12px;
+    color: var(--cpa-mute-2);
+}
+
+/* ── The split ─────────────────────────────────────────────────────────── */
+
+.cpa-split {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+/* ── The list panel ────────────────────────────────────────────────────── */
+
+.cpa-panel {
+    flex: 1;
+    min-width: 560px;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+    overflow: hidden;
+}
+
+.cpa-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--cpa-s3);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--cpa-divider);
+    flex-wrap: wrap;
+}
+
+.cpa-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 240px;
+}
+
+.cpa-search svg {
+    position: absolute;
+    left: 10px;
+    pointer-events: none;
+    color: var(--cpa-mute-3);
+}
+
+/* The four statuses are four answers to one question, so one segmented
+   control rather than four buttons. */
+.cpa-seg {
+    display: inline-flex;
+    overflow: hidden;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+}
+
+.cpa .cpa-seg-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--cpa-mute-2);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .14s, color .14s, box-shadow .14s;
+}
+
+.cpa .cpa-seg-opt + .cpa-seg-opt {
+    border-left: 1px solid var(--cpa-divider);
+}
+
+.cpa .cpa-seg-opt:hover:not(.cpa-seg-on) {
+    background: var(--cpa-hover);
+    color: var(--cpa-ink);
+}
+
+.cpa .cpa-seg-on {
+    color: var(--cpa-accent-text);
+    box-shadow: inset 0 0 0 1px var(--cpa-accent);
+}
+
+.cpa-seg-count {
+    font-variant-numeric: tabular-nums;
+    opacity: .75;
+}
+
+/* ── The table ─────────────────────────────────────────────────────────── */
+/* Two classes deep throughout: app.css carries `.dark-theme table thead th`
+   and `.dark-theme table tbody tr`, which repaint any table's head and rules
+   in dark mode and would otherwise win. */
+
+.cpa-scroll {
+    overflow-x: auto;
+}
+
+.cpa .cpa-table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+    font-size: 14px;
+    background: transparent;
+}
+
+.cpa .cpa-table thead th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpa-mute-2);
+    background: transparent;
+    border: 0;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.cpa .cpa-table thead th.cpa-th-right {
+    text-align: right;
+}
+
+/* Nocturne's rules fade to transparent at both ends, so they are painted as
+   row-level background strips rather than cell borders. */
+.cpa .cpa-table thead tr {
+    background:
+        linear-gradient(to right,
+            transparent, var(--cpa-divider) 48px,
+            var(--cpa-divider) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+.cpa .cpa-table tbody tr {
+    cursor: pointer;
+    background:
+        linear-gradient(to right,
+            transparent, var(--cpa-rule) 48px,
+            var(--cpa-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+    transition: box-shadow .12s ease;
+}
+
+/* The hover and selected tints layer over the row rule, which keeps painting. */
+.cpa .cpa-table tbody tr:hover {
+    background:
+        linear-gradient(var(--cpa-hover), var(--cpa-hover)) no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--cpa-rule) 48px,
+            var(--cpa-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+}
+
+/* `--color-accent-900` in the design; a dark-scheme hex has no light
+   counterpart to copy, so the role it was filling is written instead. */
+.cpa .cpa-table tbody tr.cpa-row-on,
+.cpa .cpa-table tbody tr.cpa-row-on:hover {
+    background:
+        linear-gradient(rgba(var(--cpa-accent-rgb), .14), rgba(var(--cpa-accent-rgb), .14))
+            no-repeat 0 0 / 100% 100%,
+        linear-gradient(to right,
+            transparent, var(--cpa-rule) 48px,
+            var(--cpa-rule) calc(100% - 48px), transparent) no-repeat bottom / 100% 1px;
+    box-shadow: inset 2px 0 0 var(--cpa-accent);
+}
+
+.cpa .cpa-table td {
+    padding: 12px 14px;
+    border: 0;
+    color: var(--cpa-ink);
+    vertical-align: middle;
+}
+
+.cpa .cpa-table td.cpa-td-nowrap {
+    white-space: nowrap;
+}
+
+.cpa .cpa-table td.cpa-td-right {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* A sortable head is a button so it can be reached from the keyboard; it
+   inherits the head's type rather than a control's. */
+.cpa .cpa-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    text-transform: inherit;
+    letter-spacing: inherit;
+}
+
+.cpa .cpa-sort:hover {
+    color: var(--cpa-ink);
+}
+
+.cpa .cpa-sort-on {
+    color: var(--cpa-accent-text);
+}
+
+.cpa-arrow {
+    font-size: 10px;
+    line-height: 1;
+}
+
+/* ── Row parts ─────────────────────────────────────────────────────────── */
+
+.cpa-account {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+}
+
+.cpa-avatar {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border-radius: var(--cpa-r-sm);
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .03em;
+    background: var(--cpa-avatar-bg);
+    color: var(--cpa-mute);
+    box-shadow: inset 0 0 0 1px var(--cpa-divider);
+}
+
+.cpa-avatar-lg {
+    width: 34px;
+    height: 34px;
+    border-radius: 7px;
+    font-size: 12px;
+    background: rgba(var(--cpa-accent-rgb), .16);
+    color: var(--cpa-accent-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--cpa-accent-rgb), .45);
+}
+
+/* The two-line cells are built from spans rather than divs so a cell stays
+   valid inside the labelled-card layout below 820px, where the row's own
+   label sits inline beside them — so each stacked part has to be told to be
+   a block here. */
+.cpa-account-text {
+    display: block;
+    min-width: 0;
+}
+
+.cpa-name {
+    display: block;
+    font-size: 13.5px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cpa-email {
+    display: block;
+    font-size: 12px;
+    color: var(--cpa-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cpa-codes {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.cpa-code {
+    font-size: 11.5px;
+    letter-spacing: .06em;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 6px;
+    border-radius: var(--cpa-r-sm);
+    background: var(--cpa-press);
+    color: var(--cpa-mute);
+    white-space: nowrap;
+}
+
+.cpa-type {
+    display: block;
+    font-size: 12px;
+    color: var(--cpa-mute-3);
+    margin-top: 4px;
+}
+
+.cpa-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--cpa-mute-2);
+    white-space: nowrap;
+}
+
+.cpa-status-active {
+    color: var(--cpa-accent-text);
+}
+
+.cpa-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 50%;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--cpa-dot-off);
+}
+
+.cpa-status-active .cpa-dot {
+    background: var(--cpa-accent);
+    box-shadow: inset 0 0 0 1px var(--cpa-accent);
+}
+
+.cpa-status-locked .cpa-dot {
+    background: var(--cpa-dot-off);
+    box-shadow: inset 0 0 0 1px var(--cpa-mute-3);
+}
+
+/* The two access facts read as outlined chips: on takes the accent's edge,
+   off keeps the divider, so the difference is legible without colour alone —
+   the wording changes too. */
+.cpa-access {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.cpa-chip {
+    font-size: 12px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    color: var(--cpa-mute-3);
+    box-shadow: inset 0 0 0 1px var(--cpa-divider);
+    white-space: nowrap;
+}
+
+.cpa-chip-on {
+    color: var(--cpa-accent-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--cpa-accent-rgb), .5);
+}
+
+.cpa-when {
+    display: block;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+}
+
+.cpa-when-sub {
+    display: block;
+    font-size: 12px;
+    color: var(--cpa-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.cpa-chevron {
+    font-size: 14px;
+    color: var(--cpa-faint);
+}
+
+.cpa-row-on .cpa-chevron {
+    color: var(--cpa-accent-text);
+}
+
+/* Row labels, carried for the card layout below 820px and hidden above it. */
+.cpa-rl {
+    display: none;
+}
+
+/* ── Panel foot ────────────────────────────────────────────────────────── */
+
+.cpa-panel-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 14px;
+    border-top: 1px solid var(--cpa-divider);
+    font-size: 12.5px;
+    color: var(--cpa-mute-3);
+    flex-wrap: wrap;
+}
+
+/* ── The detail panel ──────────────────────────────────────────────────── */
+/* Sticky rather than a drawer: the design keeps the list visible while the
+   panel is worked in, so a change and the row it changed stay side by side.
+   Offset below the app bar, which the page scrolls under. */
+
+.cpa-side {
+    width: var(--cpa-side-w);
+    flex: none;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 12px);
+    overflow: hidden;
+}
+
+.cpa-side-head {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 16px 14px;
+    border-bottom: 1px solid var(--cpa-divider);
+}
+
+.cpa-side-id {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.cpa-side-id h2 {
+    font-size: 15px;
+    line-height: 1.25;
+    margin-bottom: 3px;
+    text-wrap: pretty;
+}
+
+.cpa-side-email {
+    font-size: 12.5px;
+    color: var(--cpa-mute-2);
+    overflow-wrap: anywhere;
+}
+
+.cpa-tags {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.cpa-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    letter-spacing: .02em;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: var(--cpa-press);
+    color: var(--cpa-mute);
+    white-space: nowrap;
+}
+
+.cpa-tag-accent {
+    background: rgba(var(--cpa-accent-rgb), .18);
+    color: var(--cpa-accent-text);
+}
+
+.cpa-tag-outline {
+    background: transparent;
+    color: var(--cpa-accent-text);
+    box-shadow: inset 0 0 0 1px rgba(var(--cpa-accent-rgb), .5);
+}
+
+.cpa-side-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--cpa-divider);
+}
+
+.cpa-side-label {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--cpa-mute-3);
+}
+
+/* ── Toggles ───────────────────────────────────────────────────────────── */
+/* A real checkbox drives it: the switch is the checkbox's own rendering, so
+   it is reachable, focusable and announced without any ARIA of its own.
+   Paired with .cpa-overlay throughout — the create/edit dialog carries three
+   of these, and scoped to .cpa alone they all rendered permanently off. */
+
+.cpa-switch {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    cursor: pointer;
+}
+
+.cpa .cpa-switch input,
+.cpa-overlay .cpa-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.cpa-track {
+    width: 34px;
+    height: 19px;
+    flex: none;
+    border-radius: 10px;
+    padding: 2px;
+    display: flex;
+    justify-content: flex-start;
+    background: var(--cpa-field-bg);
+    box-shadow: inset 0 0 0 1px var(--cpa-field-edge);
+    transition: background-color .16s ease, box-shadow .16s ease;
+}
+
+.cpa-knob {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--cpa-dot-off);
+    transition: background-color .16s ease;
+}
+
+.cpa .cpa-switch input:checked + .cpa-track,
+.cpa-overlay .cpa-switch input:checked + .cpa-track {
+    justify-content: flex-end;
+    background: rgba(var(--cpa-accent-rgb), .28);
+    box-shadow: inset 0 0 0 1px rgba(var(--cpa-accent-rgb), .55);
+}
+
+.cpa .cpa-switch input:checked + .cpa-track .cpa-knob,
+.cpa-overlay .cpa-switch input:checked + .cpa-track .cpa-knob {
+    background: var(--cpa-accent);
+}
+
+.cpa .cpa-switch input:focus-visible + .cpa-track,
+.cpa-overlay .cpa-switch input:focus-visible + .cpa-track {
+    outline: 2px solid var(--cpa-accent);
+    outline-offset: 2px;
+}
+
+.cpa .cpa-switch input:disabled + .cpa-track,
+.cpa-overlay .cpa-switch input:disabled + .cpa-track {
+    opacity: .5;
+}
+
+.cpa-switch-text {
+    min-width: 0;
+}
+
+.cpa-switch-title {
+    display: block;
+    font-size: 13.5px;
+}
+
+.cpa-switch-note {
+    display: block;
+    font-size: 12px;
+    color: var(--cpa-mute-3);
+}
+
+/* ── Facts ─────────────────────────────────────────────────────────────── */
+
+.cpa-facts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--cpa-divider);
+}
+
+.cpa-fact-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpa-faint);
+}
+
+.cpa-fact-value {
+    font-size: 13px;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+}
+
+.cpa-fact-num {
+    font-variant-numeric: tabular-nums;
+}
+
+.cpa-side-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+}
+
+.cpa-side-pair {
+    display: flex;
+    gap: 8px;
+}
+
+.cpa-side-pair .cpa-btn {
+    flex: 1;
+}
+
+.cpa-side-quiet {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 6px;
+    margin-top: 2px;
+    border-top: 1px solid var(--cpa-divider);
+    flex-wrap: wrap;
+}
+
+/* ── Nothing selected ──────────────────────────────────────────────────── */
+
+.cpa-side-none {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 40px 20px;
+}
+
+.cpa-side-none svg {
+    color: var(--cpa-accent);
+    opacity: .8;
+}
+
+.cpa-side-none-title {
+    font-size: 13.5px;
+}
+
+.cpa-side-none p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--cpa-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Empty, loading and no-match ───────────────────────────────────────── */
+
+.cpa-nomatch {
+    padding: 44px 16px;
+    text-align: center;
+    font-size: 13.5px;
+    color: var(--cpa-mute-2);
+    text-wrap: pretty;
+}
+
+.cpa-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 56px 40px;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+}
+
+.cpa-state svg {
+    color: var(--cpa-accent);
+    opacity: .8;
+}
+
+.cpa-state h2 {
+    font-size: 20px;
+}
+
+.cpa-state p {
+    margin: 0;
+    max-width: 46ch;
+    font-size: 13.5px;
+    color: var(--cpa-mute-2);
+    text-wrap: pretty;
+}
+
+.cpa-loading {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+}
+
+.cpa-loading-text {
+    font-size: 13px;
+    color: var(--cpa-mute-2);
+}
+
+.cpa-skel {
+    height: 42px;
+    border-radius: var(--cpa-r-sm);
+    background: var(--cpa-press);
+    animation: cpa-skel 1.4s ease-in-out infinite;
+}
+
+@keyframes cpa-skel {
+    0%, 100% {
+        opacity: .3;
+    }
+
+    50% {
+        opacity: .62;
+    }
+}
+
+.cpa-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: cpa-spin .7s linear infinite;
+}
+
+@keyframes cpa-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .cpa-skel,
+    .cpa-meter-fill {
+        animation: none;
+        transition: none;
+    }
+
+    .cpa-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────── */
+
+.cpa-msg,
+.cpa-overlay .cpa-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cpa-s3);
+    padding: var(--cpa-s3) var(--cpa-s6);
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+    font-size: 13px;
+    color: var(--cpa-ink);
+    text-wrap: pretty;
+}
+
+.cpa-msg svg,
+.cpa-overlay .cpa-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.cpa-msg-good,
+.cpa-overlay .cpa-msg-good {
+    border-color: rgba(var(--cpa-accent-rgb), .45);
+    background: rgba(var(--cpa-accent-rgb), .1);
+}
+
+.cpa-msg-good svg,
+.cpa-overlay .cpa-msg-good svg {
+    color: var(--cpa-accent);
+}
+
+.cpa-msg-bad,
+.cpa-overlay .cpa-msg-bad {
+    border-color: var(--cpa-warn-edge);
+    background: var(--cpa-warn-bg);
+    color: var(--cpa-warn-ink);
+}
+
+.cpa-msg-text {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+/* Two classes deep so they out-specify app.css's global
+   `.dark-theme input/textarea/select` fill. */
+
+.cpa .cpa-input,
+.cpa-overlay .cpa-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 11px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--cpa-ink);
+    caret-color: var(--cpa-accent);
+    background: var(--cpa-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--cpa-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.cpa .cpa-input-search,
+.cpa-overlay .cpa-input-search {
+    padding-left: 31px;
+}
+
+.cpa .cpa-input:hover:not(:disabled),
+.cpa-overlay .cpa-input:hover:not(:disabled) {
+    border-color: var(--cpa-field-edge);
+}
+
+.cpa .cpa-input:focus-visible,
+.cpa-overlay .cpa-input:focus-visible {
+    border-color: rgba(var(--cpa-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.cpa .cpa-input:disabled,
+.cpa-overlay .cpa-input:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+.cpa .cpa-input::placeholder,
+.cpa-overlay .cpa-input::placeholder {
+    color: var(--cpa-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--cpa-placeholder);
+}
+
+.cpa .cpa-input[type="search"]::-webkit-search-cancel-button,
+.cpa-overlay .cpa-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--cpa-s2);
+    background: var(--cpa-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.cpa-select,
+.cpa-overlay .cpa-select {
+    position: relative;
+    display: flex;
+}
+
+.cpa .cpa-select select.cpa-input,
+.cpa-overlay .cpa-select select.cpa-input {
+    padding: 7px 28px 7px 11px;
+    cursor: pointer;
+}
+
+.cpa-select .cpa-caret,
+.cpa-overlay .cpa-select .cpa-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--cpa-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.cpa-field,
+.cpa-overlay .cpa-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.cpa-label,
+.cpa-overlay .cpa-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--cpa-mute-3);
+}
+
+.cpa-hint,
+.cpa-overlay .cpa-hint {
+    font-size: 11.5px;
+    color: var(--cpa-faint);
+    text-wrap: pretty;
+}
+
+.cpa-required {
+    color: var(--cpa-accent-text);
+}
+
+/* A field with a trailing control inside it — the password reveal. */
+.cpa-input-wrap,
+.cpa-overlay .cpa-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.cpa-input-wrap .cpa-input {
+    padding-right: 36px;
+}
+
+.cpa-overlay .cpa-input-wrap .cpa-icon-btn {
+    position: absolute;
+    right: 3px;
+}
+
+/* ── Modals ────────────────────────────────────────────────────────────── */
+/* The dialogs render outside .cpa as peers, so .cpa-overlay carries the
+   palette — and the type context with it. Without the font declarations the
+   dialog falls through to Bootstrap's 16px/1.6 body type and every block
+   inside it lands a fraction out. This is the .cpa page rule minus
+   min-height and background, the two that would break a fixed overlay. */
+.cpa-overlay {
+    color: var(--cpa-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.cpa-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    background: var(--cpa-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: cpa-fade .18s ease;
+}
+
+.cpa-modal {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9999;
+    display: grid;
+    place-items: center;
+    padding: var(--cpa-s6);
+    pointer-events: none;
+}
+
+.cpa-dialog {
+    width: min(480px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--cpa-r-lg);
+    background: var(--cpa-bg);
+    box-shadow: var(--cpa-shadow-pop);
+    pointer-events: auto;
+    animation: cpa-rise .2s ease;
+}
+
+.cpa-dialog-lg {
+    width: min(720px, 100%);
+}
+
+.cpa-dialog-xl {
+    width: min(1040px, 100%);
+}
+
+@keyframes cpa-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes cpa-rise {
+    from {
+        transform: translateY(10px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .cpa-scrim,
+    .cpa-dialog {
+        animation: none;
+    }
+}
+
+.cpa-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cpa-s3);
+    padding: var(--cpa-s6) var(--cpa-s8) var(--cpa-s4);
+    flex: none;
+}
+
+.cpa-dialog-head h2 {
+    font-size: 18px;
+    text-wrap: pretty;
+}
+
+.cpa-dialog-sub {
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--cpa-mute-2);
+    text-wrap: pretty;
+}
+
+.cpa-overlay .cpa-dialog-head .cpa-icon-btn {
+    margin-left: auto;
+}
+
+.cpa-dialog-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--cpa-s2) var(--cpa-s8) var(--cpa-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpa-s6);
+}
+
+.cpa-dialog-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--cpa-s3);
+    padding: var(--cpa-s4) var(--cpa-s8);
+    border-top: 1px solid var(--cpa-divider);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.cpa-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--cpa-s4) var(--cpa-s6);
+}
+
+.cpa-form-wide {
+    grid-column: 1 / -1;
+}
+
+.cpa-rule {
+    height: 1px;
+    border: 0;
+    margin: 0;
+    background: linear-gradient(to right,
+        transparent, var(--cpa-divider) 48px,
+        var(--cpa-divider) calc(100% - 48px), transparent);
+}
+
+/* The business-partner picker: a plain field and its result list, rather than
+   MudAutocomplete — a Mud control here would need every one of its own
+   surfaces overridden to reach this palette, and its popover renders in a
+   layer this sheet cannot scope. */
+.cpa-picker {
+    position: relative;
+}
+
+.cpa-picker-list {
+    margin-top: 5px;
+    max-height: 210px;
+    overflow-y: auto;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-surface);
+}
+
+.cpa .cpa-picker-opt,
+.cpa-overlay .cpa-picker-opt {
+    display: block;
+    width: 100%;
+    padding: 8px 11px;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    color: var(--cpa-ink);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.cpa-overlay .cpa-picker-opt + .cpa-picker-opt {
+    border-top: 1px solid var(--cpa-rule);
+}
+
+.cpa-overlay .cpa-picker-opt:hover {
+    background: var(--cpa-hover);
+}
+
+.cpa-picker-code {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .04em;
+    color: var(--cpa-accent-text);
+    margin-right: 7px;
+}
+
+.cpa-picked {
+    display: flex;
+    align-items: center;
+    gap: var(--cpa-s3);
+    padding: 8px 11px;
+    border-radius: var(--cpa-r-md);
+    background: rgba(var(--cpa-accent-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--cpa-accent-rgb), .4);
+    font-size: 13px;
+}
+
+.cpa-picked-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cpa-overlay .cpa-picked .cpa-icon-btn {
+    margin-left: auto;
+}
+
+/* The linked-accounts and activity lists inside a dialog: the page table at a
+   smaller step, with its own scroll box. */
+.cpa-overlay .cpa-mini {
+    width: 100%;
+    min-width: 0;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.cpa-overlay .cpa-mini thead th {
+    text-align: left;
+    padding: 7px 10px;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpa-mute-3);
+    background: transparent;
+    border: 0;
+    white-space: nowrap;
+}
+
+.cpa-overlay .cpa-mini tbody tr {
+    background: none;
+    border-bottom: 1px solid var(--cpa-rule);
+}
+
+.cpa-overlay .cpa-mini tbody tr:hover {
+    background: var(--cpa-hover);
+}
+
+.cpa-overlay .cpa-mini td {
+    padding: 8px 10px;
+    border: 0;
+    color: var(--cpa-ink);
+    vertical-align: middle;
+}
+
+/* The page table's own right-align rule is scoped to .cpa-table, so the
+   dialog tables need their own. */
+.cpa-overlay .cpa-mini td.cpa-td-right {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cpa-mini-wrap {
+    max-height: 280px;
+    overflow: auto;
+    border: 1px solid var(--cpa-divider);
+    border-radius: var(--cpa-r-md);
+}
+
+.cpa-mini-empty {
+    padding: 26px 12px;
+    text-align: center;
+    font-size: 12.5px;
+    color: var(--cpa-mute-3);
+}
+
+/* A checkbox that has to be visible in its own right — the bulk picker's
+   selection column. app.css paints unstyled dark-mode boxes, so this one is
+   drawn from the tokens. */
+.cpa-overlay .cpa-box {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    border-radius: 3px;
+    background: var(--cpa-field-bg);
+    box-shadow: inset 0 0 0 1px var(--cpa-field-edge);
+    cursor: pointer;
+}
+
+.cpa-overlay .cpa-box:checked {
+    background: var(--noct-box);
+    box-shadow: inset 0 0 0 1px var(--noct-box);
+}
+
+.cpa-overlay .cpa-box:checked::after {
+    content: '';
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='8' viewBox='0 0 10 8'%3E%3Cpath d='M1 4.2l2.6 2.6L9 1.4' fill='none' stroke='%23ffffff' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center;
+}
+
+.cpa-overlay .cpa-box:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.cpa-bulk-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--cpa-s3);
+    flex-wrap: wrap;
+}
+
+.cpa-bulk-bar .cpa-field {
+    flex: 1;
+    min-width: 180px;
+}
+
+.cpa-selected-count {
+    font-size: 12.5px;
+    color: var(--cpa-accent-text);
+    font-variant-numeric: tabular-nums;
+}
+
+.cpa-guide {
+    font-size: 12.5px;
+    color: var(--cpa-mute-2);
+    padding: var(--cpa-s3) var(--cpa-s4);
+    border-radius: var(--cpa-r-md);
+    background: var(--cpa-hover);
+    text-wrap: pretty;
+}
+
+.cpa-guide ul {
+    margin: 5px 0 0;
+    padding-left: 18px;
+}
+
+.cpa-guide li + li {
+    margin-top: 3px;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.cpa-scroll::-webkit-scrollbar,
+.cpa-dialog-body::-webkit-scrollbar,
+.cpa-mini-wrap::-webkit-scrollbar,
+.cpa-picker-list::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.cpa-scroll::-webkit-scrollbar-thumb,
+.cpa-dialog-body::-webkit-scrollbar-thumb,
+.cpa-mini-wrap::-webkit-scrollbar-thumb,
+.cpa-picker-list::-webkit-scrollbar-thumb {
+    background: var(--cpa-thumb);
+    border-radius: 8px;
+}
+
+.cpa-scroll::-webkit-scrollbar-track,
+.cpa-dialog-body::-webkit-scrollbar-track,
+.cpa-mini-wrap::-webkit-scrollbar-track,
+.cpa-picker-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+/* Below the split's own minimum the detail panel stops being a column: it
+   goes full width and un-sticks, above the list rather than beside it, so
+   neither has to be read out of a horizontal scroll. */
+@media (max-width: 1100px) {
+    .cpa-split {
+        flex-direction: column-reverse;
+    }
+
+    .cpa-panel,
+    .cpa-side {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .cpa-side {
+        position: static;
+    }
+}
+
+@media (max-width: 820px) {
+    .cpa-scroll {
+        overflow-x: visible;
+    }
+
+    .cpa .cpa-table,
+    .cpa .cpa-table thead,
+    .cpa .cpa-table tbody,
+    .cpa .cpa-table tr {
+        display: block;
+        min-width: 0;
+    }
+
+    /* A cell becomes a wrapping run so its row label sits beside the value
+       rather than above it — the stacked parts are blocks in the table
+       layout, and blocks would each take a line of their own here. */
+    .cpa .cpa-table td {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px 7px;
+        min-width: 0;
+    }
+
+    .cpa .cpa-table thead {
+        display: none;
+    }
+
+    .cpa .cpa-table tbody tr {
+        padding: var(--cpa-s3) var(--cpa-s6);
+        border-bottom: 1px solid var(--cpa-rule);
+        background: none;
+    }
+
+    .cpa .cpa-table tbody tr:hover {
+        background: var(--cpa-hover);
+    }
+
+    .cpa .cpa-table tbody tr.cpa-row-on,
+    .cpa .cpa-table tbody tr.cpa-row-on:hover {
+        background: rgba(var(--cpa-accent-rgb), .14);
+    }
+
+    .cpa .cpa-table td {
+        padding: 3px 0;
+    }
+
+    .cpa .cpa-table td.cpa-td-right {
+        display: none;
+    }
+
+    .cpa-rl {
+        display: inline;
+        margin-right: 6px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--cpa-faint);
+    }
+}
+
+@media (max-width: 760px) {
+    .cpa-body {
+        padding: var(--cpa-s8) 18px 56px;
+    }
+
+    .cpa-hero-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .cpa-hero h1 {
+        font-size: 22px;
+    }
+
+    .cpa-sum-cell {
+        border-left: 0;
+        border-top: 1px solid var(--cpa-divider);
+    }
+
+    .cpa-seg {
+        width: 100%;
+    }
+
+    .cpa .cpa-seg-opt {
+        flex: 1;
+        justify-content: center;
+        padding-inline: 6px;
+    }
+
+    .cpa-facts,
+    .cpa-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cpa-state {
+        padding: 40px 20px;
+    }
+
+    .cpa-dialog-head,
+    .cpa-dialog-body,
+    .cpa-dialog-foot {
+        padding-inline: var(--cpa-s6);
+    }
+
+    .cpa-dialog-foot .cpa-btn {
+        flex: 1;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .cpa .cpa-input,
+    .cpa-overlay .cpa-input {
+        font-size: 16px;
+    }
+}

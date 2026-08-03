@@ -1,2144 +1,1177 @@
 @page "/customer-portal-management"
-@using ShopInventory.Web.Models
-@using ShopInventory.Web.Services
 @using ShopInventory.Web.Data
-@using Microsoft.EntityFrameworkCore
-@using Microsoft.AspNetCore.Components.Authorization
-@using MudBlazor
 @attribute [Authorize(Roles = "Admin")]
-@inject IBusinessPartnerService BusinessPartnerService
-@inject ICustomerLinkedAccountService LinkedAccountService
-@inject IDbContextFactory<WebAppDbContext> DbContextFactory
-@inject IJSRuntime JS
-@inject ILogger<CustomerPortalManagement> Logger
 @rendermode InteractiveServer
 
-<PageTitle>Customer Portal Management - Shop Inventory</PageTitle>
-
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .cpm-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .cpm-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cpm-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .cpm-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #0d9488, #0f766e);
-        box-shadow: 0 4px 14px rgba(13, 148, 136, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .cpm-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .cpm-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .btn-cpm-gradient {
-        background: linear-gradient(135deg, #0d9488, #0f766e);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(13, 148, 136, .25);
-        cursor: pointer;
-    }
-
-    .btn-cpm-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(13, 148, 136, .4);
-        color: #fff;
-    }
-
-    /* ── Stat Cards ───────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 1rem 1.15rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: transform .15s, box-shadow .15s;
-    }
-
-    .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.total {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.active {
-        background: #dcfce7;
-        color: #22c55e;
-    }
-
-    .stat-icon.inactive {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .stat-icon.locked {
-        background: #fee2e2;
-        color: #ef4444;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.1;
-    }
-
-    .stat-info .stat-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .filter-bar .filter-field {
-        flex: 1;
-        min-width: 140px;
-    }
-
-    .filter-bar .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-bar .filter-field input,
-    .filter-bar .filter-field select {
-        width: 100%;
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .filter-bar .filter-field input:focus,
-    .filter-bar .filter-field select:focus {
-        outline: none;
-        border-color: #0d9488;
-        box-shadow: 0 0 0 3px rgba(13, 148, 136, .15);
-    }
-
-    .btn-filter {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        color: #374151;
-        padding: .5rem 1rem;
-        border-radius: 8px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        font-size: .85rem;
-    }
-
-    .btn-filter:hover {
-        background: #f3f4f6;
-        border-color: #d1d5db;
-    }
-
-    /* ── Table ────────────────────────────────────────── */
-    .cpm-table-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
-        overflow: hidden;
-    }
-
-    .cpm-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .cpm-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .7rem .85rem;
-        border-bottom: 2px solid #e5e7eb;
-        white-space: nowrap;
-    }
-
-    .cpm-table td {
-        padding: .65rem .85rem;
-        border-bottom: 1px solid #f3f4f6;
-        vertical-align: middle;
-        color: #374151;
-    }
-
-    .cpm-table tbody tr:hover {
-        background: #f8fafb;
-    }
-
-    .cpm-table tbody tr:last-child td {
-        border-bottom: none;
-    }
-
-    .cpm-code {
-        font-family: 'SF Mono', 'Fira Code', monospace;
-        background: #f3f4f6;
-        padding: .15rem .45rem;
-        border-radius: 4px;
-        font-size: .82rem;
-        font-weight: 500;
-        color: #1f2937;
-    }
-
-    .cpm-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .55rem;
-        border-radius: 6px;
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .3px;
-    }
-
-    .badge-active {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .badge-inactive {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .badge-locked {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .badge-multi {
-        background: #dbeafe;
-        color: #1e40af;
-    }
-
-    .badge-single {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    .badge-enabled {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .badge-disabled {
-        background: #f9fafb;
-        color: #9ca3af;
-    }
-
-    .cpm-actions {
-        display: flex;
-        gap: .3rem;
-        justify-content: flex-end;
-    }
-
-    .cpm-action-btn {
-        width: 30px;
-        height: 30px;
-        border-radius: 6px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .8rem;
-        color: #374151;
-        padding: 0;
-        min-width: 30px !important;
-    }
-
-    .cpm-action-btn:hover {
-        background: #f3f4f6;
-        border-color: #d1d5db;
-    }
-
-    .cpm-action-btn.edit:hover {
-        background: #eff6ff;
-        border-color: #93c5fd;
-        color: #2563eb;
-    }
-
-    .cpm-action-btn.key:hover {
-        background: #fffbeb;
-        border-color: #fcd34d;
-        color: #d97706;
-    }
-
-    .cpm-action-btn.stmt:hover {
-        background: #ecfdf5;
-        border-color: #6ee7b7;
-        color: #059669;
-    }
-
-    .cpm-action-btn.link:hover {
-        background: #eef2ff;
-        border-color: #a5b4fc;
-        color: #6366f1;
-    }
-
-    .cpm-action-btn.unlock:hover {
-        background: #f0fdf4;
-        border-color: #86efac;
-        color: #22c55e;
-    }
-
-    .cpm-action-btn.delete:hover {
-        background: #fef2f2;
-        border-color: #fca5a5;
-        color: #dc2626;
-    }
-
-    /* ── Alert ────────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.success-alert {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    /* ── Empty State ─────────────────────────────────── */
-    .cpm-empty {
-        text-align: center;
-        padding: 3rem 1rem;
-        color: #9ca3af;
-    }
-
-    .cpm-empty-icon {
-        width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.5rem;
-        margin-bottom: .75rem;
-        color: #d1d5db;
-    }
-
-    .cpm-empty h5 {
-        color: #6b7280;
-        font-weight: 600;
-        margin-bottom: .3rem;
-    }
-
-    .cpm-empty p {
-        font-size: .85rem;
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@media (max-width: 768px) {
-        .cpm-header {
-            flex-direction: column;
-        }
-
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .filter-bar {
-            flex-direction: column;
-        }
-
-        .cpm-actions {
-            flex-wrap: wrap;
-        }
-    }
-</style>
-
-<div class="cpm-page">
-    <div class="container-fluid" style="max-width: 1400px;">
-
-        <!-- Header -->
-        <div class="cpm-header">
-            <div class="cpm-header-left">
-                <div class="cpm-header-icon">
-                    <i class="bi bi-people"></i>
+<PageTitle>Customer portal accounts - Shop Inventory</PageTitle>
+
+@* The imported Nocturne design is dark; wwwroot/css/customer-portal-accounts.css
+   (linked from App.razor) carries it and its light counterpart, and follows the
+   app's theme toggle like every other Nocturne page.
+
+   The design's shape is a list beside a sticky detail panel, so the common
+   changes — a statement preference, two-factor, a suspension — happen next to
+   the row they apply to rather than behind a modal. Only the things that
+   genuinely need a form of their own are dialogs: creating and editing an
+   account, resetting a password, deleting, the linked-account hierarchy, and
+   the read-only activity log.
+
+   Icons are drawn inline rather than from the Phosphor font: several are the
+   only content of their control, so a font that failed to load would leave
+   them reading as nothing.
+
+   The list is a plain table filtered in memory. Portal accounts are
+   admin-configured records numbering in the dozens, and the design asks for
+   live search, per-status counts and sortable columns — each of which would
+   otherwise be a server round trip. *@
+
+<div class="cpa">
+    <div class="cpa-body">
+
+        <section class="cpa-hero">
+            <div class="cpa-hero-text">
+                <div class="cpa-crumbs">
+                    <span>Administration</span><span aria-hidden="true">/</span><span>Portal management</span>
                 </div>
-                <div>
-                    <h2>Customer Portal Management</h2>
-                    <p>Manage customer portal access and credentials</p>
-                </div>
+                <h1>Customer portal accounts</h1>
+                <p>Who can sign in to the customer portal, and what they can see there.</p>
             </div>
-            <button class="btn-cpm-gradient" @onclick="ShowCreateModal">
-                <i class="bi bi-plus-circle"></i> Add Customer Account
-            </button>
-        </div>
+            <div class="cpa-hero-actions">
+                @if (lastSyncedAt.HasValue)
+                {
+                    <span class="cpa-synced">Loaded @lastSyncedAt.Value.ToString("d MMM yyyy, HH:mm")</span>
+                }
+                <button type="button" class="cpa-btn cpa-btn-quiet" disabled="@isLoading" @onclick="Refresh">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                        <path d="M4 4v4h4"></path>
+                        <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                        <path d="M20 20v-4h-4"></path>
+                    </svg>
+                    Refresh
+                </button>
+                <button type="button" class="cpa-btn cpa-btn-primary" @onclick="OpenCreateDialog">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                    Add account
+                </button>
+            </div>
+        </section>
 
-        <!-- Stats -->
-        <div class="stat-row">
-            <div class="stat-card">
-                <div class="stat-icon total"><i class="bi bi-people-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@totalAccounts</div>
-                    <div class="stat-label">Total Accounts</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon active"><i class="bi bi-check-circle-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@activeAccounts</div>
-                    <div class="stat-label">Active</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon inactive"><i class="bi bi-x-circle-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@inactiveAccounts</div>
-                    <div class="stat-label">Inactive</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon locked"><i class="bi bi-lock-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@lockedAccounts</div>
-                    <div class="stat-label">Locked</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Alerts -->
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="alert-banner success-alert">
-                <i class="bi bi-check-circle-fill"></i>
-                <div style="flex:1;">@successMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => successMessage = null)"
-                               Size="Size.Small" Style="color:inherit;opacity:.45;" />
+            <div class="cpa-msg cpa-msg-good" role="status">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 12.5l5 5L20 7"></path>
+                </svg>
+                <span class="cpa-msg-text">@successMessage</span>
+                <button type="button" class="cpa-icon-btn" aria-label="Dismiss" @onclick="() => successMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
         }
+
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div style="flex:1;">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => errorMessage = null)" Size="Size.Small"
-                               Style="color:inherit;opacity:.45;" />
+            <div class="cpa-msg cpa-msg-bad" role="alert">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span class="cpa-msg-text">@errorMessage</span>
+                <button type="button" class="cpa-icon-btn" aria-label="Dismiss" @onclick="() => errorMessage = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
         }
 
-        <!-- Filter Bar -->
-        <div class="filter-bar">
-            <div class="filter-field" style="flex:2;">
-                <label>Search</label>
-                <input type="text" placeholder="Search by card code, name or email…" @bind="searchTerm"
-                       @bind:event="oninput" @onkeyup="OnSearchKeyUp" />
-            </div>
-            <div class="filter-field" style="flex:1;">
-                <label>Status</label>
-                <select @bind="statusFilter" @bind:after="LoadCustomers">
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="locked">Locked</option>
-                </select>
-            </div>
-            <button class="btn-filter" @onclick="LoadCustomers" style="margin-bottom:1px;">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
-        </div>
+        @if (isLoading)
+        {
+            <section class="cpa-loading" aria-busy="true">
+                <div class="cpa-loading-text">Loading portal accounts&#8230;</div>
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div class="cpa-skel" style="animation-delay: @((i * 0.09).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture))s"></div>
+                }
+            </section>
+        }
+        else if (accounts.Count == 0)
+        {
+            <section class="cpa-state">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="14" cy="9" r="4"></circle>
+                    <path d="M7.5 20a7 7 0 0 1 13 0"></path>
+                    <path d="M2 8h4M2 12h3M2 16h4"></path>
+                </svg>
+                <h2>No portal accounts yet</h2>
+                <p>
+                    Create an account against a customer card code to give them statements, invoices and
+                    delivery notes online.
+                </p>
+                <button type="button" class="cpa-btn cpa-btn-primary" @onclick="OpenCreateDialog">
+                    Add customer account
+                </button>
+            </section>
+        }
+        else
+        {
+            var rows = Filtered;
 
-        <!-- Table -->
-        <div class="cpm-table-card">
-            @if (isLoading)
-            {
-                <div style="text-align:center; padding:3rem;">
-                    <div class="spinner-border" style="color:#0d9488;" role="status"></div>
-                    <p style="color:#6b7280; font-size:.88rem; margin-top:.75rem;">Loading customer accounts…</p>
+            <section class="cpa-summary">
+                <div class="cpa-sum-lead">
+                    <div class="cpa-sum-headline">
+                        <div class="cpa-sum-total">@TotalCount</div>
+                        <div class="cpa-sum-of">@ActiveCount of @TotalCount active</div>
+                    </div>
+                    <div class="cpa-meter" role="img" aria-label="@ActivePercent% of portal accounts are active">
+                        <div class="cpa-meter-fill" style="width: @ActivePercent%"></div>
+                    </div>
+                    <div class="cpa-sum-label">Portal accounts</div>
                 </div>
-            }
-            else if (customers == null || !customers.Any())
-            {
-                <div class="cpm-empty">
-                    <div class="cpm-empty-icon"><i class="bi bi-people"></i></div>
-                    <h5>No Customer Accounts</h5>
-                    <p>Click "Add Customer Account" to create a new customer portal account.</p>
+                <div class="cpa-sum-cell">
+                    <div class="cpa-sum-num cpa-sum-num-lead">@ActiveCount</div>
+                    <div class="cpa-sum-label">Active</div>
+                    <div class="cpa-sum-note">Can sign in today</div>
                 </div>
-            }
-            else
-            {
-                <div style="overflow-x:auto;">
-                    <table class="cpm-table">
-                        <thead>
-                            <tr>
-                                <th>Card Code</th>
-                                <th>Customer Name</th>
-                                <th>Email</th>
-                                <th>Account Type</th>
-                                <th>Statements</th>
-                                <th>Status</th>
-                                <th>2FA</th>
-                                <th>Last Login</th>
-                                <th>Created</th>
-                                <th style="text-align:right;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var customer in customers)
+                <div class="cpa-sum-cell">
+                    <div class="cpa-sum-num">@InactiveCount</div>
+                    <div class="cpa-sum-label">Inactive</div>
+                    <div class="cpa-sum-note">Access suspended</div>
+                </div>
+                <div class="cpa-sum-cell">
+                    <div class="cpa-sum-num">@LockedCount</div>
+                    <div class="cpa-sum-label">Locked</div>
+                    <div class="cpa-sum-note">Failed sign-in lockouts</div>
+                </div>
+            </section>
+
+            <div class="cpa-split">
+
+                <section class="cpa-panel">
+                    <div class="cpa-panel-head">
+                        <label class="cpa-search">
+                            <span class="visually-hidden">Search portal accounts</span>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                                <circle cx="11" cy="11" r="7"></circle>
+                                <path d="M20 20l-3.5-3.5"></path>
+                            </svg>
+                            <input class="cpa-input cpa-input-search" type="search" autocomplete="off"
+                                   placeholder="Card code, customer or email"
+                                   @bind="searchTerm" @bind:event="oninput" />
+                        </label>
+                        <div class="cpa-seg" role="group" aria-label="Account status">
+                            @foreach (var (value, label) in StatusFilters)
                             {
-                                <tr>
-                                    <td><span class="cpm-code">@customer.CardCode</span></td>
-                                    <td style="font-weight:500;">@customer.CardName</td>
-                                    <td>@(customer.Email ?? "—")</td>
-                                    <td>
-                                        @if (customer.AccountStructure == "Multi")
-                                        {
-                                            <span class="cpm-badge badge-multi">
-                                                <i class="bi bi-diagram-3"></i> Multi
-                                            </span>
-                                            <div style="font-size:.72rem; color:#9ca3af; margin-top:.15rem;">
-                                                @(customer.LinkedAccounts?.Count ?? 0) linked
-                                            </div>
-                                        }
-                                        else
-                                        {
-                                            <span class="cpm-badge badge-single">Single</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (customer.ReceiveStatements)
-                                        {
-                                            <span class="cpm-badge badge-enabled">
-                                                <i class="bi bi-bell-fill"></i> On
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="cpm-badge badge-disabled">Off</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
-                                        {
-                                            <span class="cpm-badge badge-locked">
-                                                <i class="bi bi-lock-fill"></i> Locked
-                                            </span>
-                                        }
-                                        else if (customer.IsActive)
-                                        {
-                                            <span class="cpm-badge badge-active">
-                                                <i class="bi bi-check-circle"></i> Active
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span class="cpm-badge badge-inactive">Inactive</span>
-                                        }
-                                    </td>
-                                    <td>
-                                        @if (customer.TwoFactorEnabled)
-                                        {
-                                            <span class="cpm-badge badge-enabled">
-                                                <i class="bi bi-shield-check"></i> On
-                                            </span>
-                                        }
-                                        else
-                                        {
-                                            <span style="color:#d1d5db;">—</span>
-                                        }
-                                    </td>
-                                    <td style="font-size:.82rem; color:#6b7280;">
-                                        @(customer.LastLoginAt?.ToString("MMM dd, yyyy HH:mm") ?? "Never")
-                                    </td>
-                                    <td style="font-size:.82rem; color:#6b7280;">
-                                        @customer.CreatedAt.ToString("MMM dd, yyyy")
-                                    </td>
-                                    <td>
-                                        <div class="cpm-actions">
-                                            <MudButton Class="cpm-action-btn edit" title="Edit"
-                                                       OnClick="@(() => ShowEditModal(customer))">
-                                                <i class="bi bi-pencil"></i>
-                                            </MudButton>
-                                            <MudButton Class="cpm-action-btn key" title="Reset Password"
-                                                       OnClick="@(() => ShowResetPasswordModal(customer))">
-                                                <i class="bi bi-key"></i>
-                                            </MudButton>
-                                            <MudButton Class="cpm-action-btn stmt" title="Toggle Statements"
-                                                       OnClick="@(() => ToggleStatementPreference(customer))">
-                                                <i
-                                                class="bi @(customer.ReceiveStatements ? "bi-bell-fill" : "bi-bell-slash")"></i>
-                                            </MudButton>
-                                            <MudButton Class="cpm-action-btn link" title="Manage Linked Accounts"
-                                                       OnClick="@(() => ShowLinkedAccountsModal(customer))">
-                                                <i class="bi bi-diagram-3"></i>
-                                            </MudButton>
-                                            @if (customer.LockedUntil.HasValue && customer.LockedUntil > DateTime.UtcNow)
-                                            {
-                                                <MudButton Class="cpm-action-btn unlock" title="Unlock Account"
-                                                           OnClick="@(() => UnlockAccount(customer))">
-                                                    <i class="bi bi-unlock"></i>
-                                                </MudButton>
-                                            }
-                                            <MudButton Class="cpm-action-btn delete" title="Delete"
-                                                       OnClick="@(() => ShowDeleteConfirmation(customer))">
-                                                <i class="bi bi-trash"></i>
-                                            </MudButton>
-                                        </div>
-                                    </td>
-                                </tr>
+                                <button type="button" class="cpa-seg-opt @(statusFilter == value ? "cpa-seg-on" : "")"
+                                        aria-pressed="@(statusFilter == value)" @onclick="() => SetStatusFilter(value)">
+                                    @label
+                                    @if (value != FilterAll)
+                                    {
+                                        <span class="cpa-seg-count">@CountOf(value)</span>
+                                    }
+                                </button>
                             }
-                        </tbody>
-                    </table>
-                </div>
-            }
-        </div>
+                        </div>
+                    </div>
+
+                    @if (rows.Count == 0)
+                    {
+                        <div class="cpa-nomatch">
+                            No accounts match this filter. Clear the search or switch back to all statuses.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cpa-scroll">
+                            <table class="cpa-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">
+                                            <button type="button" class="cpa-sort @(sortKey == SortName ? "cpa-sort-on" : "")"
+                                                    @onclick="() => SortBy(SortName)">
+                                                Account<span class="cpa-arrow" aria-hidden="true">@SortArrow(SortName)</span>
+                                            </button>
+                                        </th>
+                                        <th scope="col">
+                                            <button type="button" class="cpa-sort @(sortKey == SortCode ? "cpa-sort-on" : "")"
+                                                    @onclick="() => SortBy(SortCode)">
+                                                Card code<span class="cpa-arrow" aria-hidden="true">@SortArrow(SortCode)</span>
+                                            </button>
+                                        </th>
+                                        <th scope="col">
+                                            <button type="button" class="cpa-sort @(sortKey == SortStatus ? "cpa-sort-on" : "")"
+                                                    @onclick="() => SortBy(SortStatus)">
+                                                Status<span class="cpa-arrow" aria-hidden="true">@SortArrow(SortStatus)</span>
+                                            </button>
+                                        </th>
+                                        <th scope="col">Access</th>
+                                        <th scope="col">
+                                            <button type="button" class="cpa-sort @(sortKey == SortLastLogin ? "cpa-sort-on" : "")"
+                                                    @onclick="() => SortBy(SortLastLogin)">
+                                                Last login<span class="cpa-arrow" aria-hidden="true">@SortArrow(SortLastLogin)</span>
+                                            </button>
+                                        </th>
+                                        <th scope="col" class="cpa-th-right"><span class="visually-hidden">Select</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var account in rows)
+                                    {
+                                        var status = StatusOf(account);
+                                        var isOn = account.Id == selectedId;
+
+                                        <tr class="@(isOn ? "cpa-row-on" : "")" @onclick="() => SelectAccount(account)">
+                                            <td>
+                                                <div class="cpa-account">
+                                                    <span class="cpa-avatar" aria-hidden="true">@Initials(account.CardName)</span>
+                                                    <span class="cpa-account-text">
+                                                        <span class="cpa-name">@account.CardName</span>
+                                                        <span class="cpa-email">@Dash(account.Email)</span>
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td class="cpa-td-nowrap">
+                                                <span class="cpa-codes">
+                                                    <span class="cpa-code">@account.CardCode</span>
+                                                    @foreach (var linked in account.LinkedAccounts
+                                                        .Where(l => l.CardCode != account.CardCode).Take(2))
+                                                    {
+                                                        <span class="cpa-code">@linked.CardCode</span>
+                                                    }
+                                                    @{
+                                                        var extra = account.LinkedAccounts
+                                                            .Count(l => l.CardCode != account.CardCode) - 2;
+                                                    }
+                                                    @if (extra > 0)
+                                                    {
+                                                        <span class="cpa-code">+@extra</span>
+                                                    }
+                                                </span>
+                                                <span class="cpa-type">@StructureLabel(account)</span>
+                                            </td>
+                                            <td>
+                                                <span class="cpa-status cpa-status-@status">
+                                                    <span class="cpa-dot" aria-hidden="true"></span>@StatusLabel(status)
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="cpa-rl">Access</span>
+                                                <span class="cpa-access">
+                                                    <span class="cpa-chip @(account.ReceiveStatements ? "cpa-chip-on" : "")">
+                                                        @(account.ReceiveStatements ? "Statements" : "No statements")
+                                                    </span>
+                                                    <span class="cpa-chip @(account.TwoFactorEnabled ? "cpa-chip-on" : "")">
+                                                        @(account.TwoFactorEnabled ? "2FA on" : "2FA off")
+                                                    </span>
+                                                </span>
+                                            </td>
+                                            <td class="cpa-td-nowrap">
+                                                <span class="cpa-rl">Last login</span>
+                                                <span class="cpa-when">@When(account.LastLoginAt)</span>
+                                                <span class="cpa-when-sub">Created @Day(account.CreatedAt)</span>
+                                            </td>
+                                            <td class="cpa-td-right">
+                                                <span class="cpa-chevron" aria-hidden="true">&#8250;</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+
+                    <div class="cpa-panel-foot">
+                        <span>Showing @rows.Count of @TotalCount accounts</span>
+                        <button type="button" class="cpa-btn cpa-btn-ghost cpa-btn-sm"
+                                disabled="@(isExporting || rows.Count == 0)" @onclick="() => ExportCsv(rows)">
+                            @if (isExporting)
+                            {
+                                <span class="cpa-spin" aria-hidden="true"></span>
+                                <span>Exporting&#8230;</span>
+                            }
+                            else
+                            {
+                                <span>Export account list</span>
+                            }
+                        </button>
+                    </div>
+                </section>
+
+                <aside class="cpa-side" aria-label="Account detail">
+                    @* `is not { } selected` rather than a plain local: the
+                       designation is definitely assigned wherever the pattern
+                       matched — the else branch — so the detail block's
+                       lambdas capture a non-nullable account, which a local
+                       narrowed by an `is null` test would not give them. *@
+                    @if (Selected is not { } selected)
+                    {
+                        <div class="cpa-side-none">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                                <path d="M7 9h10M7 13h10M7 17h6"></path>
+                            </svg>
+                            <div class="cpa-side-none-title">No account selected</div>
+                            <p>
+                                Pick a row to manage credentials, statement access and two-factor sign-in without
+                                leaving the list.
+                            </p>
+                        </div>
+                    }
+                    else
+                    {
+                        var status = StatusOf(selected);
+
+                        <div class="cpa-side-head">
+                            <div class="cpa-side-id">
+                                <span class="cpa-avatar cpa-avatar-lg" aria-hidden="true">@Initials(selected.CardName)</span>
+                                <div style="min-width:0">
+                                    <h2>@selected.CardName</h2>
+                                    <div class="cpa-side-email">@Dash(selected.Email)</div>
+                                </div>
+                                <button type="button" class="cpa-icon-btn" style="margin-left:auto"
+                                        title="Edit account" aria-label="Edit account"
+                                        @onclick="() => OpenEditDialog(selected)">
+                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+                                         aria-hidden="true">
+                                        <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"></path>
+                                        <path d="M14.5 6.5l3 3"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="cpa-tags">
+                                <span class="cpa-tag cpa-tag-accent">@StatusLabel(status)</span>
+                                <span class="cpa-tag cpa-tag-outline">@StructureLabel(selected)</span>
+                                <span class="cpa-tag">@selected.CardCode</span>
+                            </div>
+                        </div>
+
+                        <div class="cpa-side-section">
+                            <div class="cpa-side-label">Access</div>
+                            <label class="cpa-switch">
+                                <input type="checkbox" checked="@selected.ReceiveStatements" disabled="@isSaving"
+                                       @onchange="() => ToggleStatements(selected)" />
+                                <span class="cpa-track" aria-hidden="true"><span class="cpa-knob"></span></span>
+                                <span class="cpa-switch-text">
+                                    <span class="cpa-switch-title">Monthly statements</span>
+                                    <span class="cpa-switch-note">Emailed on the 1st, visible in portal</span>
+                                </span>
+                            </label>
+                            <label class="cpa-switch">
+                                <input type="checkbox" checked="@selected.TwoFactorEnabled" disabled="@isSaving"
+                                       @onchange="() => ToggleTwoFactor(selected)" />
+                                <span class="cpa-track" aria-hidden="true"><span class="cpa-knob"></span></span>
+                                <span class="cpa-switch-text">
+                                    <span class="cpa-switch-title">Two-factor sign-in</span>
+                                    <span class="cpa-switch-note">One-time code by email</span>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="cpa-facts">
+                            <div>
+                                <div class="cpa-fact-label">Phone</div>
+                                <div class="cpa-fact-value cpa-fact-num">@Dash(selectedPartner?.Phone1)</div>
+                            </div>
+                            <div>
+                                <div class="cpa-fact-label">Currency</div>
+                                <div class="cpa-fact-value">@Dash(selectedPartner?.Currency)</div>
+                            </div>
+                            <div>
+                                <div class="cpa-fact-label">Open balance</div>
+                                <div class="cpa-fact-value cpa-fact-num">@Money(selectedPartner?.Balance)</div>
+                            </div>
+                            <div>
+                                <div class="cpa-fact-label">Linked accounts</div>
+                                <div class="cpa-fact-value cpa-fact-num">@selected.LinkedAccounts.Count</div>
+                            </div>
+                            <div>
+                                <div class="cpa-fact-label">Password set</div>
+                                <div class="cpa-fact-value">@Day(selected.LastPasswordChangeAt ?? selected.CreatedAt)</div>
+                            </div>
+                            <div>
+                                <div class="cpa-fact-label">Failed sign-ins</div>
+                                <div class="cpa-fact-value cpa-fact-num">@selected.FailedLoginAttempts</div>
+                            </div>
+                        </div>
+
+                        <div class="cpa-side-actions">
+                            <button type="button" class="cpa-btn cpa-btn-primary cpa-btn-block" @onclick="OpenResetDialog">
+                                Reset password
+                            </button>
+                            <div class="cpa-side-pair">
+                                <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="OpenLinkedDialog">
+                                    Linked accounts
+                                </button>
+                                <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="OpenActivityDialog">
+                                    Activity
+                                </button>
+                            </div>
+                            <div class="cpa-side-quiet">
+                                @if (status == StatusLocked)
+                                {
+                                    <button type="button" class="cpa-btn cpa-btn-ghost cpa-btn-sm" disabled="@isSaving"
+                                            @onclick="() => UnlockAccount(selected)">
+                                        Unlock account
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="cpa-btn cpa-btn-ghost cpa-btn-sm" disabled="@isSaving"
+                                            @onclick="() => ToggleSuspended(selected)">
+                                        @(selected.IsActive ? "Suspend access" : "Restore access")
+                                    </button>
+                                }
+                                <button type="button" class="cpa-btn cpa-btn-danger cpa-btn-sm" @onclick="OpenDeleteDialog">
+                                    Delete account
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </aside>
+            </div>
+        }
+
     </div>
 </div>
 
-<!-- Create/Edit Customer Modal -->
-@if (showModal)
+@* The dialogs are peers of the page root rather than children, so they carry
+   .cpa-overlay: the sheet pairs that class with .cpa everywhere the palette and
+   the controls are scoped. Neither element may carry .cpa itself — its
+   min-height: 100vh would beat a dialog's own height and push its footer below
+   the fold. *@
+
+@if (showFormDialog)
 {
-    <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header" style="background: linear-gradient(135deg, #0d9488, #0f766e); color: white;">
-                    <h5 class="modal-title">
-                        <i class="bi bi-person-plus me-2"></i>
-                        @(isEditing ? "Edit Customer Account" : "Create Customer Account")
-                    </h5>
-                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseModal" Size="Size.Small"
-                                   Style="color: white;" />
-                </div>
-                <div class="modal-body">
-                    <EditForm Model="@formModel" OnValidSubmit="HandleSubmit">
-                        <DataAnnotationsValidator />
-
-                        @if (!isEditing)
-                        {
-                            <div class="mb-3">
-                                <label class="form-label fw-bold">Select Customer</label>
-                                <MudAutocomplete T="CachedBusinessPartner" Label="Search by Card Code or Name"
-                                                 @bind-Value="selectedBusinessPartner" SearchFunc="@SearchCustomersFromDbAsync"
-                                                 ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
-                                                 ShowProgressIndicator="true" MinCharacters="1" Immediate="true" ResetValueOnEmptyText="true"
-                                                 CoerceText="false" CoerceValue="false" Variant="Variant.Outlined" Dense="true"
-                                                 Margin="Margin.Dense" Clearable="true" Style="width: 100%;" Class="customer-autocomplete"
-                                                 DebounceInterval="300" MaxItems="15" AdornmentIcon="@Icons.Material.Filled.Search"
-                                                 AdornmentColor="Color.Primary">
-                                    <ItemTemplate Context="bp">
-                                        <MudText>
-                                            <b>@bp.CardCode</b> - @bp.CardName
-                                            @if (!string.IsNullOrEmpty(bp.Email))
-                                            {
-                                                <MudText Typo="Typo.caption" Class="ms-2">(@bp.Email)</MudText>
-                                            }
-                                        </MudText>
-                                    </ItemTemplate>
-                                    <NoItemsTemplate>
-                                        <MudText Class="px-3 py-2">
-                                            <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Class="me-1" />
-                                            No customers found
-                                        </MudText>
-                                    </NoItemsTemplate>
-                                </MudAutocomplete>
-                                <small class="text-muted">Type to search customers from the database</small>
-                            </div>
-
-                            <hr />
-                        }
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Card Code <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" @bind="formModel.CardCode" readonly="@isEditing" />
-                                <ValidationMessage For="@(() => formModel.CardCode)" />
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Customer Name <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" @bind="formModel.CardName" />
-                                <ValidationMessage For="@(() => formModel.CardName)" />
-                            </div>
+    <div class="cpa-overlay">
+        <div class="cpa-scrim" @onclick="CloseFormDialog"></div>
+        <div class="cpa-modal">
+            <div class="cpa-dialog cpa-dialog-lg" role="dialog" aria-modal="true" aria-label="Portal account">
+                <div class="cpa-dialog-head">
+                    <div>
+                        <h2>@(isEditing ? "Edit portal account" : "New portal account")</h2>
+                        <div class="cpa-dialog-sub">
+                            @(isEditing
+                                ? "The card code is fixed once the account exists."
+                                : "Pick the customer this account signs in as, then set its first password.")
                         </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Email <span class="text-danger">*</span></label>
-                            <input type="email" class="form-control" @bind="formModel.Email" />
-                            <ValidationMessage For="@(() => formModel.Email)" />
-                        </div>
-
-                        @if (!isEditing)
-                        {
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Password <span class="text-danger">*</span></label>
-                                    <div class="input-group">
-                                        <input type="@(showPassword ? "text" : "password")" class="form-control"
-                                               @bind="formModel.Password" />
-                                        <MudIconButton
-                                        Icon="@(showPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                        OnClick="@(() => showPassword = !showPassword)" />
-                                    </div>
-                                    <ValidationMessage For="@(() => formModel.Password)" />
-                                    <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Confirm Password <span class="text-danger">*</span></label>
-                                    <input type="@(showPassword ? "text" : "password")" class="form-control"
-                                           @bind="formModel.ConfirmPassword" />
-                                    <ValidationMessage For="@(() => formModel.ConfirmPassword)" />
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                           OnClick="GenerateRandomPassword">
-                                    <i class="bi bi-shuffle me-1"></i>Generate Strong Password
-                                </MudButton>
-                            </div>
-                        }
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" @bind="formModel.IsActive"
-                                           id="isActive" />
-                                    <label class="form-check-label" for="isActive">Account Active</label>
-                                </div>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" @bind="formModel.TwoFactorEnabled"
-                                           id="twoFactor" />
-                                    <label class="form-check-label" for="twoFactor">Require 2FA</label>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-12 mb-3">
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" @bind="formModel.ReceiveStatements"
-                                           id="receiveStatements" />
-                                    <label class="form-check-label" for="receiveStatements">Send scheduled
-                                        statements</label>
-                                    </div>
-                                </div>
-                            </div>
-                        </EditForm>
                     </div>
-                    <div class="modal-footer">
-                        <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseModal">Cancel</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="HandleSubmit" Disabled="@isSaving"
-                                   Style="background: #0d9488; border-color: #0d9488;">
-                            @if (isSaving)
+                    <button type="button" class="cpa-icon-btn" aria-label="Close" @onclick="CloseFormDialog">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="cpa-dialog-body">
+                    @if (!isEditing)
+                    {
+                        <div class="cpa-field cpa-picker">
+                            <span class="cpa-label">Customer</span>
+                            @if (pickedPartner is not null)
                             {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                <div class="cpa-picked">
+                                    <span class="cpa-picker-code">@pickedPartner.CardCode</span>
+                                    <span class="cpa-picked-name">@pickedPartner.CardName</span>
+                                    <button type="button" class="cpa-icon-btn" aria-label="Clear selection"
+                                            @onclick="ClearPickedPartner">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                            <path d="M6 6l12 12M18 6L6 18"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             }
-                            @(isEditing ? "Update Account" : "Create Account")
-                        </MudButton>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-
-    <!-- Reset Password Modal -->
-    @if (showResetPasswordModal)
-    {
-        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header bg-warning text-dark">
-                        <h5 class="modal-title"><i class="bi bi-key me-2"></i>Reset Password</h5>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => showResetPasswordModal = false)"
-                                       Size="Size.Small" />
-                    </div>
-                    <div class="modal-body">
-                        <p>Reset password for customer: <strong>@selectedCustomer?.CardName</strong></p>
-
-                        <div class="mb-3">
-                            <label class="form-label">New Password <span class="text-danger">*</span></label>
-                            <div class="input-group">
-                                <input type="@(showNewPassword ? "text" : "password")" class="form-control"
-                                       @bind="newPassword" />
-                                <MudIconButton
-                                Icon="@(showNewPassword ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
-                                OnClick="@(() => showNewPassword = !showNewPassword)" />
-                            </div>
-                            <small class="text-muted">Min 8 chars, uppercase, lowercase, number, special char</small>
-                        </div>
-
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                   OnClick="GenerateNewPassword">
-                            <i class="bi bi-shuffle me-1"></i>Generate Strong Password
-                        </MudButton>
-                    </div>
-                    <div class="modal-footer">
-                        <MudButton Variant="Variant.Filled" Color="Color.Default"
-                                   OnClick="@(() => showResetPasswordModal = false)">Cancel</MudButton>
-                        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="ResetPassword" Disabled="@isSaving">
-                            @if (isSaving)
+                            else
                             {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                            }
-                            Reset Password
-                        </MudButton>
-                    </div>
-                </div>
-            </div>
-        </div>
-    }
-
-    <!-- Delete Confirmation Modal -->
-    @if (showDeleteModal)
-    {
-        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header bg-danger text-white">
-                        <h5 class="modal-title"><i class="bi bi-exclamation-triangle me-2"></i>Confirm Delete</h5>
-                        <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => showDeleteModal = false)"
-                                       Size="Size.Small" Style="color: white;" />
-                    </div>
-                    <div class="modal-body">
-                        <p>Are you sure you want to delete the customer portal account for:</p>
-                        <p><strong>@selectedCustomer?.CardCode - @selectedCustomer?.CardName</strong></p>
-                        <p class="text-danger mb-0">This action cannot be undone.</p>
-                    </div>
-                    <div class="modal-footer">
-                        <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="@(() => showDeleteModal = false)">
-                            Cancel</MudButton>
-                            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="DeleteCustomer" Disabled="@isSaving">
-                                @if (isSaving)
+                                <input class="cpa-input" type="search" autocomplete="off"
+                                       placeholder="Search by card code or name&#8230;"
+                                       value="@pickerTerm" @oninput="OnPickerInput" />
+                                @if (isPickerSearching)
                                 {
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                                    <span class="cpa-hint">Searching&#8230;</span>
                                 }
-                                Delete Account
-                            </MudButton>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        }
-
-        <!-- Linked Accounts Management Modal -->
-        @if (showLinkedAccountsModal && selectedCustomer != null)
-        {
-            <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-                <div class="modal-dialog modal-xl">
-                    <div class="modal-content">
-                        <div class="modal-header" style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white;">
-                            <h5 class="modal-title">
-                                <i class="bi bi-diagram-3 me-2"></i>Linked Accounts - @selectedCustomer.CardCode
-                                (@selectedCustomer.CardName)
-                            </h5>
-                            <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="CloseLinkedAccountsModal" Size="Size.Small"
-                                           Style="color: white;" />
-                        </div>
-                        <div class="modal-body">
-                            @if (!string.IsNullOrEmpty(linkedAccountMessage))
-                            {
-                                <div
-                                    class="alert @(linkedAccountMessageIsError ? "alert-danger" : "alert-success") alert-dismissible fade show">
-                                    @linkedAccountMessage
-                                    <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="@(() => linkedAccountMessage = null)"
-                                                   Size="Size.Small" />
-                                </div>
-                            }
-
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <div>
-                                        <span
-                                            class="badge @(selectedCustomer.AccountStructure == "Multi" ? "bg-info" : "bg-secondary") fs-6">
-                                            @(selectedCustomer.AccountStructure == "Multi" ? "Multi-Account Structure" : "Single Account")
-                                        </span>
-                                    </div>
-                                    <div>
-                                        @if (selectedCustomer.AccountStructure == "Multi")
+                                else if (pickerResults.Count > 0)
+                                {
+                                    <div class="cpa-picker-list">
+                                        @foreach (var partner in pickerResults)
                                         {
-                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                                       OnClick="ConvertToSingleAccount">
-                                                <i class="bi bi-arrow-counterclockwise me-1"></i>Convert to Single Account
-                                            </MudButton>
+                                            <button type="button" class="cpa-picker-opt"
+                                                    @onclick="() => PickPartner(partner)">
+                                                <span class="cpa-picker-code">@partner.CardCode</span>@partner.CardName
+                                            </button>
                                         }
                                     </div>
-                                </div>
-
-                                <div class="alert alert-info">
-                                    <strong>Account Structure Guide:</strong>
-                                    <ul class="mb-0 mt-1">
-                                        <li><strong>Main Accounts</strong> - Used for <strong>invoicing</strong> and
-                                            <strong>incoming payments</strong>. Typically one per currency (e.g. ZiG, USD).
-                                        </li>
-                                        <li><strong>Sub Accounts</strong> - Used for <strong>sales orders</strong> and
-                                            <strong>invoicing</strong>. Balances roll up to the parent main account. Derive from
-                                            a main account.</li>
-                                        </ul>
-                                    </div>
-                                </div>
-
-                                <!-- Current Linked Accounts -->
-                                @if (linkedAccounts != null && linkedAccounts.Any())
-                                {
-                                    <h6 class="mb-3">Current Linked Accounts</h6>
-                                    <div class="table-responsive mb-4">
-                                        <table class="table table-sm table-bordered">
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th>Card Code</th>
-                                                    <th>Name</th>
-                                                    <th>Type</th>
-                                                    <th>Currency</th>
-                                                    <th>Parent</th>
-                                                    <th>Allowed Transactions</th>
-                                                    <th>Description</th>
-                                                    <th></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @foreach (var acct in linkedAccounts)
-                                                {
-                                                    <tr>
-                                                        <td><code>@acct.CardCode</code></td>
-                                                        <td>@acct.CardName</td>
-                                                        <td>
-                                                            <span
-                                                                class="badge @(acct.AccountType == "Main" ? "bg-primary" : "bg-warning text-dark")">
-                                                                @acct.AccountType
-                                                            </span>
-                                                        </td>
-                                                        <td>@(acct.Currency ?? "-")</td>
-                                                        <td>@(acct.ParentCardCode ?? "-")</td>
-                                                        <td>
-                                                            @foreach (var tx in acct.AllowedTransactions)
-                                                            {
-                                                                <span class="badge bg-outline-secondary me-1"
-                                                                      style="border: 1px solid #ccc; color: #555;">@tx</span>
-                                                            }
-                                                        </td>
-                                                        <td>@(acct.Description ?? "-")</td>
-                                                        <td>
-                                                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
-                                                                       title="Remove" OnClick="@(() => RemoveLinkedAccount(acct.CardCode))">
-                                                                <i class="bi bi-x-lg"></i>
-                                                            </MudButton>
-                                                        </td>
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
                                 }
-
-                                <!-- Add New Linked Account -->
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="mb-0">Add Linked Account</h6>
-                                    <MudButton Variant="@(showBulkAddMode ? Variant.Filled : Variant.Outlined)"
-                                               Color="Color.Secondary" Size="Size.Small"
-                                               OnClick="@(() => { showBulkAddMode = !showBulkAddMode; bulkSearchResults = null; bulkSelectedCardCodes.Clear(); bulkSearchTerm = null; })">
-                                        <i class="bi bi-list-check me-1"></i>@(showBulkAddMode ? "Single Add" : "Bulk Add Sub Accounts")
-                                    </MudButton>
-                                </div>
-
-                                @if (!showBulkAddMode)
+                                else if (pickerTerm.Trim().Length >= 2)
                                 {
-                                    <!-- Single Add Mode -->
-                                    <div class="row g-3 align-items-end">
-                                        <div class="col-md-3">
-                                            <label class="form-label">Select BP</label>
-                                            <MudAutocomplete T="CachedBusinessPartner" Label="Search BP" @bind-Value="linkedAccountBP"
-                                                             SearchFunc="@SearchCustomersFromDbAsync"
-                                                             ToStringFunc="@(bp => bp == null ? string.Empty : $"{bp.CardCode} - {bp.CardName}")"
-                                                             ShowProgressIndicator="true" MinCharacters="1" Dense="true" Variant="Variant.Outlined"
-                                                             Margin="Margin.Dense" Clearable="true" />
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Account Type</label>
-                                            <select class="form-select form-select-sm" @bind="newLinkedAccountType">
-                                                <option value="Main">Main</option>
-                                                <option value="Sub">Sub</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Currency</label>
-                                            <select class="form-select form-select-sm" @bind="newLinkedAccountCurrency">
-                                                <option value="">-- Select --</option>
-                                                <option value="USD">USD</option>
-                                                <option value="ZiG">ZiG</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Parent (for Sub)</label>
-                                            <select class="form-select form-select-sm" @bind="newLinkedAccountParent">
-                                                <option value="">-- None --</option>
-                                                @if (linkedAccounts != null)
-                                                {
-                                                    @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
+                                    <span class="cpa-hint">
+                                        No customer matches that, or every match already has a portal account.
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="cpa-hint">
+                                        Type at least two characters. Customers that already have an account are
+                                        left out.
+                                    </span>
+                                }
+                            }
+                        </div>
+
+                        <hr class="cpa-rule" />
+                    }
+
+                    <div class="cpa-form-grid">
+                        <label class="cpa-field">
+                            <span class="cpa-label">Card code <span class="cpa-required">*</span></span>
+                            <input class="cpa-input" @bind="form.CardCode" readonly="@isEditing" />
+                        </label>
+                        <label class="cpa-field">
+                            <span class="cpa-label">Customer name <span class="cpa-required">*</span></span>
+                            <input class="cpa-input" @bind="form.CardName" />
+                        </label>
+                        <label class="cpa-field cpa-form-wide">
+                            <span class="cpa-label">Email <span class="cpa-required">*</span></span>
+                            <input class="cpa-input" type="email" @bind="form.Email" />
+                        </label>
+
+                        @if (!isEditing)
+                        {
+                            <div class="cpa-field">
+                                <label class="cpa-label" for="cpa-pw">
+                                    Password <span class="cpa-required">*</span>
+                                </label>
+                                <span class="cpa-input-wrap">
+                                    <input id="cpa-pw" class="cpa-input" type="@(showPassword ? "text" : "password")"
+                                           autocomplete="new-password" @bind="form.Password" />
+                                    <button type="button" class="cpa-icon-btn"
+                                            aria-label="@(showPassword ? "Hide password" : "Show password")"
+                                            @onclick="() => showPassword = !showPassword">
+                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                                            <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path>
+                                            <circle cx="12" cy="12" r="2.6"></circle>
+                                            @if (showPassword)
+                                            {
+                                                <path d="M4 20L20 4"></path>
+                                            }
+                                        </svg>
+                                    </button>
+                                </span>
+                                <span class="cpa-hint">
+                                    At least 8 characters, with an uppercase letter, a lowercase letter, a number and
+                                    a symbol.
+                                </span>
+                            </div>
+                            <div class="cpa-field">
+                                <label class="cpa-label" for="cpa-pw2">
+                                    Confirm password <span class="cpa-required">*</span>
+                                </label>
+                                <input id="cpa-pw2" class="cpa-input" type="@(showPassword ? "text" : "password")"
+                                       autocomplete="new-password" @bind="form.ConfirmPassword" />
+                                <button type="button" class="cpa-btn cpa-btn-ghost cpa-btn-sm"
+                                        style="align-self:flex-start" @onclick="GenerateFormPassword">
+                                    Generate a strong password
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    <hr class="cpa-rule" />
+
+                    <div class="cpa-side-section" style="padding:0; border:0; gap:12px">
+                        <label class="cpa-switch">
+                            <input type="checkbox" @bind="form.IsActive" />
+                            <span class="cpa-track" aria-hidden="true"><span class="cpa-knob"></span></span>
+                            <span class="cpa-switch-text">
+                                <span class="cpa-switch-title">Account active</span>
+                                <span class="cpa-switch-note">An inactive account cannot sign in</span>
+                            </span>
+                        </label>
+                        <label class="cpa-switch">
+                            <input type="checkbox" @bind="form.TwoFactorEnabled" />
+                            <span class="cpa-track" aria-hidden="true"><span class="cpa-knob"></span></span>
+                            <span class="cpa-switch-text">
+                                <span class="cpa-switch-title">Two-factor sign-in</span>
+                                <span class="cpa-switch-note">One-time code by email</span>
+                            </span>
+                        </label>
+                        <label class="cpa-switch">
+                            <input type="checkbox" @bind="form.ReceiveStatements" />
+                            <span class="cpa-track" aria-hidden="true"><span class="cpa-knob"></span></span>
+                            <span class="cpa-switch-text">
+                                <span class="cpa-switch-title">Monthly statements</span>
+                                <span class="cpa-switch-note">Emailed on the 1st, visible in portal</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="cpa-dialog-foot">
+                    <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="CloseFormDialog">Cancel</button>
+                    <button type="button" class="cpa-btn cpa-btn-primary" disabled="@isSaving" @onclick="SaveAccount">
+                        @if (isSaving)
+                        {
+                            <span class="cpa-spin" aria-hidden="true"></span>
+                        }
+                        @(isEditing ? "Save changes" : "Create account")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showResetDialog && Selected is not null)
+{
+    var account = Selected;
+
+    <div class="cpa-overlay">
+        <div class="cpa-scrim" @onclick="() => showResetDialog = false"></div>
+        <div class="cpa-modal">
+            <div class="cpa-dialog" role="dialog" aria-modal="true" aria-label="Reset password">
+                <div class="cpa-dialog-head">
+                    <div>
+                        <h2>Reset password</h2>
+                        <div class="cpa-dialog-sub">@account.CardCode &#183; @account.CardName</div>
+                    </div>
+                    <button type="button" class="cpa-icon-btn" aria-label="Close"
+                            @onclick="() => showResetDialog = false">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="cpa-dialog-body">
+                    <div class="cpa-field">
+                        <label class="cpa-label" for="cpa-newpw">New password</label>
+                        <span class="cpa-input-wrap">
+                            <input id="cpa-newpw" class="cpa-input" type="@(showNewPassword ? "text" : "password")"
+                                   autocomplete="new-password" @bind="newPassword" />
+                            <button type="button" class="cpa-icon-btn"
+                                    aria-label="@(showNewPassword ? "Hide password" : "Show password")"
+                                    @onclick="() => showNewPassword = !showNewPassword">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"></path>
+                                    <circle cx="12" cy="12" r="2.6"></circle>
+                                    @if (showNewPassword)
+                                    {
+                                        <path d="M4 20L20 4"></path>
+                                    }
+                                </svg>
+                            </button>
+                        </span>
+                        <span class="cpa-hint">
+                            At least 8 characters, with an uppercase letter, a lowercase letter, a number and a
+                            symbol. Resetting also clears any lockout.
+                        </span>
+                        <button type="button" class="cpa-btn cpa-btn-ghost cpa-btn-sm" style="align-self:flex-start"
+                                @onclick="GenerateResetPassword">
+                            Generate a strong password
+                        </button>
+                    </div>
+                </div>
+
+                <div class="cpa-dialog-foot">
+                    <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="() => showResetDialog = false">
+                        Cancel
+                    </button>
+                    <button type="button" class="cpa-btn cpa-btn-primary" disabled="@isSaving" @onclick="ResetPassword">
+                        @if (isSaving)
+                        {
+                            <span class="cpa-spin" aria-hidden="true"></span>
+                        }
+                        Reset password
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDeleteDialog && Selected is not null)
+{
+    var account = Selected;
+
+    <div class="cpa-overlay">
+        <div class="cpa-scrim" @onclick="() => showDeleteDialog = false"></div>
+        <div class="cpa-modal">
+            <div class="cpa-dialog" role="dialog" aria-modal="true" aria-label="Delete portal account">
+                <div class="cpa-dialog-head">
+                    <div>
+                        <h2>Delete this portal account?</h2>
+                        <div class="cpa-dialog-sub">@account.CardCode &#183; @account.CardName</div>
+                    </div>
+                </div>
+
+                <div class="cpa-dialog-body">
+                    <div class="cpa-msg cpa-msg-bad">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                        </svg>
+                        <span class="cpa-msg-text">
+                            They lose portal access immediately, along with any linked accounts set up here. The
+                            customer's SAP record is untouched. This cannot be undone.
+                        </span>
+                    </div>
+                </div>
+
+                <div class="cpa-dialog-foot">
+                    <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="() => showDeleteDialog = false">
+                        Cancel
+                    </button>
+                    <button type="button" class="cpa-btn cpa-btn-danger" disabled="@isSaving" @onclick="DeleteAccount">
+                        @if (isSaving)
+                        {
+                            <span class="cpa-spin" aria-hidden="true"></span>
+                        }
+                        Delete account
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showActivityDialog && Selected is not null)
+{
+    var account = Selected;
+
+    <div class="cpa-overlay">
+        <div class="cpa-scrim" @onclick="() => showActivityDialog = false"></div>
+        <div class="cpa-modal">
+            <div class="cpa-dialog cpa-dialog-lg" role="dialog" aria-modal="true" aria-label="Account activity">
+                <div class="cpa-dialog-head">
+                    <div>
+                        <h2>Activity</h2>
+                        <div class="cpa-dialog-sub">
+                            @account.CardCode &#183; the 50 most recent portal security events
+                        </div>
+                    </div>
+                    <button type="button" class="cpa-icon-btn" aria-label="Close"
+                            @onclick="() => showActivityDialog = false">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="cpa-dialog-body">
+                    @if (isLoadingActivity)
+                    {
+                        <div class="cpa-mini-empty">Loading activity&#8230;</div>
+                    }
+                    else if (activity.Count == 0)
+                    {
+                        <div class="cpa-mini-empty">Nothing recorded for this account yet.</div>
+                    }
+                    else
+                    {
+                        <div class="cpa-mini-wrap">
+                            <table class="cpa-mini">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">When</th>
+                                        <th scope="col">Action</th>
+                                        <th scope="col">Result</th>
+                                        <th scope="col">From</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in activity)
+                                    {
+                                        <tr>
+                                            <td class="cpa-fact-num">@When(entry.Timestamp)</td>
+                                            <td>@entry.Action</td>
+                                            <td>
+                                                <span class="cpa-chip @(entry.Success ? "cpa-chip-on" : "")">
+                                                    @(entry.Success ? "OK" : Dash(entry.FailureReason))
+                                                </span>
+                                            </td>
+                                            <td class="cpa-fact-num">@Dash(entry.IpAddress)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+
+                <div class="cpa-dialog-foot">
+                    <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="() => showActivityDialog = false">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showLinkedDialog && Selected is not null)
+{
+    var account = Selected;
+
+    <div class="cpa-overlay">
+        <div class="cpa-scrim" @onclick="CloseLinkedDialog"></div>
+        <div class="cpa-modal">
+            <div class="cpa-dialog cpa-dialog-xl" role="dialog" aria-modal="true" aria-label="Linked accounts">
+                <div class="cpa-dialog-head">
+                    <div>
+                        <h2>Linked accounts</h2>
+                        <div class="cpa-dialog-sub">
+                            @account.CardCode &#183; @account.CardName &#183; @StructureLabel(account)
+                        </div>
+                    </div>
+                    <button type="button" class="cpa-icon-btn" aria-label="Close" @onclick="CloseLinkedDialog">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                            <path d="M6 6l12 12M18 6L6 18"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="cpa-dialog-body">
+                    @if (!string.IsNullOrEmpty(linkedMessage))
+                    {
+                        <div class="cpa-msg @(linkedMessageIsError ? "cpa-msg-bad" : "cpa-msg-good")" role="status">
+                            <span class="cpa-msg-text">@linkedMessage</span>
+                            <button type="button" class="cpa-icon-btn" aria-label="Dismiss"
+                                    @onclick="() => linkedMessage = null">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                                    <path d="M6 6l12 12M18 6L6 18"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    }
+
+                    <div class="cpa-guide">
+                        <strong>Main</strong> accounts carry invoicing and incoming payments &#8212; typically one
+                        per currency. <strong>Sub</strong> accounts carry sales orders and invoicing, and their
+                        balances roll up to the main account they derive from.
+                    </div>
+
+                    @if (linkedAccounts is { Count: > 0 })
+                    {
+                        <div class="cpa-mini-wrap">
+                            <table class="cpa-mini">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Card code</th>
+                                        <th scope="col">Name</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Currency</th>
+                                        <th scope="col">Parent</th>
+                                        <th scope="col">Transactions</th>
+                                        <th scope="col">Description</th>
+                                        <th scope="col"><span class="visually-hidden">Remove</span></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var linked in linkedAccounts)
+                                    {
+                                        <tr>
+                                            <td><span class="cpa-code">@linked.CardCode</span></td>
+                                            <td>@linked.CardName</td>
+                                            <td>
+                                                <span class="cpa-chip @(linked.AccountType == "Main" ? "cpa-chip-on" : "")">
+                                                    @linked.AccountType
+                                                </span>
+                                            </td>
+                                            <td>@Dash(linked.Currency)</td>
+                                            <td>@Dash(linked.ParentCardCode)</td>
+                                            <td>
+                                                <span class="cpa-access">
+                                                    @foreach (var transaction in linked.AllowedTransactions)
                                                     {
-                                                        <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
+                                                        <span class="cpa-chip">@transaction</span>
                                                     }
-                                                }
-                                                @if (selectedCustomer != null && (linkedAccounts == null || !linkedAccounts.Any(a => a.AccountType == "Main" && a.CardCode == selectedCustomer.CardCode)))
-                                                {
-                                                    <option value="@selectedCustomer.CardCode">@selectedCustomer.CardCode (Portal Account)</option>
-                                                }
-                                            </select>
-                                        </div>
-                                        <div class="col-md-2">
-                                            <label class="form-label">Description</label>
-                                            <input type="text" class="form-control form-control-sm" @bind="newLinkedAccountDesc"
-                                                   placeholder="e.g. ZiG Main" />
-                                        </div>
-                                        <div class="col-md-1">
-                                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="w-100"
-                                                       OnClick="AddLinkedAccount" Disabled="@isSaving"
-                                                       Style="background: #6366f1; border-color: #6366f1;">
-                                                <i class="bi bi-plus"></i> Add
-                                            </MudButton>
-                                        </div>
+                                                </span>
+                                            </td>
+                                            <td>@Dash(linked.Description)</td>
+                                            <td class="cpa-td-right">
+                                                <button type="button" class="cpa-icon-btn" disabled="@isSaving"
+                                                        title="Remove @linked.CardCode"
+                                                        aria-label="Remove @linked.CardCode"
+                                                        @onclick="() => RemoveLinkedAccount(linked.CardCode)">
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                                         stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                         aria-hidden="true">
+                                                        <path d="M6 6l12 12M18 6L6 18"></path>
+                                                    </svg>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (account.AccountStructure == "Multi")
+                        {
+                            <div>
+                                <button type="button" class="cpa-btn cpa-btn-danger cpa-btn-sm" disabled="@isSaving"
+                                        @onclick="ConvertToSingleAccount">
+                                    Convert back to a single account
+                                </button>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="cpa-mini-empty">
+                            Nothing linked yet &#8212; this account trades on @account.CardCode alone.
+                        </div>
+                    }
+
+                    <hr class="cpa-rule" />
+
+                    <div class="cpa-bulk-bar">
+                        <div class="cpa-side-label" style="flex:1">
+                            @(showBulkAdd ? "Add many sub accounts" : "Add a linked account")
+                        </div>
+                        <button type="button" class="cpa-btn cpa-btn-quiet cpa-btn-sm"
+                                @onclick="() => { showBulkAdd = !showBulkAdd; bulkResults = null; bulkSelected.Clear(); bulkTerm = string.Empty; }">
+                            @(showBulkAdd ? "Add one instead" : "Bulk add sub accounts")
+                        </button>
+                    </div>
+
+                    @if (!showBulkAdd)
+                    {
+                        <div class="cpa-form-grid">
+                            <div class="cpa-field cpa-form-wide cpa-picker">
+                                <span class="cpa-label">Business partner</span>
+                                @if (linkedPickedPartner is not null)
+                                {
+                                    <div class="cpa-picked">
+                                        <span class="cpa-picker-code">@linkedPickedPartner.CardCode</span>
+                                        <span class="cpa-picked-name">@linkedPickedPartner.CardName</span>
+                                        <button type="button" class="cpa-icon-btn" aria-label="Clear selection"
+                                                @onclick="() => linkedPickedPartner = null">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                 aria-hidden="true">
+                                                <path d="M6 6l12 12M18 6L6 18"></path>
+                                            </svg>
+                                        </button>
                                     </div>
                                 }
                                 else
                                 {
-                                    <!-- Bulk Add Sub Accounts Mode -->
-                                    <div class="card border-secondary mb-3">
-                                        <div class="card-body">
-                                            <div class="row g-3 mb-3">
-                                                <div class="col-md-3">
-                                                    <label class="form-label">Currency</label>
-                                                    <select class="form-select form-select-sm" @bind="bulkCurrency">
-                                                        <option value="">-- Select --</option>
-                                                        <option value="USD">USD</option>
-                                                        <option value="ZiG">ZiG</option>
-                                                    </select>
-                                                </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label">Parent (Main Account)</label>
-                                                    <select class="form-select form-select-sm" @bind="bulkParent">
-                                                        <option value="">-- Select Parent --</option>
-                                                        @if (linkedAccounts != null)
-                                                        {
-                                                            @foreach (var main in linkedAccounts.Where(a => a.AccountType == "Main"))
-                                                            {
-                                                                <option value="@main.CardCode">@main.CardCode (@main.Currency)</option>
-                                                            }
-                                                        }
-                                                        @if (selectedCustomer != null && (linkedAccounts == null || !linkedAccounts.Any(a => a.AccountType == "Main" && a.CardCode == selectedCustomer.CardCode)))
-                                                        {
-                                                            <option value="@selectedCustomer.CardCode">@selectedCustomer.CardCode (Portal Account)</option>
-                                                        }
-                                                    </select>
-                                                </div>
-                                                <div class="col-md-3">
-                                                    <label class="form-label">Description</label>
-                                                    <input type="text" class="form-control form-control-sm" @bind="bulkDesc"
-                                                           placeholder="e.g. Sub Account - USD" />
-                                                </div>
-                                            </div>
-
-                                            <div class="row g-3 align-items-end mb-3">
-                                                <div class="col-md-5">
-                                                    <label class="form-label">Search Business Partners</label>
-                                                    <input type="text" class="form-control form-control-sm" @bind="bulkSearchTerm"
-                                                           @bind:event="oninput" placeholder="Type to search BPs..." />
-                                                </div>
-                                                <div class="col-md-2">
-                                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                                               OnClick="BulkSearchBPs" Disabled="@isBulkSearching"
-                                                               Style="background: #6366f1; border-color: #6366f1;">
-                                                        @if (isBulkSearching)
-                                                        {
-                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                                        }
-                                                        <i class="bi bi-search me-1"></i> Search
-                                                    </MudButton>
-                                                </div>
-                                                <div class="col-md-5 text-end">
-                                                    @if (bulkSelectedCardCodes.Any())
-                                                    {
-                                                        <span class="badge bg-info me-2">@bulkSelectedCardCodes.Count selected</span>
-                                                    }
-                                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
-                                                               OnClick="BulkAddLinkedAccounts" Disabled="@(isBulkAdding || !bulkSelectedCardCodes.Any())"
-                                                               Style="background: #6366f1; border-color: #6366f1;">
-                                                        @if (isBulkAdding)
-                                                        {
-                                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                                        }
-                                                        <i class="bi bi-plus-lg me-1"></i> Add @bulkSelectedCardCodes.Count Selected
-                                                    </MudButton>
-                                                </div>
-                                            </div>
-
-                                            @if (bulkSearchResults != null)
+                                    <input class="cpa-input" type="search" autocomplete="off"
+                                           placeholder="Search by card code or name&#8230;"
+                                           value="@linkedPickerTerm" @oninput="OnLinkedPickerInput" />
+                                    @if (linkedPickerResults.Count > 0)
+                                    {
+                                        <div class="cpa-picker-list">
+                                            @foreach (var partner in linkedPickerResults)
                                             {
-                                                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                                                    <table class="table table-sm table-bordered table-hover">
-                                                        <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
-                                                            <tr>
-                                                                <th style="width: 40px;">
-                                                                    <input type="checkbox" class="form-check-input"
-                                                                           checked="@(bulkSearchResults.Any() && bulkSearchResults.All(bp => bulkSelectedCardCodes.Contains(bp.CardCode)))"
-                                                                           @onchange="ToggleSelectAllBulk" />
-                                                                </th>
-                                                                <th>Card Code</th>
-                                                                <th>Name</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @if (!bulkSearchResults.Any())
-                                                            {
-                                                                <tr>
-                                                                    <td colspan="3" class="text-center text-muted py-3">No results found</td>
-                                                                </tr>
-                                                            }
-                                                            @foreach (var bp in bulkSearchResults)
-                                                            {
-                                                                var isAlreadyLinked = linkedAccounts?.Any(a => a.CardCode == bp.CardCode) ?? false;
-                                                                <tr class="@(isAlreadyLinked ? "table-secondary" : "")" style="cursor: @(isAlreadyLinked ? "not-allowed" : "pointer");"
-                                                                    @onclick="@(() => { if (!isAlreadyLinked) ToggleBulkSelect(bp.CardCode); })">
-                                                                    <td>
-                                                                        <input type="checkbox" class="form-check-input"
-                                                                               checked="@bulkSelectedCardCodes.Contains(bp.CardCode)"
-                                                                               disabled="@isAlreadyLinked"
-                                                                               @onchange="@(() => ToggleBulkSelect(bp.CardCode))"
-                                                                               @onclick:stopPropagation="true" />
-                                                                    </td>
-                                                                    <td>
-                                                                        <code>@bp.CardCode</code>
-                                                                        @if (isAlreadyLinked)
-                                                                        {
-                                                                            <span class="badge bg-secondary ms-1">Already linked</span>
-                                                                        }
-                                                                    </td>
-                                                                    <td>@bp.CardName</td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                <button type="button" class="cpa-picker-opt"
+                                                        @onclick="() => PickLinkedPartner(partner)">
+                                                    <span class="cpa-picker-code">@partner.CardCode</span>@partner.CardName
+                                                </button>
                                             }
                                         </div>
-                                    </div>
+                                    }
                                 }
                             </div>
-                            <div class="modal-footer">
-                                <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="CloseLinkedAccountsModal">Close
-                                </MudButton>
+
+                            <label class="cpa-field">
+                                <span class="cpa-label">Account type</span>
+                                <span class="cpa-select">
+                                    <select class="cpa-input" @bind="newLinkedType">
+                                        <option value="Main">Main</option>
+                                        <option value="Sub">Sub</option>
+                                    </select>
+                                    <span class="cpa-caret" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="cpa-field">
+                                <span class="cpa-label">Currency</span>
+                                <span class="cpa-select">
+                                    <select class="cpa-input" @bind="newLinkedCurrency">
+                                        <option value="">Not set</option>
+                                        <option value="USD">USD</option>
+                                        <option value="ZiG">ZiG</option>
+                                    </select>
+                                    <span class="cpa-caret" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="cpa-field">
+                                <span class="cpa-label">Parent (for a sub account)</span>
+                                <span class="cpa-select">
+                                    <select class="cpa-input" @bind="newLinkedParent" disabled="@(newLinkedType != "Sub")">
+                                        <option value="">None</option>
+                                        @foreach (var main in MainAccounts)
+                                        {
+                                            <option value="@main.CardCode">@main.CardCode (@Dash(main.Currency))</option>
+                                        }
+                                        @if (!MainAccounts.Any(m => m.CardCode == account.CardCode))
+                                        {
+                                            <option value="@account.CardCode">@account.CardCode (portal account)</option>
+                                        }
+                                    </select>
+                                    <span class="cpa-caret" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="cpa-field">
+                                <span class="cpa-label">Description</span>
+                                <input class="cpa-input" placeholder="e.g. ZiG main" @bind="newLinkedDescription" />
+                            </label>
+                            <div class="cpa-field cpa-form-wide">
+                                <button type="button" class="cpa-btn cpa-btn-primary" style="align-self:flex-start"
+                                        disabled="@isSaving" @onclick="AddLinkedAccount">
+                                    @if (isSaving)
+                                    {
+                                        <span class="cpa-spin" aria-hidden="true"></span>
+                                    }
+                                    Add linked account
+                                </button>
                             </div>
                         </div>
-                    </div>
-                </div>
-            }
-
-@code {
-    private List<CustomerPortalUser>? customers;
-    private bool isLoading = true;
-    private string? searchTerm;
-    private string? statusFilter;
-    private string? successMessage;
-    private string? errorMessage;
-
-    // Stats
-    private int totalAccounts;
-    private int activeAccounts;
-    private int inactiveAccounts;
-    private int lockedAccounts;
-
-    // Modal state
-    private bool showModal;
-    private bool isEditing;
-    private bool isSaving;
-    private bool showPassword;
-    private CustomerFormModel formModel = new();
-
-    // MudAutocomplete for customer selection
-    private CachedBusinessPartner? _selectedBusinessPartner;
-    private CachedBusinessPartner? selectedBusinessPartner
-    {
-        get => _selectedBusinessPartner;
-        set
-        {
-            _selectedBusinessPartner = value;
-            if (value != null)
-            {
-                formModel.CardCode = value.CardCode;
-                formModel.CardName = value.CardName ?? "";
-                formModel.Email = value.Email ?? "";
-            }
-            else
-            {
-                formModel.CardCode = "";
-                formModel.CardName = "";
-                formModel.Email = "";
-            }
-        }
-    }
-
-    // Reset password modal
-    private bool showResetPasswordModal;
-    private string? newPassword;
-    private bool showNewPassword;
-
-    // Delete modal
-    private bool showDeleteModal;
-    private CustomerPortalUser? selectedCustomer;
-
-    // Linked Accounts modal state
-    private bool showLinkedAccountsModal;
-    private List<LinkedAccountInfo>? linkedAccounts;
-    private CachedBusinessPartner? linkedAccountBP;
-    private string newLinkedAccountType = "Main";
-    private string? newLinkedAccountCurrency;
-    private string? newLinkedAccountParent;
-    private string? newLinkedAccountDesc;
-    private string? linkedAccountMessage;
-    private bool linkedAccountMessageIsError;
-
-    // Bulk add sub accounts state
-    private bool showBulkAddMode;
-    private string? bulkSearchTerm;
-    private List<CachedBusinessPartner>? bulkSearchResults;
-    private HashSet<string> bulkSelectedCardCodes = new();
-    private string? bulkCurrency;
-    private string? bulkParent;
-    private string? bulkDesc;
-    private bool isBulkSearching;
-    private bool isBulkAdding;
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadCustomers();
-    }
-
-    private async Task LoadCustomers()
-    {
-        isLoading = true;
-        StateHasChanged();
-
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            await using var statsContext = await DbContextFactory.CreateDbContextAsync();
-            var now = DateTime.UtcNow;
-
-            var query = dbContext.Set<CustomerPortalUser>().AsNoTracking().AsQueryable();
-
-            // Apply filters
-            if (!string.IsNullOrEmpty(searchTerm))
-            {
-                var term = searchTerm.ToLower();
-                query = query.Where(c => c.CardCode.ToLower().Contains(term) ||
-                c.CardName.ToLower().Contains(term) ||
-                (c.Email != null && c.Email.ToLower().Contains(term)));
-            }
-
-            if (!string.IsNullOrEmpty(statusFilter))
-            {
-                switch (statusFilter)
-                {
-                    case "active":
-                        query = query.Where(c => c.IsActive && (c.LockedUntil == null || c.LockedUntil <= DateTime.UtcNow));
-                        break;
-                    case "inactive":
-                        query = query.Where(c => !c.IsActive);
-                        break;
-                    case "locked":
-                        query = query.Where(c => c.LockedUntil != null && c.LockedUntil > DateTime.UtcNow);
-                        break;
-                }
-            }
-
-            var customersTask = query
-                .Include(c => c.LinkedAccounts)
-                .OrderBy(c => c.CardCode)
-                .ToListAsync();
-
-            var statsTask = statsContext.Set<CustomerPortalUser>()
-                .AsNoTracking()
-                .GroupBy(_ => 1)
-                .Select(group => new
-                {
-                    Total = group.Count(),
-                    Active = group.Count(c => c.IsActive && (c.LockedUntil == null || c.LockedUntil <= now)),
-                    Inactive = group.Count(c => !c.IsActive),
-                    Locked = group.Count(c => c.LockedUntil != null && c.LockedUntil > now)
-                })
-                .FirstOrDefaultAsync();
-
-            await Task.WhenAll(customersTask, statsTask);
-
-            customers = customersTask.Result;
-            var stats = statsTask.Result;
-            totalAccounts = stats?.Total ?? 0;
-            activeAccounts = stats?.Active ?? 0;
-            inactiveAccounts = stats?.Inactive ?? 0;
-            lockedAccounts = stats?.Locked ?? 0;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading customer portal users");
-            errorMessage = "Failed to load customer accounts.";
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
-
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            await LoadCustomers();
-        }
-    }
-
-    private void ShowCreateModal()
-    {
-        formModel = new CustomerFormModel { IsActive = true, ReceiveStatements = true };
-        isEditing = false;
-        showModal = true;
-        selectedBusinessPartner = null;
-    }
-
-    private void ShowEditModal(CustomerPortalUser customer)
-    {
-        formModel = new CustomerFormModel
-        {
-            Id = customer.Id,
-            CardCode = customer.CardCode,
-            CardName = customer.CardName,
-            Email = customer.Email ?? "",
-            IsActive = customer.IsActive,
-            TwoFactorEnabled = customer.TwoFactorEnabled,
-            ReceiveStatements = customer.ReceiveStatements
-        };
-        isEditing = true;
-        showModal = true;
-    }
-
-    private void CloseModal()
-    {
-        showModal = false;
-        formModel = new();
-        _selectedBusinessPartner = null;
-    }
-
-    private async Task<IEnumerable<CachedBusinessPartner>> SearchCustomersFromDbAsync(string searchText, CancellationToken
-    cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(searchText))
-            return Enumerable.Empty<CachedBusinessPartner>();
-
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync(cancellationToken);
-
-            var term = searchText.ToLower();
-
-            var baseQuery = dbContext.CachedBusinessPartners
-                .AsNoTracking()
-                .Where(bp => bp.CardCode.ToLower().Contains(term) ||
-                    (bp.CardName != null && bp.CardName.ToLower().Contains(term)));
-
-            try
-            {
-                var results = await baseQuery
-                .Where(bp => !dbContext.Set<CustomerPortalUser>().AsNoTracking().Any(c => c.CardCode == bp.CardCode))
-                .OrderBy(bp => bp.CardCode)
-                .Take(15)
-                .ToListAsync(cancellationToken);
-
-                Logger.LogInformation("Search for '{Term}' found {Count} results", term, results.Count);
-                return results;
-            }
-            catch (Exception tableEx)
-            {
-                // CustomerPortalUsers table might not exist yet - return all results
-                Logger.LogWarning(tableEx, "Could not query CustomerPortalUsers table - it may not exist yet");
-
-                var results = await baseQuery
-                .OrderBy(bp => bp.CardCode)
-                .Take(15)
-                .ToListAsync(cancellationToken);
-
-                Logger.LogInformation("Search for '{Term}' found {Count} results", term, results.Count);
-                return results;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error searching customers from database");
-            return Enumerable.Empty<CachedBusinessPartner>();
-        }
-    }
-
-    private void GenerateRandomPassword()
-    {
-        formModel.Password = GenerateStrongPassword();
-        formModel.ConfirmPassword = formModel.Password;
-    }
-
-    private void GenerateNewPassword()
-    {
-        newPassword = GenerateStrongPassword();
-    }
-
-    private static string GenerateStrongPassword()
-    {
-        const string upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-        const string lower = "abcdefghjkmnpqrstuvwxyz";
-        const string digits = "23456789";
-        const string special = "!@#$%^&*";
-
-        var random = new Random();
-        var password = new char[12];
-
-        // Ensure at least one of each type
-        password[0] = upper[random.Next(upper.Length)];
-        password[1] = lower[random.Next(lower.Length)];
-        password[2] = digits[random.Next(digits.Length)];
-        password[3] = special[random.Next(special.Length)];
-
-        // Fill the rest randomly
-        var all = upper + lower + digits + special;
-        for (int i = 4; i < 12; i++)
-        {
-            password[i] = all[random.Next(all.Length)];
-        }
-
-        // Shuffle
-        return new string(password.OrderBy(_ => random.Next()).ToArray());
-    }
-
-    private async Task HandleSubmit()
-    {
-        // Validation
-        if (string.IsNullOrEmpty(formModel.CardCode) || string.IsNullOrEmpty(formModel.CardName) ||
-        string.IsNullOrEmpty(formModel.Email))
-        {
-            errorMessage = "Please fill in all required fields.";
-            return;
-        }
-
-        if (!isEditing)
-        {
-            if (string.IsNullOrEmpty(formModel.Password) || formModel.Password != formModel.ConfirmPassword)
-            {
-                errorMessage = "Passwords do not match.";
-                return;
-            }
-
-            if (!IsPasswordStrong(formModel.Password))
-            {
-                errorMessage = "Password must be at least 8 characters with uppercase, lowercase, number, and special character.";
-                return;
-            }
-        }
-
-        isSaving = true;
-        errorMessage = null;
-
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-
-            if (isEditing)
-            {
-                var existing = await dbContext.Set<CustomerPortalUser>()
-                .FirstOrDefaultAsync(c => c.Id == formModel.Id);
-
-                if (existing != null)
-                {
-                    existing.CardName = formModel.CardName;
-                    existing.Email = formModel.Email;
-                    existing.IsActive = formModel.IsActive;
-                    existing.TwoFactorEnabled = formModel.TwoFactorEnabled;
-                    existing.ReceiveStatements = formModel.ReceiveStatements;
-                    existing.UpdatedAt = DateTime.UtcNow;
-
-                    await dbContext.SaveChangesAsync();
-                    successMessage = $"Customer account for {formModel.CardCode} updated successfully.";
-                }
-            }
-            else
-            {
-                // Check if already exists
-                var exists = await dbContext.Set<CustomerPortalUser>()
-                .AnyAsync(c => c.CardCode == formModel.CardCode);
-
-                if (exists)
-                {
-                    errorMessage = $"A portal account for {formModel.CardCode} already exists.";
-                    return;
-                }
-
-                var newCustomer = new CustomerPortalUser
-                {
-                    CardCode = formModel.CardCode,
-                    CardName = formModel.CardName,
-                    Email = formModel.Email,
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword(formModel.Password, 12),
-                    IsActive = formModel.IsActive,
-                    TwoFactorEnabled = formModel.TwoFactorEnabled,
-                    ReceiveStatements = formModel.ReceiveStatements,
-                    EmailVerified = true,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-
-                dbContext.Set<CustomerPortalUser>().Add(newCustomer);
-                await dbContext.SaveChangesAsync();
-                successMessage = $"Customer account for {formModel.CardCode} created successfully.";
-            }
-
-            CloseModal();
-            await LoadCustomers();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error saving customer account");
-            errorMessage = "Failed to save customer account.";
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private async Task ToggleStatementPreference(CustomerPortalUser customer)
-    {
-        isSaving = true;
-        errorMessage = null;
-        successMessage = null;
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var existing = await dbContext.Set<CustomerPortalUser>()
-            .FirstOrDefaultAsync(c => c.Id == customer.Id);
-
-            if (existing == null)
-            {
-                return;
-            }
-
-            existing.ReceiveStatements = !existing.ReceiveStatements;
-            existing.UpdatedAt = DateTime.UtcNow;
-            await dbContext.SaveChangesAsync();
-
-            successMessage = existing.ReceiveStatements
-            ? $"Statement emails enabled for {existing.CardCode}."
-            : $"Statement emails disabled for {existing.CardCode}.";
-
-            await LoadCustomers();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error toggling statement preference");
-            errorMessage = "Failed to update statement preference.";
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private void ShowResetPasswordModal(CustomerPortalUser customer)
-    {
-        selectedCustomer = customer;
-        newPassword = null;
-        showNewPassword = false;
-        showResetPasswordModal = true;
-    }
-
-    private async Task ResetPassword()
-    {
-        if (selectedCustomer == null || string.IsNullOrEmpty(newPassword))
-        {
-            errorMessage = "Please enter a new password.";
-            return;
-        }
-
-        if (!IsPasswordStrong(newPassword))
-        {
-            errorMessage = "Password must be at least 8 characters with uppercase, lowercase, number, and special character.";
-            return;
-        }
-
-        isSaving = true;
-
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-
-            var customer = await dbContext.Set<CustomerPortalUser>()
-            .FirstOrDefaultAsync(c => c.Id == selectedCustomer.Id);
-
-            if (customer != null)
-            {
-                customer.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, 12);
-                customer.LastPasswordChangeAt = DateTime.UtcNow;
-                customer.PasswordExpiresAt = DateTime.UtcNow.AddDays(90);
-                customer.UpdatedAt = DateTime.UtcNow;
-                customer.FailedLoginAttempts = 0;
-                customer.LockedUntil = null;
-                customer.MustChangePassword = false;
-                customer.PasswordResetToken = null;
-                customer.PasswordResetTokenExpiry = null;
-                customer.Status = "Active";
-
-                await dbContext.SaveChangesAsync();
-                successMessage = $"Password reset successfully for {customer.CardCode}.";
-            }
-
-            showResetPasswordModal = false;
-            await LoadCustomers();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error resetting password");
-            errorMessage = "Failed to reset password.";
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private async Task UnlockAccount(CustomerPortalUser customer)
-    {
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-
-            var existing = await dbContext.Set<CustomerPortalUser>()
-            .FirstOrDefaultAsync(c => c.Id == customer.Id);
-
-            if (existing != null)
-            {
-                existing.LockedUntil = null;
-                existing.FailedLoginAttempts = 0;
-                existing.Status = "Active";
-                existing.UpdatedAt = DateTime.UtcNow;
-
-                await dbContext.SaveChangesAsync();
-                successMessage = $"Account {customer.CardCode} unlocked successfully.";
-                await LoadCustomers();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error unlocking account");
-            errorMessage = "Failed to unlock account.";
-        }
-    }
-
-    private void ShowDeleteConfirmation(CustomerPortalUser customer)
-    {
-        selectedCustomer = customer;
-        showDeleteModal = true;
-    }
-
-    private async Task DeleteCustomer()
-    {
-        if (selectedCustomer == null) return;
-
-        isSaving = true;
-
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-
-            var customer = await dbContext.Set<CustomerPortalUser>()
-            .FirstOrDefaultAsync(c => c.Id == selectedCustomer.Id);
-
-            if (customer != null)
-            {
-                dbContext.Set<CustomerPortalUser>().Remove(customer);
-                await dbContext.SaveChangesAsync();
-                successMessage = $"Customer account {customer.CardCode} deleted successfully.";
-            }
-
-            showDeleteModal = false;
-            await LoadCustomers();
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error deleting customer");
-            errorMessage = "Failed to delete customer account.";
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private static bool IsPasswordStrong(string password)
-    {
-        if (string.IsNullOrEmpty(password) || password.Length < 8)
-            return false;
-
-        return password.Any(char.IsUpper) &&
-        password.Any(char.IsLower) &&
-        password.Any(char.IsDigit) &&
-        password.Any(c => !char.IsLetterOrDigit(c));
-    }
-
-    public class CustomerFormModel
-    {
-        public int Id { get; set; }
-        public string CardCode { get; set; } = "";
-        public string CardName { get; set; } = "";
-        public string Email { get; set; } = "";
-        public string Password { get; set; } = "";
-        public string ConfirmPassword { get; set; } = "";
-        public bool IsActive { get; set; } = true;
-        public bool TwoFactorEnabled { get; set; }
-        public bool ReceiveStatements { get; set; } = true;
-    }
-
-    #region Linked Account Management
-
-    private async Task ShowLinkedAccountsModal(CustomerPortalUser customer)
-    {
-        selectedCustomer = customer;
-        linkedAccountMessage = null;
-        linkedAccountBP = null;
-        newLinkedAccountType = "Main";
-        newLinkedAccountCurrency = null;
-        newLinkedAccountParent = null;
-        newLinkedAccountDesc = null;
-        showBulkAddMode = false;
-        bulkSearchResults = null;
-        bulkSelectedCardCodes.Clear();
-        bulkCurrency = null;
-        bulkParent = null;
-        bulkDesc = null;
-        showLinkedAccountsModal = true;
-
-        await LoadLinkedAccounts();
-    }
-
-    private void CloseLinkedAccountsModal()
-    {
-        showLinkedAccountsModal = false;
-        selectedCustomer = null;
-        linkedAccounts = null;
-    }
-
-    private async Task LoadLinkedAccounts()
-    {
-        if (selectedCustomer == null) return;
-
-        try
-        {
-            linkedAccounts = await LinkedAccountService.GetLinkedAccountsAsync(selectedCustomer.CardCode);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error loading linked accounts");
-            linkedAccountMessage = "Failed to load linked accounts.";
-            linkedAccountMessageIsError = true;
-        }
-    }
-
-    private async Task AddLinkedAccount()
-    {
-        if (selectedCustomer == null || linkedAccountBP == null)
-        {
-            linkedAccountMessage = "Please select a business partner.";
-            linkedAccountMessageIsError = true;
-            return;
-        }
-
-        if (newLinkedAccountType == "Sub" && string.IsNullOrEmpty(newLinkedAccountParent))
-        {
-            linkedAccountMessage = "Sub accounts must have a parent Main account selected.";
-            linkedAccountMessageIsError = true;
-            return;
-        }
-
-        isSaving = true;
-
-        try
-        {
-            var request = new LinkedAccountRequest
-            {
-                CardCode = linkedAccountBP.CardCode,
-                CardName = linkedAccountBP.CardName ?? "",
-                AccountType = newLinkedAccountType,
-                Currency = newLinkedAccountCurrency,
-                ParentCardCode = newLinkedAccountType == "Sub" ? newLinkedAccountParent : null,
-                Description = newLinkedAccountDesc
-            };
-
-            var result = await LinkedAccountService.AddLinkedAccountAsync(selectedCustomer.CardCode, request);
-
-            if (result.Success)
-            {
-                linkedAccountMessage = result.Message;
-                linkedAccountMessageIsError = false;
-                linkedAccounts = result.LinkedAccounts;
-
-                // Update the customer in the list
-                selectedCustomer.AccountStructure = result.AccountStructure;
-
-                // Reset form
-                linkedAccountBP = null;
-                newLinkedAccountType = "Main";
-                newLinkedAccountCurrency = null;
-                newLinkedAccountParent = null;
-                newLinkedAccountDesc = null;
-            }
-            else
-            {
-                linkedAccountMessage = result.Message;
-                linkedAccountMessageIsError = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error adding linked account");
-            linkedAccountMessage = "Failed to add linked account.";
-            linkedAccountMessageIsError = true;
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private async Task RemoveLinkedAccount(string linkedCardCode)
-    {
-        if (selectedCustomer == null) return;
-
-        isSaving = true;
-
-        try
-        {
-            var result = await LinkedAccountService.RemoveLinkedAccountAsync(selectedCustomer.CardCode, linkedCardCode);
-
-            if (result.Success)
-            {
-                linkedAccountMessage = result.Message;
-                linkedAccountMessageIsError = false;
-                linkedAccounts = result.LinkedAccounts;
-                selectedCustomer.AccountStructure = result.AccountStructure;
-            }
-            else
-            {
-                linkedAccountMessage = result.Message;
-                linkedAccountMessageIsError = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error removing linked account");
-            linkedAccountMessage = "Failed to remove linked account.";
-            linkedAccountMessageIsError = true;
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private async Task ConvertToSingleAccount()
-    {
-        if (selectedCustomer == null) return;
-
-        isSaving = true;
-
-        try
-        {
-            var result = await LinkedAccountService.ConvertToSingleAccountAsync(selectedCustomer.CardCode);
-
-            if (result.Success)
-            {
-                linkedAccountMessage = result.Message;
-                linkedAccountMessageIsError = false;
-                linkedAccounts = result.LinkedAccounts;
-                selectedCustomer.AccountStructure = "Single";
-            }
-            else
-            {
-                linkedAccountMessage = result.Message;
-                linkedAccountMessageIsError = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error converting to single account");
-            linkedAccountMessage = "Failed to convert to single account.";
-            linkedAccountMessageIsError = true;
-        }
-        finally
-        {
-            isSaving = false;
-        }
-    }
-
-    private async Task BulkSearchBPs()
-    {
-        if (string.IsNullOrWhiteSpace(bulkSearchTerm)) return;
-
-        isBulkSearching = true;
-        try
-        {
-            await using var dbContext = await DbContextFactory.CreateDbContextAsync();
-            var term = bulkSearchTerm.ToLower();
-
-            bulkSearchResults = await dbContext.CachedBusinessPartners
-                .Where(bp => bp.CardCode.ToLower().Contains(term) ||
-                    (bp.CardName != null && bp.CardName.ToLower().Contains(term)))
-                .OrderBy(bp => bp.CardCode)
-                .Take(50)
-                .ToListAsync();
-
-            // Remove any selections that are no longer in results
-            var resultCodes = bulkSearchResults.Select(r => r.CardCode).ToHashSet();
-            bulkSelectedCardCodes.RemoveWhere(c => !resultCodes.Contains(c));
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error searching BPs for bulk add");
-            linkedAccountMessage = "Failed to search business partners.";
-            linkedAccountMessageIsError = true;
-        }
-        finally
-        {
-            isBulkSearching = false;
-        }
-    }
-
-    private void ToggleBulkSelect(string cardCode)
-    {
-        if (!bulkSelectedCardCodes.Remove(cardCode))
-            bulkSelectedCardCodes.Add(cardCode);
-    }
-
-    private void ToggleSelectAllBulk(ChangeEventArgs e)
-    {
-        if (bulkSearchResults == null) return;
-
-        var alreadyLinkedCodes = linkedAccounts?.Select(a => a.CardCode).ToHashSet() ?? new HashSet<string>();
-        var selectableCodes = bulkSearchResults
-            .Where(bp => !alreadyLinkedCodes.Contains(bp.CardCode))
-            .Select(bp => bp.CardCode)
-            .ToList();
-
-        if (selectableCodes.All(c => bulkSelectedCardCodes.Contains(c)))
-            bulkSelectedCardCodes.ExceptWith(selectableCodes);
-        else
-            bulkSelectedCardCodes.UnionWith(selectableCodes);
-    }
-
-    private async Task BulkAddLinkedAccounts()
-    {
-        if (selectedCustomer == null || !bulkSelectedCardCodes.Any())
-            return;
-
-        if (string.IsNullOrEmpty(bulkParent))
-        {
-            linkedAccountMessage = "Please select a parent Main account for the sub accounts.";
-            linkedAccountMessageIsError = true;
-            return;
-        }
-
-        isBulkAdding = true;
-        var added = 0;
-        var failed = 0;
-        string? lastError = null;
-
-        try
-        {
-            var bpsToAdd = bulkSearchResults?
-                .Where(bp => bulkSelectedCardCodes.Contains(bp.CardCode))
-                .ToList() ?? new();
-
-            foreach (var bp in bpsToAdd)
-            {
-                try
-                {
-                    var request = new LinkedAccountRequest
-                    {
-                        CardCode = bp.CardCode,
-                        CardName = bp.CardName ?? "",
-                        AccountType = "Sub",
-                        Currency = bulkCurrency,
-                        ParentCardCode = bulkParent,
-                        Description = bulkDesc
-                    };
-
-                    var result = await LinkedAccountService.AddLinkedAccountAsync(selectedCustomer.CardCode, request);
-
-                    if (result.Success)
-                    {
-                        added++;
-                        linkedAccounts = result.LinkedAccounts;
-                        selectedCustomer.AccountStructure = result.AccountStructure;
                     }
                     else
                     {
-                        failed++;
-                        lastError = result.Message;
+                        <div class="cpa-form-grid">
+                            <label class="cpa-field">
+                                <span class="cpa-label">Currency</span>
+                                <span class="cpa-select">
+                                    <select class="cpa-input" @bind="bulkCurrency">
+                                        <option value="">Not set</option>
+                                        <option value="USD">USD</option>
+                                        <option value="ZiG">ZiG</option>
+                                    </select>
+                                    <span class="cpa-caret" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="cpa-field">
+                                <span class="cpa-label">Parent main account</span>
+                                <span class="cpa-select">
+                                    <select class="cpa-input" @bind="bulkParent">
+                                        <option value="">Choose one</option>
+                                        @foreach (var main in MainAccounts)
+                                        {
+                                            <option value="@main.CardCode">@main.CardCode (@Dash(main.Currency))</option>
+                                        }
+                                        @if (!MainAccounts.Any(m => m.CardCode == account.CardCode))
+                                        {
+                                            <option value="@account.CardCode">@account.CardCode (portal account)</option>
+                                        }
+                                    </select>
+                                    <span class="cpa-caret" aria-hidden="true"></span>
+                                </span>
+                            </label>
+                            <label class="cpa-field cpa-form-wide">
+                                <span class="cpa-label">Description</span>
+                                <input class="cpa-input" placeholder="e.g. Sub account - USD" @bind="bulkDescription" />
+                            </label>
+                        </div>
+
+                        <div class="cpa-bulk-bar">
+                            <label class="cpa-field">
+                                <span class="cpa-label">Search business partners</span>
+                                <input class="cpa-input" type="search" autocomplete="off"
+                                       placeholder="Card code or name&#8230;" @bind="bulkTerm" />
+                            </label>
+                            <button type="button" class="cpa-btn cpa-btn-quiet" disabled="@isBulkSearching"
+                                    @onclick="BulkSearch">
+                                @if (isBulkSearching)
+                                {
+                                    <span class="cpa-spin" aria-hidden="true"></span>
+                                }
+                                Search
+                            </button>
+                            @if (bulkSelected.Count > 0)
+                            {
+                                <span class="cpa-selected-count">@bulkSelected.Count selected</span>
+                            }
+                            <button type="button" class="cpa-btn cpa-btn-primary"
+                                    disabled="@(isBulkAdding || bulkSelected.Count == 0)"
+                                    @onclick="BulkAddLinkedAccounts">
+                                @if (isBulkAdding)
+                                {
+                                    <span class="cpa-spin" aria-hidden="true"></span>
+                                }
+                                Add @bulkSelected.Count selected
+                            </button>
+                        </div>
+
+                        @if (bulkResults is not null)
+                        {
+                            <div class="cpa-mini-wrap">
+                                <table class="cpa-mini">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col" style="width:38px">
+                                                <input type="checkbox" class="cpa-box" aria-label="Select all results"
+                                                       checked="@AllBulkSelected" @onchange="ToggleSelectAllBulk" />
+                                            </th>
+                                            <th scope="col">Card code</th>
+                                            <th scope="col">Name</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @if (bulkResults.Count == 0)
+                                        {
+                                            <tr>
+                                                <td colspan="3" class="cpa-mini-empty">No business partners match that.</td>
+                                            </tr>
+                                        }
+                                        @foreach (var partner in bulkResults)
+                                        {
+                                            var alreadyLinked = IsAlreadyLinked(partner.CardCode);
+
+                                            <tr>
+                                                <td>
+                                                    <input type="checkbox" class="cpa-box"
+                                                           aria-label="Select @partner.CardCode"
+                                                           checked="@bulkSelected.Contains(partner.CardCode)"
+                                                           disabled="@alreadyLinked"
+                                                           @onchange="() => ToggleBulkSelect(partner.CardCode)" />
+                                                </td>
+                                                <td>
+                                                    <span class="cpa-code">@partner.CardCode</span>
+                                                    @if (alreadyLinked)
+                                                    {
+                                                        <span class="cpa-type">Already linked</span>
+                                                    }
+                                                </td>
+                                                <td>@partner.CardName</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    lastError = ex.Message;
-                    Logger.LogError(ex, "Error adding linked account {CardCode} in bulk", bp.CardCode);
-                }
-            }
+                </div>
 
-            if (failed == 0)
-            {
-                linkedAccountMessage = $"Successfully added {added} sub account(s).";
-                linkedAccountMessageIsError = false;
-            }
-            else
-            {
-                linkedAccountMessage = $"Added {added}, failed {failed}. Last error: {lastError}";
-                linkedAccountMessageIsError = failed > 0;
-            }
-
-            // Reset bulk state
-            bulkSelectedCardCodes.Clear();
-            bulkSearchResults = null;
-            bulkSearchTerm = null;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error in bulk add linked accounts");
-            linkedAccountMessage = "Bulk add failed.";
-            linkedAccountMessageIsError = true;
-        }
-        finally
-        {
-            isBulkAdding = false;
-        }
-    }
-
-    #endregion
-
+                <div class="cpa-dialog-foot">
+                    <button type="button" class="cpa-btn cpa-btn-quiet" @onclick="CloseLinkedDialog">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
 }

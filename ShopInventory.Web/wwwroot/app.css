@@ -5253,7 +5253,6 @@ html.dark-theme {
 .dark-theme .ci-page,
 .dark-theme .bak-page,
 .dark-theme .transfer-page,
-.dark-theme .cpm-page,
 .dark-theme .cq-page,
 .dark-theme .ccn-page,
 .dark-theme .cso-page,
@@ -5889,7 +5888,6 @@ html.dark-theme {
 }
 
 /* --- Customer Portal Management --- */
-.dark-theme .cpm-card,
 .dark-theme .portal-card {
     background: #1e293b !important;
     border-color: #334155 !important;
@@ -6105,97 +6103,17 @@ html.dark-theme {
 }
 
 /* --- Customer Portal Management page --- */
-/* Page background */
-.dark-theme .cpm-page {
-    background: #0f172a !important;
-}
-/* Header */
-.dark-theme .cpm-header h2 {
-    color: #f1f5f9 !important;
-}
-.dark-theme .cpm-header p {
-    color: #94a3b8 !important;
-}
-/* Stat cards */
-.dark-theme .cpm-page .stat-card {
-    background: #1e293b !important;
-    border-color: #334155 !important;
-}
-.dark-theme .cpm-page .stat-info .stat-value {
-    color: #f1f5f9 !important;
-}
-.dark-theme .cpm-page .stat-info .stat-label {
-    color: #94a3b8 !important;
-}
-.dark-theme .cpm-page .stat-icon.total {
-    background: #064e3b !important;
-    color: #34d399 !important;
-}
-.dark-theme .cpm-page .stat-icon.active {
-    background: #14532d !important;
-    color: #4ade80 !important;
-}
-.dark-theme .cpm-page .stat-icon.inactive {
-    background: #374151 !important;
-    color: #9ca3af !important;
-}
-.dark-theme .cpm-page .stat-icon.locked {
-    background: #450a0a !important;
-    color: #f87171 !important;
-}
-/* Filter bar */
-.dark-theme .cpm-page .filter-bar {
-    background: #1e293b !important;
-    border-color: #334155 !important;
-}
-.dark-theme .cpm-page .filter-bar .filter-field label {
-    color: #94a3b8 !important;
-}
-.dark-theme .cpm-page .filter-bar .filter-field input,
-.dark-theme .cpm-page .filter-bar .filter-field select {
-    background: #0f172a !important;
-    border-color: #475569 !important;
-    color: #e2e8f0 !important;
-}
-.dark-theme .cpm-page .filter-bar .filter-field input::placeholder {
-    color: #64748b !important;
-}
-.dark-theme .cpm-page .filter-bar .filter-field input:focus,
-.dark-theme .cpm-page .filter-bar .filter-field select:focus {
-    border-color: #0d9488 !important;
-    box-shadow: 0 0 0 3px rgba(13,148,136,.2) !important;
-}
-.dark-theme .cpm-page .btn-filter {
-    background: #1e293b !important;
-    border-color: #475569 !important;
-    color: #e2e8f0 !important;
-}
-.dark-theme .cpm-page .btn-filter:hover {
-    background: #334155 !important;
-}
-/* Table */
-.dark-theme .cpm-table-card,
-.dark-theme .cpm-action-btn {
-    background: #1e293b !important;
-    border-color: #334155 !important;
-    color: #e2e8f0 !important;
-}
-.dark-theme .cpm-table th {
-    background: #0f172a !important;
-    color: #94a3b8 !important;
-    border-color: #334155 !important;
-}
-.dark-theme .cpm-table td {
-    border-color: #1e293b !important;
-    color: #e2e8f0 !important;
-}
-.dark-theme .cpm-table tbody tr:hover {
-    background: #334155 !important;
-}
-.dark-theme .cpm-code {
-    background: #334155 !important;
-    color: #e2e8f0 !important;
-}
+/* The page itself was rebuilt on the Nocturne design (Portal Management.dc.html)
+   and its markup carries `cpa-` classes now, scoped in
+   wwwroot/css/customer-portal-accounts.css. The `.dark-theme .cpm-*` overrides
+   that used to sit here — a page ground, stat cards, a filter bar, a table and
+   six action-button hovers, all `!important` — matched nothing after that and
+   have been removed. The prefix changed for the same reason: a survivor of this
+   block cannot reach a page whose classes it does not name.
+
+   The `.badge-*` rules below stay. They are shared with UserManagement,
+   Timesheets, TimesheetReport and DocumentTemplates, and were only ever filed
+   under this heading. */
 /* Badges */
 .dark-theme .badge-active {
     background: #064e3b !important;
@@ -6224,78 +6142,6 @@ html.dark-theme {
 .dark-theme .badge-disabled {
     background: #374151 !important;
     color: #9ca3af !important;
-}
-/* Inline-styled cells (last login, created, 2fa dash) */
-.dark-theme .cpm-table td[style*="color:#6b7280"] {
-    color: #94a3b8 !important;
-}
-.dark-theme .cpm-table td span[style*="color:#d1d5db"] {
-    color: #64748b !important;
-}
-/* Row name weight */
-.dark-theme .cpm-table td[style*="font-weight:500"] {
-    color: #e2e8f0 !important;
-}
-/* Linked accounts sub-text */
-.dark-theme .cpm-table td div[style*="color:#9ca3af"] {
-    color: #64748b !important;
-}
-/* Alerts */
-.dark-theme .cpm-page .alert-banner.success-alert {
-    background: #064e3b !important;
-    border-color: #065f46 !important;
-    color: #6ee7b7 !important;
-}
-.dark-theme .cpm-page .alert-banner.error-alert {
-    background: #450a0a !important;
-    border-color: #7f1d1d !important;
-    color: #fca5a5 !important;
-}
-/* Empty state */
-.dark-theme .cpm-empty {
-    color: #64748b !important;
-}
-.dark-theme .cpm-empty-icon {
-    background: #334155 !important;
-    color: #64748b !important;
-}
-.dark-theme .cpm-empty h5 {
-    color: #94a3b8 !important;
-}
-/* Action button hover states */
-.dark-theme .cpm-action-btn:hover {
-    background: #334155 !important;
-    border-color: #475569 !important;
-}
-.dark-theme .cpm-action-btn.edit:hover {
-    background: #1e3a5f !important;
-    border-color: #3b82f6 !important;
-    color: #60a5fa !important;
-}
-.dark-theme .cpm-action-btn.key:hover {
-    background: #422006 !important;
-    border-color: #d97706 !important;
-    color: #fbbf24 !important;
-}
-.dark-theme .cpm-action-btn.stmt:hover {
-    background: #064e3b !important;
-    border-color: #059669 !important;
-    color: #34d399 !important;
-}
-.dark-theme .cpm-action-btn.link:hover {
-    background: #312e81 !important;
-    border-color: #6366f1 !important;
-    color: #a5b4fc !important;
-}
-.dark-theme .cpm-action-btn.unlock:hover {
-    background: #14532d !important;
-    border-color: #22c55e !important;
-    color: #4ade80 !important;
-}
-.dark-theme .cpm-action-btn.delete:hover {
-    background: #450a0a !important;
-    border-color: #dc2626 !important;
-    color: #f87171 !important;
 }
 
 /* --- CreateIncomingPayment & CreateInvoice shared classes --- */
