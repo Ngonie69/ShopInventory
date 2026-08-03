@@ -97,11 +97,39 @@ public class CustomerStatementService : ICustomerStatementService
                 errorContent,
                 "We couldn't load this statement right now. Please try again."));
         }
+        catch (OperationCanceledException ex)
+        {
+            throw StillBuilding(ex, cardCode);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating statement for {CardCode}", cardCode);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Turns "the request was canceled due to the configured HttpClient.Timeout of 300 seconds
+    /// elapsing" into something a customer can act on.
+    /// </summary>
+    /// <remarks>
+    /// Since the API builds statements behind its own cache, on its own cancellation token, a
+    /// timeout here no longer means the work was lost — the build carries on and the next attempt is
+    /// answered from the cache, usually immediately. The raw message says the opposite: it reads as
+    /// a dead end, so customers stopped rather than clicking Generate again, which is the one thing
+    /// that would have worked.
+    /// </remarks>
+    private InvalidOperationException StillBuilding(Exception cause, string cardCode)
+    {
+        _logger.LogWarning(
+            cause,
+            "Statement request for {CardCode} exceeded the {TimeoutSeconds}s API budget; the build continues server-side",
+            cardCode,
+            _httpClient.Timeout.TotalSeconds);
+
+        return new InvalidOperationException(
+            "This statement is taking longer than usual to prepare. It is still being built — "
+            + "please click Generate Statement again in a moment.");
     }
 
     /// <summary>
@@ -133,6 +161,10 @@ public class CustomerStatementService : ICustomerStatementService
                 response.StatusCode,
                 errorContent,
                 "We couldn't generate this statement PDF right now. Please try again."));
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw StillBuilding(ex, cardCode);
         }
         catch (Exception ex)
         {

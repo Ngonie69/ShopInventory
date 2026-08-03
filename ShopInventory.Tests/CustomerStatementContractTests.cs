@@ -106,6 +106,7 @@ public class CustomerStatementContractTests
         var handler = new GetCustomerStatementHandler(
             BusinessPartners("ABS006", "Absolute Refregiration", payTermGrpCode: paymentTerms?.GroupNumber),
             Sap(paymentTerms),
+            StatementBuildCaches.Fresh(),
             NullLogger<GetCustomerStatementHandler>.Instance);
 
         var result = await handler.Handle(

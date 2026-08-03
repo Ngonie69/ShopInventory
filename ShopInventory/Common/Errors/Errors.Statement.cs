@@ -14,5 +14,10 @@ public static partial class Errors
 
         public static Error GenerationFailed(string message) =>
             Error.Failure("Statement.GenerationFailed", message);
+
+        public static readonly Error Timeout =
+            Error.Failure(
+                "Statement.Timeout",
+                "This statement is taking longer than expected to build. It is still being prepared — please try again in a moment, or use a shorter date range.");
     }
 }
