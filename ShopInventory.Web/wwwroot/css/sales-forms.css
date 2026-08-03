@@ -1,0 +1,1534 @@
+/* ==========================================================================
+   Sales forms — Nocturne
+
+   Dresses the five sales documents that are entered rather than listed:
+
+     /sales-orders/create      CreateSalesOrder        .sfm.is-order
+     /sales-orders/edit/{id}   SalesOrderEdit          .sfm.is-order
+     /quotations/create        CreateQuotation         .sfm.is-quote
+     /credit-notes/create      CreateCreditNote        .sfm.is-credit
+     /payments/create          CreateIncomingPayment   .sfm.is-receipt
+
+   They are one document in five moods. Four of them are a customer, a set of
+   lines and a total; the receipt swaps the line editor for the invoices the
+   money is applied to, but keeps the same chrome, fields and buttons. Five
+   sheets would have been the same 900 lines with five prefixes, and they would
+   have drifted — the same reasoning transfer-forms.css sets out for its pair.
+
+   Derived from create-invoice.css, which dresses the sixth form of the same
+   document (/invoices/create) and carries the imported design's own palette.
+   The two palettes below are copied from it unchanged, so the six forms are
+   literally one system rather than six readings of it. THE COROLLARY: a colour
+   fixed there has to be fixed here too. Folding /invoices/create onto this
+   sheet would end that, and is worth doing — it was left out only because it
+   already ships and this change had no reason to touch it.
+
+   The imported design is drawn as a dark scheme, so the dark palette is the
+   design's own; the light palette is its daylight counterpart — same structure
+   and same hues, re-anchored on paper and with the accents darkened to stay
+   legible on it. Every colour in the module is a variable, so the two palettes
+   are the only place colour is decided.
+
+   Light is the base and dark is the override, matching the rest of the app and
+   the order App.razor's early theme script stamps the class in: `.dark-theme`
+   lands on <html> and <body> before first paint, so neither scheme flashes.
+   Tints are written `rgba(var(--sfm-*-rgb), a)` so a palette swap carries the
+   translucent washes with it.
+
+   Rules live here rather than in an inline <style> block because a scoped
+   Razor style block cannot reach native controls the way these selectors need
+   to, and because app.css carries global `.dark-theme input/select` rules that
+   have to be out-specified — every control is given a class so the selector is
+   two classes deep and wins regardless of load order.
+
+   create-invoice.css scopes those control rules `:is(.civ, .civ-modal) .civ-x`
+   so its print dialog, which renders outside `.civ`, picks them up. None of
+   these five opens a dialog, so the scope here is plain `.sfm .sfm-x` — the
+   same (0,2,0), and one less thing to explain. A dialog added later needs that
+   second scope back, not a new stylesheet.
+   ========================================================================== */
+
+.sfm {
+    --sfm-bg: #f4f7fa;
+    --sfm-ink: #0f1e2c;
+    --sfm-ink-2: #26394a;
+    --sfm-muted: #5c7183;
+    --sfm-muted-2: #6d8093;
+    --sfm-muted-3: #6b7f92;
+    --sfm-label: #617689;
+    --sfm-surface: #ffffff;
+    --sfm-surface-2: #eef2f7;
+    --sfm-field: #ffffff;
+    --sfm-edge: #dde4ec;
+    --sfm-hairline: #e3e9f0;
+    --sfm-rowline: #e9eef4;
+    --sfm-field-edge: #cfd9e3;
+    --sfm-field-edge-hi: #aabbcc;
+    --sfm-ghost-edge: #cfd9e3;
+    --sfm-ghost-ink: #4c6376;
+    /* The design's mint reads as a highlight on its dark ground; on paper the
+       same hue has to carry text, so it is taken down to where it clears 4.5:1
+       both on the card and on its own 10% tint. */
+    --sfm-accent: #077a58;
+    --sfm-accent-hi: #095f46;
+    --sfm-accent-rgb: 7, 122, 88;
+    --sfm-info: #2f6fe0;
+    --sfm-info-rgb: 47, 111, 224;
+    --sfm-info-ink: #2557b0;
+    --sfm-warn: #96600f;
+    --sfm-warn-rgb: 150, 96, 15;
+    --sfm-bad: #c8394f;
+    --sfm-bad-rgb: 200, 57, 79;
+    --sfm-bad-edge: #eccbd1;
+    --sfm-bad-ink: #a32a3d;
+    --sfm-alert-bad-ink: #8f2334;
+    --sfm-ok-ink: #0b6b4f;
+    --sfm-solid: #14263a;
+    --sfm-solid-hi: #0f1e2c;
+    --sfm-solid-ink: #ffffff;
+    --sfm-on-solid-ring: rgba(255, 255, 255, .3);
+    --sfm-dashed: #c7d3df;
+    --sfm-sep: #b0bfcd;
+    --sfm-x-edge: #d7dee7;
+    --sfm-x-ink: #6d8093;
+    --sfm-placeholder: #93a5b6;
+    --sfm-readonly-ink: #45596b;
+    /* The select caret, whole. A var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --sfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8093' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    /* The date input's calendar button is drawn by the UA, so it cannot be
+       coloured — only filtered. On paper it is already dark-on-light. */
+    --sfm-caret-filter: none;
+    --sfm-shadow-rgb: 16, 32, 47;
+    --sfm-shadow-a: .14;
+    --sfm-shadow-lg-a: .2;
+    --sfm-scheme: light;
+
+    color-scheme: var(--sfm-scheme);
+}
+
+.dark-theme .sfm {
+    --sfm-bg: #0b131e;
+    --sfm-ink: #e7eef5;
+    --sfm-ink-2: #cfdae4;
+    --sfm-muted: #8b9eb0;
+    --sfm-muted-2: #6d8091;
+    --sfm-muted-3: #66798a;
+    --sfm-label: #7c8fa1;
+    --sfm-surface: #101b28;
+    --sfm-surface-2: #16232f;
+    --sfm-field: #0d1723;
+    --sfm-edge: #1c2937;
+    --sfm-hairline: #1b2836;
+    --sfm-rowline: #18242f;
+    --sfm-field-edge: #21303f;
+    --sfm-field-edge-hi: #2b3d4e;
+    --sfm-ghost-edge: #22303f;
+    --sfm-ghost-ink: #9db0c1;
+    --sfm-accent: #35d6a4;
+    --sfm-accent-hi: #6ee7bf;
+    --sfm-accent-rgb: 53, 214, 164;
+    --sfm-info: #7aa7ff;
+    --sfm-info-rgb: 122, 167, 255;
+    --sfm-info-ink: #a9c4ff;
+    --sfm-warn: #e0a44a;
+    --sfm-warn-rgb: 224, 164, 74;
+    --sfm-bad: #e8697d;
+    --sfm-bad-rgb: 232, 105, 125;
+    --sfm-bad-edge: #3a2530;
+    --sfm-bad-ink: #e8a3ae;
+    --sfm-alert-bad-ink: #f0c0c8;
+    --sfm-ok-ink: #b6ecd8;
+    --sfm-solid: #eef4f8;
+    --sfm-solid-hi: #ffffff;
+    --sfm-solid-ink: #0b131e;
+    --sfm-on-solid-ring: rgba(11, 19, 30, .25);
+    --sfm-dashed: #2a3949;
+    --sfm-sep: #3c4c5c;
+    --sfm-x-edge: #2a2130;
+    --sfm-x-ink: #7d8b99;
+    --sfm-placeholder: #5b6e80;
+    --sfm-readonly-ink: #b9c7d4;
+    --sfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8091' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    /* Not invert(1): a full inversion takes the glyph to pure white, brighter
+       than any other mark on the row. .85 lands it near --sfm-muted. */
+    --sfm-caret-filter: invert(.85);
+    --sfm-shadow-rgb: 4, 9, 15;
+    --sfm-shadow-a: .55;
+    --sfm-shadow-lg-a: .6;
+    --sfm-scheme: dark;
+}
+
+.sfm {
+    background: var(--sfm-bg);
+    color: var(--sfm-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    border-radius: 12px;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` on every element in dark
+   theme for an iOS input fix; inside this page that would flatten the accent
+   and warning colours on WebKit, so hand the fill back to `color`. */
+.sfm,
+.sfm * {
+    -webkit-text-fill-color: currentColor;
+    box-sizing: border-box;
+}
+
+.sfm ::selection {
+    background: rgba(var(--sfm-accent-rgb), .25);
+}
+
+.sfm :focus-visible {
+    outline: 2px solid var(--sfm-accent);
+    outline-offset: 2px;
+}
+
+.sfm-accentbar {
+    height: 2px;
+    border-radius: 12px 12px 0 0;
+    background: linear-gradient(90deg, #35d6a4 0%, #2fa5b5 38%, #7f7ab0 68%, #c9963f 100%);
+}
+
+.sfm-shell {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 22px 32px 56px;
+}
+
+.sfm-spacer {
+    flex: 1;
+}
+
+/* ── Breadcrumb strip ───────────────────────────────────────────────────── */
+.sfm-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--sfm-muted-2);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.sfm-crumbs a {
+    color: var(--sfm-muted);
+    text-decoration: none;
+}
+
+.sfm-crumbs a:hover {
+    color: var(--sfm-accent);
+}
+
+.sfm-crumb-sep {
+    color: var(--sfm-sep);
+}
+
+.sfm-crumb-now {
+    color: var(--sfm-ink);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.sfm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border: 1px solid var(--sfm-ghost-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--sfm-ghost-ink);
+    font-family: inherit;
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+.sfm-btn:hover:not(:disabled) {
+    border-color: var(--sfm-accent);
+    color: var(--sfm-accent);
+}
+
+.sfm-btn:active:not(:disabled) {
+    background: rgba(var(--sfm-accent-rgb), .1);
+}
+
+.sfm-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.sfm-btn-solid {
+    width: 100%;
+    /* Inherited from create-invoice.css without a `display`, so the gap below
+       did nothing on a <button> (inline-block) and the icon sat flush against
+       the label. create-invoice.css still has this. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    background: var(--sfm-solid);
+    color: var(--sfm-solid-ink);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
+
+.sfm-btn-solid:hover:not(:disabled) {
+    background: var(--sfm-solid-hi);
+    color: var(--sfm-solid-ink);
+}
+
+.sfm-btn-solid:active:not(:disabled) {
+    background: var(--sfm-ink-2);
+}
+
+.sfm-btn-wide {
+    width: 100%;
+    padding: 11px;
+    border-radius: 8px;
+    font-size: 12px;
+    letter-spacing: .06em;
+}
+
+.sfm-btn-danger:hover:not(:disabled) {
+    border-color: var(--sfm-bad);
+    color: var(--sfm-bad);
+    background: transparent;
+}
+
+.sfm-btn-x {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--sfm-x-edge);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--sfm-x-ink);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    transition: border-color .15s, color .15s, background .15s;
+}
+
+/* Drawn inline rather than set in the icon font: this is the only control on
+   the page whose whole label is its glyph, so if the font fails to arrive it
+   would read as an empty square with no way to tell it apart from a dead
+   button. The path is Phosphor's `x` at 256, so it matches its neighbours. */
+.sfm-btn-x svg {
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+    display: block;
+}
+
+.sfm-btn-x:hover {
+    border-color: var(--sfm-bad);
+    color: var(--sfm-bad);
+    background: rgba(var(--sfm-bad-rgb), .08);
+}
+
+/* ── Page head ──────────────────────────────────────────────────────────── */
+.sfm-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--sfm-hairline);
+}
+
+.sfm-head-main {
+    flex: 1;
+    min-width: 280px;
+}
+
+.sfm-head-main h1 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    color: var(--sfm-ink);
+}
+
+.sfm-head-main p {
+    margin: 7px 0 0;
+    font-size: 13px;
+    color: var(--sfm-muted);
+}
+
+.sfm-stats {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+.sfm-stat {
+    padding: 0 22px;
+    border-left: 1px solid var(--sfm-hairline);
+}
+
+.sfm-stat:first-child {
+    padding-left: 0;
+    border-left: none;
+}
+
+.sfm-stat:last-child {
+    padding-right: 0;
+}
+
+.sfm-stat-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--sfm-muted-2);
+    margin-bottom: 5px;
+}
+
+.sfm-stat-v {
+    font-size: 19px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-stat-v.is-vat {
+    color: var(--sfm-warn);
+}
+
+.sfm-stat-v.is-total {
+    color: var(--sfm-accent);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.sfm-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 322px;
+    gap: 20px;
+    align-items: start;
+    margin-top: 22px;
+}
+
+.sfm-main {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+/* The 20px gap is measured from the app bar, not the viewport top, or the bar
+   covers the first 54px of the aside once it pins. */
+.sfm-aside {
+    position: sticky;
+    top: calc(var(--kf-topbar-h, 74px) + 20px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+.sfm-card {
+    background: var(--sfm-surface);
+    border: 1px solid var(--sfm-edge);
+    border-radius: 10px;
+}
+
+.sfm-card-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--sfm-edge);
+}
+
+.sfm-card-hd i {
+    font-size: 16px;
+    color: var(--sfm-info);
+}
+
+.sfm-card-hd h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--sfm-ink);
+}
+
+.sfm-count {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--sfm-surface-2);
+    color: var(--sfm-ghost-ink);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-note {
+    font-size: 11px;
+    color: var(--sfm-muted-2);
+}
+
+.sfm-card-bd {
+    padding: 18px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+.sfm-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px 16px;
+}
+
+.sfm-span2 {
+    grid-column: span 2;
+}
+
+.sfm-span3 {
+    grid-column: span 3;
+}
+
+.sfm-lab {
+    display: block;
+    min-width: 0;
+}
+
+.sfm-lab-t {
+    display: block;
+    font-size: 10px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--sfm-label);
+    margin-bottom: 6px;
+}
+
+.sfm-req {
+    color: var(--sfm-bad);
+}
+
+.sfm .sfm-input,
+.sfm .sfm-select {
+    width: 100%;
+    background: var(--sfm-field);
+    border: 1px solid var(--sfm-field-edge);
+    border-radius: 6px;
+    padding: 9px 11px;
+    color: var(--sfm-ink);
+    font-family: inherit;
+    font-size: 13.5px;
+    line-height: 1.35;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s;
+}
+
+.sfm .sfm-select {
+    padding-right: 28px;
+    background-image: var(--sfm-caret);
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.sfm .sfm-input:hover:not(:disabled):not([readonly]),
+.sfm .sfm-select:hover:not(:disabled) {
+    border-color: var(--sfm-field-edge-hi);
+}
+
+.sfm .sfm-input:focus,
+.sfm .sfm-select:focus {
+    border-color: var(--sfm-accent);
+    outline: none;
+}
+
+.sfm .sfm-input::placeholder {
+    color: var(--sfm-placeholder);
+    -webkit-text-fill-color: var(--sfm-placeholder);
+    opacity: 1;
+}
+
+.sfm .sfm-input[readonly] {
+    color: var(--sfm-readonly-ink);
+    cursor: default;
+}
+
+.sfm .sfm-input:disabled,
+.sfm .sfm-select:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.sfm .sfm-input.is-bad,
+.sfm .sfm-select.is-bad {
+    border-color: var(--sfm-bad);
+}
+
+.sfm-field-err {
+    margin-top: 5px;
+    font-size: 11px;
+    color: var(--sfm-bad);
+}
+
+.sfm-field-meta {
+    font-size: 12px;
+    color: var(--sfm-muted);
+    line-height: 1.5;
+}
+
+.sfm-field-meta i {
+    color: var(--sfm-muted-3);
+    margin-right: 5px;
+}
+
+/* ── Combobox (customer, item code) ─────────────────────────────────────── */
+.sfm-combo {
+    position: relative;
+}
+
+.sfm-combo-clear {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--sfm-muted-2);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.sfm-combo-clear:hover {
+    color: var(--sfm-bad);
+}
+
+.sfm-drop {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--sfm-surface);
+    border: 1px solid var(--sfm-edge);
+    border-radius: 8px;
+    box-shadow: 0 18px 44px rgba(var(--sfm-shadow-rgb), var(--sfm-shadow-a));
+}
+
+.sfm-drop.is-wide {
+    min-width: 320px;
+}
+
+.sfm-drop-i {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 11px;
+    border: none;
+    border-bottom: 1px solid var(--sfm-rowline);
+    background: transparent;
+    color: var(--sfm-ink-2);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.sfm-drop-i:last-child {
+    border-bottom: none;
+}
+
+.sfm-drop-i:hover,
+.sfm-drop-i.is-sel {
+    background: rgba(var(--sfm-accent-rgb), .1);
+    color: var(--sfm-ink);
+}
+
+.sfm-drop-code {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-drop-sub {
+    display: block;
+    font-size: 11px;
+    color: var(--sfm-muted-2);
+}
+
+.sfm-drop-price {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--sfm-info-rgb), .3);
+    background: rgba(var(--sfm-info-rgb), .1);
+    color: var(--sfm-info-ink);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.sfm-drop-price.is-customer {
+    border-color: rgba(var(--sfm-accent-rgb), .35);
+    background: rgba(var(--sfm-accent-rgb), .1);
+    color: var(--sfm-accent);
+}
+
+.sfm-drop-price small {
+    font-size: 9.5px;
+    opacity: .75;
+}
+
+.sfm-drop-empty {
+    padding: 10px 11px;
+    font-size: 12px;
+    color: var(--sfm-muted-2);
+}
+
+.sfm .sfm-select.is-sm {
+    width: auto;
+    max-width: 230px;
+    padding: 6px 26px 6px 8px;
+    font-size: 12.5px;
+}
+
+/* ── Line rows ──────────────────────────────────────────────────────────────
+   Each form's line editor is the same row with different columns, so the track
+   list is a variable set on the scroller and `.sfm-row` reads it. A form that
+   needs a column the others don't therefore adds one declaration, not a second
+   copy of the row, the header row and the four responsive overrides.
+
+   Keep every template's total at or under `--sfm-lines-min` below, or the rows
+   and their header disagree about where the horizontal scroll starts. */
+.sfm-lines {
+    --sfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 64px 96px 100px 28px;
+    --sfm-lines-min: 900px;
+    overflow-x: auto;
+    padding: 0 18px 18px;
+}
+
+/* #, code, description, qty, unit price, disc %, warehouse, total, remove */
+.is-order .sfm-lines {
+    --sfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 64px 96px 100px 28px;
+}
+
+/* A quotation is not stock movement, so it prices VAT per line where the order
+   picks a warehouse. */
+.is-quote .sfm-lines {
+    --sfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 64px 64px 100px 28px;
+    --sfm-lines-min: 860px;
+}
+
+/* A credit note is a return, so it prices tax per line *and* names the
+   warehouse the stock comes back into — the only form here that needs both. */
+.is-credit .sfm-lines {
+    --sfm-cols: 24px 128px minmax(140px, 1fr) 76px 92px 60px 60px 92px 100px 28px;
+    --sfm-lines-min: 960px;
+}
+
+/* A receipt's rows are the invoices the money is being applied to, named by
+   SAP document entry: #, doc entry, amount applied, invoice type, remove. */
+.is-receipt .sfm-lines {
+    --sfm-cols: 24px minmax(110px, 1fr) minmax(110px, 1fr) minmax(130px, 1fr) 28px;
+    --sfm-lines-min: 520px;
+}
+
+/* `overflow-x: auto` also clips vertically, which would cut the item picker off
+   at the bottom of the table. While a picker is open the clip is lifted; at the
+   widths where the rows fit (>= ~940px) nothing overflows either way. */
+.sfm-lines.is-picking {
+    overflow: visible;
+}
+
+.sfm-lines-inner {
+    min-width: var(--sfm-lines-min);
+}
+
+.sfm-row {
+    display: grid;
+    grid-template-columns: var(--sfm-cols);
+    gap: 10px;
+    align-items: center;
+    padding: 9px 0;
+    border-top: 1px solid var(--sfm-rowline);
+}
+
+.sfm-row.is-head {
+    padding: 12px 0 9px;
+    border-top: none;
+    align-items: end;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--sfm-muted-3);
+}
+
+.sfm-r {
+    text-align: right;
+}
+
+.sfm-n {
+    font-size: 11px;
+    color: var(--sfm-muted-3);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.sfm .sfm-cell {
+    padding: 8px 8px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm .sfm-select.sfm-cell {
+    padding-right: 24px;
+}
+
+.sfm .sfm-num {
+    padding: 8px 6px;
+    font-size: 13px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Description reads as text until touched, then becomes a field. */
+.sfm .sfm-desc {
+    background: transparent;
+    border-color: transparent;
+    padding: 8px 9px;
+    color: var(--sfm-ink-2);
+    font-size: 13px;
+}
+
+.sfm .sfm-desc:hover:not([readonly]) {
+    border-color: var(--sfm-field-edge);
+    background: var(--sfm-field);
+}
+
+.sfm .sfm-desc:focus {
+    border-color: var(--sfm-accent);
+    background: var(--sfm-field);
+    color: var(--sfm-ink);
+}
+
+.sfm-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--sfm-accent-rgb), .35);
+    background: rgba(var(--sfm-accent-rgb), .1);
+    color: var(--sfm-accent);
+    font-size: 10px;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.sfm-amt-v {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sfm-accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-amt-x {
+    font-size: 10.5px;
+    color: var(--sfm-muted-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-row-err {
+    grid-column: 2 / -1;
+    font-size: 11px;
+    color: var(--sfm-bad);
+}
+
+.sfm-addline {
+    width: 100%;
+    margin-top: 12px;
+    padding: 11px;
+    border: 1px dashed var(--sfm-dashed);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--sfm-muted);
+    font-family: inherit;
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+}
+
+.sfm-addline:hover {
+    border-color: var(--sfm-accent);
+    color: var(--sfm-accent);
+}
+
+.sfm-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 34px 0;
+    font-size: 12.5px;
+    color: var(--sfm-muted);
+}
+
+/* ── Totals panel ───────────────────────────────────────────────────────── */
+.sfm-total-card {
+    padding: 18px;
+    box-shadow: 0 1px 0 rgba(var(--sfm-accent-rgb), .12) inset;
+}
+
+.sfm-total-hd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sfm-total-k {
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--sfm-label);
+}
+
+.sfm-total-cur {
+    font-size: 11px;
+    color: var(--sfm-muted-3);
+}
+
+.sfm-total-v {
+    font-size: 38px;
+    font-weight: 500;
+    color: var(--sfm-accent);
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-total-sub {
+    font-size: 12px;
+    color: var(--sfm-muted);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 16px 0 12px;
+    font-size: 12.5px;
+    color: var(--sfm-ghost-ink);
+    cursor: pointer;
+}
+
+.sfm .sfm-check input {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--sfm-accent);
+    appearance: auto;
+    -webkit-appearance: auto;
+    margin: 0;
+}
+
+.sfm-gap-sm {
+    margin-top: 8px;
+}
+
+.sfm-gap-md {
+    margin-top: 16px;
+}
+
+/* ── Pre-flight checks ──────────────────────────────────────────────────── */
+.sfm-panel {
+    padding: 16px 18px;
+}
+
+.sfm-panel-hd {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.sfm-panel-hd i {
+    font-size: 15px;
+    color: var(--sfm-info);
+}
+
+.sfm-panel-t {
+    font-size: 12.5px;
+    font-weight: 500;
+}
+
+.sfm-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.sfm-checks-i {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--sfm-ink-2);
+}
+
+.sfm-checks-i.is-no {
+    color: var(--sfm-bad-ink);
+}
+
+.sfm-checks-ic {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    background: rgba(var(--sfm-accent-rgb), .16);
+    color: var(--sfm-accent);
+    flex-shrink: 0;
+}
+
+.sfm-checks-i.is-no .sfm-checks-ic {
+    background: rgba(var(--sfm-bad-rgb), .16);
+    color: var(--sfm-bad);
+}
+
+/* ── Cached data ────────────────────────────────────────────────────────── */
+.sfm-cache {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    font-size: 12px;
+    color: var(--sfm-ghost-ink);
+}
+
+.sfm-cache-i {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+}
+
+.sfm-cache-i i {
+    color: var(--sfm-muted-3);
+    flex-shrink: 0;
+}
+
+/* ── Notes, alerts, errors ──────────────────────────────────────────────── */
+.sfm-info-note {
+    display: flex;
+    gap: 9px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--sfm-edge);
+    background: rgba(var(--sfm-info-rgb), .04);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--sfm-muted);
+}
+
+.sfm-info-note > i {
+    font-size: 14px;
+    color: var(--sfm-info);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.sfm-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.sfm-alert > i {
+    font-size: 15px;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.sfm-alert.is-ok {
+    border: 1px solid rgba(var(--sfm-accent-rgb), .35);
+    background: rgba(var(--sfm-accent-rgb), .07);
+    color: var(--sfm-ok-ink);
+}
+
+.sfm-alert.is-ok > i {
+    color: var(--sfm-accent);
+}
+
+.sfm-alert.is-err {
+    border: 1px solid rgba(var(--sfm-bad-rgb), .35);
+    background: rgba(var(--sfm-bad-rgb), .07);
+    color: var(--sfm-alert-bad-ink);
+}
+
+.sfm-alert.is-err > i {
+    color: var(--sfm-bad);
+}
+
+.sfm-alert-bd {
+    flex: 1;
+    min-width: 0;
+}
+
+.sfm-alert-x {
+    border: none;
+    background: transparent;
+    color: inherit;
+    opacity: .55;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 2px;
+    line-height: 1;
+}
+
+.sfm-alert-x:hover {
+    opacity: 1;
+}
+
+.sfm-err-panel {
+    margin-bottom: 12px;
+    padding: 11px 13px;
+    border: 1px solid rgba(var(--sfm-bad-rgb), .3);
+    border-radius: 8px;
+    background: rgba(var(--sfm-bad-rgb), .06);
+}
+
+.sfm-err-panel-t {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--sfm-bad);
+    margin-bottom: 6px;
+}
+
+.sfm-err-panel ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--sfm-bad-ink);
+}
+
+
+/* ── Spinner ────────────────────────────────────────────────────────────── */
+.sfm-spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(var(--sfm-accent-rgb), .25);
+    border-top-color: var(--sfm-accent);
+    border-radius: 50%;
+    display: inline-block;
+    animation: sfm-spin .7s linear infinite;
+    flex-shrink: 0;
+}
+
+.sfm-spin.on-solid {
+    border-color: var(--sfm-on-solid-ring);
+    border-top-color: var(--sfm-solid-ink);
+}
+
+@keyframes sfm-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Narrow viewports ───────────────────────────────────────────────────────
+   The imported design is a desktop workspace and carries no breakpoints; these
+   keep it usable below its 1440px shell without changing any of its values. */
+@media (max-width: 1120px) {
+    .sfm-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sfm-aside {
+        position: static;
+    }
+}
+
+@media (max-width: 900px) {
+    .sfm-fields {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sfm-span3 {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 720px) {
+    .sfm-shell {
+        padding: 18px 16px 44px;
+    }
+
+    .sfm-head-main h1 {
+        font-size: 24px;
+    }
+
+    .sfm-stats {
+        gap: 12px 0;
+    }
+
+    .sfm-stat {
+        padding: 0 16px;
+    }
+
+    .sfm-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sfm-span2,
+    .sfm-span3 {
+        grid-column: span 1;
+    }
+}
+
+/* ==========================================================================
+   Beyond the invoice form
+   Everything above is create-invoice.css's vocabulary. What follows is what
+   these five need and it does not have.
+   ========================================================================== */
+
+/* ── Dates ──────────────────────────────────────────────────────────────────
+   All four document forms used MudDatePicker, which renders a text field plus
+   a popover calendar in MudBlazor's own palette — unreachable from here
+   without out-specifying a stylesheet that loads after this one. A native date
+   input is one control, themes from the page, and opens the platform picker
+   the operator already knows.
+
+   `appearance: none` on `.sfm-input` strips the calendar button in WebKit, so
+   it is handed back and then tinted; the indicator is a UA-drawn bitmap and
+   `filter` is the only way to reach it. */
+.sfm .sfm-input[type="date"] {
+    appearance: auto;
+    -webkit-appearance: none;
+    min-height: 37px;
+}
+
+.sfm .sfm-input[type="date"]::-webkit-calendar-picker-indicator {
+    /* .55 left it near-invisible against the dark field once inverted; .72 is
+       the lowest that still reads there and stays quiet on paper. */
+    opacity: .72;
+    cursor: pointer;
+    filter: var(--sfm-caret-filter);
+}
+
+.sfm .sfm-input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
+/* Safari on iOS lays an empty date input out at a different height to a text
+   one, which staggers the field row. */
+.sfm .sfm-input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
+}
+
+/* ── Document identity ──────────────────────────────────────────────────────
+   The edit form opens on a document that already exists, so its head states
+   what is being changed where the create forms state what is being made. */
+.sfm-ident {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.sfm-ident-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--sfm-muted-3);
+}
+
+.sfm-ident-v {
+    font-size: 13px;
+    color: var(--sfm-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.sfm-ident-sep {
+    width: 1px;
+    height: 13px;
+    background: var(--sfm-sep);
+}
+
+/* Status of the document being edited. Dot plus word, per the house style —
+   the colour is a second channel, never the only one. */
+.sfm-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--sfm-ink-2);
+}
+
+.sfm-status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--sfm-muted-2);
+    flex-shrink: 0;
+}
+
+.sfm-status.is-open::before {
+    background: var(--sfm-accent);
+}
+
+.sfm-status.is-closed::before {
+    background: var(--sfm-muted-3);
+}
+
+.sfm-status.is-draft::before {
+    background: var(--sfm-warn);
+}
+
+/* A value the form shows but will not change — the edit form's document
+   number, the request form's signed-in requester. Reads as stated fact rather
+   than as a disabled field the operator might keep clicking. */
+.sfm-static {
+    padding: 9px 0;
+    font-size: 13.5px;
+    color: var(--sfm-readonly-ink);
+    font-variant-numeric: tabular-nums;
+    min-height: 37px;
+}
+
+/* ── Receipt summary ────────────────────────────────────────────────────────
+   The receipt totals its four payment means before stating the total, so the
+   aside carries a small ledger the other four forms don't need. */
+.sfm-sum {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 12.5px;
+    color: var(--sfm-ghost-ink);
+}
+
+.sfm-sum-k {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.sfm-sum-k i {
+    color: var(--sfm-muted-3);
+}
+
+.sfm-sum-v {
+    font-variant-numeric: tabular-nums;
+}
+
+/* A mean that has not been used stays in the list — its absence is as much a
+   fact as its amount — but recedes. */
+.sfm-sum.is-zero {
+    color: var(--sfm-muted-3);
+}
+
+.sfm-sum-rule {
+    height: 1px;
+    background: var(--sfm-hairline);
+    margin: 9px 0;
+}
+
+/* Applied more than was received. Not a blocking error — SAP settles the
+   difference on account — but it is never what the operator meant. */
+.sfm-total-v.is-over {
+    color: var(--sfm-bad);
+}
+
+/* ── Attachment ─────────────────────────────────────────────────────────────
+   Proof of payment, which this form requires before it will post. */
+.sfm-upload {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 26px 18px;
+    border: 1px dashed var(--sfm-dashed);
+    border-radius: 10px;
+    background: transparent;
+    cursor: pointer;
+    text-align: center;
+    transition: border-color .15s, background .15s;
+}
+
+.sfm-upload:hover {
+    border-color: var(--sfm-accent);
+    background: rgba(var(--sfm-accent-rgb), .04);
+}
+
+/* The label is the control, but the input is what the keyboard drives — so it
+   is hidden visually rather than with `display: none`, which would take it out
+   of the tab order and leave the upload reachable only by mouse. The label
+   draws the focus ring on its behalf below. */
+.sfm-upload input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.sfm-upload:focus-within {
+    border-color: var(--sfm-accent);
+    outline: 2px solid var(--sfm-accent);
+    outline-offset: 2px;
+}
+
+.sfm-upload.has-file {
+    border-style: solid;
+    border-color: rgba(var(--sfm-accent-rgb), .45);
+    background: rgba(var(--sfm-accent-rgb), .06);
+}
+
+.sfm-upload-i {
+    font-size: 24px;
+    color: var(--sfm-muted-2);
+}
+
+.sfm-upload.has-file .sfm-upload-i {
+    color: var(--sfm-accent);
+}
+
+.sfm-upload-t {
+    font-size: 13px;
+    color: var(--sfm-ink-2);
+}
+
+.sfm-upload-x {
+    font-size: 11px;
+    color: var(--sfm-muted-3);
+}
+
+.sfm-file {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin-top: 12px;
+    padding: 11px 13px;
+    border: 1px solid var(--sfm-edge);
+    border-radius: 8px;
+    background: var(--sfm-surface-2);
+}
+
+.sfm-file-i {
+    font-size: 20px;
+    color: var(--sfm-info);
+    flex-shrink: 0;
+}
+
+.sfm-file-bd {
+    min-width: 0;
+    flex: 1;
+}
+
+.sfm-file-n {
+    font-size: 12.5px;
+    color: var(--sfm-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sfm-file-s {
+    font-size: 11px;
+    color: var(--sfm-muted-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Payment means ──────────────────────────────────────────────────────────
+   Cash, transfer or cheque. A segmented control rather than a select: there
+   are three, they are the form's main branch, and which one is chosen decides
+   which fields appear below. */
+.sfm-seg {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--sfm-field-edge);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--sfm-field);
+}
+
+.sfm-seg-i {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 9px 12px;
+    border: none;
+    border-right: 1px solid var(--sfm-field-edge);
+    background: transparent;
+    color: var(--sfm-muted);
+    font-family: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background .15s, color .15s;
+}
+
+.sfm-seg-i:last-child {
+    border-right: none;
+}
+
+.sfm-seg-i:hover:not(.is-on) {
+    background: rgba(var(--sfm-accent-rgb), .06);
+    color: var(--sfm-ink-2);
+}
+
+.sfm-seg-i.is-on {
+    background: rgba(var(--sfm-accent-rgb), .12);
+    color: var(--sfm-accent);
+}
+

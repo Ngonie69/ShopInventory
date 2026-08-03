@@ -877,10 +877,17 @@ partner. The check runs twice: when the order is created, and again immediately 
 to SAP — a mobile order is priced after capture, so the post is the first point its real value is
 known.
 
-Exposure is `OCRD.Balance + open sales orders + this order`, measured against `OCRD.CreditLine`.
-Where the account names a consolidating parent (`OCRD.FatherCard`), the parent's limit is measured
-against the whole group's combined exposure; an account's own limit still applies alongside it.
-Accounts with no limit set are not restricted.
+Exposure is `OCRD.Balance + this order`, measured against `OCRD.CreditLine` — only what the customer
+actually owes counts, so orders already raised but not yet invoiced do not refuse a new one. Where
+the account names a consolidating parent (`OCRD.FatherCard`), the parent's limit is measured against
+the whole group's combined exposure; an account's own limit still applies alongside it. Accounts
+with no limit set are not restricted.
+
+Open orders are left out because SAP will not raise an invoice for a customer that is over its limit
+— an order allowed here cannot turn into debt past the limit later, so the two checks cover the
+document flow between them. Setting `CreditLimit:IncludeOpenOrders` to `true` adds open orders back
+into exposure (and into the refusal message), refusing the order at capture instead of at invoicing.
+It is off by default.
 
 Refusals come back as `400` with code `SalesOrder.CreditLimitExceeded` and a message naming the
 account, the limit, the balance and the amount over — safe to show to the user as-is:
@@ -891,7 +898,7 @@ account, the limit, the balance and the amount over — safe to show to the user
   "code": "SalesOrder.CreditLimitExceeded",
   "errors": {
     "SalesOrder.CreditLimitExceeded": [
-      "This order would take PinTail Trading (SAI034) over its credit limit. Credit limit USD 30,000.00, current balance USD 35,759.10, open orders USD 0.00, this order USD 1,200.00 — USD 6,959.10 over. Take a payment against the account or reduce the order before submitting it again."
+      "This order would take PinTail Trading (SAI034) over its credit limit. Credit limit USD 30,000.00, current balance USD 35,759.10, this order USD 1,200.00 — USD 6,959.10 over. Take a payment against the account or reduce the order before submitting it again."
     ]
   }
 }

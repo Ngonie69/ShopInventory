@@ -65,6 +65,86 @@ public class IdempotencyMiddlewareTests
         Assert.Equal(2, calls);
     }
 
+    [Theory]
+    [InlineData(StatusCodes.Status400BadRequest)]
+    [InlineData(StatusCodes.Status403Forbidden)]
+    [InlineData(StatusCodes.Status404NotFound)]
+    [InlineData(StatusCodes.Status409Conflict)]
+    public async Task Client_error_releases_key_so_request_can_be_retried(int failureStatusCode)
+    {
+        // A refused request creates no document, so there is nothing for the key to protect.
+        // Remembering it locked reps out of their own draft: a sales order refused on credit came
+        // back as 400, and every later attempt with that draft's stable key was answered
+        // "duplicate request" — hiding the credit refusal that would have told them what to fix.
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                var call = Interlocked.Increment(ref calls);
+                context.Response.StatusCode = call == 1
+                    ? failureStatusCode
+                    : StatusCodes.Status201Created;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var key = $"client-error-{Guid.NewGuid():N}";
+        var first = CreateContext(key, "/api/invoice");
+        await middleware.InvokeAsync(first);
+        var retry = CreateContext(key, "/api/invoice");
+        await middleware.InvokeAsync(retry);
+
+        Assert.Equal(failureStatusCode, first.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status201Created, retry.Response.StatusCode);
+        Assert.False(retry.Response.Headers.ContainsKey("Idempotency-Replayed"));
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task Success_is_still_replayed_rather_than_run_twice()
+    {
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                Interlocked.Increment(ref calls);
+                context.Response.StatusCode = StatusCodes.Status201Created;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var key = $"success-{Guid.NewGuid():N}";
+        await middleware.InvokeAsync(CreateContext(key, "/api/invoice"));
+        var retry = CreateContext(key, "/api/invoice");
+        await middleware.InvokeAsync(retry);
+
+        Assert.Equal(StatusCodes.Status201Created, retry.Response.StatusCode);
+        Assert.Equal("true", retry.Response.Headers["Idempotency-Replayed"]);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task Keyless_sales_order_is_still_refused_without_a_key()
+    {
+        // Owning the replay is not the same as being allowed to arrive without a key: the 428 guard
+        // has to survive the route moving into the handler-owned set.
+        var calls = 0;
+        var middleware = new IdempotencyMiddleware(
+            context =>
+            {
+                Interlocked.Increment(ref calls);
+                context.Response.StatusCode = StatusCodes.Status201Created;
+                return Task.CompletedTask;
+            },
+            NullLogger<IdempotencyMiddleware>.Instance);
+
+        var keyless = CreateContext(key: null, "/api/salesorder");
+        await middleware.InvokeAsync(keyless);
+
+        Assert.Equal(StatusCodes.Status428PreconditionRequired, keyless.Response.StatusCode);
+        Assert.Equal(0, calls);
+    }
+
     [Fact]
     public async Task Exception_releases_key_so_request_can_be_retried()
     {
@@ -98,11 +178,14 @@ public class IdempotencyMiddlewareTests
     // attachment either way; the crate variant delegates to the crates handler above.
     [InlineData("/api/invoice/2148037/pod")]
     [InlineData("/api/invoice/2148037/crate-pod")]
+    // SalesOrderService.CreateAsync looks the ClientRequestId up before inserting, and again when
+    // the unique index rejects a racing insert, returning the existing order both times.
+    [InlineData("/api/salesorder")]
     public async Task Handler_owned_endpoints_are_not_replayed_by_this_middleware(string path)
     {
-        // These handlers persist their response through IIdempotencyRequestStore and replay the real
-        // document. This middleware only remembers a status code, so if it short-circuited the retry
-        // the caller would get a bare message and never learn what was created.
+        // These handlers persist their own key and replay the real document. This middleware only
+        // remembers a status code, so if it short-circuited the retry the caller would get a bare
+        // message and never learn what was created.
         var calls = 0;
         var middleware = new IdempotencyMiddleware(
             context =>
@@ -174,12 +257,15 @@ public class IdempotencyMiddlewareTests
         Assert.Equal(1, calls);
     }
 
-    private static DefaultHttpContext CreateContext(string key, string path = "/api/salesorder")
+    // Defaults to an endpoint this middleware still guards. /api/salesorder is not one: its handler
+    // dedupes on ClientRequestId against a unique index and replays the real order.
+    private static DefaultHttpContext CreateContext(string? key, string path = "/api/invoice")
     {
         var context = new DefaultHttpContext();
         context.Request.Method = HttpMethods.Post;
         context.Request.Path = path;
-        context.Request.Headers["Idempotency-Key"] = key;
+        if (key is not null)
+            context.Request.Headers["Idempotency-Key"] = key;
         context.Response.Body = new MemoryStream();
         return context;
     }

@@ -404,6 +404,19 @@ public interface ISAPServiceLayerClient
     Task<List<Dictionary<string, object?>>> ExecuteParameterisedSqlQueryAsync(string queryCode, string queryName, string sqlText, IReadOnlyDictionary<string, string> parameters, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Binds parameters under a content-addressed code, for a statement whose shape varies as well
+    /// as its values.
+    /// </summary>
+    /// <remarks>
+    /// Use when part of the statement cannot be a parameter — a <c>TOP n</c>, an optional filter
+    /// clause — but the values that move every request still can. Each shape gets its own SAP-side
+    /// object, and the object count then tracks the number of shapes instead of the number of
+    /// requests. When the shape is constant, prefer
+    /// <see cref="ExecuteParameterisedSqlQueryAsync"/> and a fixed code.
+    /// </remarks>
+    Task<List<Dictionary<string, object?>>> ExecuteScopedParameterisedSqlQueryAsync(string queryCodePrefix, string queryNamePrefix, string sqlText, IReadOnlyDictionary<string, string> parameters, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Lists the SqlCodes SAP currently holds — the only available measure of how large OUQR has
     /// grown, since the table itself is not readable through SQLQueries.
     /// </summary>

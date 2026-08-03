@@ -45,7 +45,11 @@ public sealed class SapClientFixture : IDisposable
         })
         {
             BaseAddress = new Uri(settings.ServiceLayerUrl),
-            Timeout = TimeSpan.FromMinutes(2)
+            // Service Layer latency here is heavy-tailed, and a SQLQueries write costs tens of
+            // seconds on its own. At two minutes a cold report query timed out on one run and
+            // answered in seconds on the next, which reads as a broken change rather than a busy
+            // server — the ambiguity this harness is meant to remove.
+            Timeout = TimeSpan.FromMinutes(5)
         };
 
         var services = new ServiceCollection().BuildServiceProvider();

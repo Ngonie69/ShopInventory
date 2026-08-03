@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -7,53 +8,77 @@ using Xunit.Abstractions;
 namespace ShopInventory.IntegrationTests;
 
 /// <summary>
-/// Asks a real Service Layer to accept the five reports that split takings by currency, and pins the
-/// validator limit that decided their shape.
+/// Pins the two properties the report SQL has to have against a real Service Layer: SAP accepts
+/// every statement, and running them over new date ranges does not grow OUQR.
 /// </summary>
 /// <remarks>
-/// These five — sales summary, daily sales, customer invoices, receivables aging and top products —
-/// were the reports this suite could not previously cover. Every one of them computed its USD/ZiG
-/// columns as <c>SUM(CASE WHEN "DocCur" = 'USD' ...)</c>, and SAP's SQLQueries validator rejects a
-/// CASE expression when the query object is created: 701, "Cannot support the case expression". So
-/// none of the five objects had ever existed, and each report answered HTTP 400 before reading a
-/// row. Nothing upstream could see it. The SQL is valid HANA and the unit tests were green — only
-/// the create call ever saw the error, which is exactly the gap this project exists to close.
+/// Neither is reachable from a unit test. SAP validates SqlText when the query object is
+/// <em>created</em>, and its accepted grammar is much narrower than HANA's — the order-line
+/// statement's <c>COALESCE</c> wrappers were rejected with 701 and took the whole sales order vs
+/// invoice report down with them, at create, before a row was read. Only the real validator has an
+/// opinion about that.
 ///
-/// With the split moved into C#, there is real SQL to exercise, so the exclusion is lifted and all
-/// five run here. <see cref="A_case_expression_is_still_rejected_at_create"/> keeps the reason on
-/// the record: if it ever starts failing, the limit has been lifted SAP-side and the split could
-/// move back into SQL.
+/// And the leak is invisible by construction: the interpolated statements returned exactly the
+/// right numbers. Only the SAP-side row count moved.
 ///
-/// Like the statement tests, these reuse the same fixed query codes the reports themselves use, so
-/// running them repeatedly costs no SAP objects.
+/// <para>
+/// <b>The five currency-split reports are covered here now.</b> They were excluded while the
+/// validator's rejection of <c>CASE</c> left them impossible to create at all — sales summary,
+/// daily sales, customer invoices, receivables aging and top products each split USD from ZiG with
+/// <c>SUM(CASE WHEN … END)</c>, so every one of them answered HTTP 400 before reading a row. The
+/// split now happens in C# off a <c>GROUP BY T0."DocCur"</c>, which leaves real SQL to exercise.
+/// <see cref="The_validator_still_rejects_the_constructs_these_reports_work_around"/> keeps the
+/// reasons on the record, including two limits that only surfaced here.
+/// </para>
+///
+/// These tests drive <see cref="ReportService"/> itself rather than copies of its SQL. A copy would
+/// let the shipped statements drift away from the ones this proves SAP accepts, which is the one
+/// thing these tests exist to establish.
 /// </remarks>
 [Collection("SAP")]
 public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper output)
 {
-    private static readonly DateTime FromDate = DateTime.UtcNow.Date.AddDays(-30);
-    private static readonly DateTime ToDate = DateTime.UtcNow.Date;
+    // Narrow, so the order-line statement returns a workable number of rows. Reports are exercised
+    // for whether SAP accepts and reuses them, not for what the data says.
+    private static readonly (DateTime From, DateTime To)[] Ranges =
+    [
+        (new DateTime(2023, 6, 1), new DateTime(2023, 6, 3)),
+        (new DateTime(2023, 7, 5), new DateTime(2023, 7, 6)),
+        (new DateTime(2023, 8, 9), new DateTime(2023, 8, 11)),
+        (new DateTime(2023, 9, 12), new DateTime(2023, 9, 13))
+    ];
 
-    /// <summary>
-    /// The whole point: every one of these calls used to fail at create, and none of the failures
-    /// were visible from anywhere but a live Service Layer.
-    /// </summary>
     [SapFact]
-    public async Task Every_currency_split_report_is_accepted()
+    public async Task Every_report_statement_is_accepted()
     {
-        var reports = BuildReportService();
+        var reports = CreateReportService();
+        var (from, to) = Ranges[0];
 
-        var salesSummary = await reports.GetSalesSummaryAsync(FromDate, ToDate);
+        // Four statements, and the order-line one is the statement whose COALESCE wrappers SAP
+        // refused. If the validator still objects to anything in it, this throws.
+        var fulfillment = await reports.GetOrderFulfillmentAsync(from, to);
+        output.WriteLine(
+            $"order fulfillment: {fulfillment.TotalOrders} orders, {fulfillment.TotalLineItems} lines, "
+            + $"{fulfillment.Orders.Count} order details");
+
+        // Two more: the stocked-item statement, which carries no values at all, and item last sales,
+        // which is now bound.
+        var slowMoving = await reports.GetSlowMovingProductsAsync(from, to);
+        output.WriteLine($"slow moving: {slowMoving.Products.Count} rows");
+
+        // And the five that could not be created at all until the currency split moved to C#.
+        var salesSummary = await reports.GetSalesSummaryAsync(from, to);
         output.WriteLine(
             $"sales summary: {salesSummary.TotalInvoices} invoices, {salesSummary.UniqueCustomers} customers, "
             + $"{salesSummary.DailySales.Count} days, USD {salesSummary.TotalSalesUSD}, ZiG {salesSummary.TotalSalesZIG}");
 
-        var topProducts = await reports.GetTopProductsAsync(FromDate, ToDate, topCount: 10);
+        var topProducts = await reports.GetTopProductsAsync(from, to, topCount: 10);
         output.WriteLine($"top products: {topProducts.TopProducts.Count} items");
 
-        var topCustomers = await reports.GetTopCustomersAsync(FromDate, ToDate, topCount: 10);
+        var topCustomers = await reports.GetTopCustomersAsync(from, to, topCount: 10);
         output.WriteLine($"top customers: {topCustomers.TotalCustomers} customers");
 
-        // The widest of the five: the aging report takes its own 365-day range off the clock.
+        // The widest of them: aging takes its own 365-day range off the clock rather than the caller.
         var aging = await reports.GetReceivablesAgingAsync();
         output.WriteLine(
             $"aging: {aging.TotalCustomers} customers, USD {aging.TotalOutstandingUSD}, ZiG {aging.TotalOutstandingZIG}, "
@@ -66,14 +91,14 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
             string.IsNullOrWhiteSpace(warehouseCode),
             "SAP returned no warehouses, so the warehouse-filtered top-products statement cannot be exercised.");
 
-        var byWarehouse = await reports.GetTopProductsAsync(FromDate, ToDate, topCount: 10, warehouseCode);
+        var byWarehouse = await reports.GetTopProductsAsync(from, to, topCount: 10, warehouseCode);
         output.WriteLine($"top products in {warehouseCode}: {byWarehouse.TopProducts.Count} items");
     }
 
     /// <summary>
-    /// Every column the pivots read has to come back under the name they read it by. A renamed alias
-    /// is not an error anywhere — the row simply has no such key, and the report quietly reports
-    /// zero.
+    /// Every column the currency pivots read has to come back under the name they read it by. A
+    /// renamed alias is not an error anywhere — the row simply has no such key, and the report
+    /// quietly reports zero.
     /// </summary>
     [SapFact]
     public async Task The_statements_return_the_columns_the_pivots_read()
@@ -82,7 +107,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
         var parameters = new Dictionary<string, string>
         {
             ["fromDate"] = DateTime.UtcNow.Date.AddYears(-5).ToString("yyyy-MM-dd"),
-            ["toDate"] = ToDate.ToString("yyyy-MM-dd")
+            ["toDate"] = DateTime.UtcNow.Date.ToString("yyyy-MM-dd")
         };
 
         await AssertColumnsAsync(
@@ -115,7 +140,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
             new Dictionary<string, string>
             {
                 ["fromDate"] = DateTime.UtcNow.Date.AddDays(-365).ToString("yyyy-MM-dd"),
-                ["toDate"] = ToDate.ToString("yyyy-MM-dd")
+                ["toDate"] = DateTime.UtcNow.Date.ToString("yyyy-MM-dd")
             },
             required: false, "CardCode", "CardName", "DocDate", "DocCur", "InvoiceCount", "DocTotal", "PaidToDate");
     }
@@ -136,7 +161,7 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
             new Dictionary<string, string>
             {
                 ["fromDate"] = DateTime.UtcNow.Date.AddYears(-5).ToString("yyyy-MM-dd"),
-                ["toDate"] = ToDate.ToString("yyyy-MM-dd")
+                ["toDate"] = DateTime.UtcNow.Date.ToString("yyyy-MM-dd")
             });
 
         Assert.True(rows.Count > 0, "No invoices in the last five years, so the date format cannot be observed.");
@@ -151,8 +176,8 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
     /// <summary>
     /// Why these reports are shaped the way they are. Each of these is ordinary HANA that SAP's
     /// validator refuses when the query object is created, and between them they account for every
-    /// awkward thing about the statements above: the currency split, the ranking, and the aging
-    /// report's two separate sums.
+    /// awkward thing about the statements: the currency split, the ranking, and the aging report's
+    /// two separate sums.
     /// </summary>
     /// <remarks>
     /// Safe to run repeatedly: the create is what fails, so nothing is ever left behind under this
@@ -184,37 +209,45 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
     }
 
     /// <summary>
-    /// The reports must not grow OUQR, however many ranges they are asked for. Interpolated dates
-    /// gave every request its own permanent row.
+    /// The point of the whole change: report views must not add SAP query objects, however many
+    /// different date ranges they are asked for.
     /// </summary>
     [SapFact]
-    public async Task Repeated_report_runs_add_no_sap_query_objects()
+    public async Task Further_date_ranges_add_no_sap_query_objects()
     {
+        // One service for the whole run. Its caches are keyed by date range, so every range below
+        // still reaches SAP — but the dateless stocked-item statement, which is the slow one and
+        // cannot leak because it carries no values, is fetched once instead of four times.
+        var reports = CreateReportService();
+
         // Provision first, so the baseline is taken with every object already in place.
-        await RunEveryReportAsync(FromDate, ToDate);
+        await RunDateRangedReportsAsync(reports, Ranges[0]);
 
         var before = await CountSqlQueriesAsync();
         output.WriteLine($"SQLQueries before: {before}");
 
-        for (var i = 1; i <= 4; i++)
+        foreach (var range in Ranges[1..])
         {
-            await RunEveryReportAsync(FromDate.AddDays(-i * 10), ToDate.AddDays(-i));
+            var elapsed = Stopwatch.StartNew();
+            await RunDateRangedReportsAsync(reports, range);
+            output.WriteLine($"{range.From:yyyy-MM-dd}..{range.To:yyyy-MM-dd} took {elapsed.Elapsed.TotalSeconds:N1}s");
         }
 
         var after = await CountSqlQueriesAsync();
-        output.WriteLine($"SQLQueries after 4 further report runs: {after}");
+        output.WriteLine($"SQLQueries after {Ranges.Length - 1} further date ranges: {after}");
 
         Assert.Equal(before, after);
     }
 
-    private async Task RunEveryReportAsync(DateTime fromDate, DateTime toDate)
+    private static async Task RunDateRangedReportsAsync(
+        IReportService reports,
+        (DateTime From, DateTime To) range)
     {
-        var reports = BuildReportService();
-
-        await reports.GetSalesSummaryAsync(fromDate, toDate);
-        await reports.GetTopProductsAsync(fromDate, toDate, topCount: 10);
-        await reports.GetTopCustomersAsync(fromDate, toDate, topCount: 10);
-        await reports.GetReceivablesAgingAsync();
+        await reports.GetOrderFulfillmentAsync(range.From, range.To);
+        await reports.GetSlowMovingProductsAsync(range.From, range.To);
+        await reports.GetSalesSummaryAsync(range.From, range.To);
+        await reports.GetTopProductsAsync(range.From, range.To);
+        await reports.GetTopCustomersAsync(range.From, range.To);
     }
 
     private async Task AssertColumnsAsync(
@@ -240,16 +273,12 @@ public class SapReportQueryTests(SapClientFixture fixture, ITestOutputHelper out
         }
     }
 
-    /// <summary>
-    /// A report service over the live client. Its own cache, so each test measures real SAP calls
-    /// rather than another test's cached rows.
-    /// </summary>
-    private ReportService BuildReportService() =>
+    private ReportService CreateReportService() =>
         new(fixture.Client, new MemoryCache(new MemoryCacheOptions()), NullLogger<ReportService>.Instance);
 
     /// <summary>
-    /// OUQR is not readable through SQLQueries ("Table 'OUQR' not accessible"), so count the entity
-    /// set. This runs no SQL and so cannot perturb what it measures.
+    /// OUQR itself is not readable through SQLQueries ("Table 'OUQR' not accessible"), so count the
+    /// entity set. This runs no SQL and so cannot perturb what it measures.
     /// </summary>
     private async Task<int> CountSqlQueriesAsync()
     {

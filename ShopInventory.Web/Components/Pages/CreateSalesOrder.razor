@@ -19,675 +19,415 @@
 
 <PageTitle>Create Sales Order - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .cso-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
+@* Styles live in wwwroot/css/sales-forms.css (linked from App.razor), shared
+   with the other four sales document forms — see that file's header. The sheet
+   carries a light and a dark palette and follows the app's theme toggle.
 
-    /* ── Breadcrumb ──────────────────────────────────── */
-    .cso-breadcrumb {
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .85rem;
-        color: #6b7280;
-        margin-bottom: 1.25rem;
-    }
+   `is-order` selects this form's line-editor columns from the sheet.
 
-    .cso-breadcrumb a {
-        color: #667eea;
-        text-decoration: none;
-        font-weight: 500;
-    }
+   Icon-only controls draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that failed to load would
+   leave them reading as dead controls. Icons beside a word keep the font. *@
 
-    .cso-breadcrumb a:hover {
-        text-decoration: underline;
-    }
+<div class="sfm is-order">
+    <div class="sfm-accentbar"></div>
+    <div class="sfm-shell">
 
-    .cso-breadcrumb .sep {
-        color: #d1d5db;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .cso-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cso-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .cso-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .cso-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .cso-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .cso-header-actions {
-        display: flex;
-        gap: .5rem;
-        align-items: center;
-    }
-
-    .btn-back {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.1rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .85rem;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        transition: all .15s;
-    }
-
-    .btn-back:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-        color: #374151;
-    }
-
-    /* ── Form Card ───────────────────────────────────── */
-    .form-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .form-card-title {
-        font-weight: 600;
-        font-size: .95rem;
-        color: #1a1a2e;
-        margin-bottom: 1rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .form-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .85rem;
-    }
-
-    .form-field {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .form-field.full {
-        grid-column: span 2;
-    }
-
-    .form-field label {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-        margin-bottom: .25rem;
-    }
-
-    .form-field input,
-    .form-field select,
-    .form-field textarea {
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        transition: all .15s;
-    }
-
-    .form-field input:focus,
-    .form-field select:focus,
-    .form-field textarea:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    /* ── Customer Selection ───────────────────────────── */
-    .dropdown-autocomplete {
-        position: absolute;
-        z-index: 100;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        max-height: 250px;
-        overflow-y: auto;
-        width: 100%;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
-        margin-top: 2px;
-    }
-
-    .dropdown-item {
-        padding: .5rem .75rem;
-        cursor: pointer;
-        font-size: .85rem;
-        border-bottom: 1px solid #f3f4f6;
-        transition: background .12s;
-    }
-
-    .dropdown-item:hover,
-    .dropdown-item.selected {
-        background: #f0f4ff;
-    }
-
-    /* ── Buttons ─────────────────────────────────────── */
-    /* .btn-so-gradient lives in wwwroot/css/sales-order-buttons.css */
-
-    .btn-create {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-create:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-    }
-
-    .btn-create:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-        text-decoration: none;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f9fafb;
-        border-color: #9ca3af;
-    }
-
-    /* ── Footer ──────────────────────────────────────── */
-    .form-footer {
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        padding-top: 1rem;
-    }
-
-    /* ── Loading ─────────────────────────────────────── */
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-    }
-
-    @@media (max-width: 768px) {
-        .cso-header {
-            flex-direction: column;
-        }
-
-        .form-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .form-field.full {
-            grid-column: span 1;
-        }
-    }
-</style>
-
-<div class="cso-page">
-    <div class="container-fluid">
-
-        <!-- Breadcrumb -->
-        <div class="cso-breadcrumb">
-            <a href="/sales-orders">Sales Orders</a>
-            <span class="sep">/</span>
-            <span>Create New</span>
+        <!-- ── Breadcrumb strip ───────────────────────────────────────── -->
+        <div class="sfm-crumbs">
+            <a href="/sales-orders">Sales orders</a>
+            <span class="sfm-crumb-sep">/</span>
+            <span class="sfm-crumb-now">Create new</span>
+            <span class="sfm-spacer"></span>
+            <a href="/sales-orders" class="sfm-btn"><i class="ph ph-arrow-left"></i>Back</a>
         </div>
 
-        <!-- Header -->
-        <div class="cso-header">
-            <div class="cso-header-left">
-                <div class="cso-header-icon"><i class="bi bi-cart-check"></i></div>
-                <div>
-                    <h2>Create Sales Order</h2>
-                    <p>Create a new sales order with line items</p>
-                </div>
+        <!-- ── Head ───────────────────────────────────────────────────── -->
+        <div class="sfm-head">
+            <div class="sfm-head-main">
+                <h1>Create sales order</h1>
+                <p>Order lines priced from the customer&rsquo;s price list &middot; posts to SAP Business One</p>
             </div>
-            <div class="cso-header-actions">
-                <a href="/sales-orders" class="btn-back"><i class="bi bi-arrow-left"></i> Back</a>
+            <div class="sfm-stats">
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Lines</div>
+                    <div class="sfm-stat-v">@newOrder.Lines.Count</div>
+                </div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Order total</div>
+                    <div class="sfm-stat-v is-total">@CalculateOrderTotal().ToString("N2")</div>
+                </div>
             </div>
         </div>
 
         @if (isLoadingMasterData)
         {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#6b7280;font-weight:500;">Loading master data...</p>
+            <div class="sfm-card sfm-loading">
+                <span class="sfm-spin"></span>Loading master data&hellip;
             </div>
         }
         else
         {
-            <!-- Customer Section -->
-            <div class="form-card">
-                <div class="form-card-title"><i class="bi bi-person-badge"></i> Customer</div>
-                <div style="margin-bottom:1rem;">
-                    <label
-                        style="display:block; font-size:.72rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.5px; margin-bottom:.35rem;">
-                        Customer <span style="color:#ef4444;">*</span>
-                    </label>
-                    @if (isLoadingBPs)
-                    {
-                        <div class="d-flex align-items-center gap-2" style="padding:.4rem 0;">
-                            <div class="spinner-border spinner-border-sm text-primary"></div>
-                            <span style="color:#6b7280; font-size:.85rem;">Loading customers…</span>
+            <div class="sfm-grid">
+                <div class="sfm-main">
+
+                    <!-- ── Customer ───────────────────────────────────── -->
+                    <section class="sfm-card">
+                        <div class="sfm-card-hd">
+                            <i class="ph ph-user-circle"></i>
+                            <h2>Customer</h2>
+                            <span class="sfm-spacer"></span>
+                            <span class="sfm-note">@allBusinessPartners.Count.ToString("N0") cached</span>
                         </div>
-                    }
-                    else if (selectedBusinessPartner != null)
-                    {
-                        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:.75rem 1rem;">
-                            <div class="d-flex justify-content-between align-items-start">
-                                <div>
-                                    <div style="font-weight:700; color:#065f46;">
-                                        <i class="bi bi-check-circle-fill me-1" style="color:#059669;"></i>
-                                        @selectedBusinessPartner.CardCode
-                                    </div>
-                                    <div style="font-size:.85rem; color:#065f46; opacity:.8;">@selectedBusinessPartner.CardName
-                                    </div>
-                                    @if (!string.IsNullOrEmpty(selectedBusinessPartner.Phone1))
+                        <div class="sfm-card-bd sfm-fields">
+                            @* Not a <label>: the field carries a clear button and a result list, and a
+                               label would forward stray clicks on them back to the input. *@
+                            <div class="sfm-lab sfm-span2">
+                                <span class="sfm-lab-t">Customer <span class="sfm-req">*</span></span>
+                                <div class="sfm-combo">
+                                    <input class="sfm-input @(createValidationErrors.ContainsKey("Customer") ? "is-bad" : "")"
+                                           @bind="bpSearchTerm" @bind:event="oninput"
+                                           @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
+                                           placeholder="@(isLoadingBPs ? "Loading customers…" : "Search by code or name…")"
+                                           disabled="@isLoadingBPs" autocomplete="off" />
+                                    @if (selectedBusinessPartner != null)
                                     {
-                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
-                                            <i class="bi bi-telephone me-1"></i>@selectedBusinessPartner.Phone1
-                                        </div>
+                                        <button type="button" class="sfm-combo-clear" @onclick="ClearSelectedBP"
+                                                title="Clear customer" aria-label="Clear customer">
+                                            <i class="ph ph-x"></i>
+                                        </button>
                                     }
-                                    @if (customerPriceListNum.HasValue)
+                                    @if (showBPDropdown)
                                     {
-                                        <div style="font-size:.82rem; color:#065f46; opacity:.7; margin-top:.25rem;">
-                                            <i class="bi bi-tags me-1"></i>Price List #@customerPriceListNum
-                                            @if (isLoadingCustomerPrices)
+                                        <div class="sfm-drop is-wide">
+                                            @if (!filteredBusinessPartners.Any())
                                             {
-                                                <span class="spinner-border spinner-border-sm ms-1"></span>
+                                                <div class="sfm-drop-empty">No customers match that search.</div>
                                             }
                                             else
                                             {
-                                                <span
-                                                    style="background:#d1fae5; color:#065f46; font-size:.7rem; padding:.1rem .4rem; border-radius:4px; font-weight:600; margin-left:.25rem;">
-                                                    @customerPricing.Count items
-                                                </span>
+                                                @foreach (var bp in filteredBusinessPartners.Take(15))
+                                                {
+                                                    <button type="button" class="sfm-drop-i"
+                                                            @onmousedown:preventDefault="true"
+                                                            @onmousedown="() => SelectBusinessPartner(bp)">
+                                                        <span>
+                                                            <span class="sfm-drop-code">@bp.CardCode</span>
+                                                            <span class="sfm-drop-sub">@bp.CardName</span>
+                                                        </span>
+                                                        @if (!string.IsNullOrEmpty(bp.Currency))
+                                                        {
+                                                            <span class="sfm-note">@bp.Currency</span>
+                                                        }
+                                                    </button>
+                                                }
+                                                @if (filteredBusinessPartners.Count() > 15)
+                                                {
+                                                    <div class="sfm-drop-empty">
+                                                        @filteredBusinessPartners.Count().ToString("N0") match &mdash; type more to narrow.
+                                                    </div>
+                                                }
                                             }
                                         </div>
                                     }
                                 </div>
-                                <button type="button"
-                                        style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:28px; height:28px; border-radius:7px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.8rem;"
-                                        @onclick="ClearSelectedBP">
-                                    <i class="bi bi-x"></i>
-                                </button>
+                                @if (createValidationErrors.ContainsKey("Customer"))
+                                {
+                                    <div class="sfm-field-err">@createValidationErrors["Customer"]</div>
+                                }
                             </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="position-relative">
-                            <input type="text"
-                                   style="width:100%; padding:.5rem .75rem; border:1px solid #d1d5db; border-radius:8px; font-size:.88rem; color:#374151;"
-                                   @bind="bpSearchTerm" @bind:event="oninput" @onfocus="() => showBPDropdown = true"
-                                   @onblur="OnBPSearchBlur" placeholder="Search by code or name…" autocomplete="off" />
-                            @if (showBPDropdown && filteredBusinessPartners.Any())
+
+                            @if (selectedBusinessPartner != null)
                             {
-                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
-                                    @foreach (var bp in filteredBusinessPartners.Take(15))
-                                    {
-                                        <div class="dropdown-item" @onmousedown="() => SelectBusinessPartner(bp)">
-                                            <strong>@bp.CardCode</strong> — <span style="color:#6b7280;">@bp.CardName</span>
-                                        </div>
-                                    }
-                                    @if (filteredBusinessPartners.Count() > 15)
-                                    {
-                                        <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.82rem;">
-                                            <i class="bi bi-info-circle me-1"></i>
-                                            @filteredBusinessPartners.Count() total — type more to filter
-                                        </div>
-                                    }
-                                </div>
-                            }
-                            else if (showBPDropdown && !string.IsNullOrWhiteSpace(bpSearchTerm) &&
-                    !filteredBusinessPartners.Any())
-                            {
-                                <div class="dropdown-autocomplete" style="padding:1rem; text-align:center; color:#9ca3af;">
-                                    <i class="bi bi-search me-1"></i>No customers found
-                                </div>
-                            }
-                        </div>
-                    }
-                    @if (createValidationErrors.ContainsKey("Customer"))
-                    {
-                        <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Customer"]
-                        </div>
-                    }
-                </div>
-            </div>
-
-            <!-- Order Details -->
-            <div class="form-card">
-                <div class="form-card-title"><i class="bi bi-info-circle"></i> Order Details</div>
-                <div class="form-grid">
-                    <div class="form-field">
-                        <label>Delivery Date</label>
-                        <MudDatePicker @bind-Date="newOrder.DeliveryDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                       DateFormat="@AppSettings.DateFormat" Editable="true" />
-                    </div>
-                    <div class="form-field">
-                        <label>Currency</label>
-                        <select @bind="newOrder.Currency">
-                            <option value="">Select currency</option>
-                            <option value="USD">USD — US Dollar</option>
-                            <option value="ZIG">ZIG — Zimbabwe Gold</option>
-                        </select>
-                        @if (createValidationErrors.ContainsKey("Currency"))
-                        {
-                            <div style="color:#ef4444; font-size:.78rem; margin-top:.2rem;">@createValidationErrors["Currency"]
-                            </div>
-                        }
-                    </div>
-                    <div class="form-field">
-                        <label>Customer Reference</label>
-                        <input type="text" @bind="newOrder.CustomerRefNo" placeholder="PO / Reference number" />
-                    </div>
-                    <div class="form-field">
-                        <label>Warehouse</label>
-                        <select @bind="newOrder.WarehouseCode">
-                            <option value="">— Default —</option>
-                            @foreach (var wh in cachedWarehouses)
-                            {
-                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="form-field full">
-                        <label>Comments</label>
-                        <textarea @bind="newOrder.Comments" rows="2" placeholder="Optional comments"></textarea>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Line Items Section -->
-            <div class="form-card">
-                <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.75rem;">
-                    <span style="font-weight:600; font-size:.92rem; color:#1a1a2e;">
-                        <i class="bi bi-list-ul me-1" style="color:#667eea;"></i>Order Lines
-                    </span>
-                    <button type="button" class="btn-so-gradient" style="padding:.35rem .85rem; font-size:.8rem;"
-                            @onclick="AddOrderLine">
-                        <i class="bi bi-plus-lg"></i> Add Line
-                    </button>
-                </div>
-
-                @if (newOrder.Lines.Any())
-                {
-                    @for (int i = 0; i < newOrder.Lines.Count; i++)
-                    {
-                        var index = i;
-                        var line = newOrder.Lines[index];
-                        var lineState = GetLineState(index);
-                        var lineErrors = GetLineValidationErrors(index);
-
-                        <div
-                            style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.85rem; margin-bottom:.65rem; position:relative;">
-                            <!-- Line Header -->
-                            <div class="d-flex justify-content-between align-items-center" style="margin-bottom:.6rem;">
-                                <div class="d-flex align-items-center gap-2">
-                                    <span
-                                        style="background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:.75rem;">@(index
-                                                                                                                                                                                            + 1)</span>
-                    @if (!string.IsNullOrEmpty(line.ItemDescription))
-                    {
-                        <span style="font-weight:600; font-size:.85rem; color:#1a1a2e;">@line.ItemCode</span>
-                        <span style="color:#d1d5db;">—</span>
-                        <span style="color:#6b7280; font-size:.82rem;">@TruncateName(line.ItemDescription, 30)</span>
-                    }
-                    else
-                    {
-                        <span style="color:#9ca3af; font-size:.82rem;">New Line Item</span>
-                    }
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <span
-                    style="font-weight:700; color:#059669; font-size:.92rem;">@CalculateLineTotal(line).ToString("N2")</span>
-                    <button type="button"
-                            style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:.75rem;"
-                            @onclick="() => RemoveOrderLine(index)">
-                        <i class="bi bi-x"></i>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Item Code + Description -->
-            <div class="row g-2 mb-2">
-                <div class="col-5">
-                    <label
-                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Item
-                        Code <span style="color:#ef4444;">*</span></label>
-                        <div class="position-relative">
-                            <input type="text"
-                                   style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("ItemCode") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
-                                   value="@line.ItemCode" @oninput="(e) => OnItemCodeInput(index, e.Value?.ToString())"
-                                   @onkeydown="(e) => OnItemCodeKeyDown(index, e)" @onfocus="() => OnItemCodeFocus(index)"
-                                   @onblur="() => OnItemCodeBlur(index)" placeholder="Search item…" autocomplete="off" />
-                            @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
-                            {
-                                <div class="dropdown-autocomplete" @onmousedown:preventDefault>
-                                    @foreach (var product in lineState.FilteredProducts.Take(10))
-                                    {
-                                        var isSelected = lineState.SuggestedProduct?.ItemCode == product.ItemCode;
-                                        var displayPrice = GetPricingForItem(product.ItemCode, product.Price).NetPrice;
-                                        <div class="dropdown-item @(isSelected ? "selected" : "")"
-                                             @onmousedown="async () => await SelectProduct(index, product)">
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <div>
-                                                    <div style="font-weight:600; font-size:.82rem;">@product.ItemCode</div>
-                                                    <small
-                                                        style="@(isSelected ? "color:rgba(255,255,255,.7);" : "color:#6b7280;")">@TruncateName(product.ItemName,
-                                                                                                                                                                                                                                                                                25)</small>
-                                                    </div>
-                                                    <span
-                                                        style="font-size:.75rem; font-weight:600; padding:.1rem .4rem; border-radius:4px; @(isSelected ? "background:rgba(255,255,255,.2); color:#fff;" : "background:#dbeafe; color:#1e40af;")">
-                                                        @displayPrice.ToString("N2")
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        }
-                                        @if (lineState.FilteredProducts.Count > 10)
+                                <div class="sfm-lab sfm-span2">
+                                    <span class="sfm-lab-t">Selected</span>
+                                    <div class="sfm-field-meta">
+                                        <i class="ph-fill ph-check-circle"></i>@selectedBusinessPartner.CardCode
+                                        &mdash; @selectedBusinessPartner.CardName
+                                        @if (!string.IsNullOrEmpty(selectedBusinessPartner.Phone1))
                                         {
-                                            <div class="dropdown-item" style="color:#9ca3af; text-align:center; font-size:.78rem;">
-                                                +@(lineState.FilteredProducts.Count - 10) more…
-                                            </div>
+                                            <span> &middot; @selectedBusinessPartner.Phone1</span>
+                                        }
+                                        @if (customerPriceListNum.HasValue)
+                                        {
+                                            <span> &middot; price list #@customerPriceListNum</span>
+                                            @if (isLoadingCustomerPrices)
+                                            {
+                                                <span class="sfm-spin sfm-gap-sm"></span>
+                                            }
+                                            else
+                                            {
+                                                <span> (@customerPricing.Count.ToString("N0") items)</span>
+                                            }
                                         }
                                     </div>
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <!-- ── Order details ──────────────────────────────── -->
+                    <section class="sfm-card">
+                        <div class="sfm-card-hd">
+                            <i class="ph ph-info"></i>
+                            <h2>Order details</h2>
+                        </div>
+                        <div class="sfm-card-bd sfm-fields">
+                            <label class="sfm-lab">
+                                @* A native date input rather than MudDatePicker: it themes from this
+                                   sheet, and opens the platform picker. It shows the operator's own
+                                   locale format, not AppSettings.DateFormat — the browser owns that. *@
+                                <span class="sfm-lab-t">Delivery date</span>
+                                <input type="date" class="sfm-input" @bind="newOrder.DeliveryDate" />
+                            </label>
+                            <label class="sfm-lab">
+                                <span class="sfm-lab-t">Currency <span class="sfm-req">*</span></span>
+                                <select class="sfm-select @(createValidationErrors.ContainsKey("Currency") ? "is-bad" : "")"
+                                        @bind="newOrder.Currency">
+                                    <option value="">Select&hellip;</option>
+                                    <option value="USD">USD &mdash; US Dollar</option>
+                                    <option value="ZIG">ZIG &mdash; Zimbabwe Gold</option>
+                                </select>
+                                @if (createValidationErrors.ContainsKey("Currency"))
+                                {
+                                    <div class="sfm-field-err">@createValidationErrors["Currency"]</div>
+                                }
+                            </label>
+                            <label class="sfm-lab">
+                                <span class="sfm-lab-t">Customer reference</span>
+                                <input class="sfm-input" @bind="newOrder.CustomerRefNo"
+                                       placeholder="PO / reference number" />
+                            </label>
+                            <label class="sfm-lab">
+                                <span class="sfm-lab-t">Warehouse</span>
+                                <select class="sfm-select" @bind="newOrder.WarehouseCode">
+                                    <option value="">&mdash; Default &mdash;</option>
+                                    @foreach (var wh in cachedWarehouses)
+                                    {
+                                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                    }
+                                </select>
+                            </label>
+                            <label class="sfm-lab sfm-span3">
+                                <span class="sfm-lab-t">Comments</span>
+                                <input class="sfm-input" @bind="newOrder.Comments" placeholder="Optional comments" />
+                            </label>
+                        </div>
+                    </section>
+
+                    <!-- ── Lines ──────────────────────────────────────── -->
+                    <section class="sfm-card">
+                        <div class="sfm-card-hd">
+                            <i class="ph ph-list-bullets"></i>
+                            <h2>Order lines</h2>
+                            <span class="sfm-spacer"></span>
+                            <span class="sfm-count">@newOrder.Lines.Count</span>
+                        </div>
+                        <div class="sfm-lines @(IsAnyPickerOpen ? "is-picking" : "")">
+                            <div class="sfm-lines-inner">
+                                @if (!newOrder.Lines.Any())
+                                {
+                                    <button type="button" class="sfm-addline" @onclick="AddOrderLine">
+                                        <i class="ph ph-plus"></i>Add the first line
+                                    </button>
+                                }
+                                else
+                                {
+                                    <div class="sfm-row is-head">
+                                        <div>#</div>
+                                        <div>Item</div>
+                                        <div>Description</div>
+                                        <div class="sfm-r">Qty</div>
+                                        <div class="sfm-r">Unit price</div>
+                                        <div class="sfm-r">Disc %</div>
+                                        <div>Warehouse</div>
+                                        <div class="sfm-r">Total</div>
+                                        <div></div>
+                                    </div>
+
+                                    @for (int i = 0; i < newOrder.Lines.Count; i++)
+                                    {
+                                        var index = i;
+                                        var line = newOrder.Lines[index];
+                                        var lineState = GetLineState(index);
+                                        var lineErrors = GetLineValidationErrors(index);
+
+                                        <div class="sfm-row">
+                                            <div class="sfm-n">@(index + 1)</div>
+                                            <div class="sfm-combo">
+                                                <input class="sfm-input sfm-cell @(lineErrors.ContainsKey("ItemCode") ? "is-bad" : "")"
+                                                       value="@line.ItemCode"
+                                                       @oninput="e => OnItemCodeInput(index, e.Value?.ToString())"
+                                                       @onkeydown="e => OnItemCodeKeyDown(index, e)"
+                                                       @onfocus="() => OnItemCodeFocus(index)"
+                                                       @onblur="() => OnItemCodeBlur(index)"
+                                                       placeholder="Search&hellip;" autocomplete="off" />
+                                                @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
+                                                {
+                                                    <div class="sfm-drop is-wide">
+                                                        @foreach (var product in lineState.FilteredProducts.Take(10))
+                                                        {
+                                                            var pricing = GetPricingForItem(product.ItemCode, product.Price);
+                                                            var isCustomerPrice = HasSpecialPrice(product.ItemCode);
+                                                            <button type="button"
+                                                                    class="sfm-drop-i @(lineState.SuggestedProduct == product ? "is-sel" : "")"
+                                                                    @onmousedown:preventDefault="true"
+                                                                    @onmousedown="async () => await SelectProduct(index, product)">
+                                                                <span>
+                                                                    <span class="sfm-drop-code">@product.ItemCode</span>
+                                                                    <span class="sfm-drop-sub">@TruncateName(product.ItemName, 30)</span>
+                                                                </span>
+                                                                <span class="sfm-drop-price @(isCustomerPrice ? "is-customer" : "")">
+                                                                    @pricing.NetPrice.ToString("N2")
+                                                                </span>
+                                                            </button>
+                                                        }
+                                                        @if (lineState.FilteredProducts.Count > 10)
+                                                        {
+                                                            <div class="sfm-drop-empty">
+                                                                @(lineState.FilteredProducts.Count - 10) more &mdash; type to narrow.
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                            <input class="sfm-input sfm-desc" value="@line.ItemDescription"
+                                                   placeholder="Select an item" readonly />
+                                            <input type="number" min="0.001" step="0.001"
+                                                   class="sfm-input sfm-num @(lineErrors.ContainsKey("Quantity") ? "is-bad" : "")"
+                                                   value="@line.Quantity"
+                                                   @onchange="e => OnQuantityChange(index, e.Value?.ToString())" />
+                                            <input class="sfm-input sfm-num" value="@line.UnitPrice.ToString("N2")" readonly />
+                                            @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
+                                            <input type="number" min="0" max="100" step="0.000001"
+                                                   class="sfm-input sfm-num" @bind="line.DiscountPercent" />
+                                            <select class="sfm-select sfm-cell" @bind="line.WarehouseCode">
+                                                <option value="">Default</option>
+                                                @foreach (var wh in cachedWarehouses)
+                                                {
+                                                    <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
+                                                }
+                                            </select>
+                                            <div class="sfm-r">
+                                                <div class="sfm-amt-v">@CalculateLineTotal(line).ToString("N2")</div>
+                                                @if (HasSpecialPrice(line.ItemCode))
+                                                {
+                                                    <div class="sfm-amt-x">Special price</div>
+                                                }
+                                            </div>
+                                            @* The glyph is drawn inline, not set in the icon font: it is this
+                                               button's only label, so a font that fails to load would leave an
+                                               empty square that reads as a broken control. *@
+                                            <button type="button" class="sfm-btn-x" title="Remove line"
+                                                    aria-label="Remove line @(index + 1)"
+                                                    @onclick="() => RemoveOrderLine(index)">
+                                                <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                    <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                                </svg>
+                                            </button>
+                                            @if (lineErrors.Any())
+                                            {
+                                                <div class="sfm-row-err">@string.Join(" · ", lineErrors.Values)</div>
+                                            }
+                                        </div>
+                                    }
+
+                                    <button type="button" class="sfm-addline" @onclick="AddOrderLine">
+                                        <i class="ph ph-plus"></i>Add another line
+                                    </button>
                                 }
                             </div>
                         </div>
-                        <div class="col-7">
-                            <label
-                            style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Description</label>
-                            @if (!string.IsNullOrEmpty(line.ItemDescription))
-                            {
-                                <div
-                                    style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:7px; padding:.4rem .6rem; font-size:.82rem; color:#0c4a6e;">
-                                    <i class="bi bi-box-seam me-1"
-                                       style="color:#667eea;"></i>@TruncateName(line.ItemDescription, 35)
+                    </section>
+                </div>
+
+                <!-- ── Aside ──────────────────────────────────────────── -->
+                <aside class="sfm-aside">
+                    <div class="sfm-card sfm-total-card">
+                        <div class="sfm-total-hd">
+                            <span class="sfm-total-k">Order total</span>
+                            <span class="sfm-total-cur">@newOrder.Currency</span>
+                        </div>
+                        <div class="sfm-total-v">@CalculateOrderTotal().ToString("N2")</div>
+                        <div class="sfm-total-sub">@newOrder.Lines.Count line(s)</div>
+
+                        @if (createValidationErrors.Any() || lineValidationErrors.Any())
+                        {
+                            <div class="sfm-err-panel">
+                                <div class="sfm-err-panel-t">
+                                    <i class="ph ph-warning"></i>Please fix the following
                                 </div>
+                                <ul>
+                                    @foreach (var error in createValidationErrors.Values)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                    @foreach (var lineError in lineValidationErrors)
+                                    {
+                                        @foreach (var error in lineError.Value.Values)
+                                        {
+                                            <li>Line @(lineError.Key + 1): @error</li>
+                                        }
+                                    }
+                                </ul>
+                            </div>
+                        }
+
+                        <button type="button" class="sfm-btn-solid" @onclick="CreateOrder" disabled="@isCreating">
+                            @if (isCreating)
+                            {
+                                <span class="sfm-spin on-solid"></span>
+                                <span>Creating&hellip;</span>
                             }
                             else
                             {
-                                <input type="text"
-                                       style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
-                                       placeholder="Select an item" readonly />
+                                <i class="ph-fill ph-check-circle"></i>
+                                <span>Create order</span>
                             }
+                        </button>
+                        <a href="/sales-orders" class="sfm-btn sfm-btn-wide sfm-gap-sm">Cancel</a>
+                    </div>
+
+                    <div class="sfm-card sfm-panel">
+                        <div class="sfm-card-hd">
+                            <i class="ph ph-shield-check"></i>
+                            <span class="sfm-panel-t">Pre-flight checks</span>
+                            <span class="sfm-spacer"></span>
+                            <span class="sfm-note">@PassedCheckCount/3</span>
+                        </div>
+                        <div class="sfm-checks">
+                            <div class="sfm-checks-i @(HasCustomer ? "" : "is-no")">
+                                <span class="sfm-checks-ic"><i class="ph-fill @(HasCustomer ? "ph-check" : "ph-x")"></i></span>
+                                <span>Customer selected</span>
+                            </div>
+                            <div class="sfm-checks-i @(HasLines ? "" : "is-no")">
+                                <span class="sfm-checks-ic"><i class="ph-fill @(HasLines ? "ph-check" : "ph-x")"></i></span>
+                                <span>Line items added</span>
+                            </div>
+                            <div class="sfm-checks-i @(LinesComplete ? "" : "is-no")">
+                                <span class="sfm-checks-ic"><i class="ph-fill @(LinesComplete ? "ph-check" : "ph-x")"></i></span>
+                                <span>All lines complete</span>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Quantity + Price + Warehouse -->
-                    <div class="row g-2">
-                        <div class="col-3">
-                            <label
-                                style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Qty
-                                <span style="color:#ef4444;">*</span></label>
-                                <input type="number"
-                                       style="width:100%; padding:.4rem .6rem; border:1px solid @(lineErrors.ContainsKey("Quantity") ? "#ef4444" : "#d1d5db"); border-radius:7px; font-size:.85rem;"
-                                       value="@line.Quantity" @onchange="(e) => OnQuantityChange(index, e.Value?.ToString())"
-                                       min="0.001" step="0.001" placeholder="0" />
-                            </div>
-                            <div class="col-3">
-                                <label
-                                    style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Unit
-                                    Price</label>
-                                    <input type="text"
-                                           style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem; background:#f3f4f6; cursor:default;"
-                                           value="@line.UnitPrice.ToString("N2")" readonly />
-                                </div>
-                                <div class="col-3">
-                                    <label
-                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Discount
-                                        %</label>
-                                        @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
-                                        <input type="number"
-                                               style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                               @bind="line.DiscountPercent" min="0" max="100" step="0.000001" />
-                                        @if (HasSpecialPrice(line.ItemCode))
-                                        {
-                                            <div style="color:#059669; font-size:.7rem; margin-top:.2rem;">
-                                                <i class="bi bi-tag-fill me-1"></i>Customer special price
-                                            </div>
-                                        }
-                                    </div>
-                                    <div class="col-3">
-                                        <label
-                                        style="display:block; font-size:.68rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; margin-bottom:.2rem;">Warehouse</label>
-                                        <select
-                                            style="width:100%; padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:7px; font-size:.85rem;"
-                                            @bind="line.WarehouseCode">
-                                            <option value="">Default</option>
-                                            @foreach (var wh in cachedWarehouses)
-                                            {
-                                                <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                                            }
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        }
-
-                        <!-- Add another line -->
-                        <div style="text-align:center; margin-top:.5rem;">
-                            <button type="button"
-                                    style="background:none; border:1px dashed #d1d5db; color:#6b7280; padding:.4rem 1rem; border-radius:8px; font-size:.82rem; cursor:pointer;"
-                                    @onclick="AddOrderLine">
-                                <i class="bi bi-plus-lg me-1"></i>Add Another Line
-                            </button>
+                    <div class="sfm-card sfm-panel">
+                        <div class="sfm-card-hd">
+                            <i class="ph ph-database"></i>
+                            <span class="sfm-panel-t">Cached data</span>
                         </div>
-                    }
-                else
-                    {
-                        <div
-                            style="text-align:center; padding:2rem 1rem; background:#f9fafb; border-radius:10px; border:2px dashed #e5e7eb;">
-                            <div style="font-size:1.5rem; color:#9ca3af; margin-bottom:.5rem;"><i class="bi bi-inbox"></i></div>
-                            <p style="color:#6b7280; font-size:.85rem; margin-bottom:.25rem;">No order lines yet</p>
-                            <p style="color:#9ca3af; font-size:.78rem; margin-bottom:.75rem;">Add products to build the sales order
-                            </p>
-                            <button type="button" class="btn-so-gradient" style="padding:.4rem 1rem; font-size:.82rem;"
-                                    @onclick="AddOrderLine">
-                                <i class="bi bi-plus-lg"></i> Add First Line
-                            </button>
+                        <div class="sfm-cache">
+                            <div class="sfm-cache-i"><i class="ph ph-users"></i>@allBusinessPartners.Count.ToString("N0") customers</div>
+                            <div class="sfm-cache-i"><i class="ph ph-cube"></i>@cachedProducts.Count.ToString("N0") products</div>
+                            <div class="sfm-cache-i"><i class="ph ph-buildings"></i>@cachedWarehouses.Count.ToString("N0") warehouses</div>
+                            <div class="sfm-cache-i"><i class="ph ph-tag"></i>@customerPricing.Count.ToString("N0") prices</div>
                         </div>
-                    }
-                    @if (createValidationErrors.ContainsKey("Lines"))
-                    {
-                        <div style="color:#ef4444; font-size:.78rem; margin-top:.4rem;">@createValidationErrors["Lines"]</div>
-                    }
-
-                    <!-- Order Summary -->
-                    @if (newOrder.Lines.Any())
-                    {
-                        <div
-                            style="background:linear-gradient(135deg,#667eea,#764ba2); border-radius:10px; padding:.85rem 1.15rem; margin-top:1rem; color:#fff;">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <div style="font-size:.78rem; opacity:.8;">@newOrder.Lines.Count line(s) · @newOrder.Currency
-                                    </div>
-                                    <div style="font-size:.85rem; font-weight:500;">Subtotal</div>
-                                </div>
-                                <div style="font-size:1.3rem; font-weight:700;">@CalculateOrderTotal().ToString("N2")</div>
-                            </div>
-                        </div>
-                    }
-                </div>
-
-                <!-- Footer Actions -->
-                <div class="form-footer">
-                    <a href="/sales-orders" class="btn-secondary-action">Cancel</a>
-                    <MudButton Class="btn-create" OnClick="CreateOrder" Disabled="@isCreating">
-                        @if (isCreating)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                        }
-                        <span>Create Order</span>
-                    </MudButton>
-                </div>
-            }
-        </div>
+                    </div>
+                </aside>
+            </div>
+        }
     </div>
+</div>
 
 @code {
     private CreateSalesOrderRequest newOrder = new()
@@ -732,6 +472,25 @@
         public ProductDto? SuggestedProduct { get; set; } = null;
         public string SuggestionSuffix { get; set; } = string.Empty;
     }
+
+    // ── Pre-flight checks ───────────────────────────────
+    // Stated in the aside so the operator sees what is still missing before
+    // pressing Create, rather than after the round trip.
+
+    private bool HasCustomer => selectedBusinessPartner != null && !string.IsNullOrEmpty(newOrder.CardCode);
+
+    private bool HasLines => newOrder.Lines.Any();
+
+    private bool LinesComplete => newOrder.Lines.Any()
+        && newOrder.Lines.All(l => !string.IsNullOrWhiteSpace(l.ItemCode) && l.Quantity > 0);
+
+    private int PassedCheckCount =>
+        (HasCustomer ? 1 : 0) + (HasLines ? 1 : 0) + (LinesComplete ? 1 : 0);
+
+    // The line scroller clips vertically as well as horizontally, which would cut
+    // an open item picker off at the bottom of the table; the clip is lifted while
+    // one is open. See .sfm-lines.is-picking.
+    private bool IsAnyPickerOpen => lineStates.Values.Any(s => s.ShowProductDropdown);
 
     private IEnumerable<BusinessPartnerDto> filteredBusinessPartners
     {

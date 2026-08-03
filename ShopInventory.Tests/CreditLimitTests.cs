@@ -11,8 +11,9 @@ namespace ShopInventory.Tests;
 /// </summary>
 /// <remarks>
 /// The rule these encode is SAP's own approval query — <c>(DocTotal + OCRD.Balance) &gt;
-/// OCRD.CreditLine</c> — with open orders added to exposure and a consolidating parent's limit
-/// governing the group. What matters most here is which way each edge fails: an account with no
+/// OCRD.CreditLine</c> — with a consolidating parent's limit governing the group. Open orders stay
+/// out of it: only what the customer owes decides whether it is over. What matters most here is
+/// which way each edge fails: an account with no
 /// limit set and a SAP lookup that falls over must both let the order through, because a check
 /// that blocks when it cannot answer would stop all selling during a SAP outage.
 /// </remarks>
@@ -45,6 +46,8 @@ public class CreditLimitTests
         // The rep needs the numbers, not just a refusal.
         Assert.Contains("30,000.00", result.Message);
         Assert.Contains("3,000.00", result.Message);
+        // And not a figure the refusal was not measured on.
+        Assert.DoesNotContain("open orders", result.Message);
     }
 
     [Fact]
@@ -59,29 +62,32 @@ public class CreditLimitTests
     }
 
     [Fact]
-    public async Task Counts_open_orders_toward_exposure()
+    public async Task Ignores_open_orders_and_measures_the_balance_alone()
     {
-        // Balance alone is within the limit; the orders already raised are what break it. Without
-        // this, orders placed back to back each pass and jointly bust the limit.
+        // Balance and this order sit inside the limit; the orders already raised are not owed yet and
+        // must not refuse it. This is the FOR012 refusal that prompted the rule: 959.23 owed against
+        // a 2,000 limit, refused on 4,726.90 of open orders alone.
         var service = CreateService(
             Profile(CustomerCardCode, creditLimit: 30_000m, balance: 20_000m, openOrders: 9_000m));
 
         var result = await service.CheckSalesOrderAsync(CustomerCardCode, 2_000m);
 
-        Assert.False(result.IsWithinLimit);
-        Assert.Equal(31_000m, result.Exposure);
+        Assert.True(result.IsWithinLimit);
     }
 
     [Fact]
-    public async Task Ignores_open_orders_when_configured_to_match_sap_exactly()
+    public async Task Counts_open_orders_toward_exposure_when_configured_to()
     {
+        // The tighter reading, off by default: orders placed back to back each pass on the balance
+        // alone and jointly bust the limit.
         var service = CreateService(
             Profile(CustomerCardCode, creditLimit: 30_000m, balance: 20_000m, openOrders: 9_000m),
-            settings: new CreditLimitSettings { IncludeOpenOrders = false });
+            settings: new CreditLimitSettings { IncludeOpenOrders = true });
 
         var result = await service.CheckSalesOrderAsync(CustomerCardCode, 2_000m);
 
-        Assert.True(result.IsWithinLimit);
+        Assert.False(result.IsWithinLimit);
+        Assert.Equal(31_000m, result.Exposure);
     }
 
     [Fact]

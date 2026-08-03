@@ -47,9 +47,22 @@ public class CreditLimitReviewTests
     }
 
     [Fact]
-    public async Task Counts_open_orders_toward_exposure()
+    public async Task Ignores_open_orders_and_measures_the_balance_alone()
+    {
+        // Same rule as the order gate: an account inside its limit on what it owes is not chased for
+        // orders that have not been invoiced yet.
+        var review = await Review(
+            Profile("C001", creditLimit: 30_000m, balance: 25_000m, openOrders: 6_000m));
+
+        Assert.Empty(review.Breaches);
+        Assert.Equal(1, review.LimitsMeasured);
+    }
+
+    [Fact]
+    public async Task Counts_open_orders_toward_exposure_when_configured_to()
     {
         var review = await Review(
+            new CreditLimitSettings { IncludeOpenOrders = true },
             Profile("C001", creditLimit: 30_000m, balance: 25_000m, openOrders: 6_000m));
 
         var breach = Assert.Single(review.Breaches);
@@ -273,7 +286,12 @@ public class CreditLimitReviewTests
         return (handler, sweeps);
     }
 
-    private static async Task<CreditLimitReview> Review(params BusinessPartnerCreditProfileDto[] customers)
+    private static Task<CreditLimitReview> Review(params BusinessPartnerCreditProfileDto[] customers) =>
+        Review(new CreditLimitSettings(), customers);
+
+    private static async Task<CreditLimitReview> Review(
+        CreditLimitSettings settings,
+        params BusinessPartnerCreditProfileDto[] customers)
     {
         var sap = StubProxy.For<ISAPServiceLayerClient>((method, _) =>
             method.Name == nameof(ISAPServiceLayerClient.GetCustomerCreditProfilesAsync)
@@ -283,7 +301,7 @@ public class CreditLimitReviewTests
         var service = new CreditLimitReviewService(
             sap,
             NullLogger<CreditLimitReviewService>.Instance,
-            Options.Create(new CreditLimitSettings()));
+            Options.Create(settings));
 
         return await service.ReviewAsync();
     }
