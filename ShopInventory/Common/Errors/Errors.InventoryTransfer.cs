@@ -74,6 +74,16 @@ public static partial class Errors
         public static readonly Error ApprovalInProgress =
             Error.Conflict("InventoryTransfer.ApprovalInProgress", "Another approval decision is already being processed for this transfer request.");
 
+        /// <summary>
+        /// A post for this transfer is already running. Says so plainly rather than starting a
+        /// second one: a large transfer can spend minutes in SAP, and for all of that time the
+        /// record still reads Approved, which is exactly when someone presses the button again.
+        /// </summary>
+        public static readonly Error PostInProgress =
+            Error.Conflict(
+                "InventoryTransfer.PostInProgress",
+                "This transfer is already being posted to SAP. Give it a moment and refresh — posting it again would create a second document.");
+
         public static Error PendingTransferNotFound(Guid id) =>
             Error.NotFound("InventoryTransfer.PendingTransferNotFound", $"Pending inventory transfer {id} was not found.");
 

@@ -92,6 +92,11 @@ public class IdempotencyMiddleware
             // so it owns idempotency for the same reason. "/pod" does not match this: the segment
             // ends "-pod", not "/pod".
             ("POST /api/invoice/", "/crate-pod"),
+            // PendingInventoryTransferPoster holds one key per transfer, so it excludes a second
+            // post even when the two attempts come from different people — which a per-client
+            // header could not do — and replays the transfer it created. The sibling routes under
+            // /pending/ are unaffected: neither /decision nor /cancel ends in "/post".
+            ("POST /api/inventorytransfer/pending/", "/post"),
     };
 
     private static readonly string[] MobileSalesOrderCompatibilityRoles =
