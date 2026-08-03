@@ -24,8 +24,61 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
     // from the SQL this proves SAP accepts, which is the one thing these tests exist to establish.
     private const string OpeningBalanceQueryCode = GetCustomerStatementHandler.OpeningBalanceQueryCode;
     private const string LedgerQueryCode = GetCustomerStatementHandler.LedgerQueryCode;
+    private const string OpenItemsQueryCode = GetCustomerStatementHandler.OpenItemsQueryCode;
     private const string OpeningBalanceSql = GetCustomerStatementHandler.OpeningBalanceSql;
     private const string LedgerSql = GetCustomerStatementHandler.LedgerSql;
+    private const string OpenItemsSql = GetCustomerStatementHandler.OpenItemsSql;
+
+    /// <summary>
+    /// The open-items query is the one nothing offline can vouch for. Its two balance columns are not
+    /// in the Service Layer's OData metadata — they are B1 table columns, reached only through raw
+    /// SQL — and it leans on two constructs the SQLQueries validator is fussy about: comparing a
+    /// column against another column, and doing so without arithmetic between them. A wrong column
+    /// name or a rejected expression fails when the query object is created, which is a failure for
+    /// the whole request rather than a wrong number, so it has to be asked of the real thing.
+    /// </summary>
+    [SapSqlFact]
+    public async Task Open_items_sql_is_accepted_and_returns_its_balance_columns()
+    {
+        var cardCode = await FindCustomerWithLedgerLinesAsync();
+        output.WriteLine($"card code: {cardCode}");
+
+        var openItems = await fixture.Client.ExecuteParameterisedSqlQueryAsync(
+            OpenItemsQueryCode,
+            "Statement Open Items",
+            OpenItemsSql,
+            new Dictionary<string, string> { ["cardCode"] = cardCode, ["toDate"] = "2026-12-31" });
+
+        output.WriteLine($"open items: {openItems.Count}");
+
+        // Reaching here at all is most of the point: creation is where a bad column or a rejected
+        // expression lands. An account with nothing outstanding is a legitimate result, so the
+        // columns can only be checked when there is a row to check them on.
+        if (openItems.Count == 0)
+        {
+            output.WriteLine("no open items for this customer; SQL acceptance is still proven");
+            return;
+        }
+
+        output.WriteLine($"first row: {string.Join(", ", openItems[0].Select(p => $"{p.Key}={p.Value}"))}");
+
+        foreach (var column in new[] { "PostingDate", "DueDate", "BalanceDueDebit", "BalanceDueCredit" })
+        {
+            Assert.True(openItems[0].ContainsKey(column), $"SAP did not return column '{column}'");
+        }
+
+        // The filter's whole job. A fully reconciled line has both columns zero, and letting one
+        // through would put a settled document back into the customer's aging.
+        Assert.All(openItems, row =>
+        {
+            var debit = ToDecimal(row["BalanceDueDebit"]);
+            var credit = ToDecimal(row["BalanceDueCredit"]);
+            Assert.NotEqual(debit, credit);
+        });
+    }
+
+    private static decimal ToDecimal(object? value) =>
+        value is null ? 0m : decimal.Parse(value.ToString()!, CultureInfo.InvariantCulture);
 
     [SapSqlFact]
     public async Task Statement_sql_is_accepted_with_bound_parameters()
@@ -138,6 +191,7 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
         return rows.Count;
     }
 
+    /// <summary>Every query one statement view issues, so the leak check covers all of them.</summary>
     private async Task RunStatementPairAsync(string cardCode, string fromDate, string toDate)
     {
         await fixture.Client.ExecuteParameterisedSqlQueryAsync(
@@ -152,6 +206,10 @@ public class SapStatementQueryTests(SapClientFixture fixture, ITestOutputHelper 
                 ["fromDate"] = fromDate,
                 ["toDate"] = toDate
             });
+
+        await fixture.Client.ExecuteParameterisedSqlQueryAsync(
+            OpenItemsQueryCode, "Statement Open Items", OpenItemsSql,
+            new Dictionary<string, string> { ["cardCode"] = cardCode, ["toDate"] = toDate });
     }
 
     /// <summary>

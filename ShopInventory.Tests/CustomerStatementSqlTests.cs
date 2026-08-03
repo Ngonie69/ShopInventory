@@ -49,7 +49,11 @@ public class CustomerStatementSqlTests
             first.Select(call => (call.QueryCode, call.SqlText)).Distinct(),
             second.Select(call => (call.QueryCode, call.SqlText)).Distinct());
 
-        Assert.Equal(2, first.Select(call => call.QueryCode).Distinct().Count());
+        // Named rather than counted: a statement is allowed to grow another query, but only a fixed
+        // one, and the set is what says so.
+        Assert.Equal(
+            ["STMT_LEDGER_ROWS", "STMT_OPENING_BALANCE", "STMT_OPEN_ITEMS"],
+            first.Select(call => call.QueryCode).Distinct().Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -133,8 +137,6 @@ public class CustomerStatementSqlTests
         {
             nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) =>
                 RecordAndAnswer(calls, ledgerRows, args!),
-            nameof(ISAPServiceLayerClient.GetOpenInvoicesByCustomersAsync) =>
-                Task.FromResult(new List<Invoice>()),
             nameof(ISAPServiceLayerClient.GetPaymentTermsByCodeAsync) =>
                 Task.FromResult<PaymentTermsDto?>(null),
             _ => throw new InvalidOperationException($"unexpected call {method.Name}")
