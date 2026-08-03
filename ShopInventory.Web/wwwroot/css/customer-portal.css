@@ -37,6 +37,10 @@
     --cpx-surface-2: #f8fafb;
     --cpx-field: #ffffff;
     --cpx-ink: #0d1b1a;
+    /* The ink as channels, for the pages that strike their own tints from it —
+       account-statement.css's `--cst-t*` ramp is the whole reason it exists.
+       Stated next to the colour it decomposes so the two cannot drift apart. */
+    --cpx-ink-rgb: 13, 27, 26;
     --cpx-ink-2: #26403d;
     --cpx-mute: #4a635f;
     --cpx-mute-2: #64807b;
@@ -64,6 +68,7 @@
     --cpx-warn-bg: #fdf3e1;
     --cpx-warn-edge: #f0dcb4;
     --cpx-bad: #b3273c;
+    --cpx-bad-rgb: 179, 39, 60;
     --cpx-bad-bg: #fdf0f2;
     --cpx-bad-edge: #f0ccd3;
     --cpx-shadow-sm: 0 0 0 1px #e4eae9, 0 1px 2px rgba(13, 27, 26, .05);
@@ -112,6 +117,7 @@
     --cpx-surface-2: #16201f;
     --cpx-field: #1a2524;
     --cpx-ink: #e6eceb;
+    --cpx-ink-rgb: 230, 236, 235;
     --cpx-ink-2: #b3c2bf;
     --cpx-mute: #94a7a3;
     --cpx-mute-2: #7e918d;
@@ -137,6 +143,7 @@
     --cpx-warn-bg: #2e2517;
     --cpx-warn-edge: #4a3c22;
     --cpx-bad: #ef8296;
+    --cpx-bad-rgb: 239, 130, 150;
     --cpx-bad-bg: #2f1f24;
     --cpx-bad-edge: #4a2c34;
     --cpx-shadow-sm: 0 0 0 1px #2a3937;
@@ -1673,103 +1680,13 @@
 
 /* ==========================================================================
    Statement page
+
+   Its rules used to live here — an aging grid of six cards, a filter grid and a
+   centred note. /customer-portal/statements was rebuilt on
+   "Account Statement.dc.html" on 2026-08-03 and shares none of that markup any
+   more, so the block is gone rather than left to rot; see
+   wwwroot/css/account-statement.css, which layers on this file's palette.
    ========================================================================== */
-
-.cpx .aging-grid {
-    display: grid;
-    /* auto-fit rather than fixed columns: six buckets sit on one row on a
-       laptop, three on a tablet and two on a phone with no breakpoints. */
-    grid-template-columns: repeat(auto-fit, minmax(clamp(8rem, 26vw, 11rem), 1fr));
-    gap: var(--cpx-s3);
-}
-
-.cpx .aging-card {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--cpx-s4);
-    border: 1px solid var(--cpx-divider);
-    border-left: 3px solid var(--cpx-aging-accent, var(--cpx-faint));
-    border-radius: var(--cpx-r-md);
-    background: var(--cpx-surface-2);
-}
-
-.cpx .aging-card .aging-lbl {
-    font-size: .66rem;
-    font-weight: 600;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--cpx-mute-2);
-}
-
-.cpx .aging-card .aging-val {
-    font-size: clamp(.95rem, .88rem + .32vw, 1.15rem);
-    font-weight: 600;
-    color: var(--cpx-ink);
-    overflow-wrap: anywhere;
-}
-
-/* The buckets read as one ramp from settled to seriously overdue. */
-.cpx .aging-current {
-    --cpx-aging-accent: var(--cpx-ok);
-}
-
-.cpx .aging-b1 {
-    --cpx-aging-accent: #6aa9a0;
-}
-
-.cpx .aging-b2 {
-    --cpx-aging-accent: var(--cpx-warn);
-}
-
-.cpx .aging-b3 {
-    --cpx-aging-accent: #d4761f;
-}
-
-.cpx .aging-b4 {
-    --cpx-aging-accent: var(--cpx-bad);
-}
-
-.cpx .aging-total {
-    --cpx-aging-accent: var(--cpx-accent);
-    background: var(--cpx-accent-soft);
-    border-color: var(--cpx-accent);
-}
-
-.cpx .aging-total .aging-lbl,
-.cpx .aging-total .aging-val {
-    color: var(--cpx-accent-text);
-}
-
-/* The filter bar: fields size themselves and the action keeps its own width
-   rather than every control being pinned to a col-md-3. */
-.cpx .statement-filters {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
-    align-items: end;
-    gap: var(--cpx-s4);
-}
-
-.cpx .statement-filters .statement-filter-action {
-    display: flex;
-}
-
-.cpx .statement-filters .statement-filter-action .mud-button-root {
-    width: 100%;
-}
-
-.cpx .statement-note {
-    padding: var(--cpx-s6) var(--cpx-s4);
-    text-align: center;
-    font-size: var(--cpx-text-sm);
-    color: var(--cpx-mute-2);
-}
-
-.cpx .statement-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--cpx-s2);
-}
 
 /* ==========================================================================
    Sign-in
