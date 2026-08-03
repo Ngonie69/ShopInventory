@@ -415,7 +415,7 @@
     var quotation = selectedQuotation;
     var isConverting = convertingQuotationId == quotation.Id;
 
-    <div class="qtn">
+    <div class="qtn-overlay">
         <div class="qtn-scrim" @onclick="CloseDrawer"></div>
         <aside class="qtn-drawer" aria-label="Quotation details">
             <div class="qtn-drawer-head">
@@ -677,7 +677,7 @@
 @* ── Create / reprice modal ────────────────────────────────────────────── *@
 @if (showCreateModal)
 {
-    <div class="qtn">
+    <div class="qtn-overlay">
         <div class="qtn-modal-scrim">
             <div class="qtn-modal" role="dialog" aria-modal="true" aria-label="@(isEditMode ? "Edit or reprice quotation" : "New quotation")">
                 <div class="qtn-modal-head">
