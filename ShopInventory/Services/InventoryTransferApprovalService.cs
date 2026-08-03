@@ -122,6 +122,9 @@ public sealed class InventoryTransferApprovalService(
     : IInventoryTransferApprovalService
 {
     private const string UnknownOriginator = "Unknown";
+    // Kept apart from the authorizers' "needs approval" entity type so the read sweeps that clear
+    // those never swallow the outcome the originator has just been told about.
+    private const string ApprovalOutcomeEntityType = "TransferApprovalOutcome";
     // The seed check is cheap but not free, and listing a page asks for it once per document.
     // The service is scoped, so this holds for the length of one request and no longer.
     private readonly HashSet<string> _ensuredDocumentTypes = new(StringComparer.Ordinal);
@@ -399,9 +402,14 @@ public sealed class InventoryTransferApprovalService(
                 .SetProperty(item => item.ReadAt, DateTime.UtcNow), cancellationToken);
 
         if (request.Status == ApprovalRequestStatuses.Pending)
+        {
             await NotifyPendingAuthorizersAsync(request, snapshots, cancellationToken);
+        }
         else
+        {
             await MarkApprovalNotificationsReadAsync(request.DocumentType, request.DocumentKey, cancellationToken);
+            await NotifyOriginatorOfDecisionAsync(request, authorizer, existingDecision, cancellationToken);
+        }
 
         return new ApprovalDecisionOutcomeDto
         {
@@ -452,6 +460,14 @@ public sealed class InventoryTransferApprovalService(
         request.GeneratedAtUtc = DateTime.UtcNow;
         request.CompletedAtUtc ??= DateTime.UtcNow;
         await context.SaveChangesAsync(cancellationToken);
+
+        // Nothing is waiting on an authorizer once the document exists, so any alert still sitting
+        // unread on their bell is asking for a decision that can no longer be taken. A request
+        // generated straight from an authorizer's own approval already cleared them; one that came
+        // through any other route — a conversion, a retry, a poster picking up a queued transfer —
+        // left them nagging indefinitely.
+        await MarkApprovalNotificationsReadAsync(documentType, documentKey, cancellationToken);
+        await NotifyOriginatorOfGenerationAsync(request, generatedByUserId, transferDocNum, cancellationToken);
     }
 
     public async Task<List<ApprovalStageDefinitionDto>> GetStagesAsync(CancellationToken cancellationToken)
@@ -782,7 +798,7 @@ public sealed class InventoryTransferApprovalService(
                     .ToListAsync(cancellationToken);
 
                 var isDirectTransfer = request.DocumentType == ApprovalDocumentTypes.InventoryTransfer;
-                var label = isDirectTransfer ? "Inventory transfer" : "Transfer request";
+                var label = DocumentLabel(request.DocumentType);
 
                 foreach (var recipient in recipients.Where(user => !decidedUserIds.Contains(user.Id)).DistinctBy(user => user.Id))
                 {
@@ -806,9 +822,7 @@ public sealed class InventoryTransferApprovalService(
                         Category = "TransferApproval",
                         EntityType = "TransferRequestApproval",
                         EntityId = entityId,
-                        ActionUrl = isDirectTransfer
-                            ? $"/inventory-transfers?pendingTransferId={request.DocumentKey}"
-                            : $"/inventory-transfers?requestDocEntry={request.DocumentKey}",
+                        ActionUrl = DocumentActionUrl(request),
                         TargetUserId = recipient.Id,
                         TargetUsername = recipient.Username,
                         Data = new Dictionary<string, string>
@@ -829,6 +843,157 @@ public sealed class InventoryTransferApprovalService(
         {
             logger.LogWarning(ex, "Failed to notify authorizers for transfer request {DocumentKey}", request.DocumentKey);
         }
+    }
+
+    /// <summary>
+    /// Tells whoever raised the document that the approval process has finished with it.
+    /// </summary>
+    private Task NotifyOriginatorOfDecisionAsync(
+        ApprovalRequestEntity request,
+        User authorizer,
+        ApprovalDecisionEntity decision,
+        CancellationToken cancellationToken)
+    {
+        var approved = request.Status == ApprovalRequestStatuses.Approved;
+        var label = DocumentLabel(request.DocumentType);
+        var reference = request.DocumentNumber ?? request.DocumentKey;
+        var remarks = string.IsNullOrWhiteSpace(decision.Remarks) ? null : $" Remarks: {decision.Remarks}";
+
+        return NotifyOriginatorAsync(
+            request,
+            approved ? ApprovalOutcomes.Approved : ApprovalOutcomes.NotApproved,
+            approved
+                ? $"{label} #{reference} approved"
+                : $"{label} #{reference} was not approved",
+            approved
+                ? $"{decision.StageName} approved by {authorizer.Username}. " +
+                  $"{request.FromWarehouse} to {request.ToWarehouse}.{remarks}"
+                : $"{decision.StageName} rejected by {authorizer.Username}. " +
+                  $"{request.FromWarehouse} to {request.ToWarehouse}.{remarks}",
+            approved ? "Success" : "Warning",
+            authorizer.Id,
+            null,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Tells whoever raised the document that it has become a real SAP transfer — the outcome they
+    /// were actually waiting for, and the point at which their approval alert stops being useful.
+    /// </summary>
+    private async Task NotifyOriginatorOfGenerationAsync(
+        ApprovalRequestEntity request,
+        Guid generatedByUserId,
+        int transferDocNum,
+        CancellationToken cancellationToken)
+    {
+        var label = DocumentLabel(request.DocumentType);
+        var reference = request.DocumentNumber ?? request.DocumentKey;
+
+        // Approving and converting is one action to the authorizer who does it, so "approved" and
+        // "posted" would land together and say the same thing twice. The later, fuller answer
+        // supersedes the earlier one — cleared first, or the sweep would take the new one with it.
+        await MarkOriginatorOutcomesReadAsync(request, cancellationToken);
+
+        await NotifyOriginatorAsync(
+            request,
+            ApprovalOutcomes.Generated,
+            $"{label} #{reference} posted as transfer #{transferDocNum}",
+            $"Approved and posted to SAP as inventory transfer #{transferDocNum}. " +
+            $"{request.FromWarehouse} to {request.ToWarehouse}.",
+            "Success",
+            generatedByUserId,
+            transferDocNum.ToString(),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The approval flow only ever spoke to authorizers, so the person who raised a transfer had no
+    /// way to learn what happened to it except by reopening the transfers page and looking. These
+    /// are written under their own entity type: the read sweeps above clear the "needs approval"
+    /// alerts, and an outcome is not one of those — it is the answer.
+    /// </summary>
+    private async Task NotifyOriginatorAsync(
+        ApprovalRequestEntity request,
+        string outcome,
+        string title,
+        string message,
+        string type,
+        Guid? actedByUserId,
+        string? generatedDocNum,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (request.OriginatorUserId is not { } originatorUserId)
+                return;
+
+            // Someone acting on a document they raised themselves already knows the outcome.
+            if (actedByUserId == originatorUserId)
+                return;
+
+            var originator = await context.Users.AsNoTracking()
+                .FirstOrDefaultAsync(user => user.Id == originatorUserId && user.IsActive, cancellationToken);
+            if (originator is null)
+                return;
+
+            var entityId = ApprovalOutcomeNotificationEntityId(request.DocumentType, request.DocumentKey, outcome);
+            var exists = await context.Notifications.AsNoTracking().AnyAsync(item =>
+                item.Category == "TransferApproval" &&
+                item.EntityType == ApprovalOutcomeEntityType &&
+                item.EntityId == entityId &&
+                item.TargetUsername == originator.Username,
+                cancellationToken);
+            if (exists)
+                return;
+
+            var data = new Dictionary<string, string>
+            {
+                ["documentType"] = request.DocumentType,
+                ["requestDocEntry"] = request.DocumentKey,
+                ["requestDocNum"] = request.DocumentNumber ?? request.DocumentKey,
+                ["approvalRequestId"] = request.Id.ToString(),
+                ["outcome"] = outcome,
+                ["documentLabel"] = DocumentLabel(request.DocumentType)
+            };
+            if (generatedDocNum is not null)
+                data["generatedDocNum"] = generatedDocNum;
+
+            await notificationService.CreateNotificationAsync(new CreateNotificationRequest
+            {
+                Title = title,
+                Message = message,
+                Type = type,
+                Category = "TransferApproval",
+                EntityType = ApprovalOutcomeEntityType,
+                EntityId = entityId,
+                ActionUrl = DocumentActionUrl(request),
+                TargetUserId = originator.Id,
+                TargetUsername = originator.Username,
+                Data = data
+            }, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Telling the originator is not worth failing the decision that has already been
+            // recorded, exactly as notifying the authorizers is not.
+            logger.LogWarning(ex,
+                "Failed to notify the originator of {DocumentType} {DocumentKey} that it was {Outcome}",
+                request.DocumentType, request.DocumentKey, outcome);
+        }
+    }
+
+    private Task MarkOriginatorOutcomesReadAsync(ApprovalRequestEntity request, CancellationToken cancellationToken)
+    {
+        var prefix = ApprovalNotificationEntityPrefix(request.DocumentType, request.DocumentKey);
+        return context.Notifications
+            .Where(item => item.Category == "TransferApproval" &&
+                           item.EntityType == ApprovalOutcomeEntityType &&
+                           item.EntityId != null &&
+                           item.EntityId.StartsWith(prefix) &&
+                           !item.IsRead)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.IsRead, true)
+                .SetProperty(item => item.ReadAt, DateTime.UtcNow), cancellationToken);
     }
 
     private Task MarkApprovalNotificationsReadAsync(string documentType, string documentKey, CancellationToken cancellationToken)
@@ -854,6 +1019,39 @@ public sealed class InventoryTransferApprovalService(
 
     private static string ApprovalNotificationEntityId(string documentType, string documentKey, Guid stageId)
         => $"{ApprovalNotificationEntityPrefix(documentType, documentKey)}{stageId:N}";
+
+    // Shares the prefix with the per-stage ids, but never collides with one: a stage id is 32 hex
+    // characters and an outcome is a word.
+    private static string ApprovalOutcomeNotificationEntityId(string documentType, string documentKey, string outcome)
+        => $"{ApprovalNotificationEntityPrefix(documentType, documentKey)}{outcome}";
+
+    private static string DocumentLabel(string documentType) => documentType switch
+    {
+        ApprovalDocumentTypes.InventoryTransfer => "Inventory transfer",
+        ApprovalDocumentTypes.InventoryTransferRequestEdit => "Transfer request edit",
+        _ => "Transfer request"
+    };
+
+    /// <summary>
+    /// Where the notification for a document should land. The transfers page opens the record named
+    /// by the query string, so this is a deep link for the two document types it can open on its
+    /// own. A held edit is reached through the request it amends, and the approval carries the
+    /// edit's id rather than that request's DocEntry, so it links to the page unfiltered rather
+    /// than to a parameter that would not resolve.
+    /// </summary>
+    private static string DocumentActionUrl(ApprovalRequestEntity request) => request.DocumentType switch
+    {
+        ApprovalDocumentTypes.InventoryTransfer => $"/inventory-transfers?pendingTransferId={request.DocumentKey}",
+        ApprovalDocumentTypes.InventoryTransferRequest => $"/inventory-transfers?requestDocEntry={request.DocumentKey}",
+        _ => "/inventory-transfers"
+    };
+
+    private static class ApprovalOutcomes
+    {
+        public const string Approved = "approved";
+        public const string NotApproved = "not-approved";
+        public const string Generated = "generated";
+    }
 
     private static ApprovalStageDefinitionEntity NewStage(Guid id, string name, string description, string role) => new()
     { Id = id, Name = name, Description = description, AuthorizerRolesJson = Serialize([role]) };

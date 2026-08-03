@@ -371,153 +371,160 @@
     </div>
 </div>
 
+@* The overlay is a peer of the page root rather than a child, so it carries
+   .bp-overlay: the sheet pairs that class with .bp everywhere the design system
+   is scoped, which is what gets the palette and the control styles down here.
+   Neither element may carry .bp itself — its min-height: 100vh would beat the
+   drawer's height and push the footer below the fold. *@
 @if (selectedCustomer is not null)
 {
     var partner = selectedCustomer;
     var cardCode = partner.CardCode ?? string.Empty;
     var balance = partner.Balance ?? 0m;
 
-    <div class="bp bp-scrim" @onclick="CloseDrawer"></div>
-    <aside class="bp bp-drawer" role="dialog" aria-modal="true" aria-label="@partner.CardName">
-        <div class="bp-drawer-head">
-            <div>
-                <h2>@partner.CardName</h2>
-                <div class="bp-drawer-sub">@cardCode · @GetTypeLabel(partner.CardType)</div>
+    <div class="bp-overlay">
+        <div class="bp-scrim" @onclick="CloseDrawer"></div>
+        <aside class="bp-drawer" role="dialog" aria-modal="true" aria-label="@partner.CardName">
+            <div class="bp-drawer-head">
+                <div>
+                    <h2>@partner.CardName</h2>
+                    <div class="bp-drawer-sub">@cardCode · @GetTypeLabel(partner.CardType)</div>
+                </div>
+                <button type="button" class="bp-icon-btn" style="margin-left:auto" aria-label="Close"
+                        @onclick="CloseDrawer">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
-            <button type="button" class="bp-icon-btn" style="margin-left:auto" aria-label="Close"
-                    @onclick="CloseDrawer">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" aria-hidden="true">
-                    <path d="M6 6l12 12M18 6L6 18"></path>
-                </svg>
-            </button>
-        </div>
 
-        <div class="bp-drawer-body">
+            <div class="bp-drawer-body">
 
-            <section class="bp-section">
-                <h3>Statement</h3>
-                <div class="bp-stmt">
-                    <label class="bp-field">
-                        <span class="bp-label">From</span>
-                        <input type="date" class="bp-input" @bind="statementFromDate" @bind:format="yyyy-MM-dd" />
-                    </label>
-                    <label class="bp-field">
-                        <span class="bp-label">To</span>
-                        <input type="date" class="bp-input" @bind="statementToDate" @bind:format="yyyy-MM-dd" />
-                    </label>
-                    <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" disabled="@isGeneratingStatement"
-                            @onclick="() => GenerateStatement(cardCode)">
-                        @if (isGeneratingStatement)
-                        {
-                            <span class="bp-spin" aria-hidden="true"></span>
-                            <span>Generating&#8230;</span>
-                        }
-                        else
-                        {
-                            <span>Generate PDF</span>
-                        }
-                    </button>
-                </div>
-            </section>
-
-            <section class="bp-section">
-                <h3>General</h3>
-                <div class="bp-dl">
-                    <div>
-                        <div class="bp-dt">Code</div>
-                        <div class="bp-dd bp-dd-num">@cardCode</div>
-                    </div>
-                    <div>
-                        <div class="bp-dt">Group code</div>
-                        <div class="bp-dd">@Dash(partner.GroupCode)</div>
-                    </div>
-                    <div>
-                        <div class="bp-dt">Type</div>
-                        <div class="bp-dd">@GetTypeLabel(partner.CardType)</div>
-                    </div>
-                    <div>
-                        <div class="bp-dt">Status</div>
-                        <div class="bp-dd">
-                            <span class="bp-status @(partner.IsActive ? "" : "bp-status-off")">
-                                <span class="bp-dot" aria-hidden="true"></span>
-                                @(partner.IsActive ? "Active" : "Inactive")
-                            </span>
-                        </div>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(partner.Channel))
-                    {
-                        <div>
-                            <div class="bp-dt">Channel</div>
-                            <div class="bp-dd">@partner.Channel</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(partner.PriceListName))
-                    {
-                        <div>
-                            <div class="bp-dt">Price list</div>
-                            <div class="bp-dd">@partner.PriceListName</div>
-                        </div>
-                    }
-                </div>
-            </section>
-
-            <section class="bp-section">
-                <h3>Contact</h3>
-                <div class="bp-dl">
-                    <div class="bp-dl-wide">
-                        <div class="bp-dt">Email</div>
-                        <div class="bp-dd">
-                            @if (!string.IsNullOrWhiteSpace(partner.Email))
+                <section class="bp-section">
+                    <h3>Statement</h3>
+                    <div class="bp-stmt">
+                        <label class="bp-field">
+                            <span class="bp-label">From</span>
+                            <input type="date" class="bp-input" @bind="statementFromDate" @bind:format="yyyy-MM-dd" />
+                        </label>
+                        <label class="bp-field">
+                            <span class="bp-label">To</span>
+                            <input type="date" class="bp-input" @bind="statementToDate" @bind:format="yyyy-MM-dd" />
+                        </label>
+                        <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" disabled="@isGeneratingStatement"
+                                @onclick="() => GenerateStatement(cardCode)">
+                            @if (isGeneratingStatement)
                             {
-                                <a href="mailto:@partner.Email">@partner.Email</a>
+                                <span class="bp-spin" aria-hidden="true"></span>
+                                <span>Generating&#8230;</span>
                             }
                             else
                             {
-                                <span>—</span>
+                                <span>Generate PDF</span>
                             }
+                        </button>
+                    </div>
+                </section>
+
+                <section class="bp-section">
+                    <h3>General</h3>
+                    <div class="bp-dl">
+                        <div>
+                            <div class="bp-dt">Code</div>
+                            <div class="bp-dd bp-dd-num">@cardCode</div>
+                        </div>
+                        <div>
+                            <div class="bp-dt">Group code</div>
+                            <div class="bp-dd">@Dash(partner.GroupCode)</div>
+                        </div>
+                        <div>
+                            <div class="bp-dt">Type</div>
+                            <div class="bp-dd">@GetTypeLabel(partner.CardType)</div>
+                        </div>
+                        <div>
+                            <div class="bp-dt">Status</div>
+                            <div class="bp-dd">
+                                <span class="bp-status @(partner.IsActive ? "" : "bp-status-off")">
+                                    <span class="bp-dot" aria-hidden="true"></span>
+                                    @(partner.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </div>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(partner.Channel))
+                        {
+                            <div>
+                                <div class="bp-dt">Channel</div>
+                                <div class="bp-dd">@partner.Channel</div>
+                            </div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(partner.PriceListName))
+                        {
+                            <div>
+                                <div class="bp-dt">Price list</div>
+                                <div class="bp-dd">@partner.PriceListName</div>
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="bp-section">
+                    <h3>Contact</h3>
+                    <div class="bp-dl">
+                        <div class="bp-dl-wide">
+                            <div class="bp-dt">Email</div>
+                            <div class="bp-dd">
+                                @if (!string.IsNullOrWhiteSpace(partner.Email))
+                                {
+                                    <a href="mailto:@partner.Email">@partner.Email</a>
+                                }
+                                else
+                                {
+                                    <span>—</span>
+                                }
+                            </div>
+                        </div>
+                        <div>
+                            <div class="bp-dt">Phone 1</div>
+                            <div class="bp-dd bp-dd-num">@Dash(partner.Phone1)</div>
+                        </div>
+                        <div>
+                            <div class="bp-dt">Phone 2</div>
+                            <div class="bp-dd bp-dd-num">@Dash(partner.Phone2)</div>
+                        </div>
+                        <div class="bp-dl-wide">
+                            <div class="bp-dt">Address</div>
+                            <div class="bp-dd">@Dash(partner.Address)</div>
+                        </div>
+                        <div class="bp-dl-wide">
+                            <div class="bp-dt">City / country</div>
+                            <div class="bp-dd">@Location(partner)</div>
                         </div>
                     </div>
-                    <div>
-                        <div class="bp-dt">Phone 1</div>
-                        <div class="bp-dd bp-dd-num">@Dash(partner.Phone1)</div>
-                    </div>
-                    <div>
-                        <div class="bp-dt">Phone 2</div>
-                        <div class="bp-dd bp-dd-num">@Dash(partner.Phone2)</div>
-                    </div>
-                    <div class="bp-dl-wide">
-                        <div class="bp-dt">Address</div>
-                        <div class="bp-dd">@Dash(partner.Address)</div>
-                    </div>
-                    <div class="bp-dl-wide">
-                        <div class="bp-dt">City / country</div>
-                        <div class="bp-dd">@Location(partner)</div>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <section class="bp-section">
-                <h3>Financial</h3>
-                <div class="bp-dl">
-                    <div>
-                        <div class="bp-dt">Currency</div>
-                        <div class="bp-dd">@(partner.Currency ?? "USD")</div>
+                <section class="bp-section">
+                    <h3>Financial</h3>
+                    <div class="bp-dl">
+                        <div>
+                            <div class="bp-dt">Currency</div>
+                            <div class="bp-dd">@(partner.Currency ?? "USD")</div>
+                        </div>
+                        <div>
+                            <div class="bp-dt">Balance</div>
+                            <div class="bp-dd bp-dd-num @BalanceClass(balance)">@FormatBalance(balance)</div>
+                        </div>
                     </div>
-                    <div>
-                        <div class="bp-dt">Balance</div>
-                        <div class="bp-dd bp-dd-num @BalanceClass(balance)">@FormatBalance(balance)</div>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-        </div>
+            </div>
 
-        <div class="bp-drawer-foot">
-            <button type="button" class="bp-btn bp-btn-quiet" @onclick="CloseDrawer">Close</button>
-            <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" @onclick="() => NavigateToInvoices(cardCode)">
-                View invoices
-            </button>
-        </div>
-    </aside>
+            <div class="bp-drawer-foot">
+                <button type="button" class="bp-btn bp-btn-quiet" @onclick="CloseDrawer">Close</button>
+                <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" @onclick="() => NavigateToInvoices(cardCode)">
+                    View invoices
+                </button>
+            </div>
+        </aside>
+    </div>
 }

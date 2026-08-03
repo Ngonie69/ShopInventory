@@ -21,10 +21,48 @@ public static class SapAvailability
     // that a machine genuinely off the network still fails discovery quickly.
     private const int ProbeTimeoutMilliseconds = 15000;
 
+    /// <summary>Opts a run in to contacting SAP at all.</summary>
+    /// <remarks>
+    /// The configured Service Layer is a live instance, so reaching it is a deliberate act and not
+    /// something a plain <c>dotnet test</c> at the solution root should ever do by walking into this
+    /// assembly. Off by default; the skip message says how to turn it on.
+    /// </remarks>
+    public const string OptInVariable = "SHOPINVENTORY_SAP_TESTS";
+
+    /// <summary>Opts a run in to the tests that leave SAP query objects behind.</summary>
+    /// <remarks>
+    /// Separate from <see cref="OptInVariable"/> because the cost is different in kind. Reading
+    /// documents borrows cluster capacity and gives it back. Running SQL provisions a
+    /// <c>SQLQueries</c> object that the Service Layer cannot delete, so it changes the target
+    /// company permanently, however read-only the statement is.
+    /// </remarks>
+    public const string SqlOptInVariable = "SHOPINVENTORY_SAP_SQL_TESTS";
+
     private static readonly Lazy<(SAPSettings? Settings, string? SkipReason)> Probe = new(Evaluate);
 
     /// <summary>Null when SAP is usable; otherwise the reason to report as the skip message.</summary>
-    public static string? SkipReason => Probe.Value.SkipReason;
+    public static string? SkipReason =>
+        IsEnabled(OptInVariable)
+            ? Probe.Value.SkipReason
+            : $"These tests contact a live SAP Service Layer. Set {OptInVariable}=1 to run them.";
+
+    /// <summary>
+    /// Null when a test may provision SQL; otherwise the reason to skip it.
+    /// </summary>
+    public static string? SqlSkipReason =>
+        SkipReason
+        ?? (IsEnabled(SqlOptInVariable)
+            ? null
+            : $"This test creates SAP SQLQueries objects, which cannot be deleted afterwards. "
+              + $"Set {SqlOptInVariable}=1 to run it.");
+
+    /// <summary>Treats only an explicit affirmative as opting in; anything else stays off.</summary>
+    private static bool IsEnabled(string variable)
+    {
+        var value = Environment.GetEnvironmentVariable(variable);
+        return string.Equals(value, "1", StringComparison.Ordinal)
+            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
 
     public static SAPSettings Settings =>
         Probe.Value.Settings
@@ -97,5 +135,32 @@ public sealed class SapTheoryAttribute : TheoryAttribute
     public SapTheoryAttribute()
     {
         Skip = SapAvailability.SkipReason;
+    }
+}
+
+/// <summary>
+/// A fact that runs SQL, and so skips unless the run has opted in to leaving query objects behind.
+/// </summary>
+/// <remarks>
+/// Use this, not <see cref="SapFactAttribute"/>, for anything that reaches
+/// <c>ExecuteRawSqlQueryAsync</c> and its relatives — including a test that only reads rows. The
+/// permanent part is the query object the read has to provision first.
+/// </remarks>
+public sealed class SapSqlFactAttribute : FactAttribute
+{
+    public SapSqlFactAttribute()
+    {
+        Skip = SapAvailability.SqlSkipReason;
+    }
+}
+
+/// <summary>
+/// A theory that runs SQL, and so skips unless the run has opted in to leaving query objects behind.
+/// </summary>
+public sealed class SapSqlTheoryAttribute : TheoryAttribute
+{
+    public SapSqlTheoryAttribute()
+    {
+        Skip = SapAvailability.SqlSkipReason;
     }
 }

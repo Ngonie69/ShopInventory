@@ -140,7 +140,9 @@ public static class NotificationAudienceRules
 
     public static string[] GetActionUrlAudienceRoles(string? actionUrl)
     {
-        var normalizedActionUrl = NormalizeActionUrl(actionUrl);
+        // Routed on the path alone: which page a notification opens decides who may see it, and
+        // which record it opens there does not.
+        var normalizedActionUrl = GetActionUrlPath(actionUrl);
         if (string.IsNullOrWhiteSpace(normalizedActionUrl))
         {
             return [];
@@ -292,6 +294,18 @@ public static class NotificationAudienceRules
         return [];
     }
 
+    /// <summary>
+    /// The link as it is stored on the notification and followed when it is clicked, so it keeps
+    /// its query string.
+    /// </summary>
+    /// <remarks>
+    /// This used to truncate at the '?', which is where the audience is decided but not where the
+    /// link is built. A transfer approval pointing at
+    /// "/inventory-transfers?requestDocEntry=23055" was stored as bare "/inventory-transfers", and
+    /// the page reads that parameter to open the document — so the authorizer landed on an
+    /// unfiltered list of every transfer request and had to find theirs by hand. Use
+    /// <see cref="GetActionUrlPath"/> wherever the route, rather than the record, is the question.
+    /// </remarks>
     public static string? NormalizeActionUrl(string? actionUrl)
     {
         if (string.IsNullOrWhiteSpace(actionUrl))
@@ -300,23 +314,38 @@ public static class NotificationAudienceRules
         }
 
         var trimmedActionUrl = actionUrl.Trim();
-        var queryIndex = trimmedActionUrl.IndexOf('?');
-        if (queryIndex >= 0)
-        {
-            trimmedActionUrl = trimmedActionUrl[..queryIndex];
-        }
-
-        var fragmentIndex = trimmedActionUrl.IndexOf('#');
-        if (fragmentIndex >= 0)
-        {
-            trimmedActionUrl = trimmedActionUrl[..fragmentIndex];
-        }
-
         if (!trimmedActionUrl.StartsWith('/'))
         {
             trimmedActionUrl = "/" + trimmedActionUrl;
         }
 
         return trimmedActionUrl;
+    }
+
+    /// <summary>
+    /// The route part of an action URL, with any query string and fragment dropped — what the
+    /// audience rules match on.
+    /// </summary>
+    public static string? GetActionUrlPath(string? actionUrl)
+    {
+        var normalizedActionUrl = NormalizeActionUrl(actionUrl);
+        if (normalizedActionUrl is null)
+        {
+            return null;
+        }
+
+        var queryIndex = normalizedActionUrl.IndexOf('?');
+        if (queryIndex >= 0)
+        {
+            normalizedActionUrl = normalizedActionUrl[..queryIndex];
+        }
+
+        var fragmentIndex = normalizedActionUrl.IndexOf('#');
+        if (fragmentIndex >= 0)
+        {
+            normalizedActionUrl = normalizedActionUrl[..fragmentIndex];
+        }
+
+        return normalizedActionUrl;
     }
 }

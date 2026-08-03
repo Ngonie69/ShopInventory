@@ -3471,17 +3471,66 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             return [];
         }
 
-        var safeSearchTerm = SanitizeSqlValue(trimmedSearchTerm.ToUpperInvariant());
-        var sqlText = $@"SELECT T0.""AbsEntry"" as ""BatchEntryId"", T0.""ItemCode"", T2.""ItemName"", T0.""DistNumber"" as ""BatchNum"", T1.""Quantity"", T1.""WhsCode"" as ""WarehouseCode"", T0.""Status"", T0.""ExpDate"", T0.""MnfDate"", T0.""InDate"", T0.""Notes""
-FROM OBTN T0 INNER JOIN OBTQ T1 ON T0.""AbsEntry"" = T1.""MdAbsEntry""
-INNER JOIN OITM T2 ON T0.""ItemCode"" = T2.""ItemCode""
-WHERE T1.""Quantity"" > 0 AND UPPER(T0.""DistNumber"") LIKE '%{safeSearchTerm}%'
-ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
+        await EnsureSqlQueryAsync(
+            BatchSearchQueryCode,
+            "Batch search by batch number",
+            BatchSearchSql,
+            cancellationToken);
 
-        var queryCode = BuildContentAddressedQueryCode("BATCH_SEARCH", sqlText);
+        var parameterQuery = BuildSqlParameterQueryString(
+            BuildBatchSearchParameters(trimmedSearchTerm));
 
-        await EnsureSqlQueryAsync(queryCode, $"Batch search for {trimmedSearchTerm}", sqlText, cancellationToken);
-        return await ExecuteBatchSearchQueryAsync(queryCode, cancellationToken);
+        return await ExecuteBatchSearchQueryAsync(BatchSearchQueryCode, parameterQuery, cancellationToken);
+    }
+
+    private const string BatchSearchQueryCode = "BATCH_SEARCH";
+
+    /// <summary>
+    /// The search term arrives bound rather than interpolated, so one query object serves every
+    /// search instead of one per distinct term typed.
+    /// </summary>
+    /// <remarks>
+    /// This was the worst of the remaining OUQR leaks: the term is free text from a user, so the
+    /// content-addressed code it used to produce had no bound at all, and a SQLQueries object
+    /// cannot practically be deleted once created.
+    ///
+    /// <para>
+    /// The case fold this replaced — <c>UPPER(T0."DistNumber") LIKE '%TERM%'</c> — cannot be bound.
+    /// SAP rejects a parameter compared against a function-wrapped column at create, with
+    /// <c>701 Invalid parameterized expression 'UPPER(T0."DistNumber")LIKE:searchTerm'</c>, and
+    /// <c>'%' || :term || '%'</c> is out for the same reason <c>||</c> always is. Matching the
+    /// column bare against the term upper-cased, lower-cased and exactly as typed is what is left.
+    /// It covers every batch number stored in one case, and a mixed-case one whenever the user types
+    /// it as stored — measured against live, 824 of 66,984 batch numbers are not already upper-case,
+    /// so that is the population this narrows for. Confirmed no slower than the literal it replaces.
+    /// </para>
+    /// </remarks>
+    internal const string BatchSearchSql = """
+SELECT T0."AbsEntry" as "BatchEntryId", T0."ItemCode", T2."ItemName", T0."DistNumber" as "BatchNum", T1."Quantity", T1."WhsCode" as "WarehouseCode", T0."Status", T0."ExpDate", T0."MnfDate", T0."InDate", T0."Notes"
+FROM OBTN T0 INNER JOIN OBTQ T1 ON T0."AbsEntry" = T1."MdAbsEntry"
+INNER JOIN OITM T2 ON T0."ItemCode" = T2."ItemCode"
+WHERE T1."Quantity" > 0
+  AND (T0."DistNumber" LIKE :upperTerm OR T0."DistNumber" LIKE :lowerTerm OR T0."DistNumber" LIKE :exactTerm)
+ORDER BY T0."DistNumber", T0."ItemCode", T1."WhsCode"
+""";
+
+    /// <summary>
+    /// Binds one search's term for <see cref="BatchSearchSql"/> in the three cases it matches on,
+    /// wildcarded for the contains match the statement used to spell out.
+    /// </summary>
+    /// <remarks>
+    /// A <c>%</c> or <c>_</c> the user typed still reaches SAP as a wildcard, exactly as it did when
+    /// the term was interpolated into the literal.
+    /// </remarks>
+    internal static Dictionary<string, string> BuildBatchSearchParameters(string searchTerm)
+    {
+        var trimmed = searchTerm.Trim();
+        return new Dictionary<string, string>
+        {
+            ["upperTerm"] = $"%{trimmed.ToUpperInvariant()}%",
+            ["lowerTerm"] = $"%{trimmed.ToLowerInvariant()}%",
+            ["exactTerm"] = $"%{trimmed}%"
+        };
     }
 
     public async Task UpdateBatchStatusAsync(int batchEntryId, string status, CancellationToken cancellationToken = default)
@@ -3526,6 +3575,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
     private async Task<List<BatchSearchResult>> ExecuteBatchSearchQueryAsync(
         string queryCode,
+        string parameterQuery,
         CancellationToken cancellationToken)
     {
         var results = new List<BatchSearchResult>();
@@ -3536,7 +3586,7 @@ ORDER BY T0.""DistNumber"", T0.""ItemCode"", T1.""WhsCode""";
 
         while (hasMore && results.Count < maxResults)
         {
-            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+            var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}$skip={skip}";
 
             var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
@@ -7688,7 +7738,64 @@ ORDER BY T0.""ItemCode""";
 
     #region Sales Quantity Operations
 
-    private const string SalesQueryPrefix = "SALES_QTY_";
+    private const string SalesQueryCode = "SALES_QTY";
+
+    /// <summary>
+    /// Warehouse and date range arrive as bound parameters, so SAP holds exactly one query object
+    /// for this report however many warehouses and ranges are asked for.
+    /// </summary>
+    /// <remarks>
+    /// The interpolated version of this statement put the range in the SqlCode as well as the text,
+    /// so every distinct range a user picked left another undeletable OUQR row behind — the leak
+    /// removed from the reports on 2026-08-03, surviving here.
+    ///
+    /// It also ended <c>ORDER BY SUM(T1."Quantity") DESC</c>, which SAP's validator rejects at
+    /// create ("Incorrect syntax near 'ORDER'"), so this statement can never have been provisioned.
+    /// Ordering is now by a plain column, which keeps <c>$skip</c> paging deterministic, and the
+    /// quantity ranking the callers display happens on read.
+    ///
+    /// No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
+    /// space makes the stored text never compare equal and every probe re-PATCHes.
+    /// </remarks>
+    internal const string SalesQuantitiesSql = """
+SELECT
+    T1."ItemCode",
+    T2."ItemName",
+    T2."CodeBars" as "BarCode",
+    SUM(T1."Quantity") as "TotalQuantitySold",
+    SUM(T1."LineTotal") as "TotalSalesValue",
+    COUNT(DISTINCT T0."DocEntry") as "InvoiceCount",
+    T2."InvntryUom" as "UoM",
+    T2."U_PackagingCode" as "PackagingCode",
+    T2."U_PackagingCodeLabels" as "PackagingCodeLabels",
+    T2."U_PackagingCodeLids" as "PackagingCodeLids"
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+INNER JOIN OITM T2 ON T1."ItemCode" = T2."ItemCode"
+WHERE T1."WhsCode" = :whsCode
+  AND T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+  AND T0."CANCELED" = 'N'
+GROUP BY T1."ItemCode", T2."ItemName", T2."CodeBars", T2."InvntryUom",
+         T2."U_PackagingCode", T2."U_PackagingCodeLabels", T2."U_PackagingCodeLids"
+ORDER BY T1."ItemCode"
+""";
+
+    /// <summary>
+    /// Binds one call's warehouse and date range for <see cref="SalesQuantitiesSql"/>.
+    /// </summary>
+    internal static Dictionary<string, string> BuildSalesQuantityParameters(
+        string warehouseCode,
+        DateTime fromDate,
+        DateTime toDate) =>
+        new()
+        {
+            ["whsCode"] = warehouseCode.Trim(),
+            // 'yyyy-MM-dd', not the yyyyMMdd SAP returns: a raw-SQL date literal in the other form
+            // silently matches nothing.
+            ["fromDate"] = fromDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            ["toDate"] = toDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+        };
 
     public async Task<List<SalesQuantityDto>> GetSalesQuantitiesByWarehouseAsync(
         string warehouseCode,
@@ -7697,47 +7804,32 @@ ORDER BY T0.""ItemCode""";
         CancellationToken cancellationToken = default)
     {
         await EnsureAuthenticatedAsync(cancellationToken);
-        var currentSession = _sessionId;
 
-        var fromDateStr = fromDate.ToString("yyyyMMdd");
-        var toDateStr = toDate.ToString("yyyyMMdd");
-        var queryCode = $"{SalesQueryPrefix}{warehouseCode.Replace("-", "_").ToUpperInvariant()}_{fromDateStr}_{toDateStr}";
+        await EnsureSqlQueryAsync(
+            SalesQueryCode,
+            $"Sales Quantities in {warehouseCode}",
+            SalesQuantitiesSql,
+            cancellationToken);
 
+        var parameterQuery = BuildSqlParameterQueryString(
+            BuildSalesQuantityParameters(warehouseCode, fromDate, toDate));
 
-        // SQL query to get sales quantities by warehouse and date range with packaging code fields
-        // No trailing whitespace on any line — SAP strips it before storing, so a line ending in a
-        // space makes the stored text never compare equal and every probe re-PATCHes.
-        var sqlText = $@"SELECT
-            T1.""ItemCode"",
-            T2.""ItemName"",
-            T2.""CodeBars"" as ""BarCode"",
-            SUM(T1.""Quantity"") as ""TotalQuantitySold"",
-            SUM(T1.""LineTotal"") as ""TotalSalesValue"",
-            COUNT(DISTINCT T0.""DocEntry"") as ""InvoiceCount"",
-            T2.""InvntryUom"" as ""UoM"",
-            T2.""U_PackagingCode"" as ""PackagingCode"",
-            T2.""U_PackagingCodeLabels"" as ""PackagingCodeLabels"",
-            T2.""U_PackagingCodeLids"" as ""PackagingCodeLids""
-        FROM OINV T0
-        INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
-        INNER JOIN OITM T2 ON T1.""ItemCode"" = T2.""ItemCode""
-        WHERE T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'
-        AND T0.""DocDate"" >= '{fromDate:yyyy-MM-dd}'
-        AND T0.""DocDate"" <= '{toDate:yyyy-MM-dd}'
-        AND T0.""CANCELED"" = 'N'
-        GROUP BY T1.""ItemCode"", T2.""ItemName"", T2.""CodeBars"", T2.""InvntryUom"",
-                 T2.""U_PackagingCode"", T2.""U_PackagingCodeLabels"", T2.""U_PackagingCodeLids""
-        ORDER BY SUM(T1.""Quantity"") DESC";
+        var sales = await ExecuteSalesQueryAsync(
+            SalesQueryCode,
+            parameterQuery,
+            warehouseCode,
+            cancellationToken);
 
-        // Create the SQL query
-        await EnsureSqlQueryAsync(queryCode, $"Sales Quantities in {warehouseCode}", sqlText, cancellationToken);
-
-        // Execute the query and retrieve results
-        return await ExecuteSalesQueryAsync(queryCode, warehouseCode, cancellationToken);
+        // The ranking the SQL used to carry. Callers render this list as-is.
+        return sales
+            .OrderByDescending(sale => sale.TotalQuantitySold)
+            .ThenBy(sale => sale.ItemCode, StringComparer.Ordinal)
+            .ToList();
     }
 
     private async Task<List<SalesQuantityDto>> ExecuteSalesQueryAsync(
         string queryCode,
+        string parameterQuery,
         string warehouseCode,
         CancellationToken cancellationToken)
     {
@@ -7748,7 +7840,7 @@ ORDER BY T0.""ItemCode""";
 
         while (hasMore)
         {
-            var url = $"SQLQueries('{queryCode}')/List?$skip={skip}";
+            var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}$skip={skip}";
 
             var currentSession = _sessionId;
             var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
@@ -13032,27 +13124,28 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             return candidatesByItemCode;
         }
 
-        foreach (var batch in itemCodes.Chunk(40))
+        var sqlText = BuildSalesOrderLineUomHistorySql(headerTable, lineTable);
+
+        // One object per source table, for good. The statement no longer carries the item codes, so
+        // two approvals resolving UoMs at the same moment share it without contending: each binds its
+        // own values on its own request, and neither can see the other's rows.
+        var queryCode =
+            $"SO_UOM_{sourceName.Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant()}";
+
+        foreach (var batch in itemCodes.Chunk(UomHistorySlotCount))
         {
-            var safeItemCodes = string.Join(", ", batch.Select(code => $"'{SanitizeSqlValue(code)}'"));
-            var sqlText = BuildSalesOrderLineUomHistorySql(headerTable, lineTable, safeItemCodes);
-
-            // Two approvals resolving UoMs at the same moment now share one object rather than
-            // racing over it: identical batches produce an identical statement and therefore an
-            // identical code, so neither can see the other's rows or delete it mid-read.
-            var queryCode = BuildContentAddressedQueryCode(
-                $"SO_UOM_{sourceName.Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant()}",
-                sqlText);
-
             try
             {
                 await EnsureSqlQueryAsync(
                     queryCode,
-                    $"Sales order UoM {queryCode}",
+                    $"Sales order UoM from {sourceName} history",
                     sqlText,
                     cancellationToken);
 
-                var batchCandidates = await GetSalesOrderLineSapUomCandidatesAsync(queryCode, cancellationToken);
+                var batchCandidates = await GetSalesOrderLineSapUomCandidatesAsync(
+                    queryCode,
+                    BuildSqlParameterQueryString(BuildSalesOrderLineUomHistoryParameters(batch)),
+                    cancellationToken);
                 foreach (var (itemCode, candidates) in batchCandidates)
                 {
                     if (!candidatesByItemCode.TryGetValue(itemCode, out var existingCandidates))
@@ -13085,10 +13178,12 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
     private async Task<Dictionary<string, List<(string? UoMCode, int? UoMEntry)>>> GetSalesOrderLineSapUomCandidatesAsync(
         string queryCode,
+        string parameterQuery,
         CancellationToken cancellationToken)
     {
         var currentSession = _sessionId;
-        var request = new HttpRequestMessage(HttpMethod.Get, $"SQLQueries('{queryCode}')/List");
+        var url = $"SQLQueries('{queryCode}')/List?{parameterQuery}".TrimEnd('?', '&');
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.Add("Prefer", "odata.maxpagesize=1000");
@@ -13100,7 +13195,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
             await HandleAuthFailureAsync(currentSession, cancellationToken);
             response.Dispose();
 
-            request = new HttpRequestMessage(HttpMethod.Get, $"SQLQueries('{queryCode}')/List");
+            request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             request.Headers.Add("Prefer", "odata.maxpagesize=1000");
@@ -13249,18 +13344,68 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         return (normalizedUomCode, null);
     }
 
-    private static string BuildSalesOrderLineUomHistorySql(string headerTable, string lineTable, string safeItemCodes)
+    /// <summary>
+    /// Item codes bound per call rather than interpolated, under a statement whose text never moves.
+    /// </summary>
+    /// <remarks>
+    /// The interpolated <c>IN</c> list made this statement unique to the exact set of item codes a
+    /// batch happened to carry, so — content-addressed — every novel combination of lines left a
+    /// permanent SAP query object behind. Order postings supply that combination, which made this the
+    /// highest-rate of the remaining OUQR leaks.
+    ///
+    /// <para>
+    /// A parameter cannot carry an <c>IN</c> list: <c>IN (:codes)</c> binds the comma-separated value
+    /// as one literal and matches nothing, silently. What is left is a fixed number of single-value
+    /// slots, OR'd — the spelling already proven accepted for the batch search's three cased terms.
+    /// The width is fixed at <see cref="UomHistorySlotCount"/> and short batches bind the surplus to
+    /// a value no item code can equal, because a width that tracked the batch size would put the
+    /// shape back in the text and leak one object per distinct line count.
+    /// </para>
+    /// </remarks>
+    private static string BuildSalesOrderLineUomHistorySql(string headerTable, string lineTable)
         => $@"SELECT
     T1.""ItemCode"" AS ""ItemCode"",
     T1.""UomCode"" AS ""UoMCode"",
     T1.""UomEntry"" AS ""UoMEntry""
 FROM {headerTable} T0
 INNER JOIN {lineTable} T1 ON T0.""DocEntry"" = T1.""DocEntry""
-WHERE T1.""ItemCode"" IN ({safeItemCodes})
+WHERE ({BuildSalesOrderLineUomHistoryItemPredicate()})
   AND T0.""CANCELED"" = 'N'
   AND T1.""UomCode"" IS NOT NULL
   AND T1.""UomCode"" <> ''
 ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
+
+    /// <summary>
+    /// How many item codes one UoM-history call carries. Changing this changes the statement, so both
+    /// source statements are re-created once under their existing codes and the old text is repaired
+    /// in place — it does not add objects.
+    /// </summary>
+    internal const int UomHistorySlotCount = 40;
+
+    private static string BuildSalesOrderLineUomHistoryItemPredicate()
+        => string.Join(
+            " OR ",
+            Enumerable
+                .Range(1, UomHistorySlotCount)
+                .Select(slot => $@"T1.""ItemCode"" = :{UomHistorySlotName(slot)}"));
+
+    private static string UomHistorySlotName(int slot) => $"i{slot:D2}";
+
+    /// <summary>
+    /// Binds one batch across the fixed slot count, padding the surplus with a value no item code can
+    /// equal so a short batch matches exactly what a full one would.
+    /// </summary>
+    internal static Dictionary<string, string> BuildSalesOrderLineUomHistoryParameters(
+        IReadOnlyList<string> batch)
+    {
+        var parameters = new Dictionary<string, string>(UomHistorySlotCount);
+        for (var slot = 1; slot <= UomHistorySlotCount; slot++)
+        {
+            parameters[UomHistorySlotName(slot)] = slot <= batch.Count ? batch[slot - 1] : string.Empty;
+        }
+
+        return parameters;
+    }
 
     private static string? NormalizeSapUomIdentifier(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

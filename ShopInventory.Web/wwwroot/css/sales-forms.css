@@ -1,27 +1,26 @@
 /* ==========================================================================
    Sales forms — Nocturne
 
-   Dresses the five sales documents that are entered rather than listed:
+   Dresses the six sales documents that are entered rather than listed:
 
+     /invoices/create          CreateInvoice           .sfm.is-invoice
      /sales-orders/create      CreateSalesOrder        .sfm.is-order
      /sales-orders/edit/{id}   SalesOrderEdit          .sfm.is-order
      /quotations/create        CreateQuotation         .sfm.is-quote
      /credit-notes/create      CreateCreditNote        .sfm.is-credit
      /payments/create          CreateIncomingPayment   .sfm.is-receipt
 
-   They are one document in five moods. Four of them are a customer, a set of
+   They are one document in six moods. Five of them are a customer, a set of
    lines and a total; the receipt swaps the line editor for the invoices the
-   money is applied to, but keeps the same chrome, fields and buttons. Five
-   sheets would have been the same 900 lines with five prefixes, and they would
+   money is applied to, but keeps the same chrome, fields and buttons. Six
+   sheets would have been the same 900 lines with six prefixes, and they would
    have drifted — the same reasoning transfer-forms.css sets out for its pair.
 
-   Derived from create-invoice.css, which dresses the sixth form of the same
-   document (/invoices/create) and carries the imported design's own palette.
-   The two palettes below are copied from it unchanged, so the six forms are
-   literally one system rather than six readings of it. THE COROLLARY: a colour
-   fixed there has to be fixed here too. Folding /invoices/create onto this
-   sheet would end that, and is worth doing — it was left out only because it
-   already ships and this change had no reason to touch it.
+   Started life as create-invoice.css, whose `civ-` module this replaces: the
+   five other forms were built by deriving from it, which left the two sheets
+   holding the same palette and needing every colour fixed twice. That is now
+   one sheet, and create-invoice.css is deleted. The imported design behind it
+   is `Create Invoice.dc.html`.
 
    The imported design is drawn as a dark scheme, so the dark palette is the
    design's own; the light palette is its daylight counterpart — same structure
@@ -41,14 +40,15 @@
    have to be out-specified — every control is given a class so the selector is
    two classes deep and wins regardless of load order.
 
-   create-invoice.css scopes those control rules `:is(.civ, .civ-modal) .civ-x`
-   so its print dialog, which renders outside `.civ`, picks them up. None of
-   these five opens a dialog, so the scope here is plain `.sfm .sfm-x` — the
-   same (0,2,0), and one less thing to explain. A dialog added later needs that
-   second scope back, not a new stylesheet.
+   The control rules are scoped `:is(.sfm, .sfm-modal) .sfm-x` rather than
+   `.sfm .sfm-x` so the invoice form's print dialog, which renders outside
+   `.sfm`, picks them up. `:is()` takes the specificity of its most specific
+   argument, so both forms are (0,2,0) and still beat app.css — the second
+   scope buys reach, not weight.
    ========================================================================== */
 
-.sfm {
+.sfm,
+.sfm-modal {
     --sfm-bg: #f4f7fa;
     --sfm-ink: #0f1e2c;
     --sfm-ink-2: #26394a;
@@ -102,12 +102,14 @@
     --sfm-shadow-rgb: 16, 32, 47;
     --sfm-shadow-a: .14;
     --sfm-shadow-lg-a: .2;
+    --sfm-scrim-a: .4;
     --sfm-scheme: light;
 
     color-scheme: var(--sfm-scheme);
 }
 
-.dark-theme .sfm {
+.dark-theme .sfm,
+.dark-theme .sfm-modal {
     --sfm-bg: #0b131e;
     --sfm-ink: #e7eef5;
     --sfm-ink-2: #cfdae4;
@@ -156,6 +158,7 @@
     --sfm-shadow-rgb: 4, 9, 15;
     --sfm-shadow-a: .55;
     --sfm-shadow-lg-a: .6;
+    --sfm-scrim-a: .68;
     --sfm-scheme: dark;
 }
 
@@ -173,7 +176,9 @@
    theme for an iOS input fix; inside this page that would flatten the accent
    and warning colours on WebKit, so hand the fill back to `color`. */
 .sfm,
-.sfm * {
+.sfm *,
+.sfm-modal,
+.sfm-modal * {
     -webkit-text-fill-color: currentColor;
     box-sizing: border-box;
 }
@@ -231,6 +236,40 @@
     color: var(--sfm-ink);
 }
 
+.sfm-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border: 1px solid var(--sfm-bad-edge);
+    border-radius: 999px;
+    background: rgba(var(--sfm-bad-rgb), .07);
+    color: var(--sfm-bad);
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+
+.sfm-pill .sfm-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+}
+
+.sfm-pill.is-ready {
+    border-color: rgba(var(--sfm-accent-rgb), .35);
+    background: rgba(var(--sfm-accent-rgb), .07);
+    color: var(--sfm-accent);
+}
+
+.sfm-pill.is-syncing {
+    border-color: rgba(var(--sfm-warn-rgb), .35);
+    background: rgba(var(--sfm-warn-rgb), .07);
+    color: var(--sfm-warn);
+}
+
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 .sfm-btn {
     display: inline-flex;
@@ -265,11 +304,23 @@
     cursor: not-allowed;
 }
 
+.sfm-btn-accent {
+    padding: 6px 12px;
+    border-color: var(--sfm-accent);
+    background: rgba(var(--sfm-accent-rgb), .08);
+    color: var(--sfm-accent);
+}
+
+.sfm-btn-accent:hover:not(:disabled) {
+    background: rgba(var(--sfm-accent-rgb), .16);
+    color: var(--sfm-accent);
+}
+
 .sfm-btn-solid {
     width: 100%;
-    /* Inherited from create-invoice.css without a `display`, so the gap below
-       did nothing on a <button> (inline-block) and the icon sat flush against
-       the label. create-invoice.css still has this. */
+    /* This carried a `gap` but no `display` for as long as it was
+       `.civ-btn-solid`, and a <button> is inline-block, so the gap did nothing
+       and the icon sat flush against the label. */
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -519,8 +570,8 @@
     color: var(--sfm-bad);
 }
 
-.sfm .sfm-input,
-.sfm .sfm-select {
+:is(.sfm, .sfm-modal) .sfm-input,
+:is(.sfm, .sfm-modal) .sfm-select {
     width: 100%;
     background: var(--sfm-field);
     border: 1px solid var(--sfm-field-edge);
@@ -535,43 +586,43 @@
     transition: border-color .15s;
 }
 
-.sfm .sfm-select {
+:is(.sfm, .sfm-modal) .sfm-select {
     padding-right: 28px;
     background-image: var(--sfm-caret);
     background-repeat: no-repeat;
     background-position: right 10px center;
 }
 
-.sfm .sfm-input:hover:not(:disabled):not([readonly]),
-.sfm .sfm-select:hover:not(:disabled) {
+:is(.sfm, .sfm-modal) .sfm-input:hover:not(:disabled):not([readonly]),
+:is(.sfm, .sfm-modal) .sfm-select:hover:not(:disabled) {
     border-color: var(--sfm-field-edge-hi);
 }
 
-.sfm .sfm-input:focus,
-.sfm .sfm-select:focus {
+:is(.sfm, .sfm-modal) .sfm-input:focus,
+:is(.sfm, .sfm-modal) .sfm-select:focus {
     border-color: var(--sfm-accent);
     outline: none;
 }
 
-.sfm .sfm-input::placeholder {
+:is(.sfm, .sfm-modal) .sfm-input::placeholder {
     color: var(--sfm-placeholder);
     -webkit-text-fill-color: var(--sfm-placeholder);
     opacity: 1;
 }
 
-.sfm .sfm-input[readonly] {
+:is(.sfm, .sfm-modal) .sfm-input[readonly] {
     color: var(--sfm-readonly-ink);
     cursor: default;
 }
 
-.sfm .sfm-input:disabled,
-.sfm .sfm-select:disabled {
+:is(.sfm, .sfm-modal) .sfm-input:disabled,
+:is(.sfm, .sfm-modal) .sfm-select:disabled {
     opacity: .55;
     cursor: not-allowed;
 }
 
-.sfm .sfm-input.is-bad,
-.sfm .sfm-select.is-bad {
+:is(.sfm, .sfm-modal) .sfm-input.is-bad,
+:is(.sfm, .sfm-modal) .sfm-select.is-bad {
     border-color: var(--sfm-bad);
 }
 
@@ -706,11 +757,49 @@
     color: var(--sfm-muted-2);
 }
 
-.sfm .sfm-select.is-sm {
+:is(.sfm, .sfm-modal) .sfm-select.is-sm {
     width: auto;
     max-width: 230px;
     padding: 6px 26px 6px 8px;
     font-size: 12.5px;
+}
+
+/* ── Line defaults bar ──────────────────────────────────────────────────── */
+.sfm-defaults {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 12px 18px;
+    background: rgba(var(--sfm-info-rgb), .03);
+    border-bottom: 1px solid var(--sfm-edge);
+}
+
+.sfm-defaults-k {
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--sfm-muted-2);
+}
+
+.sfm-inline-lab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--sfm-ghost-ink);
+}
+
+.sfm-batchmode {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(var(--sfm-accent-rgb), .45);
+    background: rgba(var(--sfm-accent-rgb), .1);
+    color: var(--sfm-accent);
+    font-size: 12px;
 }
 
 /* ── Line rows ──────────────────────────────────────────────────────────────
@@ -726,6 +815,13 @@
     --sfm-lines-min: 900px;
     overflow-x: auto;
     padding: 0 18px 18px;
+}
+
+/* The invoice is the widest: it names a warehouse per line *and* carries the
+   batch tag, because stock leaves the building on this document. */
+.is-invoice .sfm-lines {
+    --sfm-cols: 24px 132px minmax(150px, 1fr) 132px 56px 84px 52px 96px 100px 28px;
+    --sfm-lines-min: 900px;
 }
 
 /* #, code, description, qty, unit price, disc %, warehouse, total, remove */
@@ -795,17 +891,17 @@
     text-align: center;
 }
 
-.sfm .sfm-cell {
+:is(.sfm, .sfm-modal) .sfm-cell {
     padding: 8px 8px;
     font-size: 13px;
     font-variant-numeric: tabular-nums;
 }
 
-.sfm .sfm-select.sfm-cell {
+:is(.sfm, .sfm-modal) .sfm-select.sfm-cell {
     padding-right: 24px;
 }
 
-.sfm .sfm-num {
+:is(.sfm, .sfm-modal) .sfm-num {
     padding: 8px 6px;
     font-size: 13px;
     text-align: right;
@@ -813,7 +909,7 @@
 }
 
 /* Description reads as text until touched, then becomes a field. */
-.sfm .sfm-desc {
+:is(.sfm, .sfm-modal) .sfm-desc {
     background: transparent;
     border-color: transparent;
     padding: 8px 9px;
@@ -821,12 +917,12 @@
     font-size: 13px;
 }
 
-.sfm .sfm-desc:hover:not([readonly]) {
+:is(.sfm, .sfm-modal) .sfm-desc:hover:not([readonly]) {
     border-color: var(--sfm-field-edge);
     background: var(--sfm-field);
 }
 
-.sfm .sfm-desc:focus {
+:is(.sfm, .sfm-modal) .sfm-desc:focus {
     border-color: var(--sfm-accent);
     background: var(--sfm-field);
     color: var(--sfm-ink);
@@ -952,7 +1048,7 @@
     cursor: pointer;
 }
 
-.sfm .sfm-check input {
+:is(.sfm, .sfm-modal) .sfm-check input {
     width: 15px;
     height: 15px;
     accent-color: var(--sfm-accent);
@@ -967,6 +1063,10 @@
 
 .sfm-gap-md {
     margin-top: 16px;
+}
+
+.sfm-w-narrow {
+    max-width: 110px;
 }
 
 /* ── Pre-flight checks ──────────────────────────────────────────────────── */
@@ -1046,6 +1146,17 @@
 .sfm-cache-i i {
     color: var(--sfm-muted-3);
     flex-shrink: 0;
+}
+
+.sfm-cache-ft {
+    margin-top: 13px;
+    padding-top: 11px;
+    border-top: 1px solid var(--sfm-hairline);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--sfm-muted-3);
 }
 
 /* ── Notes, alerts, errors ──────────────────────────────────────────────── */
@@ -1153,6 +1264,74 @@
 }
 
 
+/* ── Print dialog (/invoices/create) ─────────────────────────────────────── */
+/* ── Print dialog ───────────────────────────────────────────────────────── */
+.sfm-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(var(--sfm-shadow-rgb), var(--sfm-scrim-a));
+    color: var(--sfm-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+}
+
+.sfm-dialog {
+    width: 100%;
+    max-width: 460px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    background: var(--sfm-surface);
+    border: 1px solid var(--sfm-edge);
+    border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(var(--sfm-shadow-rgb), var(--sfm-shadow-lg-a));
+}
+
+.sfm-dialog-hd {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 15px 18px;
+    border-bottom: 1px solid var(--sfm-edge);
+}
+
+.sfm-dialog-hd i {
+    font-size: 16px;
+    color: var(--sfm-info);
+}
+
+.sfm-dialog-hd h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--sfm-ink);
+}
+
+.sfm-dialog-bd {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.sfm-dialog-ft {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--sfm-edge);
+}
+
+.sfm-dialog-ft .sfm-btn-solid {
+    width: auto;
+    padding: 9px 16px;
+}
+
 /* ── Spinner ────────────────────────────────────────────────────────────── */
 .sfm-spin {
     width: 13px;
@@ -1228,7 +1407,7 @@
 
 /* ==========================================================================
    Beyond the invoice form
-   Everything above is create-invoice.css's vocabulary. What follows is what
+   The vocabulary above came from the original civ- module. What follows is what
    these five need and it does not have.
    ========================================================================== */
 
@@ -1242,13 +1421,13 @@
    `appearance: none` on `.sfm-input` strips the calendar button in WebKit, so
    it is handed back and then tinted; the indicator is a UA-drawn bitmap and
    `filter` is the only way to reach it. */
-.sfm .sfm-input[type="date"] {
+:is(.sfm, .sfm-modal) .sfm-input[type="date"] {
     appearance: auto;
     -webkit-appearance: none;
     min-height: 37px;
 }
 
-.sfm .sfm-input[type="date"]::-webkit-calendar-picker-indicator {
+:is(.sfm, .sfm-modal) .sfm-input[type="date"]::-webkit-calendar-picker-indicator {
     /* .55 left it near-invisible against the dark field once inverted; .72 is
        the lowest that still reads there and stays quiet on paper. */
     opacity: .72;
@@ -1256,13 +1435,13 @@
     filter: var(--sfm-caret-filter);
 }
 
-.sfm .sfm-input[type="date"]::-webkit-calendar-picker-indicator:hover {
+:is(.sfm, .sfm-modal) .sfm-input[type="date"]::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
 }
 
 /* Safari on iOS lays an empty date input out at a different height to a text
    one, which staggers the field row. */
-.sfm .sfm-input[type="date"]::-webkit-date-and-time-value {
+:is(.sfm, .sfm-modal) .sfm-input[type="date"]::-webkit-date-and-time-value {
     text-align: left;
 }
 
