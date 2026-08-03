@@ -633,6 +633,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -643,6 +644,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -719,6 +721,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -729,6 +732,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -767,6 +771,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -777,6 +782,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -833,6 +839,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -843,6 +850,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -1797,6 +1805,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -1807,6 +1816,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -1854,6 +1864,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -1864,6 +1875,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -2503,6 +2515,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -2513,6 +2526,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -2732,6 +2746,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
             var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -2742,6 +2757,7 @@ public partial class SAPServiceLayerClient : ISAPServiceLayerClient
 
                 request = new HttpRequestMessage(HttpMethod.Get, endpoint);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -3230,6 +3246,9 @@ ORDER BY T0.""ItemCode""";
                 {
                     var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
                     request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
+                    // $top alone does not lift the Service Layer's ~20-row default page, so a chunk
+                    // of 40 came back half-answered and the rest of the names silently stayed blank.
+                    request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     return request;
                 }
@@ -6428,6 +6447,7 @@ ORDER BY T0.""ItemCode""";
 
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
                 var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -6438,6 +6458,7 @@ ORDER BY T0.""ItemCode""";
 
                     request = new HttpRequestMessage(HttpMethod.Get, url);
                     request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                    request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     response = await _httpClient.SendAsync(request, cancellationToken);
                 }
@@ -7379,6 +7400,7 @@ ORDER BY T0.""ItemCode""";
         var currentSession = _sessionId;
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
@@ -7389,6 +7411,7 @@ ORDER BY T0.""ItemCode""";
 
             httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         }
@@ -7494,6 +7517,7 @@ ORDER BY T0.""ItemCode""";
         var currentSession = _sessionId;
         var httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
         httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
@@ -7504,6 +7528,7 @@ ORDER BY T0.""ItemCode""";
 
             httpRequest = new HttpRequestMessage(HttpMethod.Get, url);
             httpRequest.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            httpRequest.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         }
@@ -7952,6 +7977,7 @@ ORDER BY T1."ItemCode"
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -7962,6 +7988,7 @@ ORDER BY T1."ItemCode"
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -8345,6 +8372,7 @@ ORDER BY T1."ItemCode"
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=50");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -8355,6 +8383,7 @@ ORDER BY T1."ItemCode"
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=50");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -8484,6 +8513,7 @@ ORDER BY T1."ItemCode"
         {
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={cardCodes.Count}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             return request;
         }
@@ -9219,10 +9249,8 @@ ORDER BY T1."ItemCode"
                 {
                     var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
                     request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
-                    // $top alone does not lift the Service Layer's ~20-row default page, and the
-                    // truncation is silent. Every item it drops is read back one at a time below
-                    // and misses the batch pre-fetch, so a 33-line transfer spent minutes creating
-                    // a SQL query object per item instead of posting.
+                    // Without this the Service Layer answers a 40-code chunk with 20 rows, and every
+                    // dropped item falls back to a per-item SAP query object while the transfer posts.
                     request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     return request;
@@ -11215,6 +11243,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=100");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11225,6 +11254,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=100");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -11254,6 +11284,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11264,6 +11295,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -11353,6 +11385,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11363,6 +11396,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -11453,6 +11487,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11463,6 +11498,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -11535,6 +11571,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11545,6 +11582,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -11679,6 +11717,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11689,6 +11728,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -11774,6 +11814,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11784,6 +11825,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -11920,6 +11962,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -11930,6 +11973,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -12015,6 +12059,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12025,6 +12070,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -12161,6 +12207,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12171,6 +12218,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -12256,6 +12304,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12266,6 +12315,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -12361,6 +12411,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=100");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12371,6 +12422,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=100");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -12405,6 +12457,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12415,6 +12468,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -12529,6 +12583,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12539,6 +12594,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
                 request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 response = await _httpClient.SendAsync(request, cancellationToken);
             }
@@ -12648,6 +12704,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
         var url = urlBuilder.ToString();
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -12658,6 +12715,7 @@ ORDER BY T0.""ItemCode"", T0.""DistNumber""";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -13503,6 +13561,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
             {
                 var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+                request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length * DuplicateOrderProbePageSize}");
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 return request;
             }
@@ -13592,6 +13651,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={DuplicateOrderProbePageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -13602,6 +13662,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={DuplicateOrderProbePageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -13649,6 +13710,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=100");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -13659,6 +13721,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=100");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -13686,6 +13749,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -13696,6 +13760,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", $"odata.maxpagesize={pageSize}");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
@@ -15002,6 +15067,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+        request.Headers.Add("Prefer", "odata.maxpagesize=100");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -15012,6 +15078,7 @@ ORDER BY T0.""DocDate"" DESC, T0.""DocEntry"" DESC";
 
             request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Cookie", $"B1SESSION={_sessionId}");
+            request.Headers.Add("Prefer", "odata.maxpagesize=100");
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             response = await _httpClient.SendAsync(request, cancellationToken);
         }
