@@ -2037,6 +2037,20 @@
                 selectedTransferRequest = await TransferService.GetTransferRequestByDocEntryAsync(requestedDocEntry)
                     ?? transferRequests?.FirstOrDefault(request => request.DocEntry == requestedDocEntry);
             }
+            else if (TryGetRequestedPendingTransferId(out var requestedPendingId))
+            {
+                activeTabIndex = 2;
+                await LoadPendingTransfersAsync();
+                // Fetched by id rather than picked out of the list just loaded: that list is
+                // filtered to what is still awaiting approval, and an approval notification is as
+                // likely to be about one that has since been decided or posted.
+                var pending = await TransferService.GetPendingTransferAsync(requestedPendingId);
+                if (pending != null)
+                {
+                    selectedPendingTransfer = pending;
+                    await LoadPendingLineItemNamesAsync(pending);
+                }
+            }
             // Only load warehouses on first render (fast, cached).
             // Transfer requests are deferred until the user switches to that tab.
             await LoadWarehousesAsync();
@@ -2062,6 +2076,15 @@
         docEntry = 0;
         var query = QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
         return query.TryGetValue("requestDocEntry", out var value) && int.TryParse(value.FirstOrDefault(), out docEntry);
+    }
+
+    /// The other half of the same deep link: a transfer approval notification points here with the
+    /// document it is about, and a direct transfer is named by the id of the draft held for approval.
+    private bool TryGetRequestedPendingTransferId(out Guid pendingTransferId)
+    {
+        pendingTransferId = Guid.Empty;
+        var query = QueryHelpers.ParseQuery(Navigation.ToAbsoluteUri(Navigation.Uri).Query);
+        return query.TryGetValue("pendingTransferId", out var value) && Guid.TryParse(value.FirstOrDefault(), out pendingTransferId);
     }
 
     private async Task LoadWarehousesAsync()
