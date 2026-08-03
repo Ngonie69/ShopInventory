@@ -9219,6 +9219,11 @@ ORDER BY T1."ItemCode"
                 {
                     var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
                     request.Headers.Add("Cookie", $"B1SESSION={sessionId}");
+                    // $top alone does not lift the Service Layer's ~20-row default page, and the
+                    // truncation is silent. Every item it drops is read back one at a time below
+                    // and misses the batch pre-fetch, so a 33-line transfer spent minutes creating
+                    // a SQL query object per item instead of posting.
+                    request.Headers.Add("Prefer", $"odata.maxpagesize={chunk.Length}");
                     request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                     return request;
                 }
