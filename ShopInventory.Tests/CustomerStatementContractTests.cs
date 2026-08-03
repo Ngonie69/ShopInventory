@@ -101,11 +101,63 @@ public class CustomerStatementContractTests
         Assert.Equal(1150m, statement.ClosingBalance);
     }
 
-    private static async Task<CustomerStatementResponseDto> BuildStatementAsync(PaymentTermsDto? paymentTerms)
+    /// <summary>
+    /// Aging is built from unreconciled journal lines, so a credit the customer is holding has to
+    /// pull it down. Built from invoices alone it could only climb, and ABS006's July statement
+    /// printed 41,275.73 due directly above a closing balance of 24,875.40 — the receipts sitting
+    /// unapplied and the two invoices already closed by credit notes had nothing to subtract them.
+    /// </summary>
+    [Fact]
+    public async Task Aging_nets_open_credits_off_and_totals_to_the_closing_balance()
+    {
+        var statement = await BuildStatementAsync(
+            paymentTerms: null,
+            openItems: [OpenItem("20260506", "20260506", debit: 1400m), OpenItem("20260507", "20260507", credit: 250m)]);
+
+        Assert.Equal(1150m, statement.ClosingBalance);
+        Assert.Equal(statement.ClosingBalance, statement.Aging.Total);
+        Assert.Equal(1150m, statement.Aging.Days1To30);
+    }
+
+    /// <summary>
+    /// Aging speaks for the statement's end date, not for the day the PDF was generated. Buckets
+    /// used to be measured from <c>DateTime.Today</c>, so re-downloading a closed period aged every
+    /// document in it further each day that passed.
+    /// </summary>
+    [Fact]
+    public async Task Aging_is_measured_from_the_statement_end_date_rather_than_today()
+    {
+        var statement = await BuildStatementAsync(
+            paymentTerms: null,
+            openItems: [OpenItem("20260506", "20260506", debit: 1400m)]);
+
+        // 25 days before the 31 May end date. Measured from any real "today" it would be long past
+        // every bucket and land in Over90Days instead.
+        Assert.Equal(1400m, statement.Aging.Days1To30);
+        Assert.Equal(0m, statement.Aging.Over90Days);
+    }
+
+    /// <summary>An open item SAP has not reconciled, in the shape the open-items query returns.</summary>
+    private static Dictionary<string, object?> OpenItem(
+        string postingDate,
+        string dueDate,
+        decimal debit = 0m,
+        decimal credit = 0m) =>
+        new()
+        {
+            ["PostingDate"] = postingDate,
+            ["DueDate"] = dueDate,
+            ["BalanceDueDebit"] = debit,
+            ["BalanceDueCredit"] = credit
+        };
+
+    private static async Task<CustomerStatementResponseDto> BuildStatementAsync(
+        PaymentTermsDto? paymentTerms,
+        List<Dictionary<string, object?>>? openItems = null)
     {
         var handler = new GetCustomerStatementHandler(
             BusinessPartners("ABS006", "Absolute Refregiration", payTermGrpCode: paymentTerms?.GroupNumber),
-            Sap(paymentTerms),
+            Sap(paymentTerms, openItems ?? []),
             StatementBuildCaches.Fresh(),
             NullLogger<GetCustomerStatementHandler>.Instance);
 
@@ -133,19 +185,28 @@ public class CustomerStatementContractTests
             _ => throw new InvalidOperationException($"IBusinessPartnerService.{method.Name} was not expected.")
         });
 
-    private static ISAPServiceLayerClient Sap(PaymentTermsDto? paymentTerms) =>
+    /// <remarks>
+    /// <c>GetOpenInvoicesByCustomersAsync</c> is deliberately absent. Aging no longer reads invoices,
+    /// and the catch-all below turns reintroducing that read back into a failing test rather than a
+    /// statement whose aging quietly stops agreeing with its own balance.
+    /// </remarks>
+    private static ISAPServiceLayerClient Sap(
+        PaymentTermsDto? paymentTerms,
+        List<Dictionary<string, object?>> openItems) =>
         StubProxy.For<ISAPServiceLayerClient>((method, args) => method.Name switch
         {
             nameof(ISAPServiceLayerClient.GetPaymentTermsByCodeAsync) => Task.FromResult(paymentTerms),
-            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) => LedgerRows((string)args![0]!),
-            nameof(ISAPServiceLayerClient.GetOpenInvoicesByCustomersAsync) => Task.FromResult(new List<Models.Invoice>()),
+            nameof(ISAPServiceLayerClient.ExecuteParameterisedSqlQueryAsync) => LedgerRows((string)args![0]!, openItems),
             _ => throw new InvalidOperationException($"ISAPServiceLayerClient.{method.Name} was not expected.")
         });
 
-    /// <summary>Answers the two statement queries by their fixed code, the way SAP would.</summary>
-    private static Task<List<Dictionary<string, object?>>> LedgerRows(string queryCode) =>
+    /// <summary>Answers the three statement queries by their fixed code, the way SAP would.</summary>
+    private static Task<List<Dictionary<string, object?>>> LedgerRows(
+        string queryCode,
+        List<Dictionary<string, object?>> openItems) =>
         Task.FromResult(queryCode switch
         {
+            "STMT_OPEN_ITEMS" => openItems,
             "STMT_OPENING_BALANCE" =>
             [
                 new Dictionary<string, object?> { ["TotalDebit"] = 3000m, ["TotalCredit"] = 2000m }

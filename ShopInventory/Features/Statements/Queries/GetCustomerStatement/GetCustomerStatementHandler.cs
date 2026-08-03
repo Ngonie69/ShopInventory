@@ -23,6 +23,7 @@ public sealed class GetCustomerStatementHandler(
     // compounds, because a large OUQR is what makes creating the next query slow.
     internal const string OpeningBalanceQueryCode = "STMT_OPENING_BALANCE";
     internal const string LedgerQueryCode = "STMT_LEDGER_ROWS";
+    internal const string OpenItemsQueryCode = "STMT_OPEN_ITEMS";
 
     internal const string OpeningBalanceSql = """
 SELECT
@@ -60,6 +61,32 @@ WHERE T1."ShortName" = :cardCode
   AND T0."RefDate" >= :fromDate
   AND T0."RefDate" <= :toDate
 ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
+""";
+
+    // Aging reads unreconciled journal lines, not open invoices. BalDueDeb/BalDueCred are what SAP's
+    // own Account Balance window prints as "Balance Due", so an unapplied receipt, a credit note or a
+    // set-off journal reduces the aging exactly as it reduces the balance. Summing invoices instead
+    // could only ever climb: on ABS006's July statement it reported 41,275.73 due against a closing
+    // balance of 24,875.40, because 10,135.00 of receipts sitting unapplied and two invoices already
+    // closed by credit notes had nothing to subtract them.
+    //
+    // Two shapes here are dictated by the SQLQueries validator rather than by preference. The columns
+    // come back separately and are subtracted in C# because arithmetic between two columns is
+    // rejected outright; and "not fully reconciled" is written as two `>` comparisons rather than
+    // `<>` because column-against-column `>` is the form known to be accepted. Both failures would
+    // land when the query object is created, taking the whole statement down with them.
+    internal const string OpenItemsSql = """
+SELECT
+    T0."RefDate" AS "PostingDate",
+    T1."DueDate" AS "DueDate",
+    T1."BalDueDeb" AS "BalanceDueDebit",
+    T1."BalDueCred" AS "BalanceDueCredit"
+FROM OJDT T0
+INNER JOIN JDT1 T1
+    ON T0."TransId" = T1."TransId"
+WHERE T1."ShortName" = :cardCode
+  AND T0."RefDate" <= :toDate
+  AND (T1."BalDueDeb" > T1."BalDueCred" OR T1."BalDueCred" > T1."BalDueDeb")
 """;
 
     public async Task<ErrorOr<CustomerStatementResponseDto>> Handle(
@@ -153,16 +180,16 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             requestedCardCode,
             () => GetLedgerRowsAsync(statementCardCodes, fromDate, toDate, cancellationToken));
 
-        // Aging needs the payment terms only to label its buckets, so the open-invoice read it is
-        // built from belongs in this batch rather than after it. It used to run once everything
-        // else had finished, which put a whole paged open-invoice walk on the end of every
-        // statement, in series with the part the customer actually came for.
-        var openInvoicesTask = TimeLegAsync(
-            "open invoices",
+        // Aging needs the payment terms only to label its buckets, so the open-item read it is built
+        // from belongs in this batch rather than after it. It used to run once everything else had
+        // finished, which put a whole paged open-invoice walk on the end of every statement, in
+        // series with the part the customer actually came for.
+        var openItemsTask = TimeLegAsync(
+            "open items",
             requestedCardCode,
-            () => sapClient.GetOpenInvoicesByCustomersAsync(statementCardCodes, cancellationToken));
+            () => GetOpenItemsAsync(statementCardCodes, toDate, cancellationToken));
 
-        await Task.WhenAll(paymentTermsTask, openingBalanceTask, ledgerRowsTask, openInvoicesTask);
+        await Task.WhenAll(paymentTermsTask, openingBalanceTask, ledgerRowsTask, openItemsTask);
 
         var paymentTerms = paymentTermsTask.Result;
         var openingBalance = openingBalanceTask.Result;
@@ -209,7 +236,11 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             .Sum(line => line.Credit);
         response.ClosingBalance = runningBalance;
         response.Customer.Balance = runningBalance;
-        response.Aging = BuildAgingSummary(openInvoicesTask.Result, paymentTerms);
+        // Aged as at the statement's own end date, not today. A July statement pulled in August was
+        // otherwise bucketed against the August date, which both aged every July document a few days
+        // further than the document it sat next to and let documents dated after the period end
+        // count towards a period they are not in.
+        response.Aging = BuildAgingSummary(openItemsTask.Result, paymentTerms, toDate);
 
         logger.LogInformation(
             "Customer statement for {CardCode} built in {ElapsedMs:F0}ms across {AccountCount} account(s) with {LineCount} line(s)",
@@ -325,31 +356,80 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             .ToList();
     }
 
-    /// <param name="invoices">
-    /// Open invoices already read for the whole account set. Passed in rather than fetched here so
-    /// the read runs alongside the ledger instead of after it.
+    /// <remarks>
+    /// Fanned out per card code like the other two reads, and for the same reason: a bound parameter
+    /// cannot carry an <c>IN</c> list.
+    ///
+    /// A failure here costs the aging table and nothing else. Aging is a supporting block on a
+    /// document whose point is the balance, and this is the leg most likely to fail for a reason
+    /// unrelated to the customer — the Service Layer validates SqlText when the query object is
+    /// created, so an expression it dislikes surfaces as an error for the entire request. That is
+    /// how five reports once went blank over a single unsupported function, and a statement is worth
+    /// showing with an empty aging table but not worth withholding over one.
+    /// </remarks>
+    private async Task<List<StatementOpenItemRow>> GetOpenItemsAsync(
+        IReadOnlyList<string> cardCodes,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rowsPerCardCode = await Task.WhenAll(cardCodes.Select(cardCode =>
+                sapClient.ExecuteParameterisedSqlQueryAsync(
+                    OpenItemsQueryCode,
+                    "Statement Open Items",
+                    OpenItemsSql,
+                    new Dictionary<string, string>
+                    {
+                        ["cardCode"] = cardCode,
+                        ["toDate"] = FormatSqlDate(toDate)
+                    },
+                    cancellationToken)));
+
+            return rowsPerCardCode
+                .SelectMany(rows => rows)
+                .Select(row => new StatementOpenItemRow(
+                    PostingDate: GetDateTime(row, "PostingDate"),
+                    DueDate: ToNullableDate(GetDateTime(row, "DueDate")),
+                    // Never both non-zero on one line, so this is the signed open amount: positive
+                    // for what the customer owes, negative for credit they are holding.
+                    Balance: GetDecimal(row, "BalanceDueDebit") - GetDecimal(row, "BalanceDueCredit")))
+                .ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            // The statement's own timeout, not an aging problem. Let it travel.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Aging could not be built for {CardCodes}; the statement will show an empty aging table",
+                string.Join(",", cardCodes));
+            return [];
+        }
+    }
+
+    /// <param name="openItems">
+    /// Unreconciled journal lines for the whole account set, already read alongside the ledger.
+    /// Signed, so credits subtract.
     /// </param>
     /// <param name="paymentTerms">Sizes the buckets; 30-day buckets when the customer has none.</param>
+    /// <param name="asAtDate">The statement's end date — the day the aging speaks for.</param>
     /// <remarks>
-    /// Aging only ever uses invoices that are still open, so SAP filters them rather than this
-    /// handler. It used to fan out per customer into the unbounded "every invoice ever" overload
-    /// and discard almost all of it: an old account's whole trading history, paged 500 at a time,
-    /// to age the handful of documents still carrying a balance.
+    /// Every open item is aged by its own date, credits included, so the buckets net and the total
+    /// lands on the closing balance. That holds while reconciliation stays inside the period; a July
+    /// invoice settled in August leaves the total below the July closing balance, which is the same
+    /// answer SAP's Account Balance window gives and the honest one for a back-dated statement.
     /// </remarks>
     private static StatementAgingSummaryDto BuildAgingSummary(
-        IReadOnlyList<Models.Invoice> invoices,
-        PaymentTermsDto? paymentTerms)
+        IReadOnlyList<StatementOpenItemRow> openItems,
+        PaymentTermsDto? paymentTerms,
+        DateTime asAtDate)
     {
         var paymentTermsDays = ToPaymentTermsDays(paymentTerms);
         var bucketSize = paymentTermsDays > 0 ? paymentTermsDays : 30;
-
-        var openInvoices = invoices
-            .Select(invoice => new OpenInvoiceRow(
-                DocDate: ParseDate(invoice.DocDate),
-                DueDate: ParseNullableDate(invoice.DocDueDate),
-                Balance: invoice.DocTotal - invoice.PaidToDate))
-            .Where(invoice => invoice.Balance > 0)
-            .ToList();
 
         var aging = new StatementAgingSummaryDto
         {
@@ -359,31 +439,31 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             Bucket4Label = $"Over {bucketSize * 3} Days"
         };
 
-        foreach (var invoice in openInvoices)
+        foreach (var openItem in openItems)
         {
             var daysOverdue = paymentTermsDays > 0
-                ? CalculateDaysOverdueFromTerms(invoice.DocDate, paymentTermsDays)
-                : CalculateDaysOverdue(invoice.DueDate);
+                ? CalculateDaysOverdueFromTerms(openItem.PostingDate, paymentTermsDays, asAtDate)
+                : CalculateDaysOverdue(openItem.DueDate, asAtDate);
 
             if (daysOverdue <= 0)
             {
-                aging.Current += invoice.Balance;
+                aging.Current += openItem.Balance;
             }
             else if (daysOverdue <= bucketSize)
             {
-                aging.Days1To30 += invoice.Balance;
+                aging.Days1To30 += openItem.Balance;
             }
             else if (daysOverdue <= bucketSize * 2)
             {
-                aging.Days31To60 += invoice.Balance;
+                aging.Days31To60 += openItem.Balance;
             }
             else if (daysOverdue <= bucketSize * 3)
             {
-                aging.Days61To90 += invoice.Balance;
+                aging.Days61To90 += openItem.Balance;
             }
             else
             {
-                aging.Over90Days += invoice.Balance;
+                aging.Over90Days += openItem.Balance;
             }
         }
 
@@ -454,7 +534,10 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             14 => ("CN", "A/R Credit Memo"),
             24 => ("RC", "Incoming Payment"),
             30 => ("JE", "Journal Entry"),
-            46 => ("PY", "Outgoing Payment"),
+            // "PS", not "PY" — this column exists to be read against SAP's own Account Balance
+            // window, and that is the abbreviation it prints for an outgoing payment. ABS006's June
+            // 2026 statement carries three, two of them a petty-cash payment and its reversal.
+            46 => ("PS", "Outgoing Payment"),
             _ => (transType.ToString(CultureInfo.InvariantCulture), $"Transaction {transType}")
         };
     }
@@ -532,33 +615,26 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             : DateTime.MinValue;
     }
 
-    private static DateTime ParseDate(string? value)
-    {
-        if (DateTime.TryParse(value, out var parsed))
-        {
-            return parsed.Date;
-        }
+    /// <summary>
+    /// Distinguishes "SAP gave no due date" from the <see cref="DateTime.MinValue"/> the row readers
+    /// return for a missing or unparseable cell, so an absent date ages as unknown rather than as
+    /// two thousand years overdue.
+    /// </summary>
+    private static DateTime? ToNullableDate(DateTime value) =>
+        value == DateTime.MinValue ? null : value;
 
-        return DateTime.MinValue;
-    }
-
-    private static DateTime? ParseNullableDate(string? value)
-    {
-        return DateTime.TryParse(value, out var parsed) ? parsed.Date : null;
-    }
-
-    private static int CalculateDaysOverdue(DateTime? dueDate)
+    private static int CalculateDaysOverdue(DateTime? dueDate, DateTime asAtDate)
     {
         if (!dueDate.HasValue)
         {
             return 0;
         }
 
-        var days = (DateTime.Today - dueDate.Value.Date).Days;
+        var days = (asAtDate.Date - dueDate.Value.Date).Days;
         return days > 0 ? days : 0;
     }
 
-    private static int CalculateDaysOverdueFromTerms(DateTime docDate, int paymentTermsDays)
+    private static int CalculateDaysOverdueFromTerms(DateTime docDate, int paymentTermsDays, DateTime asAtDate)
     {
         if (docDate == DateTime.MinValue)
         {
@@ -566,7 +642,7 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
         }
 
         var effectiveDueDate = docDate.AddDays(paymentTermsDays);
-        var days = (DateTime.Today - effectiveDueDate.Date).Days;
+        var days = (asAtDate.Date - effectiveDueDate.Date).Days;
         return days > 0 ? days : 0;
     }
 
@@ -584,5 +660,5 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
         string? CreatedBy,
         int LineId);
 
-    private sealed record OpenInvoiceRow(DateTime DocDate, DateTime? DueDate, decimal Balance);
+    private sealed record StatementOpenItemRow(DateTime PostingDate, DateTime? DueDate, decimal Balance);
 }
