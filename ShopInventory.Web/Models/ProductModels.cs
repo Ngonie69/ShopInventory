@@ -8,8 +8,18 @@ public class ProductDto
     public string? ItemType { get; set; }
     public bool ManagesBatches { get; set; }
     public decimal QuantityInStock { get; set; }
+
+    /// <summary>
+    /// SAP's availability: in stock − committed + on order. Anything showing this
+    /// must show <see cref="QuantityOrdered"/> beside it, or the three visible
+    /// figures do not add up — an item with nothing committed and one unit on
+    /// order reads as available &gt; in stock with no term to explain it.
+    /// </summary>
     public decimal QuantityAvailable { get; set; }
     public decimal QuantityCommitted { get; set; }
+
+    /// <summary>Incoming on purchase orders (OITW.OnOrder) — the missing term above.</summary>
+    public decimal QuantityOrdered { get; set; }
     public decimal QuantityOnStock { get; set; }
     public decimal Price { get; set; }
     public string? DefaultWarehouse { get; set; }

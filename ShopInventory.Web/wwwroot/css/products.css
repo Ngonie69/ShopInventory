@@ -1,0 +1,1495 @@
+/* ==========================================================================
+   Products — Nocturne
+
+   There is no Products.dc.html in the design project (listed 2026-08-03), so
+   this is the documented fallback: derived from business-partners.css, the
+   nearest sibling in shape — a sticky header carrying the page's controls, a
+   stated hero, a row of figures, and a directory that washes into the ground
+   rather than sitting in a filled card, with a right-hand detail drawer.
+
+   The palette block below is byte-identical to business-partners.css,
+   driver-shop-access.css and approval-process.css so the pages stay one
+   system. The standing cost is the one that sheet already carries: a colour
+   fixed in one has to be fixed in the others.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live here rather than an inline Razor <style> block because app.css
+   carries global `.dark-theme input/select` rules at (0,1,1) that a
+   single-class rule can only tie with; every control selector here is two
+   classes deep and wins regardless of load order. Headings are pinned to
+   Nocturne's 500 against Bootstrap's global `h1-h6 { font-weight: 600 }`.
+
+   What this page adds over its parent: an eight-column grid whose four
+   quantity columns are one arithmetic statement — in stock, committed, on
+   order and the availability they produce — and a drawer that spells that
+   arithmetic out. The columns are declared once in --pr-cols and shared by
+   the header strip and every row, so the two cannot drift. Below 900px the
+   row stops being a grid row and becomes a labelled card.
+   ========================================================================== */
+
+.pr {
+    --pr-bg: #f4f4f8;
+    --pr-surface: #ffffff;
+    --pr-wash: #ffffff;
+    --pr-ink: #1b1c26;
+    --pr-ink-2: #35374a;
+    --pr-mute: #4e5164;
+    --pr-mute-2: #656879;
+    --pr-mute-3: #7b7e8e;
+    --pr-faint: #a0a2ae;
+    --pr-placeholder: #9498a8;
+    --pr-divider: rgba(27, 28, 38, .14);
+    --pr-rule: rgba(27, 28, 38, .08);
+    --pr-hover: rgba(27, 28, 38, .04);
+    --pr-press: rgba(27, 28, 38, .09);
+    --pr-field-bg: rgba(27, 28, 38, .04);
+    --pr-field-edge: #d4d6e2;
+    --pr-field-edge-hi: #a9adc0;
+    --pr-accent: #5f52c4;
+    --pr-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead (#9184d9 is 3.0:1 on white — enough for chrome, not text). */
+    --pr-accent-text: #473d99;
+    --pr-accent-ink: #ffffff;
+    --pr-scrim: rgba(27, 28, 38, .45);
+    --pr-thumb: #c8cad6;
+    --pr-warn-bg: #fdf6e6;
+    --pr-warn-edge: #e5cd94;
+    --pr-warn-ink: #6b4c12;
+    --pr-shadow-lg: 0 0 0 1px rgba(27, 28, 38, .1), -14px 0 44px rgba(27, 28, 38, .16);
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --pr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --pr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    --pr-scheme: light;
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --pr-s1: 2.8px;
+    --pr-s2: 5.6px;
+    --pr-s3: 8.4px;
+    --pr-s4: 11.2px;
+    --pr-s6: 16.8px;
+    --pr-s8: 22.4px;
+    --pr-r-sm: 4px;
+    --pr-r-md: 8px;
+    --pr-r-lg: 14px;
+
+    /* The directory's eight columns, declared once. The four quantities are
+       equal-width so they read as one row of arithmetic rather than four
+       unrelated figures. */
+    --pr-cols: 108px minmax(0, 2fr) 92px 92px 92px 100px 68px 40px;
+
+    color-scheme: var(--pr-scheme);
+}
+
+.dark-theme .pr {
+    --pr-bg: #161826;
+    --pr-surface: #232532;
+    --pr-wash: rgba(35, 37, 50, .6);
+    --pr-ink: #e9e9ed;
+    --pr-ink-2: #e4e7f5;
+    --pr-mute: #cfd3e5;
+    --pr-mute-2: #b2b6ca;
+    --pr-mute-3: #9397ab;
+    --pr-faint: #75798c;
+    --pr-placeholder: #75798c;
+    --pr-divider: rgba(233, 233, 237, .16);
+    --pr-rule: rgba(243, 245, 254, .07);
+    --pr-hover: rgba(243, 245, 254, .04);
+    --pr-press: rgba(243, 245, 254, .1);
+    --pr-field-bg: rgba(243, 245, 254, .05);
+    --pr-field-edge: rgba(233, 233, 237, .16);
+    --pr-field-edge-hi: rgba(233, 233, 237, .45);
+    --pr-accent: #9184d9;
+    --pr-accent-rgb: 145, 132, 217;
+    --pr-accent-text: #d2cefd;
+    --pr-accent-ink: #f5f4ff;
+    --pr-scrim: rgba(10, 11, 18, .6);
+    --pr-thumb: #3f424d;
+    --pr-warn-bg: rgba(120, 83, 15, .28);
+    --pr-warn-edge: #9a7b3d;
+    --pr-warn-ink: #f2dfae;
+    --pr-shadow-lg: 0 0 0 1px #3f424d, -14px 0 44px rgba(0, 0, 0, .6);
+    --pr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --pr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    --pr-scheme: dark;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.pr {
+    min-height: 100vh;
+    background: var(--pr-bg);
+    color: var(--pr-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.pr * {
+    box-sizing: border-box;
+}
+
+.pr :focus-visible {
+    outline: 2px solid var(--pr-accent);
+    outline-offset: 2px;
+}
+
+.pr ::selection {
+    background: rgba(var(--pr-accent-rgb), .3);
+}
+
+.pr h1,
+.pr h2,
+.pr h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+.pr-vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the warehouse and
+   the scan field stay reachable while the list scrolls past.
+
+   Opaque, not frosted — the frosted bar's missing 12% lets the page title
+   read straight through it wherever the compositor skips the blur.
+   --pr-bg is the page ground, so the at-rest look is unchanged. */
+
+.pr-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--pr-bg);
+    border-bottom: 1px solid var(--pr-divider);
+}
+
+.pr-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 11px 28px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--pr-s4);
+    flex-wrap: wrap;
+}
+
+.pr-head-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.pr-head-warehouse {
+    flex: 1 1 260px;
+    max-width: 340px;
+}
+
+.pr-head-scan {
+    flex: 1 1 180px;
+    max-width: 240px;
+}
+
+.pr-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-bottom: 1px;
+}
+
+.pr-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s4);
+    padding-bottom: 5px;
+}
+
+.pr-synced {
+    font-size: 12px;
+    color: var(--pr-mute-3);
+    white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.pr .pr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 34px;
+    padding: var(--pr-s2) calc(var(--pr-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--pr-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--pr-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.pr .pr-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.pr .pr-btn svg {
+    display: block;
+    flex: none;
+}
+
+.pr .pr-btn-primary {
+    color: var(--pr-accent);
+    border-color: var(--pr-accent);
+    letter-spacing: .02em;
+}
+
+.pr .pr-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--pr-accent-rgb), .12);
+}
+
+.pr .pr-btn-primary:active:not(:disabled) {
+    background: rgba(var(--pr-accent-rgb), .22);
+}
+
+.pr .pr-btn-ghost {
+    color: var(--pr-accent);
+}
+
+.pr .pr-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--pr-accent-rgb), .1);
+}
+
+.pr .pr-btn-quiet {
+    color: var(--pr-mute-2);
+    border-color: var(--pr-divider);
+}
+
+.pr .pr-btn-quiet:hover:not(:disabled) {
+    color: var(--pr-ink);
+    border-color: var(--pr-field-edge-hi);
+    background: var(--pr-hover);
+}
+
+.pr .pr-btn-lg {
+    height: 36px;
+    font-size: 13px;
+    padding-inline: var(--pr-s6);
+}
+
+.pr .pr-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--pr-mute-2);
+    background: transparent;
+    border: 1px solid var(--pr-divider);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.pr .pr-tool:hover:not(:disabled) {
+    color: var(--pr-ink);
+    border-color: var(--pr-field-edge-hi);
+}
+
+.pr .pr-tool:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.pr-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--pr-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.pr-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.pr-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--pr-accent-text);
+    margin-bottom: 9px;
+}
+
+.pr-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.pr-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--pr-mute-2);
+    max-width: 60ch;
+    text-wrap: pretty;
+}
+
+/* The warehouse the figures below describe, stated rather than implied. */
+.pr-hero-whs {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+}
+
+.pr-hero-whs-code {
+    font-size: 19px;
+    letter-spacing: -.01em;
+    color: var(--pr-ink);
+}
+
+.pr-hero-whs-name {
+    font-size: 12.5px;
+    color: var(--pr-mute-2);
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.pr-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--pr-s4);
+}
+
+.pr-stat {
+    padding: var(--pr-s6) 18px;
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    background: var(--pr-surface);
+    min-width: 0;
+}
+
+/* Only the first card carries the accent — the design's way of saying which
+   figure the page is actually about. */
+.pr-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--pr-accent-rgb), .12), transparent 62%),
+        var(--pr-surface);
+}
+
+.pr-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--pr-mute-2);
+}
+
+.pr-stat-lead .pr-stat-head {
+    color: var(--pr-accent-text);
+}
+
+.pr-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--pr-mute-3);
+}
+
+.pr-stat-lead .pr-stat-rule {
+    background: var(--pr-accent);
+}
+
+.pr-stat-dot {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--pr-accent);
+}
+
+.pr-stat-num {
+    margin-top: var(--pr-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.pr-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--pr-mute-2);
+}
+
+/* ── The catalogue ─────────────────────────────────────────────────────── */
+
+.pr-panel {
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    background: linear-gradient(to bottom, var(--pr-wash), transparent 240px);
+    overflow: hidden;
+}
+
+.pr-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s4);
+    padding: var(--pr-s4) var(--pr-s8);
+    flex-wrap: wrap;
+}
+
+.pr-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.pr-count {
+    font-size: 12.5px;
+    color: var(--pr-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.pr-panel-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.pr-filter {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 230px;
+}
+
+.pr-filter svg {
+    position: absolute;
+    left: 11px;
+    pointer-events: none;
+    color: var(--pr-mute-3);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.pr .pr-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--pr-ink);
+    caret-color: var(--pr-accent);
+    background: var(--pr-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--pr-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.pr .pr-input-search {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.pr .pr-input:hover:not(:disabled) {
+    border-color: var(--pr-field-edge);
+}
+
+.pr .pr-input:focus-visible {
+    border-color: rgba(var(--pr-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.pr .pr-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.pr .pr-input::placeholder {
+    color: var(--pr-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--pr-placeholder);
+}
+
+.pr .pr-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--pr-s2);
+    background: var(--pr-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.pr .pr-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+/* The scan field is monospaced-by-numbers: a barcode is read digit by digit. */
+.pr .pr-input-code {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
+}
+
+.pr-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pr-mute-3);
+}
+
+.pr-req {
+    color: var(--pr-accent-text);
+}
+
+.pr-select {
+    position: relative;
+    display: flex;
+}
+
+.pr .pr-select select.pr-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.pr-select .pr-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--pr-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.pr-scroll {
+    overflow-x: auto;
+}
+
+.pr-grid {
+    min-width: 940px;
+}
+
+.pr-thead,
+.pr-row {
+    display: grid;
+    grid-template-columns: var(--pr-cols);
+    align-items: center;
+    gap: var(--pr-s6);
+}
+
+.pr-thead {
+    padding: 0 var(--pr-s8) var(--pr-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pr-mute-3);
+}
+
+.pr-row {
+    width: 100%;
+    padding: 11px var(--pr-s8);
+    border: 0;
+    border-top: 1px solid var(--pr-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.pr-row:hover {
+    background: var(--pr-hover);
+}
+
+.pr-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.pr-code {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pr-accent-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pr-name {
+    font-size: 13.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The four quantities. A zero recedes rather than shouting; the figures that
+   carry a claim on stock — committed, on order — take the accent, and
+   availability is the one the row is read for, so it holds full ink. */
+.pr-qty {
+    font-size: 13.5px;
+    color: var(--pr-ink-2);
+}
+
+.pr-qty-zero {
+    color: var(--pr-faint);
+}
+
+.pr-qty-claim {
+    color: var(--pr-accent-text);
+}
+
+.pr-qty-avail {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--pr-ink);
+}
+
+.pr-uom {
+    display: inline-flex;
+    align-items: center;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: var(--pr-mute);
+    background: var(--pr-press);
+}
+
+.pr-name-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s3);
+    min-width: 0;
+}
+
+.pr-tag {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    padding: 1.5px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--pr-mute-2);
+    border: 1px solid var(--pr-divider);
+}
+
+.pr-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.pr .pr-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--pr-r-sm);
+    background: transparent;
+    color: var(--pr-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.pr .pr-icon-btn:hover {
+    background: var(--pr-press);
+    color: var(--pr-ink);
+}
+
+/* Row labels, carried for the card layout below 900px and hidden above it. */
+.pr-rl {
+    display: none;
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.pr-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--pr-s6);
+    padding: var(--pr-s4) var(--pr-s8);
+    border-top: 1px solid var(--pr-divider);
+    font-size: 12.5px;
+    color: var(--pr-mute-3);
+    flex-wrap: wrap;
+}
+
+.pr-per {
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s3);
+}
+
+.pr .pr-per select.pr-input {
+    width: auto;
+    min-height: 30px;
+    padding: 5px 26px 5px 9px;
+    font-size: 12.5px;
+}
+
+.pr-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.pr .pr-step {
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--pr-mute-2);
+    background: transparent;
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.pr .pr-step:hover:not(:disabled) {
+    color: var(--pr-ink);
+    border-color: var(--pr-field-edge-hi);
+}
+
+.pr .pr-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.pr .pr-page {
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pr-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--pr-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
+}
+
+.pr .pr-page:hover {
+    color: var(--pr-ink);
+    background: var(--pr-hover);
+}
+
+.pr .pr-page-on {
+    padding-inline: 11px;
+    color: var(--pr-accent-text);
+    background: rgba(var(--pr-accent-rgb), .16);
+}
+
+.pr-gap {
+    padding: 5px 6px;
+    color: var(--pr-faint);
+}
+
+/* ── Detail drawer ─────────────────────────────────────────────────────── */
+/* Offset below the app bar: the page is a stacking context, so a drawer
+   cannot paint over the topbar however high its z-index. */
+
+.pr-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    background: var(--pr-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: pr-fade .18s ease;
+}
+
+.pr-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    z-index: 9999;
+    width: min(640px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    display: flex;
+    flex-direction: column;
+    background: var(--pr-bg);
+    color: var(--pr-ink);
+    box-shadow: var(--pr-shadow-lg);
+    animation: pr-slide .22s ease;
+}
+
+@keyframes pr-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes pr-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .pr-scrim,
+    .pr-drawer {
+        animation: none;
+    }
+}
+
+.pr-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pr-s4);
+    padding: var(--pr-s6) var(--pr-s8);
+    border-bottom: 1px solid var(--pr-divider);
+    flex: none;
+}
+
+.pr-drawer-head h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+    text-wrap: pretty;
+}
+
+.pr-drawer-sub {
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--pr-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pr-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--pr-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--pr-s8);
+}
+
+.pr-drawer-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--pr-s3);
+    padding: var(--pr-s4) var(--pr-s8);
+    border-top: 1px solid var(--pr-divider);
+    flex: none;
+    flex-wrap: wrap;
+}
+
+.pr-section h3 {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pr-mute-3);
+    margin-bottom: var(--pr-s4);
+}
+
+.pr-dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--pr-s6) var(--pr-s8);
+}
+
+.pr-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--pr-faint);
+    margin-bottom: 2px;
+}
+
+.pr-dd {
+    font-size: 13.5px;
+    color: var(--pr-ink);
+    overflow-wrap: anywhere;
+}
+
+.pr-dd-num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+/* ── Availability, spelled out ─────────────────────────────────────────── */
+/* The three terms and their result on one line, in the order the arithmetic
+   runs. The list showed availability without the on-order term for a long
+   time, which made items read as available > in stock with nothing to
+   explain the difference; here the sum is the point of the block. */
+
+.pr-avail {
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    background: var(--pr-surface);
+    padding: var(--pr-s6);
+}
+
+.pr-avail-row {
+    display: flex;
+    align-items: stretch;
+    gap: var(--pr-s3);
+    flex-wrap: wrap;
+}
+
+.pr-avail-term {
+    flex: 1 1 84px;
+    min-width: 0;
+}
+
+.pr-avail-op {
+    display: flex;
+    align-items: center;
+    padding-top: 14px;
+    font-size: 15px;
+    color: var(--pr-mute-3);
+}
+
+.pr-avail-t {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pr-mute-3);
+    white-space: nowrap;
+}
+
+.pr-avail-v {
+    margin-top: 3px;
+    font-size: 21px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--pr-ink-2);
+}
+
+.pr-avail-term-result .pr-avail-t {
+    color: var(--pr-accent-text);
+}
+
+.pr-avail-term-result .pr-avail-v {
+    color: var(--pr-ink);
+}
+
+.pr-avail-note {
+    margin-top: var(--pr-s4);
+    padding-top: var(--pr-s3);
+    border-top: 1px solid var(--pr-rule);
+    font-size: 12px;
+    color: var(--pr-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Batches ───────────────────────────────────────────────────────────── */
+
+.pr-batch-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--pr-s3);
+    margin-bottom: var(--pr-s4);
+}
+
+.pr-batch-head h3 {
+    margin-bottom: 0;
+}
+
+.pr-batch-count {
+    font-size: 11.5px;
+    color: var(--pr-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.pr-batches {
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    overflow: hidden;
+    background: var(--pr-surface);
+}
+
+.pr-batch-thead,
+.pr-batch-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) 84px 104px 96px;
+    align-items: center;
+    /* Wider than the page's other grids: the quantity column is right-aligned and
+       runs straight into the status beside it at a tighter gap. */
+    gap: var(--pr-s6);
+    padding: 9px var(--pr-s6);
+}
+
+.pr-batch-thead {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--pr-mute-3);
+    border-bottom: 1px solid var(--pr-divider);
+}
+
+.pr-batch-row {
+    border-top: 1px solid var(--pr-rule);
+    font-size: 13px;
+}
+
+.pr-batch-row:first-of-type {
+    border-top: 0;
+}
+
+.pr-batch-no {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--pr-accent-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pr-batch-foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) 84px 104px 96px;
+    gap: var(--pr-s6);
+    padding: 9px var(--pr-s6);
+    border-top: 1px solid var(--pr-divider);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.pr-batch-date {
+    font-size: 12.5px;
+    color: var(--pr-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.pr-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--pr-mute);
+    white-space: nowrap;
+}
+
+.pr-dot {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--pr-accent);
+}
+
+.pr-status-held .pr-dot {
+    background: var(--pr-warn-edge);
+}
+
+.pr-status-locked {
+    color: var(--pr-mute-3);
+}
+
+.pr-status-locked .pr-dot {
+    background: var(--pr-faint);
+}
+
+/* ── Notices, empty and loading ────────────────────────────────────────── */
+
+.pr-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--pr-s4);
+    padding: var(--pr-s4) var(--pr-s6);
+    border: 1px solid var(--pr-warn-edge);
+    border-radius: var(--pr-r-md);
+    background: var(--pr-warn-bg);
+    color: var(--pr-warn-ink);
+    font-size: 13px;
+    text-wrap: pretty;
+}
+
+.pr-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.pr .pr-msg-act {
+    padding: 2px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: var(--pr-r-sm);
+    cursor: pointer;
+    opacity: .8;
+}
+
+.pr .pr-msg-act:hover {
+    opacity: 1;
+}
+
+.pr .pr-msg-x {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s, background-color .13s;
+}
+
+.pr .pr-msg-x:hover {
+    opacity: 1;
+    background: rgba(27, 28, 38, .08);
+}
+
+.dark-theme .pr .pr-msg-x:hover {
+    background: rgba(243, 245, 254, .12);
+}
+
+.pr-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pr-s3);
+    padding: 56px var(--pr-s6);
+    font-size: 13px;
+    color: var(--pr-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.pr-empty svg {
+    color: var(--pr-accent);
+    opacity: .7;
+}
+
+.pr-empty-actions {
+    margin-top: var(--pr-s3);
+    display: flex;
+    gap: var(--pr-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.pr-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--pr-s3);
+    padding: 64px var(--pr-s6);
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    background: var(--pr-surface);
+    font-size: 13px;
+    color: var(--pr-mute-2);
+    text-align: center;
+}
+
+.pr-loading-lead {
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s4);
+    color: var(--pr-ink);
+}
+
+.pr-loading-note {
+    font-size: 12px;
+    color: var(--pr-mute-3);
+}
+
+.pr-inline-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--pr-s3);
+    padding: var(--pr-s6);
+    border: 1px solid var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    background: var(--pr-surface);
+    font-size: 12.5px;
+    color: var(--pr-mute-2);
+}
+
+.pr-quiet {
+    padding: var(--pr-s6);
+    border: 1px dashed var(--pr-divider);
+    border-radius: var(--pr-r-lg);
+    font-size: 12.5px;
+    color: var(--pr-mute-3);
+    text-wrap: pretty;
+}
+
+.pr-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: pr-spin .7s linear infinite;
+}
+
+@keyframes pr-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pr-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.pr-scroll::-webkit-scrollbar,
+.pr-drawer-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.pr-scroll::-webkit-scrollbar-thumb,
+.pr-drawer-body::-webkit-scrollbar-thumb {
+    background: var(--pr-thumb);
+    border-radius: 8px;
+}
+
+.pr-scroll::-webkit-scrollbar-track,
+.pr-drawer-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .pr-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below the grid's own minimum the row stops being a row: each becomes a
+   labelled card, so nothing has to be read out of a horizontal scroll. */
+@media (max-width: 900px) {
+    .pr-scroll {
+        overflow-x: visible;
+    }
+
+    .pr-grid {
+        min-width: 0;
+    }
+
+    .pr-thead {
+        display: none;
+    }
+
+    .pr-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--pr-s2) var(--pr-s4);
+        padding: var(--pr-s4) var(--pr-s6);
+    }
+
+    .pr-rl {
+        display: inline;
+        margin-right: 4px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--pr-faint);
+    }
+
+    .pr-row > .pr-code {
+        order: 1;
+    }
+
+    .pr-row > .pr-actions {
+        order: 2;
+        margin-left: auto;
+    }
+
+    .pr-row > .pr-name-cell {
+        order: 3;
+        flex: 1 0 100%;
+    }
+
+    .pr-row > .pr-cell-stock {
+        order: 4;
+    }
+
+    .pr-row > .pr-cell-committed {
+        order: 5;
+    }
+
+    .pr-row > .pr-cell-ordered {
+        order: 6;
+    }
+
+    .pr-row > .pr-cell-available {
+        order: 7;
+    }
+
+    .pr-row > .pr-cell-uom {
+        order: 8;
+    }
+
+    .pr-row > .pr-qty {
+        text-align: left;
+    }
+}
+
+@media (max-width: 760px) {
+    .pr-head-inner {
+        padding: var(--pr-s3) 18px;
+        gap: var(--pr-s3);
+    }
+
+    .pr-head-warehouse,
+    .pr-head-scan {
+        flex: 1 1 100%;
+        max-width: none;
+    }
+
+    .pr-head-actions {
+        width: 100%;
+    }
+
+    .pr-head-actions .pr-btn {
+        flex: 1;
+    }
+
+    .pr-head-meta {
+        width: 100%;
+        margin-left: 0;
+        padding-bottom: 0;
+    }
+
+    .pr-body {
+        padding: var(--pr-s8) 18px 56px;
+    }
+
+    .pr-hero h1 {
+        font-size: 24px;
+    }
+
+    .pr-hero-whs {
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    .pr-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .pr-panel-head,
+    .pr-foot {
+        padding-inline: var(--pr-s6);
+    }
+
+    .pr-panel-tools {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .pr-filter {
+        width: 100%;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .pr .pr-input {
+        font-size: 16px;
+    }
+
+    .pr-foot {
+        justify-content: center;
+    }
+
+    .pr-dl {
+        grid-template-columns: 1fr;
+    }
+
+    /* The batch grid loses its two date columns rather than compressing them
+       to nothing; both dates are repeated in the row's own labels below. */
+    .pr-batch-thead,
+    .pr-batch-row,
+    .pr-batch-foot {
+        grid-template-columns: minmax(0, 1fr) 72px;
+    }
+
+    .pr-batch-thead > :nth-child(n+3),
+    .pr-batch-row > :nth-child(n+3),
+    .pr-batch-foot > :nth-child(n+3) {
+        display: none;
+    }
+
+    .pr-drawer-head,
+    .pr-drawer-body,
+    .pr-drawer-foot {
+        padding-inline: var(--pr-s6);
+    }
+
+    .pr-drawer-foot .pr-btn {
+        flex: 1;
+    }
+}

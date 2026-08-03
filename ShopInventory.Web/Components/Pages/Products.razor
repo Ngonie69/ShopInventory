@@ -4,1704 +4,587 @@
 @using ShopInventory.Web.Services
 @attribute [Authorize(Roles = UserRoles.CatalogueRoles)]
 @implements IDisposable
-@inject IProductService ProductService
-@inject IMasterDataCacheService MasterDataCache
-@inject ILogger<Products> Logger
-@inject IAppSettingsProvider AppSettings
-@inject IAuditService AuditService
 @rendermode InteractiveServer
 
 <PageTitle>Products - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .prod-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .prod-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .prod-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .prod-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .prod-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .prod-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .header-chips {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-    }
-
-    .header-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .3rem .7rem;
-        border-radius: 8px;
-        font-size: .78rem;
-        font-weight: 600;
-    }
-
-    .header-chip.primary {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .header-chip.info {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    /* ── Stat Cards ───────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 1rem 1.15rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: transform .15s, box-shadow .15s;
-    }
-
-    .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, .06);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.15rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.total {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.batches {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-icon.warehouse {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.1;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .stat-info .stat-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-    }
-
-    /* ── Search Card ─────────────────────────────────── */
-    .search-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        overflow: hidden;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .search-card-header {
-        padding: .75rem 1.25rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-    }
-
-    .search-card-header span {
-        color: #fff;
-        font-weight: 600;
-        font-size: .88rem;
-    }
-
-    .search-card-header i {
-        color: rgba(255, 255, 255, .8);
-        font-size: .95rem;
-    }
-
-    .search-card-body {
-        padding: 1.25rem;
-    }
-
-    .search-grid {
-        display: grid;
-        grid-template-columns: 2fr 1fr auto;
-        gap: .85rem;
-        align-items: flex-end;
-    }
-
-    .search-field {
-        display: flex;
-        flex-direction: column;
-    }
-
-    .search-field label {
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .search-field select,
-    .search-field input {
-        padding: .5rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #fff;
-        transition: all .15s;
-    }
-
-    .search-field select:focus,
-    .search-field input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .search-actions {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-        flex-wrap: wrap;
-    }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-search:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-search:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-scan {
-        background: #059669;
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-scan:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-scan:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-cancel {
-        background: #dc2626;
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Quick Filter ────────────────────────────────── */
-    .quick-filter-bar {
-        display: flex;
-        align-items: center;
-        gap: .75rem;
-        margin-bottom: .75rem;
-    }
-
-    .quick-filter-input {
-        flex: 1;
-        max-width: 280px;
-        padding: .45rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .85rem;
-        color: #374151;
-        transition: all .15s;
-    }
-
-    .quick-filter-input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .15);
-    }
-
-    .quick-filter-input::placeholder {
-        color: #9ca3af;
-    }
-
-    /* ── Table ───────────────────────────────────────── */
-    .prod-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .prod-table-header {
-        padding: .85rem 1.25rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f8fafc;
-    }
-
-    .prod-table-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .92rem;
-    }
-
-    .prod-count-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .25rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    /* ── Cell Styles ─────────────────────────────────── */
-    .item-code {
-        font-weight: 700;
-        color: #667eea;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .85rem;
-        white-space: nowrap;
-    }
-
-    .item-name {
-        font-size: .875rem;
-        color: #1a1a2e;
-    }
-
-    .qty-cell {
-        font-weight: 600;
-        font-family: 'Space Grotesk', monospace;
-        font-size: .875rem;
-    }
-
-    .qty-cell.available {
-        color: #059669;
-    }
-
-    .qty-cell.committed {
-        color: #e65100;
-    }
-
-    .qty-cell.zero {
-        color: #9ca3af;
-    }
-
-    .uom-badge {
-        display: inline-flex;
-        padding: .15rem .5rem;
-        border-radius: 6px;
-        font-size: .72rem;
-        font-weight: 600;
-        background: #f3f4f6;
-        color: #6b7280;
-        border: 1px solid #e5e7eb;
-    }
-
-    /* ── Action Buttons ──────────────────────────────── */
-    .action-btn {
-        width: 30px;
-        height: 30px;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        color: #6b7280;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .85rem;
-    }
-
-    .action-btn:hover {
-        background: #ede9fe;
-        color: #667eea;
-        border-color: #c4b5fd;
-    }
-
-    /* ── Drawer ──────────────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .modal-backdrop-custom {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: fadeIn .2s ease;
-    }
-
-    .detail-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(640px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: slideInRight .25s ease;
-    }
-
-    .drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        flex-direction: column;
-        gap: .5rem;
-        flex-shrink: 0;
-    }
-
-    .drawer-header-top {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .drawer-header .btn-close-drawer {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .drawer-header .btn-close-drawer:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .drawer-header-chips {
-        display: flex;
-        gap: .4rem;
-        flex-wrap: wrap;
-    }
-
-    .drawer-chip {
-        display: inline-flex;
-        padding: .2rem .55rem;
-        border-radius: 6px;
-        font-size: .75rem;
-        font-weight: 600;
-        background: rgba(255, 255, 255, .2);
-        color: #fff;
-    }
-
-    .drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .drawer-footer {
-        padding: 1rem 1.5rem;
-        border-top: 1px solid #e5e7eb;
-        display: flex;
-        gap: .5rem;
-        justify-content: flex-end;
-        flex-shrink: 0;
-    }
-
-    /* Stock level cards */
-    .stock-cards {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: .75rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stock-card {
-        border-radius: 10px;
-        padding: .85rem;
-        text-align: center;
-    }
-
-    .stock-card.in-stock {
-        background: #f3f4f6;
-    }
-
-    .stock-card.available {
-        background: #d1fae5;
-    }
-
-    .stock-card.committed {
-        background: #fff7ed;
-    }
-
-    .stock-card .stock-card-icon {
-        font-size: 1.2rem;
-        margin-bottom: .25rem;
-    }
-
-    .stock-card .stock-card-label {
-        font-size: .68rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-    }
-
-    .stock-card .stock-card-value {
-        font-size: 1.3rem;
-        font-weight: 700;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .stock-card.in-stock .stock-card-value {
-        color: #374151;
-    }
-
-    .stock-card.available .stock-card-value {
-        color: #059669;
-    }
-
-    .stock-card.committed .stock-card-value {
-        color: #e65100;
-    }
-
-    /* Batch section */
-    .batch-section-title {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .9rem;
-        margin-bottom: .75rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-
-    .batch-count-chip {
-        display: inline-flex;
-        padding: .15rem .55rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .batch-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        overflow: hidden;
-    }
-
-    .batch-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-    }
-
-    .batch-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-    }
-
-    .batch-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .batch-table tfoot td {
-        border-top: 2px solid #e5e7eb;
-        background: #eef2ff;
-    }
-
-    .batch-number {
-        font-weight: 700;
-        color: #667eea;
-    }
-
-    .batch-status {
-        display: inline-flex;
-        padding: .15rem .5rem;
-        border-radius: 6px;
-        font-size: .72rem;
-        font-weight: 600;
-    }
-
-    .batch-status.released {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .batch-status.not-accessible {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .batch-status.locked {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .batch-status.default {
-        background: #f3f4f6;
-        color: #6b7280;
-    }
-
-    /* No batch state */
-    .no-batches {
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 1.5rem;
-        text-align: center;
-    }
-
-    .no-batches i {
-        font-size: 1.5rem;
-        color: #9ca3af;
-        margin-bottom: .5rem;
-        display: block;
-    }
-
-    .no-batches p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .btn-secondary-action {
-        background: #fff;
-        color: #374151;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f9fafb;
-    }
-
-    /* ── Alert ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .alert-banner.warn-alert {
-        background: #fffbeb;
-        border: 1px solid #fde68a;
-        color: #92400e;
-    }
-
-    .alert-banner.info-alert {
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        color: #1e40af;
-    }
-
-    .btn-retry {
-        background: #fff;
-        border: 1px solid currentColor;
-        color: inherit;
-        padding: .3rem .75rem;
-        border-radius: 6px;
-        font-size: .78rem;
-        font-weight: 600;
-        cursor: pointer;
-        margin-left: .5rem;
-    }
-
-    /* ── Empty / Loading / Initial ────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-    }
-
-    .loading-state {
-        text-align: center;
-        padding: 3rem;
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .initial-state {
-        text-align: center;
-        padding: 3.5rem 1.5rem;
-        background: #fff;
-        border: 2px dashed #d1d5db;
-        border-radius: 12px;
-    }
-
-    .initial-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, rgba(102, 126, 234, .1), rgba(118, 75, 162, .1));
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #667eea;
-    }
-
-    .initial-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .initial-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-        max-width: 350px;
-        margin: 0 auto;
-    }
-
-    .btn-small-action {
-        background: #fff;
-        border: 1px solid #d1d5db;
-        padding: .35rem .8rem;
-        border-radius: 6px;
-        font-size: .82rem;
-        font-weight: 600;
-        cursor: pointer;
-        color: #374151;
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        transition: all .15s;
-    }
-
-    .btn-small-action:hover {
-        background: #f3f4f6;
-        border-color: #9ca3af;
-    }
-
-    .btn-small-primary {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        padding: .35rem .8rem;
-        border-radius: 6px;
-        font-size: .82rem;
-        font-weight: 600;
-        cursor: pointer;
-        color: #fff;
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        transition: all .2s;
-    }
-
-    .btn-small-primary:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .3);
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @@media (max-width:768px) {
-        .prod-header {
-            flex-direction: column;
-        }
-
-        .search-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .stat-row {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .stock-cards {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-
-<div class="prod-page">
-    <div class="container-fluid">
-
-        <!-- ━━━ Header ━━━ -->
-        <div class="prod-header">
-            <div class="prod-header-left">
-                <div class="prod-header-icon"><i class="bi bi-box-seam"></i></div>
-                <div>
-                    <h2>Products</h2>
-                    <p>Browse and search inventory across warehouses</p>
-                </div>
+@* Nocturne. wwwroot/css/products.css (linked from App.razor) carries the design
+   and its light counterpart, and follows the app's theme toggle.
+
+   Icons are drawn inline rather than from the Phosphor font: they sit inside
+   fields and icon-only buttons, so a font that failed to load would leave them
+   reading as nothing.
+
+   The catalogue is a plain CSS grid rather than MudTable. The design's row is
+   eight columns wide with a per-column treatment MudTable's cells cannot carry,
+   and below 900px the same markup re-lays as a labelled card — which a table
+   element cannot do at all.
+
+   Four quantity columns, not three. Availability is in stock − committed + on
+   order; showing it without the on-order term made items read as available
+   greater than in stock with nothing on the row to explain the difference. *@
+
+<div class="pr">
+
+    <header class="pr-head">
+        <div class="pr-head-inner">
+            <label class="pr-head-field pr-head-warehouse">
+                <span class="pr-label">Warehouse <span class="pr-req">*</span></span>
+                <span class="pr-select">
+                    <select class="pr-input" disabled="@isLoadingWarehouses"
+                            value="@selectedWarehouse?.WarehouseCode"
+                            @onchange="OnWarehouseChanged">
+                        <option value="">
+                            @(isLoadingWarehouses ? "Loading warehouses…" : "Select a warehouse…")
+                        </option>
+                        @foreach (var warehouse in warehouses)
+                        {
+                            <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
+                        }
+                    </select>
+                    <span class="pr-caret" aria-hidden="true"></span>
+                </span>
+            </label>
+
+            <label class="pr-head-field pr-head-scan">
+                <span class="pr-label">Barcode</span>
+                <input class="pr-input pr-input-code" type="text" autocomplete="off" inputmode="text"
+                       placeholder="Scan or type a code" disabled="@(selectedWarehouse is null)"
+                       @bind="barcode" @bind:event="oninput" @onkeydown="OnBarcodeKeyDown" />
+            </label>
+
+            <div class="pr-head-actions">
+                @if (isLoading)
+                {
+                    <button type="button" class="pr-btn pr-btn-quiet" @onclick="CancelSearch">
+                        <span class="pr-spin" aria-hidden="true"></span>
+                        <span>Cancel</span>
+                    </button>
+                }
+                else if (!string.IsNullOrWhiteSpace(barcode))
+                {
+                    <button type="button" class="pr-btn pr-btn-primary" disabled="@(selectedWarehouse is null)"
+                            @onclick="SearchByBarcode">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <path d="M4 6v12M8 6v12M12 6v12M16 6v12M20 6v12"></path>
+                        </svg>
+                        <span>Scan</span>
+                    </button>
+                }
+                else
+                {
+                    <button type="button" class="pr-btn pr-btn-primary" disabled="@(selectedWarehouse is null)"
+                            @onclick="SearchProducts">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="M20 20l-3.5-3.5"></path>
+                        </svg>
+                        <span>Search</span>
+                    </button>
+                }
+                @if (hasSearched)
+                {
+                    <button type="button" class="pr-btn pr-btn-quiet" @onclick="ClearSearch">Clear</button>
+                }
             </div>
-            @if (products?.Any() == true)
-            {
-                <div class="header-chips">
-                    <span class="header-chip primary"><i class="bi bi-box-seam"></i> @totalProducts products</span>
-                    @if (productsWithBatches > 0)
+
+            <div class="pr-head-meta">
+                @if (lastSyncedAt.HasValue)
+                {
+                    <span class="pr-synced">
+                        Stock synced @lastSyncedAt.Value.ToLocalTime().ToString("d MMM, HH:mm")
+                    </span>
+                }
+                <button type="button" class="pr-btn pr-btn-ghost"
+                        disabled="@(selectedWarehouse is null || isLoading || isRefreshing)"
+                        @onclick="RefreshStock">
+                    @if (isRefreshing)
                     {
-                        <span class="header-chip info"><i class="bi bi-layers"></i> @productsWithBatches with batches</span>
+                        <span class="pr-spin" aria-hidden="true"></span>
+                        <span>Syncing…</span>
                     }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="pr-body">
+
+        <section class="pr-hero">
+            <div>
+                <div class="pr-kicker">Inventory</div>
+                <h1>Products</h1>
+                <p>
+                    What each item has on hand in one warehouse, what is already claimed against it,
+                    and what is still on its way in.
+                </p>
+            </div>
+            @if (selectedWarehouse is not null)
+            {
+                <div class="pr-hero-whs">
+                    <span class="pr-hero-whs-code">@selectedWarehouse.WarehouseCode</span>
+                    <span class="pr-hero-whs-name">@selectedWarehouse.WarehouseName</span>
                 </div>
             }
-        </div>
+        </section>
 
-        <!-- ━━━ Alerts ━━━ -->
-        @if (errorMessage != null)
+        @if (notice is not null)
         {
-            <div class="alert-banner @GetAlertCssClass()">
-                <i class="bi @GetAlertIcon()"></i>
-                <div style="flex:1;">
-                    @errorMessage
-                    @if (errorSeverity == Severity.Error || errorSeverity == Severity.Warning)
-                    {
-                        <MudButton Class="btn-retry" OnClick="SearchProducts"><i class="bi bi-arrow-clockwise"></i> Retry
-                        </MudButton>
-                    }
-                </div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close"
-                               Style="background:none;border:none;color:inherit;opacity:.45;cursor:pointer;font-size:1rem;"
-                               OnClick="() => errorMessage = null" />
+            <div class="pr-msg" role="@(noticeLevel == NoticeLevel.Error ? "alert" : "status")">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                </svg>
+                <span>@notice</span>
+                @if (noticeLevel != NoticeLevel.Info && selectedWarehouse is not null)
+                {
+                    <button type="button" class="pr-msg-act" @onclick="SearchProducts">Try again</button>
+                }
+                <button type="button" class="pr-msg-x" aria-label="Dismiss" @onclick="() => notice = null">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
         }
 
-        <!-- ━━━ Stat Cards ━━━ -->
-        @if (products?.Any() == true)
+        @if (summary is not null && summary.TotalItems > 0)
         {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon total"><i class="bi bi-box-seam"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@totalProducts</div>
-                        <div class="stat-label">Total Products</div>
-                    </div>
+            @* Counted across every cached row for the warehouse, not just the page
+               on screen — the figures name the warehouse, so they have to describe
+               it. Counts rather than summed quantities: the warehouse mixes Each,
+               KG and Case, and adding those together gives a number in no unit. *@
+            <section class="pr-stats">
+                <div class="pr-stat pr-stat-lead">
+                    <div class="pr-stat-head"><span class="pr-stat-rule" aria-hidden="true"></span>Items</div>
+                    <div class="pr-stat-num">@summary.TotalItems.ToString("N0")</div>
+                    <div class="pr-stat-sub">Carried in @selectedWarehouse?.WarehouseCode</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon batches"><i class="bi bi-layers"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@productsWithBatches</div>
-                        <div class="stat-label">With Batches</div>
-                    </div>
+                <div class="pr-stat">
+                    <div class="pr-stat-head"><span class="pr-stat-dot" aria-hidden="true"></span>In stock</div>
+                    <div class="pr-stat-num">@summary.InStockItems.ToString("N0")</div>
+                    <div class="pr-stat-sub">Something on hand</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon warehouse"><i class="bi bi-building"></i></div>
-                    <div class="stat-info">
-                        <div class="stat-value">@(selectedWarehouse?.WarehouseCode ?? "—")</div>
-                        <div class="stat-label">Warehouse</div>
-                    </div>
+                <div class="pr-stat">
+                    <div class="pr-stat-head"><span class="pr-stat-rule" aria-hidden="true"></span>Out of stock</div>
+                    <div class="pr-stat-num">@summary.OutOfStockItems.ToString("N0")</div>
+                    <div class="pr-stat-sub">Nothing on hand</div>
                 </div>
-            </div>
+                <div class="pr-stat">
+                    <div class="pr-stat-head"><span class="pr-stat-rule" aria-hidden="true"></span>On order</div>
+                    <div class="pr-stat-num">@summary.OnOrderItems.ToString("N0")</div>
+                    <div class="pr-stat-sub">Incoming, counted as available</div>
+                </div>
+            </section>
         }
 
-        <!-- ━━━ Search Card ━━━ -->
-        <div class="search-card">
-            <div class="search-card-header">
-                <i class="bi bi-funnel"></i>
-                <span>Search & Filter</span>
-            </div>
-            <div class="search-card-body">
-                <div class="search-grid">
-                    <div class="search-field">
-                        <label>Warehouse <span style="color:#dc2626;">*</span></label>
-                        @if (isLoadingWarehouses)
-                        {
-                            <div
-                                style="padding:.5rem;color:#6b7280;font-size:.85rem;display:flex;align-items:center;gap:.5rem;">
-                                <span class="spinner-border spinner-border-sm" style="color:#667eea;"></span> Loading
-                                warehouses...
-                            </div>
-                        }
-                        else
-                        {
-                            <MudAutocomplete T="WarehouseDto" @bind-Value="selectedWarehouse" Label="Search warehouse..."
-                                             SearchFunc="SearchWarehousesAsync"
-                                             ToStringFunc="@(w => w == null ? string.Empty : $"{w.WarehouseCode} - {w.WarehouseName}")"
-                                             Dense="true" Variant="Variant.Outlined" Margin="Margin.Dense" ResetValueOnEmptyText="true"
-                                             ShowProgressIndicator="true" MaxItems="20" DebounceInterval="150" Class="mt-0">
-                                <ItemTemplate>
-                                    <div style="display:flex;flex-direction:column;">
-                                        <span style="font-weight:600;">@context.WarehouseCode</span>
-                                        <small style="color:#9ca3af;">@context.WarehouseName</small>
-                                    </div>
-                                </ItemTemplate>
-                                <NoItemsTemplate>
-                                    <div style="padding:.5rem;color:#9ca3af;font-size:.85rem;">
-                                        <i class="bi bi-info-circle me-1"></i>No warehouses found
-                                    </div>
-                                </NoItemsTemplate>
-                            </MudAutocomplete>
-                        }
-                    </div>
-                    <div class="search-field">
-                        <label>Barcode</label>
-                        <input type="text" @bind="barcode" placeholder="Scan or enter barcode" />
-                    </div>
-                    <div class="search-actions">
-                        @if (isLoading)
-                        {
-                            <MudButton Class="btn-search" Disabled="true">
-                                <span class="spinner-border spinner-border-sm"></span> Searching...
-                            </MudButton>
-                            <MudButton Class="btn-cancel" OnClick="CancelSearch">
-                                <i class="bi bi-x-circle"></i> Cancel
-                            </MudButton>
-                        }
-                        else
-                        {
-                            <MudButton Class="btn-search" OnClick="SearchProducts" Disabled="@(selectedWarehouse == null)">
-                                <i class="bi bi-search"></i> Search
-                            </MudButton>
-                            @if (!string.IsNullOrWhiteSpace(barcode))
-                            {
-                                <MudButton Class="btn-scan" OnClick="SearchByBarcode" Disabled="@(selectedWarehouse == null)">
-                                    <i class="bi bi-upc-scan"></i> Scan
-                                </MudButton>
-                            }
-                            <MudButton Class="btn-clear" OnClick="ClearSearch">
-                                <i class="bi bi-x-circle"></i> Clear
-                            </MudButton>
-                        }
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ━━━ Content ━━━ -->
         @if (isLoading)
         {
-            <div class="loading-state">
-                <div class="spinner-border" style="color:#667eea;width:2.5rem;height:2.5rem;" role="status"></div>
-                <p style="margin-top:.75rem;color:#1a1a2e;font-weight:600;">Loading products...</p>
-                <p style="color:#6b7280;font-size:.85rem;">Fetching inventory for
-                    <strong>@selectedWarehouse?.WarehouseCode</strong>
-                </p>
-                @if (_loadingElapsedSeconds > 5)
+            <div class="pr-loading">
+                <span class="pr-loading-lead">
+                    <span class="pr-spin" aria-hidden="true"></span>
+                    <span>Reading stock for @selectedWarehouse?.WarehouseCode…</span>
+                </span>
+                @if (loadingSeconds > 5)
                 {
-                    <p style="color:#9ca3af;font-size:.8rem;margin-top:.5rem;">This is taking longer than usual
-                        (@_loadingElapsedSeconds seconds)...</p>
-                    }
-                    @if (_loadingElapsedSeconds > 15)
-                    {
-                        <MudButton Class="btn-cancel" Style="margin-top:.75rem;" OnClick="CancelSearch">
-                            <i class="bi bi-x-circle"></i> Cancel search
-                        </MudButton>
-                    }
-                </div>
-            }
-        else if (products?.Any() == true)
-            {
-                <div class="prod-table-wrap">
-                    <div class="prod-table-header">
-                        <h6><i class="bi bi-building"></i> @selectedWarehouse?.WarehouseCode <span
-                            style="font-weight:400;color:#6b7280;margin-left:.3rem;">@selectedWarehouse?.WarehouseName</span>
-                        </h6>
-                        <div style="display:flex;align-items:center;gap:.75rem;">
-                            <input type="text" class="quick-filter-input" placeholder="Quick filter..." @bind="_searchString"
-                                   @bind:event="oninput" />
-                            <span class="prod-count-badge">@totalProducts products</span>
-                        </div>
+                    <span class="pr-loading-note">
+                        Still going after @loadingSeconds seconds — the warehouse may not be cached yet.
+                    </span>
+                }
+                @if (loadingSeconds > 15)
+                {
+                    <button type="button" class="pr-btn pr-btn-quiet" @onclick="CancelSearch">Cancel</button>
+                }
+            </div>
+        }
+        else if (!hasSearched)
+        {
+            <div class="pr-panel">
+                <div class="pr-empty">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 3l8 4.2v9.6L12 21l-8-4.2V7.2z"></path>
+                        <path d="M4 7.2l8 4.2 8-4.2M12 11.4V21"></path>
+                    </svg>
+                    <span>Pick a warehouse above, then search to browse what it holds.</span>
+                    <div class="pr-empty-actions">
+                        <button type="button" class="pr-btn pr-btn-primary" disabled="@(selectedWarehouse is null)"
+                                @onclick="SearchProducts">
+                            Search @selectedWarehouse?.WarehouseCode
+                        </button>
                     </div>
-                    <MudTable @ref="@_table" Items="@products" RowsPerPage="@pageSize" Hover="true" Striped="true" Dense="true"
-                              Filter="new Func<ProductDto, bool>(_quickFilter)" OnRowClick="@OnRowClicked" T="ProductDto"
-                              Elevation="0" Style="background:transparent;">
-                        <HeaderContent>
-                            <MudTh>
-                                <MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.ItemCode ?? string.Empty)">Item
-                                    Code</MudTableSortLabel>
-                                </MudTh>
-                                <MudTh>
-                                    <MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.ItemName ?? string.Empty)">Item
-                                        Name</MudTableSortLabel>
-                                    </MudTh>
-                                    <MudTh Style="text-align:right">
-                                        <MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.QuantityInStock)">In Stock
-                                        </MudTableSortLabel>
-                                    </MudTh>
-                                    <MudTh Style="text-align:right">
-                                        <MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.QuantityAvailable)">Available
-                                        </MudTableSortLabel>
-                                    </MudTh>
-                                    <MudTh Style="text-align:right">
-                                        <MudTableSortLabel SortBy="new Func<ProductDto, object>(x => x.QuantityCommitted)">Committed
-                                        </MudTableSortLabel>
-                                    </MudTh>
-                                    <MudTh>UoM</MudTh>
-                                    <MudTh Style="width:50px"></MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd DataLabel="Item Code"><span class="item-code">@context.ItemCode</span></MudTd>
-                                    <MudTd DataLabel="Item Name"><span class="item-name">@context.ItemName</span></MudTd>
-                                    <MudTd DataLabel="In Stock" Style="text-align:right">
-                                        <span class="qty-cell">@FormatQuantity(context.QuantityInStock, context.UoM)</span>
-                                    </MudTd>
-                                    <MudTd DataLabel="Available" Style="text-align:right">
-                                        <span
-                                            class="qty-cell @(context.QuantityAvailable > 0 ? "available" : "zero")">@FormatQuantity(context.QuantityAvailable,
-                                                                                                                                                                context.UoM)</span>
-                                        </MudTd>
-                                        <MudTd DataLabel="Committed" Style="text-align:right">
-                                            <span
-                                                class="qty-cell @(context.QuantityCommitted > 0 ? "committed" : "zero")">@FormatQuantity(context.QuantityCommitted,
-                                                                                                                                                                            context.UoM)</span>
-                                            </MudTd>
-                                            <MudTd DataLabel="UoM"><span class="uom-badge">@context.UoM</span></MudTd>
-                                            <MudTd>
-                                                <MudButton Class="action-btn" OnClick="() => ViewProduct(context)" title="View details">
-                                                    <i class="bi bi-chevron-right"></i>
-                                                </MudButton>
-                                            </MudTd>
-                                        </RowTemplate>
-                                        <PagerContent>
-                                            <div class="pager-row">
-                                                <div class="page-size-wrap">
-                                                    <span>Show</span>
-                                                    <select value="@pageSize" @onchange="OnPageSizeChanged">
-                                                        <option value="10">10</option>
-                                                        <option value="25">25</option>
-                                                        <option value="50">50</option>
-                                                        <option value="100">100</option>
-                                                        <option value="200">200</option>
-                                                    </select>
-                                                    <span>per page</span>
-                                                </div>
-                                                <MudPagination Selected="@currentPage" SelectedChanged="OnPageChanged"
-                                                               Count="@totalPages"
-                                                               Class="pa-4" />
-                                            </div>
-                                        </PagerContent>
-                                    </MudTable>
-                                </div>
-                            }
-        else if (_hasSearched && !isLoading)
-                            {
-                                <div class="empty-state">
-                                    <div class="empty-icon"><i class="bi bi-inbox"></i></div>
-                                    <h6>No products found</h6>
-                                    <p>No products found in warehouse <strong>@selectedWarehouse?.WarehouseCode</strong>. Try a different
-                                        warehouse or check your connection.</p>
-                                        <div style="display:flex;gap:.5rem;justify-content:center;margin-top:1rem;">
-                                            <MudButton Class="btn-small-primary" OnClick="SearchProducts"><i class="bi bi-arrow-clockwise"></i>
-                                                Retry</MudButton>
-                                                <MudButton Class="btn-small-action" OnClick="ClearSearch"><i class="bi bi-x-circle"></i> Reset
-                                                </MudButton>
-                                            </div>
-                                        </div>
-                                    }
-        else if (!isLoading)
-                                    {
-                                        <div class="initial-state">
-                                            <div class="initial-icon"><i class="bi bi-search"></i></div>
-                                            <h6>Search Products</h6>
-                                            <p>Select a warehouse above and click <strong>Search</strong> to browse inventory.</p>
-                                        </div>
-                                    }
-                                </div>
-                            </div>
-
-                            <!-- ━━━ Product Detail Drawer ━━━ -->
-                            @if (selectedProduct != null)
-                            {
-                                <div class="modal-backdrop-custom" @onclick="CloseModal"></div>
-                                <div class="detail-drawer">
-                                    <div class="drawer-header">
-                                        <div class="drawer-header-top">
-                                            <h5>@selectedProduct.ItemName</h5>
-                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Class="btn-close-drawer" OnClick="CloseModal" />
-                                        </div>
-                                        <div class="drawer-header-chips">
-                                            <span class="drawer-chip">@selectedProduct.ItemCode</span>
-                                            @if (!string.IsNullOrWhiteSpace(selectedProduct.BarCode))
-                                            {
-                                                <span class="drawer-chip" style="font-family:'Space Grotesk',monospace;">@selectedProduct.BarCode</span>
-                                            }
-                                            @if (!string.IsNullOrWhiteSpace(selectedProduct.UoM))
-                                            {
-                                                <span class="drawer-chip">@selectedProduct.UoM</span>
-                                            }
-                                        </div>
-                                    </div>
-                                    <div class="drawer-body">
-                                        <!-- Stock Level Cards -->
-                                        <div class="stock-cards">
-                                            <div class="stock-card in-stock">
-                                                <div class="stock-card-icon"><i class="bi bi-archive"></i></div>
-                                                <div class="stock-card-label">In Stock</div>
-                                                <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityInStock, selectedProduct.UoM)
-                                                </div>
-                                            </div>
-                                            <div class="stock-card available">
-                                                <div class="stock-card-icon"><i class="bi bi-check-circle"></i></div>
-                                                <div class="stock-card-label">Available</div>
-                                                <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityAvailable, selectedProduct.UoM)
-                                                </div>
-                                            </div>
-                                            <div class="stock-card committed">
-                                                <div class="stock-card-icon"><i class="bi bi-clock-history"></i></div>
-                                                <div class="stock-card-label">Committed</div>
-                                                <div class="stock-card-value">@FormatQuantity(selectedProduct.QuantityCommitted, selectedProduct.UoM)
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        @if (selectedProduct.ManagesBatches && selectedProduct.Batches?.Any() == true)
-                                        {
-                                            <div class="batch-section-title">
-                                                <span><i class="bi bi-layers me-2"></i>Batch Information</span>
-                                                <span class="batch-count-chip">@selectedProduct.Batches.Count batches</span>
-                                            </div>
-
-                                            <table class="batch-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Batch #</th>
-                                                        <th style="text-align:right">Quantity</th>
-                                                        <th>Status</th>
-                                                        <th>Expiry</th>
-                                                        <th>Manufacturing</th>
-                                                        <th>Location</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var batch in selectedProduct.Batches)
-                                                    {
-                                                        <tr>
-                                                            <td><span class="batch-number">@batch.BatchNumber</span></td>
-                                                            <td style="text-align:right;font-weight:600;">@batch.Quantity</td>
-                                                            <td>
-                                                                <span class="batch-status @GetBatchStatusCssClass(batch.Status)">@batch.Status</span>
-                                                            </td>
-                                                            <td style="color:#6b7280;">@batch.ExpiryDate</td>
-                                                            <td style="color:#6b7280;">@batch.ManufacturingDate</td>
-                                                            <td style="color:#6b7280;">@batch.Location</td>
-                                                        </tr>
-                                                    }
-                                                </tbody>
-                                                <tfoot>
-                                                    <tr>
-                                                        <td style="font-weight:700;color:#667eea;">Total</td>
-                                                        <td style="text-align:right;font-weight:700;color:#667eea;">@selectedProduct.Batches.Sum(b =>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    b.Quantity)</td>
-                                                            <td colspan="4"></td>
-                                                        </tr>
-                                                    </tfoot>
-                                                </table>
-                                            }
-        else if (selectedProduct.ManagesBatches)
-                                            {
-                                                <div class="no-batches">
-                                                    <i class="bi bi-layers"></i>
-                                                    <p>This product manages batches, but no batches were found.</p>
-                                                </div>
-                                            }
-                                        </div>
-                                        <div class="drawer-footer">
-                                            <MudButton Class="btn-secondary-action" OnClick="CloseModal">Close</MudButton>
-                                        </div>
-                                    </div>
-                                }
-
-@code {
-    private MudTable<ProductDto> _table = null!;
-    private List<ProductDto>? products;
-    private ProductDto? selectedProduct;
-    private bool isLoading = false;
-    private string? errorMessage;
-    private Severity errorSeverity = Severity.Error;
-    private int currentPage = 1;
-    private int pageSize = 20;
-#pragma warning disable CS0414
-    private bool hasMore = false;
-#pragma warning restore CS0414
-    private int totalProducts = 0;
-    private int totalPages => pageSize > 0
-        ? Math.Max(1, (int)Math.Ceiling((double)totalProducts / pageSize))
-        : 1;
-    private int productsWithBatches = 0;
-    private bool _hasSearched = false;
-
-    private string? barcode;
-    private string _searchString = string.Empty;
-
-    // Warehouse selection
-    private List<WarehouseDto> warehouses = new();
-    private WarehouseDto? selectedWarehouse;
-    private bool isLoadingWarehouses = true;
-    private bool _hasLoadedData = false;
-
-    // Cancellation & timing
-    private CancellationTokenSource? _searchCts;
-    private int _loadingElapsedSeconds = 0;
-    private System.Threading.Timer? _loadingTimer;
-
-    // Quick filter
-    private Func<ProductDto, bool> _quickFilter => x =>
-    {
-        if (string.IsNullOrWhiteSpace(_searchString))
-            return true;
-
-        if (x.ItemCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.ItemName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.BarCode?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.ItemType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        if (x.UoM?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
-
-        return false;
-    };
-
-    private void OnRowClicked(TableRowClickEventArgs<ProductDto> args)
-    {
-        if (args.Item is not null)
-            ViewProduct(args.Item);
-    }
-
-    protected override void OnInitialized()
-    {
-        pageSize = AppSettings.PageSize;
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender && !_hasLoadedData)
-        {
-            Logger.LogInformation("Products page: OnAfterRenderAsync - firstRender, starting data load");
-            _hasLoadedData = true;
-            await LoadWarehousesAsync();
-            await AuditService.LogAsync(AuditActions.ViewProducts, "Product", null);
-            StateHasChanged();
-        }
-    }
-
-    private async Task LoadWarehousesAsync()
-    {
-        Logger.LogInformation("Products page: LoadWarehousesAsync started");
-        isLoadingWarehouses = true;
-        try
-        {
-            warehouses = await MasterDataCache.GetWarehousesAsync();
-            Logger.LogInformation("Products page: Loaded {Count} warehouses", warehouses?.Count ?? 0);
-
-            if (warehouses?.Any() == true)
-            {
-                var defaultWarehouse = warehouses.FirstOrDefault(w => w.WarehouseCode == "01")
-                ?? warehouses.First();
-                selectedWarehouse = defaultWarehouse;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Products page: Failed to load warehouses");
-            errorMessage = $"Failed to load warehouses: {ex.Message}";
-            errorSeverity = Severity.Error;
-        }
-        finally
-        {
-            isLoadingWarehouses = false;
-        }
-    }
-
-    private async Task<IEnumerable<WarehouseDto>> SearchWarehousesAsync(string searchText, CancellationToken
-    cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(searchText))
-            return warehouses.Take(20);
-
-        return warehouses
-        .Where(w =>
-        (w.WarehouseCode?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (w.WarehouseName?.Contains(searchText, StringComparison.OrdinalIgnoreCase) ?? false))
-        .Take(20);
-    }
-
-    private void StartLoadingTimer()
-    {
-        _loadingElapsedSeconds = 0;
-        _loadingTimer?.Dispose();
-        _loadingTimer = new System.Threading.Timer(async _ =>
-        {
-            _loadingElapsedSeconds++;
-            await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
-    }
-
-    private void StopLoadingTimer()
-    {
-        _loadingTimer?.Dispose();
-        _loadingTimer = null;
-        _loadingElapsedSeconds = 0;
-    }
-
-    private void CancelSearch()
-    {
-        _searchCts?.Cancel();
-        isLoading = false;
-        StopLoadingTimer();
-        errorMessage = "Search was cancelled.";
-        errorSeverity = Severity.Info;
-    }
-
-    private async Task SearchProducts()
-    {
-        if (selectedWarehouse == null)
-            return;
-
-        _searchCts?.Cancel();
-        _searchCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-
-        isLoading = true;
-        _hasSearched = true;
-        errorMessage = null;
-        StartLoadingTimer();
-
-        try
-        {
-            var response = await ProductService.GetPagedProductsAsync(
-                selectedWarehouse.WarehouseCode!,
-                currentPage,
-                pageSize,
-                _searchCts.Token);
-
-            if (response?.Products != null && response.Products.Any())
-            {
-                products = response.Products;
-                var observedCount = ((currentPage - 1) * pageSize) + products.Count;
-                totalProducts = Math.Max(response.Count, observedCount + (response.HasMore ? 1 : 0));
-                productsWithBatches = products.Count(product => product.ManagesBatches);
-                hasMore = response.HasMore;
-            }
-            else if (response != null)
-            {
-                products = new List<ProductDto>();
-                totalProducts = response.Count;
-                productsWithBatches = 0;
-                hasMore = response.HasMore;
-            }
-            else
-            {
-                products = new List<ProductDto>();
-                totalProducts = 0;
-                errorMessage = "No data returned. The warehouse may be empty or the server may be unavailable. Try again.";
-                errorSeverity = Severity.Warning;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            products = null;
-            errorMessage = "Search timed out. The server is taking too long to respond. Please try again.";
-            errorSeverity = Severity.Warning;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error searching products in warehouse {WarehouseCode}", selectedWarehouse.WarehouseCode);
-            products = null;
-            errorMessage = $"Failed to load products: {ex.Message}";
-            errorSeverity = Severity.Error;
-        }
-        finally
-        {
-            isLoading = false;
-            StopLoadingTimer();
-        }
-    }
-
-    private async Task SearchByBarcode()
-    {
-        if (selectedWarehouse == null || string.IsNullOrWhiteSpace(barcode))
-            return;
-
-        _searchCts?.Cancel();
-        _searchCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-
-        isLoading = true;
-        _hasSearched = true;
-        errorMessage = null;
-        StartLoadingTimer();
-
-        try
-        {
-            var product = await ProductService.SearchProductByBarcodeAsync(
-                barcode,
-                selectedWarehouse.WarehouseCode!,
-                _searchCts.Token);
-
-            if (product != null)
-            {
-                products = new List<ProductDto> { product };
-                totalProducts = 1;
-                productsWithBatches = product.ManagesBatches ? 1 : 0;
-                hasMore = false;
-            }
-            else
-            {
-                products = new List<ProductDto>();
-                errorMessage = $"No product found with barcode \"{barcode}\" in warehouse {selectedWarehouse.WarehouseCode}.";
-                errorSeverity = Severity.Warning;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            products = null;
-            errorMessage = "Barcode search timed out. Please try again.";
-            errorSeverity = Severity.Warning;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Error searching barcode {Barcode}", barcode);
-            errorMessage = $"Error: {ex.Message}";
-            errorSeverity = Severity.Error;
-        }
-        finally
-        {
-            isLoading = false;
-            StopLoadingTimer();
-        }
-    }
-
-    private void ClearSearch()
-    {
-        _searchCts?.Cancel();
-
-        if (warehouses?.Any() == true)
-        {
-            var defaultWarehouse = warehouses.FirstOrDefault(w => w.WarehouseCode == "01")
-            ?? warehouses.First();
-            selectedWarehouse = defaultWarehouse;
+                </div>
+            </div>
         }
         else
         {
-            selectedWarehouse = null;
+            <section class="pr-panel">
+                <div class="pr-panel-head">
+                    <h2>Catalogue</h2>
+                    <span class="pr-count">@CountLabel</span>
+                    <div class="pr-panel-tools">
+                        <label class="pr-filter">
+                            <span class="pr-vh">Filter by item code, name or barcode</span>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                                <circle cx="11" cy="11" r="7"></circle>
+                                <path d="M20 20l-3.5-3.5"></path>
+                            </svg>
+                            @* Searches the whole warehouse, not the page on screen. *@
+                            <input class="pr-input pr-input-search" type="search" autocomplete="off"
+                                   placeholder="Filter this warehouse…" value="@filterTerm"
+                                   @oninput="OnFilterInput" />
+                        </label>
+                    </div>
+                </div>
+
+                @if (products is null || products.Count == 0)
+                {
+                    <div class="pr-empty">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="M20 20l-3.5-3.5"></path>
+                        </svg>
+                        @if (!string.IsNullOrWhiteSpace(filterTerm))
+                        {
+                            <span>
+                                Nothing in @selectedWarehouse?.WarehouseCode matches
+                                &ldquo;@filterTerm&rdquo;.
+                            </span>
+                            <div class="pr-empty-actions">
+                                <button type="button" class="pr-btn pr-btn-quiet" @onclick="ClearFilter">
+                                    Clear filter
+                                </button>
+                            </div>
+                        }
+                        else
+                        {
+                            <span>
+                                No stock records for @selectedWarehouse?.WarehouseCode. The warehouse may be
+                                empty, or it may not have synced from SAP yet.
+                            </span>
+                            <div class="pr-empty-actions">
+                                <button type="button" class="pr-btn pr-btn-primary" disabled="@isRefreshing"
+                                        @onclick="RefreshStock">
+                                    Sync from SAP
+                                </button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="pr-scroll">
+                        <div class="pr-grid" role="table" aria-label="Products in @selectedWarehouse?.WarehouseCode">
+                            <div class="pr-thead" role="row">
+                                <span role="columnheader">Item code</span>
+                                <span role="columnheader">Item name</span>
+                                <span role="columnheader" class="pr-num">In stock</span>
+                                <span role="columnheader" class="pr-num">Committed</span>
+                                <span role="columnheader" class="pr-num">On order</span>
+                                <span role="columnheader" class="pr-num">Available</span>
+                                <span role="columnheader">UoM</span>
+                                <span role="columnheader"><span class="pr-vh">Actions</span></span>
+                            </div>
+
+                            @foreach (var product in products)
+                            {
+                                var itemCode = product.ItemCode ?? string.Empty;
+                                <div class="pr-row" role="row" @onclick="() => ViewProduct(product)">
+                                    <span class="pr-code" role="cell">@itemCode</span>
+                                    <span class="pr-name-cell" role="cell">
+                                        <span class="pr-name">@product.ItemName</span>
+                                        @if (product.QuantityInStock <= 0)
+                                        {
+                                            <span class="pr-tag">Out of stock</span>
+                                        }
+                                    </span>
+                                    <span class="pr-qty pr-num pr-cell-stock @ZeroClass(product.QuantityInStock)" role="cell">
+                                        <span class="pr-rl">In stock</span>@Qty(product.QuantityInStock, product.UoM)
+                                    </span>
+                                    <span class="pr-qty pr-num pr-cell-committed @ClaimClass(product.QuantityCommitted)"
+                                          role="cell">
+                                        <span class="pr-rl">Committed</span>@Qty(product.QuantityCommitted, product.UoM)
+                                    </span>
+                                    <span class="pr-qty pr-num pr-cell-ordered @ClaimClass(product.QuantityOrdered)"
+                                          role="cell">
+                                        <span class="pr-rl">On order</span>@Qty(product.QuantityOrdered, product.UoM)
+                                    </span>
+                                    <span class="pr-qty pr-qty-avail pr-num pr-cell-available @ZeroClass(product.QuantityAvailable)"
+                                          role="cell">
+                                        <span class="pr-rl">Available</span>@Qty(product.QuantityAvailable, product.UoM)
+                                    </span>
+                                    <span class="pr-cell-uom" role="cell">
+                                        <span class="pr-uom">@(string.IsNullOrWhiteSpace(product.UoM) ? "—" : product.UoM)</span>
+                                    </span>
+                                    <span class="pr-actions" role="cell">
+                                        @* The row's click is a pointer convenience; this button is the
+                                           control keyboards and screen readers use. *@
+                                        <button type="button" class="pr-icon-btn" title="Open @itemCode"
+                                                aria-label="Open @itemCode" @onclick="() => ViewProduct(product)"
+                                                @onclick:stopPropagation>
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M9 6l6 6-6 6"></path>
+                                            </svg>
+                                        </button>
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="pr-foot">
+                        <label class="pr-per">
+                            <span>Show</span>
+                            <span class="pr-select">
+                                <select class="pr-input" value="@pageSize" @onchange="OnPageSizeChanged">
+                                    @foreach (var size in PageSizes)
+                                    {
+                                        <option value="@size">@size</option>
+                                    }
+                                </select>
+                                <span class="pr-caret" aria-hidden="true"></span>
+                            </span>
+                            <span>per page</span>
+                        </label>
+                        <div class="pr-pages">
+                            <button type="button" class="pr-step" disabled="@(currentPage <= 1)"
+                                    @onclick="() => GoToPage(currentPage - 1)">
+                                Prev
+                            </button>
+                            @foreach (var slot in PageSlots(currentPage, PageCount))
+                            {
+                                if (slot is null)
+                                {
+                                    <span class="pr-gap" aria-hidden="true">…</span>
+                                }
+                                else
+                                {
+                                    var number = slot.Value;
+                                    <button type="button" class="pr-page @(number == currentPage ? "pr-page-on" : "")"
+                                            aria-current="@(number == currentPage ? "page" : null)"
+                                            aria-label="Page @number" @onclick="() => GoToPage(number)">
+                                        @number
+                                    </button>
+                                }
+                            }
+                            <button type="button" class="pr-step" disabled="@(!CanGoNext)"
+                                    @onclick="() => GoToPage(currentPage + 1)">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                }
+            </section>
         }
+    </div>
+</div>
 
-        barcode = null;
-        products = null;
-        currentPage = 1;
-        _hasSearched = false;
-        errorMessage = null;
-        _searchString = string.Empty;
-    }
+@if (selectedProduct is not null)
+{
+    var product = selectedProduct;
+    var itemCode = product.ItemCode ?? string.Empty;
 
-    private void ViewProduct(ProductDto product)
-    {
-        selectedProduct = product;
-    }
+    <div class="pr pr-scrim" @onclick="CloseDrawer"></div>
+    <aside class="pr pr-drawer" role="dialog" aria-modal="true" aria-label="@product.ItemName">
+        <div class="pr-drawer-head">
+            <div>
+                <h2>@product.ItemName</h2>
+                <div class="pr-drawer-sub">
+                    @itemCode
+                    @if (!string.IsNullOrWhiteSpace(product.BarCode))
+                    {
+                        <text> · @product.BarCode</text>
+                    }
+                    <text> · </text>@selectedWarehouse?.WarehouseCode
+                </div>
+            </div>
+            <button type="button" class="pr-icon-btn" style="margin-left:auto" aria-label="Close"
+                    @onclick="CloseDrawer">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18"></path>
+                </svg>
+            </button>
+        </div>
 
-    private void CloseModal()
-    {
-        selectedProduct = null;
-    }
+        <div class="pr-drawer-body">
 
-    private static string FormatQuantity(decimal quantity, string? uomCode)
-    {
-        return QuantityDisplay.Format(quantity, uomCode);
-    }
+            <section class="pr-section">
+                <h3>Availability</h3>
+                @* The sum written out. SAP counts stock on a purchase order as
+                   available before it arrives, so wherever on order is not zero
+                   availability exceeds what is physically on the shelf. *@
+                <div class="pr-avail">
+                    <div class="pr-avail-row">
+                        <div class="pr-avail-term">
+                            <div class="pr-avail-t">In stock</div>
+                            <div class="pr-avail-v">@Qty(product.QuantityInStock, product.UoM)</div>
+                        </div>
+                        <div class="pr-avail-op" aria-hidden="true">−</div>
+                        <div class="pr-avail-term">
+                            <div class="pr-avail-t">Committed</div>
+                            <div class="pr-avail-v">@Qty(product.QuantityCommitted, product.UoM)</div>
+                        </div>
+                        <div class="pr-avail-op" aria-hidden="true">+</div>
+                        <div class="pr-avail-term">
+                            <div class="pr-avail-t">On order</div>
+                            <div class="pr-avail-v">@Qty(product.QuantityOrdered, product.UoM)</div>
+                        </div>
+                        <div class="pr-avail-op" aria-hidden="true">=</div>
+                        <div class="pr-avail-term pr-avail-term-result">
+                            <div class="pr-avail-t">Available</div>
+                            <div class="pr-avail-v">@Qty(product.QuantityAvailable, product.UoM)</div>
+                        </div>
+                    </div>
+                    <div class="pr-avail-note">
+                        @if (product.QuantityOrdered > 0)
+                        {
+                            <text>
+                                @Qty(product.QuantityOrdered, product.UoM) is on a purchase order and has not
+                                arrived, so availability runs ahead of the
+                                @Qty(product.QuantityInStock, product.UoM) actually in
+                                @selectedWarehouse?.WarehouseCode.
+                            </text>
+                        }
+                        else
+                        {
+                            <text>
+                                Availability is what SAP reports: on hand, less what is committed to customer
+                                orders, plus anything on a purchase order.
+                            </text>
+                        }
+                    </div>
+                </div>
+            </section>
 
-    private Color GetBatchStatusColor(string? status)
-    {
-        return status?.ToLower() switch
-        {
-            "released" => Color.Success,
-            "not accessible" => Color.Warning,
-            "locked" => Color.Error,
-            _ => Color.Default
-        };
-    }
+            <section class="pr-section">
+                <h3>Item</h3>
+                <div class="pr-dl">
+                    <div>
+                        <div class="pr-dt">Item code</div>
+                        <div class="pr-dd pr-dd-num">@itemCode</div>
+                    </div>
+                    <div>
+                        <div class="pr-dt">Barcode</div>
+                        <div class="pr-dd pr-dd-num">
+                            @(string.IsNullOrWhiteSpace(product.BarCode) ? "—" : product.BarCode)
+                        </div>
+                    </div>
+                    <div>
+                        <div class="pr-dt">Unit of measure</div>
+                        <div class="pr-dd">@(string.IsNullOrWhiteSpace(product.UoM) ? "—" : product.UoM)</div>
+                    </div>
+                    <div>
+                        <div class="pr-dt">Warehouse</div>
+                        <div class="pr-dd">@selectedWarehouse?.DisplayName</div>
+                    </div>
+                </div>
+            </section>
 
-    private string GetBatchStatusCssClass(string? status)
-    {
-        return status?.ToLower() switch
-        {
-            "released" => "released",
-            "not accessible" => "not-accessible",
-            "locked" => "locked",
-            _ => "default"
-        };
-    }
+            <section class="pr-section">
+                <div class="pr-batch-head">
+                    <h3>Batches</h3>
+                    @if (batches is { Count: > 0 })
+                    {
+                        <span class="pr-batch-count">@batches.Count in @selectedWarehouse?.WarehouseCode</span>
+                    }
+                </div>
 
-    private string GetAlertCssClass()
-    {
-        return errorSeverity switch
-        {
-            Severity.Error => "error-alert",
-            Severity.Warning => "warn-alert",
-            _ => "info-alert"
-        };
-    }
+                @* Read from SAP when the drawer opens. The list itself comes from the
+                   stock cache, which knows nothing about batches — so this is the only
+                   place that can answer the question, and it must be asked per item. *@
+                @if (isLoadingBatches)
+                {
+                    <div class="pr-inline-loading">
+                        <span class="pr-spin" aria-hidden="true"></span>
+                        <span>Reading batches from SAP…</span>
+                    </div>
+                }
+                else if (batchError is not null)
+                {
+                    <div class="pr-msg">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                        </svg>
+                        <span>@batchError</span>
+                        <button type="button" class="pr-msg-act" @onclick="() => LoadBatchesAsync(product)">
+                            Retry
+                        </button>
+                    </div>
+                }
+                else if (batches is { Count: > 0 })
+                {
+                    <div class="pr-batches">
+                        <div class="pr-batch-thead">
+                            <span>Batch</span>
+                            <span class="pr-num">Quantity</span>
+                            <span>Status</span>
+                            <span>Expires</span>
+                        </div>
+                        @foreach (var batch in batches)
+                        {
+                            <div class="pr-batch-row">
+                                <span class="pr-batch-no">@batch.BatchNumber</span>
+                                <span class="pr-num">@Qty(batch.Quantity, product.UoM)</span>
+                                <span class="pr-status @BatchStatusClass(batch.Status)">
+                                    <span class="pr-dot" aria-hidden="true"></span>
+                                    @(string.IsNullOrWhiteSpace(batch.Status) ? "—" : batch.Status)
+                                </span>
+                                <span class="pr-batch-date">@BatchDate(batch.ExpiryDate)</span>
+                            </div>
+                        }
+                        <div class="pr-batch-foot">
+                            <span>Total</span>
+                            <span class="pr-num">@Qty(batches.Sum(b => b.Quantity), product.UoM)</span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                    @if (batches.Sum(b => b.Quantity) != product.QuantityInStock)
+                    {
+                        @* Worth stating rather than hiding: batch quantities and the
+                           warehouse on-hand figure are read from different SAP tables
+                           and can legitimately disagree. *@
+                        <div class="pr-avail-note">
+                            Batch quantities total @Qty(batches.Sum(b => b.Quantity), product.UoM), against
+                            @Qty(product.QuantityInStock, product.UoM) on hand.
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="pr-quiet">
+                        No batch records for this item in @selectedWarehouse?.WarehouseCode — either it is not
+                        batch-managed, or none of its batches carry stock here.
+                    </div>
+                }
+            </section>
 
-    private string GetAlertIcon()
-    {
-        return errorSeverity switch
-        {
-            Severity.Error => "bi-exclamation-octagon-fill",
-            Severity.Warning => "bi-exclamation-triangle-fill",
-            _ => "bi-info-circle-fill"
-        };
-    }
+        </div>
 
-    private string GetStatusBadgeClass(string? status)
-    {
-        return status?.ToLower() switch
-        {
-            "released" => "bg-success",
-            "not accessible" => "bg-warning",
-            "locked" => "bg-danger",
-            _ => "bg-secondary"
-        };
-    }
-
-    private async Task OnPageChanged(int page)
-    {
-        if (page != currentPage)
-        {
-            currentPage = page;
-            await SearchProducts();
-        }
-    }
-
-    private async Task OnPageSizeChanged(ChangeEventArgs args)
-    {
-        if (int.TryParse(args.Value?.ToString(), out var newPageSize))
-        {
-            pageSize = newPageSize;
-        }
-        currentPage = 1;
-        await SearchProducts();
-    }
-
-    public void Dispose()
-    {
-        _searchCts?.Dispose();
-        _loadingTimer?.Dispose();
-    }
+        <div class="pr-drawer-foot">
+            <button type="button" class="pr-btn pr-btn-quiet" @onclick="CloseDrawer">Close</button>
+        </div>
+    </aside>
 }

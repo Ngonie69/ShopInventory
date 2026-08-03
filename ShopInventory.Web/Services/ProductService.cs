@@ -11,6 +11,7 @@ public interface IProductService
         string warehouseCode,
         int page = 1,
         int pageSize = 20,
+        string? search = null,
         CancellationToken cancellationToken = default);
     Task<ProductBatchesResponse?> GetProductBatchesAsync(
         string itemCode,
@@ -20,6 +21,25 @@ public interface IProductService
         string barcode,
         string warehouseCode,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Warehouse-wide stock counts, for figures shown beside a paged list.
+    /// </summary>
+    Task<WarehouseStockSummary> GetStockSummaryAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// When the warehouse's stock cache was last refreshed from SAP, or null if it
+    /// has never synced.
+    /// </summary>
+    Task<DateTime?> GetLastSyncedAtAsync(string warehouseCode);
+
+    /// <summary>
+    /// Forces the warehouse's stock cache to resync from SAP now — the same walk the
+    /// service already runs in the background when the cache goes stale.
+    /// </summary>
+    Task<bool> RefreshStockAsync(string warehouseCode);
 }
 
 public class ProductService : IProductService
@@ -74,6 +94,7 @@ public class ProductService : IProductService
         string warehouseCode,
         int page = 1,
         int pageSize = 20,
+        string? search = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("GetPagedProductsAsync called for warehouse {WarehouseCode}, page {Page}, pageSize {PageSize}", warehouseCode, page, pageSize);
@@ -84,6 +105,7 @@ public class ProductService : IProductService
                 warehouseCode,
                 page,
                 pageSize,
+                search,
                 cancellationToken);
             _logger.LogInformation("GetCachedStockAsync returned {Count} products for warehouse {WarehouseCode}",
                 result?.Products?.Count ?? 0, warehouseCode);
@@ -103,8 +125,15 @@ public class ProductService : IProductService
     {
         try
         {
+            // Route as ProductController declares it. This read
+            // "api/product/{itemCode}/batches/{warehouseCode}" until 2026-08-03,
+            // which matches no route on the API and 404s for every item.
+            var encodedWarehouse = Uri.EscapeDataString(warehouseCode);
+            var encodedItem = Uri.EscapeDataString(itemCode);
             return await _httpClient.GetFromJsonAsync<ProductBatchesResponse>(
-                $"api/product/{itemCode}/batches/{warehouseCode}", _jsonOptions, cancellationToken);
+                $"api/product/warehouse/{encodedWarehouse}/item/{encodedItem}/batches",
+                _jsonOptions,
+                cancellationToken);
         }
         catch (Exception ex)
         {
@@ -113,6 +142,11 @@ public class ProductService : IProductService
         }
     }
 
+    // Served from the warehouse stock cache, which already holds the barcode. The
+    // API has no barcode endpoint — this called
+    // "api/product/barcode/{barcode}/warehouse/{warehouseCode}" until 2026-08-03,
+    // a route that has never existed, so every scan 404'd and the page reported the
+    // barcode as not found.
     public async Task<ProductDto?> SearchProductByBarcodeAsync(
         string barcode,
         string warehouseCode,
@@ -120,13 +154,48 @@ public class ProductService : IProductService
     {
         try
         {
-            return await _httpClient.GetFromJsonAsync<ProductDto>(
-                $"api/product/barcode/{barcode}/warehouse/{warehouseCode}", _jsonOptions, cancellationToken);
+            return await _stockCacheService.FindByBarcodeAsync(warehouseCode, barcode, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error searching for barcode {Barcode} in warehouse {WarehouseCode}", barcode, warehouseCode);
             return null;
+        }
+    }
+
+    public Task<WarehouseStockSummary> GetStockSummaryAsync(
+        string warehouseCode,
+        CancellationToken cancellationToken = default)
+        => _stockCacheService.GetStockSummaryAsync(warehouseCode, cancellationToken);
+
+    public async Task<DateTime?> GetLastSyncedAtAsync(string warehouseCode)
+    {
+        try
+        {
+            var syncInfo = await _stockCacheService.GetSyncStatusAsync(warehouseCode);
+            return syncInfo?.LastSyncedAt;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read stock sync status for warehouse {WarehouseCode}", warehouseCode);
+            return null;
+        }
+    }
+
+    public async Task<bool> RefreshStockAsync(string warehouseCode)
+    {
+        try
+        {
+            return await _stockCacheService.SyncWarehouseStockAsync(warehouseCode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error refreshing stock for warehouse {WarehouseCode}", warehouseCode);
+            return false;
         }
     }
 }
