@@ -67,6 +67,12 @@ which checks unmatched numbers are absent rather than null.
 ## Rules for adding to these
 
 - **Read-only.** Nothing here creates, patches or cancels a document.
-- **No SQL-backed methods.** Those provision `SQLQueries` objects, which this SAP instance cannot
-  practically delete, so running them repeatedly leaves litter behind. The queries these tests
-  cover are all OData.
+- **No SQL under a code that varies.** SQL provisions a `SQLQueries` object, and this SAP instance
+  cannot practically delete one, so anything content-addressed or generated per run leaves litter
+  behind. `SapDocumentQueryTests` avoids SQL entirely for that reason.
+
+  `SapStatementQueryTests` and `SapReportQueryTests` do run SQL, under the same fixed codes the
+  application itself uses — a bounded set of objects, provisioned once and reused by every later
+  run. Both exist because a statement SAP will not accept is invisible to everything else: the SQL
+  is valid HANA, the unit tests pass, and only the create call ever sees the error. That is how five
+  report statements reached main returning HTTP 400 to every caller.
