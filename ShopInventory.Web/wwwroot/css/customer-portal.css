@@ -1033,9 +1033,19 @@
     /* `.table.` here for the same reason as the desktop row rule, plus one of
        its own: that rule is (0,4,2) and applies at every width, so a card whose
        own background rule stayed at (0,2,1) would come out transparent rather
-       than merely mis-coloured. Equal specificity, later in the file, wins. */
+       than merely mis-coloured. Equal specificity, later in the file, wins.
+
+       `.cpd-table.` alongside it, at the same (0,4,2), because the page
+       vocabulary's ledgers borrow `mobile-card-table` without being Bootstrap
+       tables — they carry no `.table` class, so they were matching the rest of
+       this block and missing the rule that makes a row a card. The cells kept
+       `grid-template-columns: subgrid` with no grid parent to inherit from and
+       fell back to stacking, which looks close enough to the intended shape to
+       have gone unnoticed. */
     .cpx.customer-shell .table.mobile-card-table tbody tr,
-    .cpx.customer-shell .table.mobile-card-table tfoot tr {
+    .cpx.customer-shell .table.mobile-card-table tfoot tr,
+    .cpx.customer-shell .cpd-table.mobile-card-table tbody tr,
+    .cpx.customer-shell .cpd-table.mobile-card-table tfoot tr {
         display: grid;
         /* Label and value share a row on anything but the narrowest phone, and
            the value keeps the right edge where the eye already reads totals. */
@@ -1129,7 +1139,9 @@
     @supports not (grid-template-columns: subgrid) {
 
         .cpx.customer-shell .table.mobile-card-table tbody tr,
-        .cpx.customer-shell .table.mobile-card-table tfoot tr {
+        .cpx.customer-shell .table.mobile-card-table tfoot tr,
+        .cpx.customer-shell .cpd-table.mobile-card-table tbody tr,
+        .cpx.customer-shell .cpd-table.mobile-card-table tfoot tr {
             display: block;
         }
 
@@ -1333,13 +1345,21 @@
 }
 
 /* ==========================================================================
-   Dashboard
+   Page vocabulary  (`cpd-`)
 
    From the `Customer Portal Dashboard.dc.html` design: a stated hero, an
    overdue strip, four figures, an aging panel beside a period summary, and two
    ledgers side by side. Composition, spacing and type are taken from it as
    drawn; the palette is the portal's own, for the reason at the top of this
    file and exactly as the sign-in import below was handled.
+
+   The design draws one page, but what it draws is the portal's page grammar —
+   hero, figures, panel, ledger — so this is the vocabulary **every** portal
+   page is built from, not the dashboard's alone. Read `cpd-` as *customer
+   portal design*, not *dashboard*. Blocks the dashboard itself never uses (the
+   filter bar, the pager, the detail overlay, the prose column) are gathered at
+   the end of the section under the pages that brought them; blocks only the
+   dashboard uses (aging, account breakdown) stay where they were drawn.
 
    One substitution the palette forces. Stock Nocturne has a single chromatic
    colour, so the design necessarily spends it on both jobs at once: the accent
@@ -1863,9 +1883,16 @@
     color: var(--cpx-ink);
 }
 
-.cpx .cpd-table th {
+/* `.cpx.customer-shell` on every rule that paints a cell, for the reason set
+   out in the Panels block above: app.css's `.dark-theme .customer-shell table
+   thead th` is (0,2,3) and a plain `.cpx .cpd-table th` is (0,2,1), so the
+   header strip came back #0f172a and the muted columns #e2e8f0 — in dark only,
+   which is why it read as bland rather than as broken. Rules that set layout,
+   weight or alignment are left alone; app.css does not claim those. */
+.cpx.customer-shell .cpd-table th {
     padding: 0 var(--cpx-pad) var(--cpx-s2);
     border: none;
+    background: transparent;
     text-align: left;
     font-size: .66rem;
     font-weight: 600;
@@ -1875,14 +1902,18 @@
     white-space: nowrap;
 }
 
-.cpx .cpd-table td {
+.cpx.customer-shell .cpd-table td {
     padding: var(--cpx-s3) var(--cpx-pad);
     border: none;
     border-top: 1px solid var(--cpx-rowline);
     vertical-align: top;
+    color: var(--cpx-ink);
 }
 
-.cpx .cpd-table tbody tr:hover td {
+/* The row as well as the cell: app.css tints `table tbody tr:hover` at (0,3,3)
+   in the portal's own teal, and a transparent cell lets it through. */
+.cpx.customer-shell .cpd-table tbody tr:hover,
+.cpx.customer-shell .cpd-table tbody tr:hover td {
     background: var(--cpx-hover);
 }
 
@@ -1907,7 +1938,9 @@
     color: var(--cpx-faint);
 }
 
-.cpx .cpd-quiet {
+/* Compound scope again: this lands on a `td` and would otherwise be flattened
+   to app.css's one dark ink along with every other muted column. */
+.cpx.customer-shell .cpd-quiet {
     color: var(--cpx-mute);
     white-space: nowrap;
 }
@@ -2013,6 +2046,513 @@
 
 .cpx .cpd-account .cpd-facts {
     gap: var(--cpx-s2);
+}
+
+/* Filter bar ---------------------------------------------------------------
+   Not in the dashboard design — the dashboard has nothing to filter. Invoices,
+   payments, the item summary and the POD list all open on the same question
+   ("which period?"), so they all get the same answer: one panel above the
+   ledger holding the fields and the button that loads.
+
+   `auto-fit` with a floor rather than stated column counts, because the field
+   set itself varies — a single-account customer has two fields where a
+   multi-account one has three, and the item summary has five. */
+
+.cpx .cpd-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11.5rem), 1fr));
+    gap: var(--cpx-s4);
+    align-items: end;
+}
+
+.cpx .cpd-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s2);
+    min-width: 0;
+}
+
+.cpx .cpd-field-label {
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+}
+
+/* The load button sits on the field baseline rather than the label's, so it
+   lines up with the controls beside it and not with their captions. */
+.cpx .cpd-field-action {
+    justify-content: flex-end;
+}
+
+.cpx .cpd-field-action .btn,
+.cpx .cpd-field-action .mud-button-root {
+    width: 100%;
+}
+
+/* MudSelect renders its own floating label, so a `cpd-field-label` above it
+   would state the same word twice. Those fields carry the label only on the
+   control — this keeps the control's own box the same height as a
+   NocturneDateField beside it. */
+.cpx .cpd-field .mud-input-control {
+    margin: 0;
+}
+
+/* Pager --------------------------------------------------------------------
+   A count sentence and the numbers, on the rule that closes the ledger. */
+
+.cpx .cpd-pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpx-s3);
+    margin-top: var(--cpx-s2);
+    padding: var(--cpx-s3) var(--cpx-pad) 0;
+    border-top: 1px solid var(--cpx-rowline);
+}
+
+.cpx .cpd-pager-info {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpd-pager .pagination {
+    margin: 0;
+    gap: var(--cpx-s1);
+}
+
+/* Sortable heading ---------------------------------------------------------
+   The item summary sorts on eight columns. The heading is the control, so it
+   has to be a button — a `th` with a click handler is not reachable from a
+   keyboard and announces nothing. The button is transparent and inherits the
+   heading's type, so the column still reads as a heading. */
+
+.cpx .cpd-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.cpx .cpd-sort:hover {
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-num .cpd-sort {
+    /* The cell is right-aligned, so the button has to be too or the arrow
+       floats away from the column it sorts. */
+    flex-direction: row-reverse;
+}
+
+/* Only the sorted column shows an arrow; the rest hold the space so the
+   headings do not shift by 11px as the sort moves along the row. */
+.cpx .cpd-sort i {
+    font-size: 11px;
+    color: var(--cpx-faint);
+    visibility: hidden;
+}
+
+.cpx .cpd-sort.is-sorted {
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-sort.is-sorted i {
+    visibility: visible;
+    color: var(--cpx-accent);
+}
+
+/* Totals row ---------------------------------------------------------------
+   A rule above and the panel's own surface, so the row reads as the sum of the
+   column rather than as one more row in it. */
+
+.cpx.customer-shell .cpd-table tfoot td {
+    padding-top: var(--cpx-s4);
+    border-top: 1px solid var(--cpx-divider);
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx.customer-shell .cpd-table tfoot tr:hover td {
+    background: transparent;
+}
+
+/* Detail overlay -----------------------------------------------------------
+   The invoice drawer. It renders inside CustomerPortalLayout, so it is inside
+   `.cpx` and inherits the tokens and the type context without a peer class —
+   unlike the staff drawers, which do not.
+
+   `min-height: 0` is not cosmetic: the scrim would otherwise inherit the page
+   root's `min-height: 100vh` through the layout and hang a topbar below the
+   fold. Same trap as the staff overlays. */
+
+.cpx .cpd-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+    padding: var(--cpx-s4);
+    background: var(--cpx-scrim);
+    backdrop-filter: blur(3px);
+}
+
+.cpx .cpd-sheet {
+    display: flex;
+    flex-direction: column;
+    width: min(58rem, 100%);
+    max-height: min(46rem, 92vh);
+    border-radius: var(--cpx-r-lg);
+    background: var(--cpx-surface);
+    box-shadow: var(--cpx-shadow-lg);
+    overflow: hidden;
+}
+
+.cpx .cpd-sheet-head {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-s4) var(--cpx-pad);
+    border-bottom: 1px solid var(--cpx-divider);
+}
+
+.cpx .cpd-sheet-head h5 {
+    margin: 0;
+    font-size: var(--cpd-title);
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-sheet-head>i {
+    font-size: 19px;
+    color: var(--cpx-accent);
+}
+
+.cpx .cpd-sheet-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    margin-left: auto;
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    background: transparent;
+    font-size: 16px;
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-sheet-close:hover {
+    background: var(--cpx-hover);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-sheet-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s6);
+    padding: var(--cpx-pad);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.cpx .cpd-sheet-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--cpx-s2);
+    padding: var(--cpx-s4) var(--cpx-pad);
+    border-top: 1px solid var(--cpx-divider);
+}
+
+/* A heading inside the sheet, between its sections. */
+.cpx .cpd-sub-head {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    margin-bottom: var(--cpx-s3);
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+}
+
+/* Definition grid ----------------------------------------------------------
+   Label over value, wrapping into as many columns as fit. The profile page and
+   the invoice sheet both state a set of facts this way. */
+
+.cpx .cpd-defs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+    gap: var(--cpx-s4);
+}
+
+.cpx .cpd-def {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: var(--cpx-s4);
+    border: 1px solid var(--cpx-divider);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    min-width: 0;
+}
+
+.cpx .cpd-def-k {
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpd-def-v {
+    font-weight: 600;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpd-def-v.is-lg {
+    font-size: clamp(1rem, .93rem + .34vw, 1.2rem);
+    letter-spacing: -.015em;
+}
+
+/* Form ---------------------------------------------------------------------
+   Native inputs, because the change-password fields are an EditForm bound to a
+   model with data annotations, and the item summary's search box has no reason
+   to be a MudTextField. app.css paints every `.dark-theme input` with a slate
+   fill at (0,1,1), which ties then wins against a single-class rule — two
+   classes clears it. */
+
+.cpx .cpd-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s4);
+}
+
+.cpx .cpd-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    gap: var(--cpx-s4);
+}
+
+.cpx .cpd-input {
+    width: 100%;
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-field);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-ink);
+    min-height: 40px;
+}
+
+.cpx .cpd-input::placeholder {
+    color: var(--cpx-placeholder);
+}
+
+.cpx .cpd-input:focus {
+    outline: none;
+    border-color: var(--cpx-accent);
+    box-shadow: 0 0 0 3px rgba(var(--cpx-accent-rgb), .16);
+}
+
+.cpx .cpd-help {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpd-form .validation-message {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-bad);
+}
+
+.cpx .cpd-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cpx-s2);
+}
+
+/* Media rows ---------------------------------------------------------------
+   An icon in a tinted square beside two lines of copy. Support states three
+   channels this way, and the POD list in the invoice sheet is the same object
+   with a button on the end. */
+
+.cpx .cpd-media {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cpx-s4);
+    padding: var(--cpx-s4) 0;
+    border-top: 1px solid var(--cpx-rowline);
+}
+
+.cpx .cpd-media:first-child {
+    padding-top: 0;
+    border-top: none;
+}
+
+.cpx .cpd-media-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-accent-soft);
+    font-size: 17px;
+    color: var(--cpx-accent-text);
+}
+
+.cpx .cpd-media-text {
+    flex: 1 1 12rem;
+    min-width: 0;
+}
+
+.cpx .cpd-media-title {
+    font-weight: 600;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpd-media-sub {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpd-media-action {
+    flex: none;
+    margin-left: auto;
+    align-self: center;
+}
+
+/* A neutral sibling of the overdue strip, for a statement of fact rather than
+   a warning — the regulatory notice at the top of the two legal pages. */
+.cpx .cpd-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-accent-soft);
+    box-shadow: inset 2px 0 0 var(--cpx-accent), 0 0 0 1px var(--cpx-edge);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-ink-2);
+}
+
+.cpx .cpd-note>i {
+    flex: none;
+    font-size: 17px;
+    color: var(--cpx-accent-text);
+}
+
+/* Prose --------------------------------------------------------------------
+   The terms and the privacy policy. Both are long enough that the measure
+   matters more than the width of the panel does, so the column is capped and
+   the panel keeps its own padding around it. */
+
+.cpx .cpd-prose {
+    max-width: 68ch;
+    font-size: var(--cpx-text);
+    line-height: 1.65;
+    color: var(--cpx-ink-2);
+}
+
+.cpx .cpd-prose h3 {
+    margin: var(--cpx-s8) 0 var(--cpx-s3);
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: var(--cpx-h2);
+    font-weight: 600;
+    letter-spacing: -.005em;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-prose h3:first-child {
+    margin-top: 0;
+}
+
+.cpx .cpd-prose p,
+.cpx .cpd-prose ul {
+    margin: 0 0 var(--cpx-s4);
+}
+
+.cpx .cpd-prose ul {
+    padding-left: var(--cpx-s6);
+}
+
+.cpx .cpd-prose li {
+    margin-bottom: var(--cpx-s2);
+}
+
+.cpx .cpd-prose strong {
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-prose a {
+    color: var(--cpx-accent-text);
+}
+
+.cpx .cpd-stamp {
+    margin-bottom: var(--cpx-s6);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-faint);
+}
+
+/* Small parts --------------------------------------------------------------- */
+
+/* An item or account code. Monospace so a column of them aligns, and on the
+   recessed surface so it reads as data rather than as a word. */
+.cpx .cpd-code {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: var(--cpx-r-sm);
+    background: var(--cpx-surface-2);
+    box-shadow: inset 0 0 0 1px var(--cpx-divider);
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .72rem;
+    color: var(--cpx-ink-2);
+    white-space: nowrap;
+}
+
+/* The empty and loading states every page shares. `cpd-empty` above sets the
+   box; these dress what goes in it. */
+.cpx .cpd-empty i {
+    font-size: 30px;
+    color: var(--cpx-faint);
+}
+
+.cpx .cpd-empty h5 {
+    margin: var(--cpx-s3) 0 var(--cpx-s2);
+    font-size: var(--cpd-title);
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-empty p {
+    margin: 0;
+}
+
+.cpx .cpd-empty .btn {
+    margin-top: var(--cpx-s4);
+}
+
+/* A value that is a credit, a return or a reversal — the item summary's two
+   returned columns and any negative total. */
+.cpx .cpd-minus {
+    color: var(--cpd-alert);
 }
 
 /* ==========================================================================
