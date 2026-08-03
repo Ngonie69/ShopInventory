@@ -150,13 +150,17 @@
                                 </div>
                             }
                         </div>
-                        <label class="sfm-lab">
-                            @* A native date input rather than MudDatePicker: it themes from this
-                               sheet, and opens the platform picker. It shows the operator's own
-                               locale format, not AppSettings.DateFormat — the browser owns that. *@
-                            <span class="sfm-lab-t">Document date</span>
-                            <input type="date" class="sfm-input" @bind="docDate" />
-                        </label>
+                        @* NocturneDateField rather than MudDatePicker or a native date input: it
+                           themes from this sheet, takes the shorthand operators type (`030826`),
+                           and draws the same calendar as every other page.
+
+                           A div rather than a wrapping label because the field carries its own
+                           calendar button, and a label would forward a click on that button to
+                           the text input as well. *@
+                        <div class="sfm-lab">
+                            <label class="sfm-lab-t" for="sfm-doc-date">Document date</label>
+                            <NocturneDateField Id="sfm-doc-date" @bind-Date="docDate" />
+                        </div>
                         <label class="sfm-lab sfm-span3">
                             <span class="sfm-lab-t">Remarks</span>
                             <input class="sfm-input" @bind="remarks" placeholder="Optional payment remarks&hellip;" />
@@ -216,10 +220,10 @@
                                     <span class="sfm-lab-t">Reference number</span>
                                     <input class="sfm-input" placeholder="Transfer reference" @bind="transferReference" />
                                 </label>
-                                <label class="sfm-lab">
-                                    <span class="sfm-lab-t">Transfer date</span>
-                                    <input type="date" class="sfm-input" @bind="transferDate" />
-                                </label>
+                                <div class="sfm-lab">
+                                    <label class="sfm-lab-t" for="sfm-transfer-date">Transfer date</label>
+                                    <NocturneDateField Id="sfm-transfer-date" @bind-Date="transferDate" />
+                                </div>
                             }
                             else if (activePaymentMethod == "check")
                             {
@@ -232,10 +236,10 @@
                                     <span class="sfm-lab-t">Check number</span>
                                     <input type="number" class="sfm-input" placeholder="Check #" @bind="checkNumber" />
                                 </label>
-                                <label class="sfm-lab">
-                                    <span class="sfm-lab-t">Due date</span>
-                                    <input type="date" class="sfm-input" @bind="checkDueDate" />
-                                </label>
+                                <div class="sfm-lab">
+                                    <label class="sfm-lab-t" for="sfm-check-due-date">Due date</label>
+                                    <NocturneDateField Id="sfm-check-due-date" @bind-Date="checkDueDate" />
+                                </div>
                                 <label class="sfm-lab">
                                     <span class="sfm-lab-t">Bank code</span>
                                     <input class="sfm-input" placeholder="Bank code" @bind="checkBankCode" />

@@ -70,16 +70,14 @@
         <div class="podr-filter-body">
             <div class="row g-3 align-items-end">
                 <div class="col-md-3">
-                    <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                    <MudDatePicker @bind-Date="fromDate" @bind-Date:after="OnDateRangeChanged"
-                                   Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
+                    <label class="form-label small fw-semibold text-uppercase text-muted" for="podr-f-from">From Date</label>
+                    <NocturneDateField Id="podr-f-from" Class="ndf-bs" @bind-Date="fromDate"
+                                       @bind-Date:after="OnDateRangeChanged" />
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                    <MudDatePicker @bind-Date="toDate" @bind-Date:after="OnDateRangeChanged"
-                                   Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
+                    <label class="form-label small fw-semibold text-uppercase text-muted" for="podr-f-to">To Date</label>
+                    <NocturneDateField Id="podr-f-to" Class="ndf-bs" @bind-Date="toDate"
+                                       @bind-Date:after="OnDateRangeChanged" />
                 </div>
                 <div class="col-md-3">
                     <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>

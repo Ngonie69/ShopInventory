@@ -179,13 +179,13 @@
                     </div>
                     <div class="mox-field" style="width:146px">
                         <label for="mox-f-ordered">Order date</label>
-                        <input id="mox-f-ordered" class="mox-input mox-input-num" type="date"
-                               @bind="orderDateFilter" @bind:after="ResetToFirstPage" />
+                        <NocturneDateField Id="mox-f-ordered" @bind-Date="orderDateFilter"
+                                           @bind-Date:after="ResetToFirstPage" />
                     </div>
                     <div class="mox-field" style="width:146px">
                         <label for="mox-f-delivery">Delivery</label>
-                        <input id="mox-f-delivery" class="mox-input mox-input-num" type="date"
-                               @bind="deliveryDateFilter" @bind:after="ResetToFirstPage" />
+                        <NocturneDateField Id="mox-f-delivery" @bind-Date="deliveryDateFilter"
+                                           @bind-Date:after="ResetToFirstPage" />
                     </div>
                     <div class="mox-field" style="width:118px">
                         <label for="mox-f-currency">Currency</label>

@@ -126,12 +126,12 @@
             <div class="pdoc-create-card-title"><i class="bi bi-info-circle"></i> Receipt Details</div>
             <div class="pdoc-create-form-grid three-cols">
                 <div class="pdoc-create-field">
-                    <label>Posting Date</label>
-                    <input type="date" @bind-value="goodsReceipt.DocDate" @bind-value:format="yyyy-MM-dd" />
+                    <label for="grpo-c-doc-date">Posting Date</label>
+                    <NocturneDateField Id="grpo-c-doc-date" @bind-Date="goodsReceipt.DocDate" />
                 </div>
                 <div class="pdoc-create-field">
-                    <label>Due Date</label>
-                    <input type="date" @bind-value="goodsReceipt.DocDueDate" @bind-value:format="yyyy-MM-dd" />
+                    <label for="grpo-c-due-date">Due Date</label>
+                    <NocturneDateField Id="grpo-c-due-date" @bind-Date="goodsReceipt.DocDueDate" />
                 </div>
                 <div class="pdoc-create-field">
                     <label>Currency</label>

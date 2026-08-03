@@ -479,15 +479,20 @@
     font-variant-numeric: tabular-nums;
 }
 
-/* The date input's own indicator is the control's only affordance, so it is
-   tinted to the ink rather than left as the browser's black-on-dark default. */
-.sox .sox-input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: .6;
-}
-
-.dark-theme .sox .sox-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+/* The date fields in the filter row are NocturneDateField, not native date
+   inputs — the native control draws the browser's own calendar, which no
+   stylesheet can reach. Only the closed field is fitted to this sheet; the
+   calendar itself is the shared one. See nocturne-date-field.css for why
+   these are set from here rather than there. */
+.sox {
+    --ndf-h: 32px;
+    --ndf-pad-y: 5px;
+    --ndf-pad-x: 10px;
+    --ndf-fs: 14px;
+    --ndf-fill: var(--sox-field);
+    --ndf-edge: var(--sox-field-edge);
+    --ndf-edge-hi: var(--sox-field-edge-hi);
+    --ndf-radius: var(--sox-r-md);
 }
 
 .sox-select {

@@ -1415,34 +1415,27 @@
    All four document forms used MudDatePicker, which renders a text field plus
    a popover calendar in MudBlazor's own palette — unreachable from here
    without out-specifying a stylesheet that loads after this one. A native date
-   input is one control, themes from the page, and opens the platform picker
-   the operator already knows.
+   input was the first answer: one control, themed from the page. But it draws
+   the browser's calendar, which is no more reachable than MudBlazor's and
+   differs per platform, and it refuses the shorthand this app's operators type
+   (`030826`).
 
-   `appearance: none` on `.sfm-input` strips the calendar button in WebKit, so
-   it is handed back and then tinted; the indicator is a UA-drawn bitmap and
-   `filter` is the only way to reach it. */
-:is(.sfm, .sfm-modal) .sfm-input[type="date"] {
-    appearance: auto;
-    -webkit-appearance: none;
-    min-height: 37px;
-}
+   They are now NocturneDateField, which takes the shorthand and draws its own
+   calendar. Only the closed field is fitted to this sheet — the calendar is
+   the shared one. See wwwroot/css/nocturne-date-field.css for why these are
+   set from here rather than there.
 
-:is(.sfm, .sfm-modal) .sfm-input[type="date"]::-webkit-calendar-picker-indicator {
-    /* .55 left it near-invisible against the dark field once inverted; .72 is
-       the lowest that still reads there and stays quiet on paper. */
-    opacity: .72;
-    cursor: pointer;
-    filter: var(--sfm-caret-filter);
-}
-
-:is(.sfm, .sfm-modal) .sfm-input[type="date"]::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
-}
-
-/* Safari on iOS lays an empty date input out at a different height to a text
-   one, which staggers the field row. */
-:is(.sfm, .sfm-modal) .sfm-input[type="date"]::-webkit-date-and-time-value {
-    text-align: left;
+   37px because that is where a `.sfm-input` lands with 9px of padding around
+   13.5px text, and a date field short of its neighbours staggers the row. */
+:is(.sfm, .sfm-modal) {
+    --ndf-h: 37px;
+    --ndf-pad-y: 9px;
+    --ndf-pad-x: 11px;
+    --ndf-fs: 13.5px;
+    --ndf-fill: var(--sfm-field);
+    --ndf-edge: var(--sfm-field-edge);
+    --ndf-edge-hi: var(--sfm-field-edge-hi);
+    --ndf-radius: 6px;
 }
 
 /* ── Document identity ──────────────────────────────────────────────────────

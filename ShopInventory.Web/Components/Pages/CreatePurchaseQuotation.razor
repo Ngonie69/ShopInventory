@@ -126,12 +126,12 @@
             <div class="pdoc-create-card-title"><i class="bi bi-info-circle"></i> Quotation Details</div>
             <div class="pdoc-create-form-grid three-cols">
                 <div class="pdoc-create-field">
-                    <label>Posting Date</label>
-                    <input type="date" @bind-value="purchaseQuotation.DocDate" @bind-value:format="yyyy-MM-dd" />
+                    <label for="pqt-c-doc-date">Posting Date</label>
+                    <NocturneDateField Id="pqt-c-doc-date" @bind-Date="purchaseQuotation.DocDate" />
                 </div>
                 <div class="pdoc-create-field">
-                    <label>Due Date</label>
-                    <input type="date" @bind-value="purchaseQuotation.DocDueDate" @bind-value:format="yyyy-MM-dd" />
+                    <label for="pqt-c-due-date">Due Date</label>
+                    <NocturneDateField Id="pqt-c-due-date" @bind-Date="purchaseQuotation.DocDueDate" />
                 </div>
                 <div class="pdoc-create-field">
                     <label>Currency</label>

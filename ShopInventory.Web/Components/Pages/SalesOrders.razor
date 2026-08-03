@@ -126,11 +126,11 @@
             </div>
             <div class="sox-field" style="width:140px">
                 <label for="sox-f-from">From date</label>
-                <input id="sox-f-from" class="sox-input sox-input-num" type="date" @bind="fromDate" />
+                <NocturneDateField Id="sox-f-from" @bind-Date="fromDate" />
             </div>
             <div class="sox-field" style="width:140px">
                 <label for="sox-f-to">To date</label>
-                <input id="sox-f-to" class="sox-input sox-input-num" type="date" @bind="toDate" />
+                <NocturneDateField Id="sox-f-to" @bind-Date="toDate" />
             </div>
             <div class="sox-filter-actions">
                 <button type="button" class="sox-btn sox-btn-ghost" @onclick="ClearFilter" disabled="@isLoading">

@@ -369,6 +369,23 @@
     resize: vertical;
 }
 
+/* The date fields in the two filter rows are NocturneDateField, not native
+   date inputs — the native control draws the browser's own calendar, which no
+   stylesheet can reach. Only the closed field is fitted to this sheet; the
+   calendar itself is the shared one. See nocturne-date-field.css for why
+   these are set from here rather than there. */
+.itx,
+.itx-drawer {
+    --ndf-h: 2.25rem;
+    --ndf-pad-y: .35rem;
+    --ndf-pad-x: .6rem;
+    --ndf-fs: .875rem;
+    --ndf-fill: var(--itx-field);
+    --ndf-edge: var(--itx-field-edge);
+    --ndf-edge-hi: var(--itx-field-edge-hi);
+    --ndf-radius: var(--itx-r-md);
+}
+
 .itx .itx-input-num,
 .itx-drawer .itx-input-num {
     font-variant-numeric: tabular-nums;
@@ -499,6 +516,16 @@
 }
 
 /* ── Cards ──────────────────────────────────────────────────────────────── */
+/* The clip below is what rounds a table off against the container's corners,
+   so it stays — except where a filter row carries a date field. Those drop a
+   calendar, and an `overflow` other than `visible` on any ancestor cuts it off
+   at the panel edge. Scoped by `:has()` rather than lifted wholesale so every
+   other card keeps its rounding. */
+.itx-card:has(.ndf),
+.itx-panel:has(.ndf) {
+    overflow: visible;
+}
+
 .itx-card,
 .itx-panel {
     background: var(--itx-surface);

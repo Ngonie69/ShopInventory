@@ -462,6 +462,16 @@
     overflow: hidden;
 }
 
+/* The clip above is what rounds a table off against the card's corners, so it
+   stays — except on the cards whose filter row carries a date field. Those
+   drop a calendar, and an `overflow` other than `visible` on any ancestor cuts
+   it off at the card edge; with an empty result table the card is shorter than
+   the popup and the cut is most of it. Scoped by `:has()` rather than lifted
+   wholesale so every other card keeps its rounding. */
+.podx-card:has(.ndf) {
+    overflow: visible;
+}
+
 /* Uploading is what this page is for, so its card is the one container given
    an accent outline — everything else on the page is a record of it. */
 .podx-card.is-primary {
@@ -605,13 +615,23 @@
     font-variant-numeric: tabular-nums;
 }
 
-.podx .podx-input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: .6;
-}
+/* The date fields are NocturneDateField, not native date inputs — the native
+   control draws the browser's own calendar, which no stylesheet can reach.
+   Only the closed field is fitted to this sheet; the calendar itself is the
+   shared one. See nocturne-date-field.css for why these are set from here.
 
-.dark-theme .podx .podx-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+   Repeated on the overlay because it is a peer of the page root, not a
+   descendant, so it inherits nothing from `.podx`. */
+.podx,
+.podx-overlay {
+    --ndf-h: 32px;
+    --ndf-pad-y: 5px;
+    --ndf-pad-x: 10px;
+    --ndf-fs: 14px;
+    --ndf-fill: var(--podx-field);
+    --ndf-edge: var(--podx-field-edge);
+    --ndf-edge-hi: var(--podx-field-edge-hi);
+    --ndf-radius: var(--podx-r-md);
 }
 
 /* The file input's own button is a browser control, so it is restyled through

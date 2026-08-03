@@ -103,8 +103,13 @@
                                        @bind="openingBalanceQuantity" />
                             </div>
                             <div class="col-md-6">
-                                <label class="crt-label">Effective Date</label>
-                                <input type="date" class="crt-form-control" @bind="openingBalanceEffectiveDate" />
+                                <label class="crt-label" for="crt-ob-effective">Effective Date</label>
+                                @* The field's value is nullable and this one is not — an opening
+                                   balance has to be dated. Clearing it therefore puts the previous
+                                   date back rather than leaving the model holding a date the box
+                                   no longer shows. *@
+                                <NocturneDateField Id="crt-ob-effective" Date="openingBalanceEffectiveDate"
+                                                   DateChanged="d => openingBalanceEffectiveDate = d ?? openingBalanceEffectiveDate" />
                             </div>
                             <div class="col-12">
                                 <label class="crt-label">Notes</label>

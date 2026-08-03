@@ -17,7 +17,15 @@
     .grpo-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
     .grpo-field { position: relative; }
     .grpo-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
+       and it needs no guard. The dark override further down is (0,2,1) and
+       does — see the note there. */
     .grpo-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+
+    /* The date fields take their metrics from the row they sit in; their
+       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
+    .grpo-field .ndf { --ndf-pad-y: .75rem; --ndf-pad-x: .85rem; --ndf-fs: 1rem; --ndf-radius: 12px; --ndf-fill: #fbfcfe; --ndf-edge: #d7dee7; }
+    .dark-theme .grpo-field .ndf { --ndf-fill: #101823; --ndf-edge: #2a3645; }
     .grpo-filter-hint { margin-top: .4rem; font-size: .78rem; color: #7c8798; }
     .grpo-search-results { position: absolute; z-index: 15; left: 0; right: 0; top: calc(100% + .35rem); background: #fff; border: 1px solid #d7dee7; border-radius: 14px; overflow: hidden; box-shadow: 0 16px 30px rgba(23, 32, 51, .12); max-height: 260px; overflow-y: auto; }
     .grpo-search-option { width: 100%; border: none; background: transparent; text-align: left; padding: .8rem .9rem; border-bottom: 1px solid #eef2f6; color: #172033; }
@@ -66,7 +74,10 @@
     .dark-theme .grpo-title h1, .dark-theme .grpo-panel-header h2, .dark-theme .grpo-table td, .dark-theme .grpo-detail-card div, .dark-theme .grpo-line-code, .dark-theme .grpo-empty strong, .dark-theme .grpo-stat-value { color: #edf2f7; }
     .dark-theme .grpo-title p, .dark-theme .grpo-panel-header span, .dark-theme .grpo-subtext, .dark-theme .grpo-empty, .dark-theme .grpo-loading, .dark-theme .grpo-pager span, .dark-theme .grpo-detail-card label, .dark-theme .grpo-line-desc, .dark-theme .grpo-stat-label, .dark-theme .grpo-filter-hint, .dark-theme .grpo-search-meta { color: #a9b4c2; }
     .dark-theme .grpo-stat, .dark-theme .grpo-filters, .dark-theme .grpo-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .grpo-field input, .dark-theme .grpo-detail-card, .dark-theme .grpo-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    /* `:not(.ndf-input)` so this stops short of the date fields: it is (0,2,1)
+       against the component's own (0,2,0) and would otherwise repaint them in
+       dark and not in light. */
+    .dark-theme .grpo-field input:not(.ndf-input), .dark-theme .grpo-detail-card, .dark-theme .grpo-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
     .dark-theme .grpo-search-results { background: #16202c; border-color: #2a3645; box-shadow: none; }
     .dark-theme .grpo-search-option { color: #edf2f7; border-color: #2a3645; }
     .dark-theme .grpo-search-option:hover { background: #263647; }
@@ -122,8 +133,8 @@
             }
             <div class="grpo-filter-hint">Type a supplier code or name, then pick a suggestion to filter by name.</div>
         </div>
-        <div class="grpo-field"><label>From Date</label><input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" /></div>
-        <div class="grpo-field"><label>To Date</label><input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" /></div>
+        <div class="grpo-field"><label for="grpo-f-from">From Date</label><NocturneDateField Id="grpo-f-from" @bind-Date="fromDate" /></div>
+        <div class="grpo-field"><label for="grpo-f-to">To Date</label><NocturneDateField Id="grpo-f-to" @bind-Date="toDate" /></div>
         <div class="grpo-filter-actions"><button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button><button class="btn btn-outline-secondary" @onclick="ClearFiltersAsync" disabled="@isLoading">Clear</button></div>
     </div>
 

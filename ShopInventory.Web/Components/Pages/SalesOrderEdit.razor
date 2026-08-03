@@ -195,13 +195,17 @@
                             <h2>Order details</h2>
                         </div>
                         <div class="sfm-card-bd sfm-fields">
-                            <label class="sfm-lab">
-                                @* A native date input rather than MudDatePicker: it themes from this
-                                   sheet, and opens the platform picker. It shows the operator's own
-                                   locale format, not AppSettings.DateFormat — the browser owns that. *@
-                                <span class="sfm-lab-t">Delivery date</span>
-                                <input type="date" class="sfm-input" @bind="editRequest.DeliveryDate" />
-                            </label>
+                            @* NocturneDateField rather than MudDatePicker or a native date input:
+                               it themes from this sheet, takes the shorthand operators type
+                               (`030826`), and draws the same calendar as every other page.
+
+                               A div rather than a wrapping label because the field carries its
+                               own calendar button, and a label would forward a click on that
+                               button to the text input as well. *@
+                            <div class="sfm-lab">
+                                <label class="sfm-lab-t" for="sfm-delivery-date">Delivery date</label>
+                                <NocturneDateField Id="sfm-delivery-date" @bind-Date="editRequest.DeliveryDate" />
+                            </div>
                             <label class="sfm-lab">
                                 <span class="sfm-lab-t">Currency</span>
                                 <select class="sfm-select" @bind="editRequest.Currency">

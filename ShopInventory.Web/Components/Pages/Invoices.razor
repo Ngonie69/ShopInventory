@@ -168,11 +168,11 @@
             </div>
             <div class="ivx-field" style="width:140px">
                 <label for="ivx-f-from">From date</label>
-                <input id="ivx-f-from" class="ivx-input ivx-input-num" type="date" @bind="fromDate" />
+                <NocturneDateField Id="ivx-f-from" @bind-Date="fromDate" />
             </div>
             <div class="ivx-field" style="width:140px">
                 <label for="ivx-f-to">To date</label>
-                <input id="ivx-f-to" class="ivx-input ivx-input-num" type="date" @bind="toDate" />
+                <NocturneDateField Id="ivx-f-to" @bind-Date="toDate" />
             </div>
             <div class="ivx-filter-actions">
                 <button type="button" class="ivx-btn ivx-btn-ghost" @onclick="ClearFilter" disabled="@isLoading">

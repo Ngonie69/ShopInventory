@@ -68,10 +68,16 @@
                 </div>
                 <div class="dashboard-meta">
                     <div class="d-flex flex-wrap gap-2 align-items-end">
-                        <MudDatePicker @bind-Date="fromDate" Label="From Date" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                       DateFormat="yyyy-MM-dd" Style="min-width: 160px;" Editable="true" />
-                        <MudDatePicker @bind-Date="toDate" Label="To Date" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                       DateFormat="yyyy-MM-dd" Style="min-width: 160px;" Editable="true" />
+                        @* NocturneDateField rather than MudDatePicker: it draws the same calendar
+                           as the rest of the portal instead of MudBlazor's own. *@
+                        <div style="min-width: 160px;">
+                            <label class="form-label small fw-semibold text-uppercase text-muted" for="cis-f-from">From Date</label>
+                            <NocturneDateField Id="cis-f-from" Class="ndf-bs" @bind-Date="fromDate" />
+                        </div>
+                        <div style="min-width: 160px;">
+                            <label class="form-label small fw-semibold text-uppercase text-muted" for="cis-f-to">To Date</label>
+                            <NocturneDateField Id="cis-f-to" Class="ndf-bs" @bind-Date="toDate" />
+                        </div>
                         @if (isMultiAccount && linkedAccounts.Any())
                         {
                             <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"

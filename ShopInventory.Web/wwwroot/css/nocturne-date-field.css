@@ -18,6 +18,25 @@
    Every control selector is two classes deep (`.ndf .ndf-input`) to out-specify
    app.css's global `.dark-theme input/select` rules, which would otherwise
    repaint the field #1e293b regardless of load order.
+
+   ── Fitting the host page ──
+   The calendar is meant to be the same object everywhere; the closed field is
+   not. Each page sheet sets its own height, type size and edge for the text
+   and select controls in a filter row, and a date field two pixels taller than
+   the select beside it reads as a mistake rather than a design. So the eight
+   values that actually differ between the sheets are read through `var()`
+   fallbacks, and a page tunes them from its root:
+
+       .sox { --ndf-h: 32px; --ndf-fs: 14px; … }
+
+   They are fallbacks rather than declarations on `.ndf` on purpose: a value
+   set on `.ndf` itself would beat one inherited from the page root, and the
+   page could never win. Nothing below the field is reachable this way — the
+   popup is the design being standardised, so it is not up for negotiation.
+
+   The defaults are audit-trail.css's own `.aud-input`, which is what the field
+   was drawn against, so the pages that already share that palette need no
+   block at all.
    ========================================================================== */
 
 .ndf {
@@ -70,29 +89,58 @@
     z-index: 40;
 }
 
+/* ── The Bootstrap fit ──────────────────────────────────────────────────────
+   Several pages are still built out of Bootstrap rows, where the control next
+   to the date is a `.form-select` or `.form-control`. Those pages have no
+   sheet of their own to hold a tuning block, and there are enough of them that
+   ten copies of the same seven declarations is worse than one variant here.
+
+   The values are app.css's own `.form-control, .form-select` rule — not stock
+   Bootstrap, which that rule overrides on padding, type size, radius and edge
+   — plus the dark fill app.css gives it. Measured against a real `.form-select`
+   rather than read off, because the two disagree. Pass `Class="ndf-bs"`.
+
+   44px is where a `.form-select` lands with that padding around 15px text. */
+.ndf-bs {
+    --ndf-h: 44px;
+    --ndf-pad-y: .625rem;
+    --ndf-pad-x: .875rem;
+    --ndf-fs: .9375rem;
+    --ndf-radius: var(--radius, .5rem);
+    --ndf-fill: #fff;
+    --ndf-edge: var(--border-color, #e0e0e0);
+}
+
+.dark-theme .ndf-bs {
+    --ndf-fill: #1e293b;
+    --ndf-edge: var(--border-color);
+}
+
 /* ── The field ─────────────────────────────────────────────────────────── */
 
 .ndf .ndf-input {
     width: 100%;
-    min-height: 34px;
-    padding: 8px 34px 8px 12px;
+    /* The right padding is the calendar button's own room and is not a hook —
+       the button is a fixed 28px on every page. */
+    min-height: var(--ndf-h, 34px);
+    padding: var(--ndf-pad-y, 8px) 34px var(--ndf-pad-y, 8px) var(--ndf-pad-x, 12px);
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: 13px;
+    font-size: var(--ndf-fs, 13px);
     font-variant-numeric: tabular-nums;
     line-height: 1.3;
     color: var(--ndf-ink);
     caret-color: var(--ndf-accent);
-    background: var(--ndf-field-bg);
+    background: var(--ndf-fill, var(--ndf-field-bg));
     background-image: none;
-    border: 1px solid transparent;
-    border-radius: var(--ndf-r-md);
+    border: 1px solid var(--ndf-edge, transparent);
+    border-radius: var(--ndf-radius, var(--ndf-r-md));
     appearance: none;
     -webkit-appearance: none;
     transition: border-color .15s, background-color .15s;
 }
 
 .ndf .ndf-input:hover:not(:disabled) {
-    border-color: var(--ndf-field-edge);
+    border-color: var(--ndf-edge-hi, var(--ndf-field-edge));
 }
 
 .ndf .ndf-input:focus-visible {

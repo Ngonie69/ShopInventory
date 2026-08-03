@@ -239,9 +239,8 @@
                                                                 "TO")</small>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Effective Date</label>
-                                    <MudDatePicker @bind-Date="newRate.EffectiveDate" Variant="Variant.Outlined"
-                                                   Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
+                                    <label class="form-label" for="fx-effective-date">Effective Date</label>
+                                    <NocturneDateField Id="fx-effective-date" Class="ndf-bs" @bind-Date="newRate.EffectiveDate" />
                                 </div>
                                 <div class="col-12">
                                     <label class="form-label">Source</label>
