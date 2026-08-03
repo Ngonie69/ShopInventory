@@ -7,7 +7,7 @@
    showing a dark slab inside light chrome, which is what the shell's own
    Nocturne palette (nocturne-shell.css) exists to avoid. The light values here
    are that palette's --kfn-* light scale, so the page and the chrome around it
-   agree — same arrangement as settings.css and create-invoice.css.
+   agree — same arrangement as settings.css.
 
    Colour flows through five channel tokens (--exc-*-rgb) rather than literal
    rgba(), so every wash, hover film and hairline mixed from them flips with the
