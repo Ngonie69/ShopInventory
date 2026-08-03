@@ -1067,6 +1067,20 @@
         white-space: normal;
     }
 
+    /* A cell in card mode is a grid track, so an inline-flex child is stretched
+       to its width — which turns a two-word status badge into a full-width bar.
+       `.cpd-status` further down already carries this fix and says the same
+       thing; the POD list simply got there first. Everything else in a cell is
+       text, which does want the whole track, so this stays on the badge.
+
+       It hides at 390px, where the track is narrow enough that a stretched
+       badge reads as deliberate, and only shows itself on a tablet — which is
+       why a phone-width check would have passed it. */
+    .cpx.customer-shell .mobile-card-table tbody td > .badge,
+    .cpx.customer-shell .mobile-card-table tfoot td > .badge {
+        justify-self: start;
+    }
+
     .cpx.customer-shell .mobile-card-table tbody td::before,
     .cpx.customer-shell .mobile-card-table tfoot td::before {
         content: attr(data-label);
