@@ -99,15 +99,59 @@ public class ReportService : IReportService
         return $"{prefix}:{string.Join("|", normalizedParts)}";
     }
 
-    // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form. A bare 'yyyyMMdd'
-    // string is accepted as a valid literal but never matches stored dates, so the
-    // query silently returns zero rows (SAP -2028) instead of erroring.
+    // Fixed codes, not content-addressed ones. Each statement below is constant text — the date
+    // range arrives bound as :fromDate / :toDate — so one SAP query object serves every range a
+    // report is ever asked for. See the remarks on ExecuteReportSqlAsync for what interpolating the
+    // range instead cost.
+    internal const string SalesSummaryQueryCode = "RPT_SALES_SUM";
+    internal const string DailySalesQueryCode = "RPT_SALES_DAY";
+    internal const string ItemLastSaleQueryCode = "RPT_LASTSALE";
+    internal const string CustomerInvoiceQueryCode = "RPT_CUST_INV";
+    internal const string ReceivablesAgingQueryCode = "RPT_AR_AGING";
+    internal const string OrderFulfillmentCustomerQueryCode = "ORD_FULF_CUST";
+    internal const string OrderFulfillmentDailyQueryCode = "ORD_FULF_DAILY";
+    internal const string OrderFulfillmentLineQueryCode = "ORD_FULF_LINE";
+    internal const string OrderDirectInvoiceQueryCode = "ORDINV_DIR";
+
+    // Top products is the one report whose statement shape moves as well as its values: neither the
+    // TOP count nor an optional warehouse filter can be a bound parameter. Its code stays
+    // content-addressed so those shapes get an object each, while the dates bind like everywhere
+    // else — leaving the object count tied to the handful of offered shapes rather than to the
+    // date range.
+    internal const string TopProductsQueryCodePrefix = "RPT_TOP_PROD";
+
+    // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form, and accepts the same form for a
+    // bound date parameter. A bare 'yyyyMMdd' string is accepted as a valid literal but never
+    // matches stored dates, so the query silently returns zero rows (SAP -2028) instead of erroring.
     private static string ToSapSqlDate(DateTime date) =>
         date.Date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The <c>:fromDate</c> / <c>:toDate</c> pair every date-ranged report statement binds.
+    /// </summary>
+    private static Dictionary<string, string> BuildDateRangeParameters(DateTime fromDate, DateTime toDate) =>
+        new(StringComparer.Ordinal)
+        {
+            ["fromDate"] = ToSapSqlDate(fromDate),
+            ["toDate"] = ToSapSqlDate(toDate)
+        };
 
     private static string SanitizeSqlValue(string value) =>
         value.Replace("'", "''");
 
+    /// <summary>
+    /// Currency predicates for the reports that split USD from ZiG inside a <c>SUM(CASE WHEN …)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Every statement built on these is currently rejected by SAP and cannot be created at all:
+    /// the SQLQueries validator refuses <c>CASE</c> outright with
+    /// <c>701 "Cannot support the case expression"</c>, confirmed 2026-08-03 against the live
+    /// Service Layer for a bare <c>SUM(CASE WHEN … END)</c> with no parameters involved. That takes
+    /// sales summary, daily sales, customer invoices, receivables aging and top products down at
+    /// create, before a row is read. Their date ranges are bound like every other report's, so they
+    /// cost no OUQR rows meanwhile and stop leaking the moment the blocker is lifted — but lifting
+    /// it means doing the currency split in C# off a <c>GROUP BY T0."DocCur"</c>, not in SQL.
+    /// </remarks>
     private static string BuildUsdCurrencyPredicate(string columnName) =>
         $"({columnName} = 'USD' OR {columnName} = '$' OR {columnName} IS NULL OR {columnName} = '')";
 
@@ -156,6 +200,29 @@ public class ReportService : IReportService
             queryCodePrefix,
             queryName,
             sqlText,
+            cancellationToken);
+
+    /// <summary>
+    /// Runs a report statement whose date range arrives as bound parameters, under a fixed code.
+    /// </summary>
+    /// <remarks>
+    /// The statements that use this are constant text, so SAP holds exactly one query object each,
+    /// however many ranges are asked for. Interpolating the range instead — which every report here
+    /// used to do — pushed the text through the content-addressed executor, which only reuses an
+    /// object when the text is byte-identical. A moving date range never is, so each report view
+    /// left permanent OUQR rows behind that could not practically be deleted.
+    /// </remarks>
+    private Task<List<Dictionary<string, object?>>> ExecuteReportSqlAsync(
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        CancellationToken cancellationToken) =>
+        _sapClient.ExecuteParameterisedSqlQueryAsync(
+            queryCode,
+            queryName,
+            sqlText,
+            parameters,
             cancellationToken);
 
     private static CacheTelemetryCounters GetTelemetryCounters(string cacheName)
@@ -290,10 +357,25 @@ public class ReportService : IReportService
             cancellationToken);
     }
 
+    private Task<List<Dictionary<string, object?>>> GetCachedReportSqlRowsAsync(
+        string cacheName,
+        string cacheKey,
+        string queryCode,
+        string queryName,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        CancellationToken cancellationToken)
+    {
+        return GetOrCreateCachedAsync(
+            cacheName,
+            cacheKey,
+            ReportDataCacheDuration,
+            token => ExecuteReportSqlAsync(queryCode, queryName, sqlText, parameters, token),
+            cancellationToken);
+    }
+
     private Task<List<Dictionary<string, object?>>> GetCachedSalesSummaryRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
         var currencyColumn = @"T0.""DocCur""";
         var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
         var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
@@ -308,21 +390,20 @@ public class ReportService : IReportService
             SUM(CASE WHEN {zigPredicate} THEN T0.""VatSum"" ELSE 0 END) AS ""TotalVatZIG"",
             COUNT(DISTINCT T0.""CardCode"") AS ""UniqueCustomers""
         FROM OINV T0
-        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'";
+        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate";
 
         return GetCachedReportSqlRowsAsync(
             "report-data:sales-summary",
             BuildReportCacheKey("report-data:sales-summary", fromDate, toDate),
-            "RPT_SALES_SUM",
+            SalesSummaryQueryCode,
             "Report Sales Summary",
             sqlText,
+            BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
     }
 
     private Task<List<Dictionary<string, object?>>> GetCachedDailySalesRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
         var currencyColumn = @"T0.""DocCur""";
         var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
         var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
@@ -333,16 +414,17 @@ public class ReportService : IReportService
             SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesUSD"",
             SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesZIG""
         FROM OINV T0
-        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
         GROUP BY T0.""DocDate""
         ORDER BY T0.""DocDate""";
 
         return GetCachedReportSqlRowsAsync(
             "report-data:sales-daily",
             BuildReportCacheKey("report-data:sales-daily", fromDate, toDate),
-            "RPT_SALES_DAY",
+            DailySalesQueryCode,
             "Report Daily Sales",
             sqlText,
+            BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
     }
 
@@ -353,8 +435,6 @@ public class ReportService : IReportService
         string? warehouseCode,
         CancellationToken cancellationToken)
     {
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
         var clampedTopCount = Math.Clamp(topCount, 1, 1000);
         var warehouseFilter = string.IsNullOrWhiteSpace(warehouseCode)
             ? string.Empty
@@ -373,16 +453,24 @@ public class ReportService : IReportService
         FROM OINV T0
         INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
         LEFT JOIN OITM T2 ON T1.""ItemCode"" = T2.""ItemCode""
-        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'{warehouseFilter}
+        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate{warehouseFilter}
         GROUP BY T1.""ItemCode"", T2.""ItemName""
         ORDER BY SUM(T1.""Quantity"") DESC";
 
-        return GetCachedReportSqlRowsAsync(
+        // Scoped rather than fixed: TOP and the warehouse clause are still part of the text, so a
+        // fixed code would have the shapes overwriting each other's SqlText on every call. The UI
+        // offers three counts and no warehouse, so this is a handful of objects, and the date range
+        // — the part that used to move on every request — no longer contributes to it.
+        return GetOrCreateCachedAsync(
             "report-data:top-products",
             BuildReportCacheKey("report-data:top-products", fromDate, toDate, clampedTopCount, warehouseCode),
-            "RPT_TOP_PROD",
-            "Report Top Products",
-            sqlText,
+            ReportDataCacheDuration,
+            token => _sapClient.ExecuteScopedParameterisedSqlQueryAsync(
+                TopProductsQueryCodePrefix,
+                "Report Top Products",
+                sqlText,
+                BuildDateRangeParameters(fromDate, toDate),
+                token),
             cancellationToken);
     }
 
@@ -409,30 +497,26 @@ public class ReportService : IReportService
 
     private Task<List<Dictionary<string, object?>>> GetCachedItemLastSaleRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
-
-        var sqlText = $@"SELECT
+        var sqlText = @"SELECT
             T1.""ItemCode"",
             MAX(T0.""DocDate"") AS ""LastSoldDate""
         FROM OINV T0
         INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
-        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
         GROUP BY T1.""ItemCode""";
 
         return GetCachedReportSqlRowsAsync(
             "report-data:item-last-sales",
             BuildReportCacheKey("report-data:item-last-sales", fromDate, toDate),
-            "RPT_LASTSALE",
+            ItemLastSaleQueryCode,
             "Report Item Last Sales",
             sqlText,
+            BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
     }
 
     private Task<List<Dictionary<string, object?>>> GetCachedCustomerInvoiceRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
         var currencyColumn = @"T0.""DocCur""";
         var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
         var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
@@ -444,29 +528,31 @@ public class ReportService : IReportService
             SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalPurchasesUSD"",
             SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalPurchasesZIG""
         FROM OINV T0
-        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
         GROUP BY T0.""CardCode"", T0.""CardName""";
 
         return GetCachedReportSqlRowsAsync(
             "report-data:customer-invoices",
             BuildReportCacheKey("report-data:customer-invoices", fromDate, toDate),
-            "RPT_CUST_INV",
+            CustomerInvoiceQueryCode,
             "Report Customer Invoices",
             sqlText,
+            BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
     }
 
     private Task<List<Dictionary<string, object?>>> GetCachedReceivablesAgingRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
     {
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
+        // The bucket boundaries roll with today's date, so interpolating them gave this statement a
+        // fresh text — and so a fresh SAP query object — every single day, on top of the one per
+        // date range. Bound like the range, the text is constant and the boundaries still move.
         var currentBoundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-30));
         var days31Boundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-60));
         var days61Boundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-90));
-        var bucketSql = $@"CASE
-            WHEN T0.""DocDate"" >= '{currentBoundary}' THEN 'Current'
-            WHEN T0.""DocDate"" >= '{days31Boundary}' THEN '31-60'
-            WHEN T0.""DocDate"" >= '{days61Boundary}' THEN '61-90'
+        var bucketSql = @"CASE
+            WHEN T0.""DocDate"" >= :currentBoundary THEN 'Current'
+            WHEN T0.""DocDate"" >= :days31Boundary THEN '31-60'
+            WHEN T0.""DocDate"" >= :days61Boundary THEN '61-90'
             ELSE '90+'
         END";
 
@@ -478,17 +564,23 @@ public class ReportService : IReportService
             COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
             SUM(T0.""DocTotal"" - T0.""PaidToDate"") AS ""OutstandingAmount""
         FROM OINV T0
-        WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
             AND (T0.""DocTotal"" - T0.""PaidToDate"") > 0.01
         GROUP BY T0.""CardCode"", T0.""CardName"", {bucketSql}, T0.""DocCur""
         ORDER BY T0.""CardName""";
 
+        var parameters = BuildDateRangeParameters(fromDate, toDate);
+        parameters["currentBoundary"] = currentBoundary;
+        parameters["days31Boundary"] = days31Boundary;
+        parameters["days61Boundary"] = days61Boundary;
+
         return GetCachedReportSqlRowsAsync(
             "report-data:receivables-aging",
             BuildReportCacheKey("report-data:receivables-aging", fromDate, toDate, currentBoundary),
-            "RPT_AR_AGING",
+            ReceivablesAgingQueryCode,
             "Report Receivables Aging",
             sqlText,
+            parameters,
             cancellationToken);
     }
 
@@ -1112,14 +1204,13 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating sales order vs invoice report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
 
-        var fromStr = ToSapSqlDate(fromDate);
-        var toStr = ToSapSqlDate(toDate);
+        var dateRange = BuildDateRangeParameters(fromDate, toDate);
 
         // 1) Summary by customer + status + currency — aggregated, far fewer rows than individual orders
-        var customerSql = $@"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' AND T0.""CANCELED"" = 'N' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
+        var customerSql = @"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
 
         // 2) Daily summary — one row per date+status+currency
-        var dailySql = $@"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}' AND T0.""CANCELED"" = 'N' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
+        var dailySql = @"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
         // 3) Order line detail used by the dedicated order-vs-invoice page and exports.
         // The quantity and value columns are selected bare. SAP's SQLQueries validator rejects
@@ -1128,7 +1219,7 @@ public class ReportService : IReportService
         // never needed anyway: GetRowDecimal already reads a missing or null cell as 0.
         // QuantityPending is not selected either: ApplyOrderInvoiceMetrics computes it from the
         // invoiced quantity and overwrites the key on every row before anything reads it.
-        var detailSql = $@"SELECT
+        var detailSql = @"SELECT
     T0.""DocEntry"" AS ""DocEntry"",
     T0.""DocNum"" AS ""DocNum"",
     T0.""DocDate"" AS ""DocDate"",
@@ -1149,13 +1240,13 @@ public class ReportService : IReportService
     T1.""LineStatus"" AS ""LineStatus""
 FROM ORDR T0
 INNER JOIN RDR1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
-WHERE T0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
   AND T0.""CANCELED"" = 'N'
 ORDER BY T0.""DocDate"" DESC, T0.""DocNum"" DESC, T1.""LineNum""";
 
         // Match invoices raised directly from the sales order (INV1.BaseType = 17),
         // line-for-line on BaseEntry/BaseLine, excluding cancelled orders and invoices.
-        var directInvoiceSql = $@"SELECT
+        var directInvoiceSql = @"SELECT
     T1.""BaseEntry"" AS ""OrderDocEntry"",
     T1.""BaseLine"" AS ""OrderLineNum"",
     T0.""DocNum"" AS ""InvoiceDocNum"",
@@ -1167,13 +1258,13 @@ INNER JOIN ORDR O0 ON O0.""DocEntry"" = T1.""BaseEntry""
 WHERE T1.""BaseType"" = 17
   AND T0.""CANCELED"" = 'N'
   AND O0.""CANCELED"" = 'N'
-  AND O0.""DocDate"" BETWEEN '{fromStr}' AND '{toStr}'
+  AND O0.""DocDate"" >= :fromDate AND O0.""DocDate"" <= :toDate
 GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
-        var customerRows = await ExecuteReportSqlAsync("ORD_FULF_CUST", "Sales Order Vs Invoice By Customer", customerSql, cancellationToken);
-        var dailyRows = await ExecuteReportSqlAsync("ORD_FULF_DAILY", "Sales Order Vs Invoice Daily", dailySql, cancellationToken);
-        var detailRows = await ExecuteReportSqlAsync("ORD_FULF_LINE", "Order Vs Invoice Lines", detailSql, cancellationToken);
-        var directInvoiceRows = await ExecuteReportSqlAsync("ORDINV_DIR", "Sales Order Direct Invoice Lines", directInvoiceSql, cancellationToken);
+        var customerRows = await ExecuteReportSqlAsync(OrderFulfillmentCustomerQueryCode, "Sales Order Vs Invoice By Customer", customerSql, dateRange, cancellationToken);
+        var dailyRows = await ExecuteReportSqlAsync(OrderFulfillmentDailyQueryCode, "Sales Order Vs Invoice Daily", dailySql, dateRange, cancellationToken);
+        var detailRows = await ExecuteReportSqlAsync(OrderFulfillmentLineQueryCode, "Order Vs Invoice Lines", detailSql, dateRange, cancellationToken);
+        var directInvoiceRows = await ExecuteReportSqlAsync(OrderDirectInvoiceQueryCode, "Sales Order Direct Invoice Lines", directInvoiceSql, dateRange, cancellationToken);
         ApplyOrderInvoiceMetrics(detailRows, directInvoiceRows);
 
         // Process customer aggregation into totals and by-customer breakdown
