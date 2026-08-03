@@ -56,11 +56,24 @@ public class ReportService : IReportService
     }
 
     /// <summary>
-    /// Parse SAP date string (yyyy-MM-dd) to DateTime
+    /// Parse a date as SAP returns it, in either of the two shapes that reach this class.
     /// </summary>
+    /// <remarks>
+    /// OData entity reads answer with ISO 8601 — "2026-08-02T00:00:00Z" — which TryParse handles.
+    /// The SQLQueries List endpoint does not: it answers with the bare HANA form, 20231228, which
+    /// arrives as a JSON number and stringifies to eight digits that TryParse rejects outright. The
+    /// result was DateTime.MinValue on every SQL-backed row, so the sales order vs invoice report
+    /// showed "-" for every order date, sorted by a constant, and could never mark an order overdue.
+    /// Note this is the inverse of the outbound rule: dates are *sent* to SAP as 'yyyy-MM-dd'
+    /// (see <see cref="ToSapSqlDate"/>) and come back as 'yyyyMMdd'.
+    /// </remarks>
     private static DateTime ParseSapDate(string? dateStr)
     {
         if (string.IsNullOrEmpty(dateStr)) return DateTime.MinValue;
+
+        if (DateTime.TryParseExact(dateStr, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var compact))
+            return compact;
+
         if (DateTime.TryParse(dateStr, out var dt)) return dt;
         return DateTime.MinValue;
     }
@@ -1200,10 +1213,12 @@ public class ReportService : IReportService
         var dailySql = @"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
         // 3) Order line detail used by the dedicated order-vs-invoice page and exports.
-        // No COALESCE: SAP's SQLQueries validator rejects it outright (701, "Cannot support this
-        // function or expression") and the rejection lands at create, taking the whole report down
-        // before a row is read. The row readers below already turn a missing or null cell into 0,
-        // so the wrappers bought nothing even before SAP refused them.
+        // The quantity and value columns are selected bare. SAP's SQLQueries validator rejects
+        // COALESCE outright — "Cannot support this function or expression: 'COALESCE'" (701) — at
+        // create time, so the whole report answered 400 rather than returning a row. Wrapping was
+        // never needed anyway: GetRowDecimal already reads a missing or null cell as 0.
+        // QuantityPending is not selected either: ApplyOrderInvoiceMetrics computes it from the
+        // invoiced quantity and overwrites the key on every row before anything reads it.
         var detailSql = @"SELECT
     T0.""DocEntry"" AS ""DocEntry"",
     T0.""DocNum"" AS ""DocNum"",
@@ -1220,7 +1235,6 @@ public class ReportService : IReportService
     T1.""Dscription"" AS ""ItemDescription"",
     T1.""WhsCode"" AS ""WarehouseCode"",
     T1.""Quantity"" AS ""QuantityOrdered"",
-    T1.""Quantity"" AS ""QuantityPending"",
     T1.""Price"" AS ""UnitPrice"",
     T1.""LineTotal"" AS ""LineTotal"",
     T1.""LineStatus"" AS ""LineStatus""

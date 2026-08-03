@@ -60,14 +60,25 @@ public class IdempotencyMiddleware
             "POST /api/invoice/pods/validate-bulk",
     };
 
-    // Endpoints whose handler owns idempotency through IIdempotencyRequestStore, which persists the
-    // response and replays the real document. This middleware cannot: it only remembers a status
-    // code, so its replay answers with a bare message and the caller never learns what was created.
-    // Because the key branch below triggers on the header alone — for any path, enforced or not —
-    // letting it run here would shadow the handler and lose exactly the document the retry wanted.
-    // Matched on both ends because the variable segment sits in the middle. A bare prefix of
-    // "POST /api/crates/transactions/" would also swallow .../ensure-invoice, which owns no
-    // idempotency of its own.
+    // Endpoints whose handler owns idempotency, either through IIdempotencyRequestStore or through a
+    // unique key on the document itself. Both persist enough to replay the real document; this
+    // middleware cannot, because it only remembers a status code, so its replay answers with a bare
+    // message and the caller never learns what was created. Because the key branch below triggers on
+    // the header alone — for any path, enforced or not — letting it run here would shadow the handler
+    // and lose exactly the document the retry wanted. Keyless enforcement below still applies: owning
+    // the replay is not the same as being allowed to arrive without a key.
+    private static readonly HashSet<string> HandlerOwnedIdempotencyEndpoints = new(StringComparer.OrdinalIgnoreCase)
+    {
+            // SalesOrderService.CreateAsync dedupes on ClientRequestId — which is the header, copied
+            // across by the controller — against a unique index, and returns the existing order. That
+            // guard also outranks this one: the dictionary here is per-process, so it cannot see a
+            // duplicate that landed on another instance, and it treats a failed attempt as done.
+            "POST /api/salesorder",
+    };
+
+    // The same, for routes whose path carries a variable segment. Matched on both ends because that
+    // segment sits in the middle. A bare prefix of "POST /api/crates/transactions/" would also
+    // swallow .../ensure-invoice, which owns no idempotency of its own.
     private static readonly (string Prefix, string Suffix)[] HandlerOwnedIdempotencyRoutes =
     {
             ("POST /api/crates/transactions/", "/pods"),
@@ -113,17 +124,27 @@ public class IdempotencyMiddleware
         var requiresIdempotency = IdempotencyRequiredPaths.Any(p => path.StartsWith(p));
         var endpointKey = $"{context.Request.Method} {path.TrimEnd('/')}";
 
-        if (IdempotencySkippedEndpoints.Contains(endpointKey) || IsHandlerOwnedIdempotency(endpointKey))
+        if (IdempotencySkippedEndpoints.Contains(endpointKey))
         {
             await _next(context);
             return;
         }
+
+        // Handler-owned routes still face the keyless check below — they own the replay, not the
+        // right to arrive without a key — so this only decides whether to reserve and replay here.
+        var handlerOwnsIdempotency = IsHandlerOwnedIdempotency(endpointKey);
 
         // Get idempotency key from header
         var idempotencyKey = context.Request.Headers["Idempotency-Key"].FirstOrDefault();
 
         if (!string.IsNullOrEmpty(idempotencyKey))
         {
+            if (handlerOwnsIdempotency)
+            {
+                await _next(context);
+                return;
+            }
+
             // Clean up expired keys periodically
             CleanupExpiredKeys();
 
@@ -155,14 +176,20 @@ public class IdempotencyMiddleware
             try
             {
                 await _next(context);
-                if (context.Response.StatusCode >= StatusCodes.Status500InternalServerError)
+                if (IsSuccess(context.Response.StatusCode))
                 {
-                    // Failed operations must remain retryable with the same stable key.
-                    ProcessedKeys.TryRemove(compositeKey, out _);
+                    ProcessedKeys[compositeKey] = (DateTime.UtcNow, context.Response.StatusCode);
                 }
                 else
                 {
-                    ProcessedKeys[compositeKey] = (DateTime.UtcNow, context.Response.StatusCode);
+                    // Only a success means a document exists, and only then is there anything to
+                    // protect. Every other outcome created nothing, so it must remain retryable with
+                    // the same stable key — a client that reuses its key (the mobile app keeps one
+                    // per draft, for as long as the draft lives) would otherwise be locked out of
+                    // its own order for the rest of the expiry window. Remembering a 4xx also costs
+                    // the caller the reason it failed: the replay below answers with a bare
+                    // "duplicate request" message in place of the real refusal.
+                    ProcessedKeys.TryRemove(compositeKey, out _);
                 }
             }
             catch
@@ -202,8 +229,13 @@ public class IdempotencyMiddleware
             }
 
             // Other business-critical paths: warn loudly but don't block yet (clients not updated).
-            _logger.LogWarning("No Idempotency-Key provided for business-critical path {Path} from IP {Ip}",
-                path, context.Connection.RemoteIpAddress);
+            // Nothing to warn about on a handler-owned route: it derives its own key from the body.
+            if (!handlerOwnsIdempotency)
+            {
+                _logger.LogWarning("No Idempotency-Key provided for business-critical path {Path} from IP {Ip}",
+                    path, context.Connection.RemoteIpAddress);
+            }
+
             await _next(context);
         }
         else
@@ -212,8 +244,14 @@ public class IdempotencyMiddleware
         }
     }
 
+    private static bool IsSuccess(int statusCode)
+        => statusCode is >= StatusCodes.Status200OK and < StatusCodes.Status300MultipleChoices;
+
     private static bool IsHandlerOwnedIdempotency(string endpointKey)
     {
+        if (HandlerOwnedIdempotencyEndpoints.Contains(endpointKey))
+            return true;
+
         foreach (var (prefix, suffix) in HandlerOwnedIdempotencyRoutes)
         {
             if (endpointKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)

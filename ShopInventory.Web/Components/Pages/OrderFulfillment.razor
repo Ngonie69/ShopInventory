@@ -13,273 +13,374 @@
 
 <PageTitle>Sales Order vs Invoice - Shop Inventory</PageTitle>
 
-<div class="of-page">
-    <section class="of-header">
-        <div>
-            <span class="of-kicker">Sales Operations</span>
-            <h1>Sales order vs invoice</h1>
-            <p>Review ordered quantities, invoiced quantities, pending invoice quantities, and line values for the selected period.</p>
-        </div>
-        <div class="of-header-actions">
-            <button type="button" class="of-button of-button--secondary" @onclick="ExportToExcelAsync"
-                    disabled="@(isLoading || isExporting || report is null)">
-                @(isExporting ? "Exporting..." : "Export Excel")
-            </button>
-        </div>
-    </section>
+@* Nocturne, carried by wwwroot/css/order-fulfillment.css (linked from App.razor)
+   in both schemes, following the app's theme toggle like every other page. The
+   palette and density scale are sales-orders.css's, unchanged, so the report
+   reads as part of the same system as the list pages it is read alongside.
 
-    <section class="of-filter-panel">
-        <label class="of-field">
-            <span>From</span>
-            <InputDate class="of-input" @bind-Value="fromDate" @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
-        </label>
-        <label class="of-field">
-            <span>To</span>
-            <InputDate class="of-input" @bind-Value="toDate" @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
-        </label>
-        <label class="of-field">
-            <span>Quick range</span>
-            <select class="of-select" value="@quickRangeDays" @onchange="OnQuickRangeChanged" disabled="@isLoading">
-                <option value="0">Select range</option>
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="180">Last 6 months</option>
-                <option value="365">Last year</option>
-            </select>
-        </label>
-        <label class="of-field of-field--wide">
-            <span>Search</span>
-            <input class="of-input" type="search" placeholder="Order, customer, item, warehouse"
-                   @bind="searchText" @bind:event="oninput" disabled="@isLoading" />
-        </label>
-        <label class="of-field">
-            <span>Line status</span>
-            <select class="of-select" @bind="lineStatusFilter" disabled="@isLoading">
-                <option value="All">All lines</option>
-                <option value="Pending">Pending</option>
-                <option value="Partial">Partial</option>
-                <option value="Invoiced">Invoiced</option>
-            </select>
-        </label>
-        <div class="of-filter-actions">
-            <button type="button" class="of-button of-button--primary" @onclick="LoadReportAsync" disabled="@(isLoading || !HasSelectedRange)">
-                @(isLoading ? "Loading..." : PrimaryActionLabel)
-            </button>
-            <button type="button" class="of-button of-button--secondary" @onclick="ResetFiltersAsync" disabled="@isLoading">
-                Reset
-            </button>
-        </div>
-    </section>
+   The disclosure twist draws its glyph inline rather than from the Phosphor
+   font: it is the control's whole label, so a font that fails to load would
+   leave every order looking like a dead row. *@
 
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="of-alert of-alert--error" role="alert">@errorMessage</div>
-    }
+<div class="ofx">
 
-    @if (isLoading)
-    {
-        <section class="of-state">
-            <div class="spinner-border text-primary" role="status"></div>
-            <strong>Loading sales order vs invoice</strong>
-            <span>Fetching sales order and invoice quantities from SAP.</span>
-        </section>
-    }
-    else if (!hasLoaded)
-    {
-        <section class="of-state">
-            <strong>Ready to load</strong>
-            <span>Choose a date range and load the sales order vs invoice report.</span>
-        </section>
-    }
-    else if (report is null || report.TotalOrders == 0)
-    {
-        <section class="of-state">
-            <strong>No sales order vs invoice data found</strong>
-            <span>Try a wider date range or clear the filters.</span>
-        </section>
-    }
-    else
-    {
-        <section class="of-metrics">
-            <article class="of-metric">
-                <span>Total orders</span>
-                <strong>@report.TotalOrders.ToString("N0")</strong>
-                <small>@report.OpenOrders.ToString("N0") open, @report.ClosedOrders.ToString("N0") closed</small>
-            </article>
-            <article class="of-metric">
-                <span>Invoice rate</span>
-                <strong>@report.FulfillmentRatePercent.ToString("N1")%</strong>
-                <small>@report.FullyDeliveredLines.ToString("N0") invoiced lines</small>
-            </article>
-            <article class="of-metric">
-                <span>Quantity ordered</span>
-                <strong>@report.Orders.Sum(order => order.TotalQuantityOrdered).ToString("N2")</strong>
-                <small>@report.Orders.Sum(order => order.TotalQuantityDelivered).ToString("N2") invoiced</small>
-            </article>
-            <article class="of-metric of-metric--warning">
-                <span>Quantity pending</span>
-                <strong>@report.Orders.Sum(order => order.TotalQuantityPending).ToString("N2")</strong>
-                <small>@report.UndeliveredLines.ToString("N0") pending lines</small>
-            </article>
-            <article class="of-metric of-metric--money">
-                <span>Total order value</span>
-                <strong>@FormatMoneyPair(report.TotalOrderValueUSD, report.TotalOrderValueZIG)</strong>
-                <small>Invoiced @FormatMoneyPair(report.TotalDeliveredValueUSD, report.TotalDeliveredValueZIG)</small>
-            </article>
-            <article class="of-metric of-metric--danger">
-                <span>Pending value</span>
-                <strong>@FormatMoneyPair(report.TotalPendingValueUSD, report.TotalPendingValueZIG)</strong>
-                <small>Based on pending line quantities</small>
-            </article>
-        </section>
-
-        <section class="of-panel">
-            <div class="of-panel-header">
-                <div>
-                    <h2>Orders &amp; item lines</h2>
-                    <p>@filteredOrders.Count.ToString("N0") matching orders. Click an order to see its item lines, unit prices and ordered / invoiced / pending values.</p>
+    <header class="ofx-head">
+        <div class="ofx-shell">
+            <div class="ofx-titles">
+                <span class="ofx-kicker">Sales operations</span>
+                <div class="ofx-titles-row">
+                    <i class="ph ph-scales" aria-hidden="true"></i>
+                    <h1 class="ofx-title">Sales order vs invoice</h1>
                 </div>
-                <div class="of-mini-totals">
-                    <span>Ordered <strong>@filteredTotals.Ordered.ToString("N2")</strong></span>
-                    <span>Invoiced <strong>@filteredTotals.Delivered.ToString("N2")</strong></span>
-                    <span>Pending <strong>@filteredTotals.Pending.ToString("N2")</strong></span>
-                    <span>Value <strong>@FormatMoneyPair(filteredTotals.ValueUsd, filteredTotals.ValueZig)</strong></span>
-                    <span>Pending value <strong>@FormatMoneyPair(filteredTotals.PendingUsd, filteredTotals.PendingZig)</strong></span>
+                <p class="ofx-sub">Ordered, invoiced and pending quantities with line values for the selected period.</p>
+            </div>
+            <div class="ofx-head-actions">
+                @if (report is not null)
+                {
+                    <span class="ofx-count">@report.TotalOrders.ToString("N0") orders</span>
+                }
+                <button type="button" class="ofx-btn ofx-btn-secondary" @onclick="ExportToExcelAsync"
+                        disabled="@(isLoading || isExporting || report is null)">
+                    <i class="ph ph-file-xls" aria-hidden="true"></i>@(isExporting ? "Exporting…" : "Export Excel")
+                </button>
+            </div>
+        </div>
+        <div class="ofx-rule"></div>
+    </header>
+
+    <div class="ofx-body">
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="ofx-alert" role="alert">
+                <i class="ph ph-warning-octagon" aria-hidden="true"></i>
+                <div class="ofx-alert-body">@errorMessage</div>
+            </div>
+        }
+
+        <section class="ofx-filters">
+            <div class="ofx-field" style="width:150px">
+                <label for="ofx-f-from">From</label>
+                <InputDate id="ofx-f-from" class="ofx-input ofx-input-num" @bind-Value="fromDate"
+                           @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
+            </div>
+            <div class="ofx-field" style="width:150px">
+                <label for="ofx-f-to">To</label>
+                <InputDate id="ofx-f-to" class="ofx-input ofx-input-num" @bind-Value="toDate"
+                           @bind-Value:after="OnDateRangeChanged" disabled="@isLoading" />
+            </div>
+            <div class="ofx-field" style="width:170px">
+                <label for="ofx-f-range">Quick range</label>
+                <div class="ofx-select">
+                    <select id="ofx-f-range" class="ofx-input" value="@quickRangeDays"
+                            @onchange="OnQuickRangeChanged" disabled="@isLoading">
+                        <option value="0">Select range</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                        <option value="180">Last 6 months</option>
+                        <option value="365">Last year</option>
+                    </select>
+                    <span class="ofx-caret" aria-hidden="true"></span>
                 </div>
             </div>
-
-            @if (!filteredOrders.Any())
-            {
-                <div class="of-empty">
-                    <strong>No matching orders</strong>
-                    <span>Clear the search or choose a different line status.</span>
+            <div class="ofx-field" style="width:260px">
+                <label for="ofx-f-search">Search</label>
+                <input id="ofx-f-search" class="ofx-input" type="search" placeholder="Order, customer, item, warehouse"
+                       @bind="searchText" @bind:event="oninput" disabled="@isLoading" />
+            </div>
+            <div class="ofx-field" style="width:150px">
+                <label for="ofx-f-status">Line status</label>
+                <div class="ofx-select">
+                    <select id="ofx-f-status" class="ofx-input" @bind="lineStatusFilter" disabled="@isLoading">
+                        <option value="All">All lines</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Partial">Partial</option>
+                        <option value="Invoiced">Invoiced</option>
+                    </select>
+                    <span class="ofx-caret" aria-hidden="true"></span>
                 </div>
-            }
-            else
-            {
-                <div class="of-toolbar">
-                    <button type="button" class="of-button of-button--secondary of-button--sm" @onclick="ExpandAll">Expand all</button>
-                    <button type="button" class="of-button of-button--secondary of-button--sm" @onclick="CollapseAll">Collapse all</button>
+            </div>
+            <div class="ofx-filter-actions">
+                <button type="button" class="ofx-btn ofx-btn-ghost" @onclick="ResetFiltersAsync" disabled="@isLoading">
+                    Reset
+                </button>
+                <button type="button" class="ofx-btn ofx-btn-primary" @onclick="LoadReportAsync"
+                        disabled="@(isLoading || !HasSelectedRange)">
+                    <i class="ph ph-arrow-clockwise" aria-hidden="true"></i>@(isLoading ? "Loading…" : PrimaryActionLabel)
+                </button>
+            </div>
+        </section>
+
+        @if (isLoading)
+        {
+            <section class="ofx-card">
+                <div class="ofx-empty">
+                    <div class="ofx-spinner" aria-hidden="true"></div>
+                    <strong>Loading sales order vs invoice</strong>
+                    <span class="ofx-empty-sub">Reading sales order and invoice quantities from SAP. A wide date range can take a minute.</span>
+                </div>
+            </section>
+        }
+        else if (!hasLoaded)
+        {
+            <section class="ofx-card">
+                <div class="ofx-empty">
+                    <i class="ph ph-calendar-blank" aria-hidden="true"></i>
+                    <strong>Ready to load</strong>
+                    <span class="ofx-empty-sub">Choose a date range and load the report.</span>
+                </div>
+            </section>
+        }
+        else if (report is null || report.TotalOrders == 0)
+        {
+            <section class="ofx-card">
+                <div class="ofx-empty">
+                    <i class="ph ph-tray" aria-hidden="true"></i>
+                    <strong>No orders in this period</strong>
+                    <span class="ofx-empty-sub">Try a wider date range or clear the filters.</span>
+                </div>
+            </section>
+        }
+        else
+        {
+            <section class="ofx-figures" aria-label="Report totals">
+                <div class="ofx-figure">
+                    <span class="ofx-figure-mark" aria-hidden="true"><i class="ph ph-receipt"></i></span>
+                    <div class="ofx-figure-text">
+                        <div class="ofx-figure-value">@report.TotalOrders.ToString("N0")</div>
+                        <div class="ofx-figure-label">Total orders</div>
+                        <div class="ofx-figure-note">@report.OpenOrders.ToString("N0") open, @report.ClosedOrders.ToString("N0") closed</div>
+                    </div>
+                </div>
+                <div class="ofx-figure">
+                    <span class="ofx-figure-mark" aria-hidden="true"><i class="ph ph-check-circle"></i></span>
+                    <div class="ofx-figure-text">
+                        <div class="ofx-figure-value">@report.FulfillmentRatePercent.ToString("N1")%</div>
+                        <div class="ofx-figure-label">Invoice rate</div>
+                        <div class="ofx-figure-note">@report.FullyDeliveredLines.ToString("N0") invoiced lines</div>
+                    </div>
+                </div>
+                <div class="ofx-figure">
+                    <span class="ofx-figure-mark is-quiet" aria-hidden="true"><i class="ph ph-stack"></i></span>
+                    <div class="ofx-figure-text">
+                        <div class="ofx-figure-value">@report.Orders.Sum(order => order.TotalQuantityOrdered).ToString("N2")</div>
+                        <div class="ofx-figure-label">Quantity ordered</div>
+                        <div class="ofx-figure-note">@report.Orders.Sum(order => order.TotalQuantityDelivered).ToString("N2") invoiced</div>
+                    </div>
+                </div>
+                <div class="ofx-figure">
+                    <span class="ofx-figure-mark is-warn" aria-hidden="true"><i class="ph ph-hourglass-medium"></i></span>
+                    <div class="ofx-figure-text">
+                        <div class="ofx-figure-value is-warn">@report.Orders.Sum(order => order.TotalQuantityPending).ToString("N2")</div>
+                        <div class="ofx-figure-label">Quantity pending</div>
+                        <div class="ofx-figure-note">@report.UndeliveredLines.ToString("N0") pending lines</div>
+                    </div>
+                </div>
+                <div class="ofx-figure">
+                    <span class="ofx-figure-mark is-quiet" aria-hidden="true"><i class="ph ph-currency-circle-dollar"></i></span>
+                    <div class="ofx-figure-text">
+                        <div class="ofx-figure-value is-money">@FormatMoneyPair(report.TotalOrderValueUSD, report.TotalOrderValueZIG)</div>
+                        <div class="ofx-figure-label">Total order value</div>
+                        <div class="ofx-figure-note">Invoiced @FormatMoneyPair(report.TotalDeliveredValueUSD, report.TotalDeliveredValueZIG)</div>
+                    </div>
+                </div>
+                <div class="ofx-figure">
+                    <span class="ofx-figure-mark is-warn" aria-hidden="true"><i class="ph ph-clock-countdown"></i></span>
+                    <div class="ofx-figure-text">
+                        <div class="ofx-figure-value is-money is-warn">@FormatMoneyPair(report.TotalPendingValueUSD, report.TotalPendingValueZIG)</div>
+                        <div class="ofx-figure-label">Pending value</div>
+                        <div class="ofx-figure-note">Based on pending line quantities</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="ofx-card">
+                <div class="ofx-toolbar">
+                    <div class="ofx-toolbar-titles">
+                        <h2 class="ofx-toolbar-title">Orders &amp; item lines</h2>
+                        <p class="ofx-toolbar-sub">@filteredOrders.Count.ToString("N0") matching orders. Open one for its item lines, unit prices and pending values.</p>
+                    </div>
+                    @if (filteredOrders.Any())
+                    {
+                        <div class="ofx-toolbar-actions">
+                            <button type="button" class="ofx-btn ofx-btn-secondary ofx-btn-sm" @onclick="ExpandAll">Expand all</button>
+                            <button type="button" class="ofx-btn ofx-btn-secondary ofx-btn-sm" @onclick="CollapseAll">Collapse all</button>
+                        </div>
+                    }
                 </div>
 
-                @foreach (var order in displayedOrders)
+                @if (filteredOrders.Any())
                 {
-                    var lines = GetVisibleLines(order).ToList();
-                    var isOpen = IsExpanded(order.DocEntry);
-                    <div class="of-order-group @(isOpen ? "is-open" : null)">
-                        <button type="button" class="of-order-head" @onclick="() => ToggleOrder(order.DocEntry)" aria-expanded="@(isOpen ? "true" : "false")">
-                            <span class="of-order-toggle" aria-hidden="true"></span>
-                            <span class="of-order-id">
-                                <strong>SO @order.DocNum</strong>
-                                <small>@FormatDate(order.OrderDate)</small>
-                            </span>
-                            <span class="of-order-cust">
-                                <strong>@order.CardName</strong>
-                                <small>@order.CardCode</small>
-                            </span>
-                            <span class="@GetOrderStatusClass(order.Status)">@order.Status</span>
-                            <span class="of-order-metrics">
-                                <span class="of-order-kv">
-                                    <small>Order value</small>
-                                    <strong>@FormatMoney(order.OrderTotal, order.DocCurrency)</strong>
-                                </span>
-                                <span class="of-order-kv">
-                                    <small>Ordered</small>
-                                    <strong>@order.TotalQuantityOrdered.ToString("N2")</strong>
-                                </span>
-                                <span class="of-order-kv">
-                                    <small>Invoiced</small>
-                                    <strong>@order.TotalQuantityDelivered.ToString("N2")</strong>
-                                </span>
-                                <span class="of-order-kv">
-                                    <small>Pending</small>
-                                    <strong class="@(order.TotalQuantityPending > 0 ? "of-pending-qty" : null)">@order.TotalQuantityPending.ToString("N2")</strong>
-                                </span>
-                                <span class="of-order-kv of-order-kv--pct">
-                                    <small>Invoice @order.FulfillmentPercent.ToString("N0")%</small>
-                                    <span class="of-progress"><span style="@GetProgressStyle(order.FulfillmentPercent)"></span></span>
-                                </span>
-                                @if (order.IsOverdue)
-                                {
-                                    <span class="of-order-kv">
-                                        <small>Due</small>
-                                        <strong class="of-overdue">@order.DaysOverdue.ToString("N0")d overdue</strong>
-                                    </span>
-                                }
-                            </span>
-                        </button>
+                    <div class="ofx-totals">
+                        <div class="ofx-total">
+                            <span class="ofx-total-label">Ordered</span>
+                            <span class="ofx-total-value">@filteredTotals.Ordered.ToString("N2")</span>
+                        </div>
+                        <div class="ofx-total">
+                            <span class="ofx-total-label">Invoiced</span>
+                            <span class="ofx-total-value">@filteredTotals.Delivered.ToString("N2")</span>
+                        </div>
+                        <div class="ofx-total">
+                            <span class="ofx-total-label">Pending</span>
+                            <span class="ofx-total-value is-warn">@filteredTotals.Pending.ToString("N2")</span>
+                        </div>
+                        <div class="ofx-total">
+                            <span class="ofx-total-label">Value</span>
+                            <span class="ofx-total-value">@FormatMoneyPair(filteredTotals.ValueUsd, filteredTotals.ValueZig)</span>
+                        </div>
+                        <div class="ofx-total">
+                            <span class="ofx-total-label">Pending value</span>
+                            <span class="ofx-total-value is-warn">@FormatMoneyPair(filteredTotals.PendingUsd, filteredTotals.PendingZig)</span>
+                        </div>
+                    </div>
+                }
 
-                        @if (isOpen)
+                @if (!filteredOrders.Any())
+                {
+                    <div class="ofx-empty">
+                        <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+                        <strong>No matching orders</strong>
+                        <span class="ofx-empty-sub">Clear the search or choose a different line status.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="ofx-groups">
+                        @foreach (var order in displayedOrders)
                         {
-                            <div class="of-order-body">
-                                <div class="of-table-wrap">
-                                    <table class="of-table of-table--nested mobile-card-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Item</th>
-                                                <th>Warehouse</th>
-                                                <th>Status</th>
-                                                <th>Invoice(s)</th>
-                                                <th class="text-end">Unit price</th>
-                                                <th class="text-end">Qty ordered</th>
-                                                <th class="text-end">Qty invoiced</th>
-                                                <th class="text-end">Qty pending</th>
-                                                <th class="text-end">Fulfil %</th>
-                                                <th class="text-end">Ordered value</th>
-                                                <th class="text-end">Invoiced value</th>
-                                                <th class="text-end">Pending value</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach (var line in lines)
-                                            {
-                                                <tr class="@GetLineRowClass(line)">
-                                                    <td data-label="Item">
-                                                        <strong>@line.ItemDescription</strong>
-                                                        <span>@line.ItemCode</span>
-                                                    </td>
-                                                    <td data-label="Warehouse">@line.WarehouseCode</td>
-                                                    <td data-label="Status">
-                                                        <span class="@GetLineStatusClass(line.LineStatus)">@line.LineStatus</span>
-                                                    </td>
-                                                    <td data-label="Invoice(s)">
-                                                        @if (!string.IsNullOrWhiteSpace(line.InvoiceNumbers))
-                                                        {
-                                                            <span class="of-invoice-nums">@line.InvoiceNumbers</span>
-                                                        }
-                                                        else
-                                                        {
-                                                            <span class="text-muted">&mdash;</span>
-                                                        }
-                                                    </td>
-                                                    <td data-label="Unit price" class="text-end">@FormatMoney(line.UnitPrice, order.DocCurrency)</td>
-                                                    <td data-label="Qty ordered" class="text-end">@line.QuantityOrdered.ToString("N2")</td>
-                                                    <td data-label="Qty invoiced" class="text-end">@line.QuantityDelivered.ToString("N2")</td>
-                                                    <td data-label="Qty pending" class="text-end of-pending-qty">@line.QuantityPending.ToString("N2")</td>
-                                                    <td data-label="Fulfil %" class="text-end">@LineFulfilmentPercent(line).ToString("N1")%</td>
-                                                    <td data-label="Ordered value" class="text-end fw-semibold">@FormatMoney(line.LineTotal, order.DocCurrency)</td>
-                                                    <td data-label="Invoiced value" class="text-end fw-semibold">@FormatMoney(line.InvoicedValue, order.DocCurrency)</td>
-                                                    <td data-label="Pending value" class="text-end fw-semibold">@FormatMoney(CalculatePendingLineValue(line), order.DocCurrency)</td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
+                            var lines = GetVisibleLines(order).ToList();
+                            var isOpen = IsExpanded(order.DocEntry);
+                            <div class="ofx-group @(isOpen ? "is-open" : null)" @key="order.DocEntry">
+                                <button type="button" class="ofx-grouphead" @onclick="() => ToggleOrder(order.DocEntry)"
+                                        aria-expanded="@(isOpen ? "true" : "false")">
+                                    <span class="ofx-twist" aria-hidden="true">
+                                        <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"></path></svg>
+                                    </span>
+                                    <span class="ofx-group-id">
+                                        <span class="ofx-group-doc">SO @order.DocNum</span>
+                                        <span class="ofx-group-date @(order.OrderDate == default ? "is-unset" : null)">@FormatDate(order.OrderDate)</span>
+                                    </span>
+                                    <span class="ofx-group-cust">
+                                        <span class="ofx-group-name">@order.CardName</span>
+                                        <span class="ofx-group-code">@order.CardCode</span>
+                                    </span>
+                                    <span class="ofx-status">
+                                        <span class="ofx-dot @GetOrderDotClass(order.Status)"></span>
+                                        <span class="ofx-status-text">@order.Status</span>
+                                    </span>
+                                    <span class="ofx-group-figs">
+                                        <span class="ofx-kv">
+                                            <span class="ofx-kv-label">Order value</span>
+                                            <span class="ofx-kv-value">@FormatMoney(order.OrderTotal, order.DocCurrency)</span>
+                                        </span>
+                                        <span class="ofx-kv">
+                                            <span class="ofx-kv-label">Ordered</span>
+                                            <span class="ofx-kv-value">@order.TotalQuantityOrdered.ToString("N2")</span>
+                                        </span>
+                                        <span class="ofx-kv">
+                                            <span class="ofx-kv-label">Invoiced</span>
+                                            <span class="ofx-kv-value">@order.TotalQuantityDelivered.ToString("N2")</span>
+                                        </span>
+                                        <span class="ofx-kv">
+                                            <span class="ofx-kv-label">Pending</span>
+                                            <span class="ofx-kv-value @(order.TotalQuantityPending > 0 ? "is-pending" : null)">@order.TotalQuantityPending.ToString("N2")</span>
+                                        </span>
+                                        <span class="ofx-kv">
+                                            <span class="ofx-kv-label">Invoiced @order.FulfillmentPercent.ToString("N0")%</span>
+                                            <span class="ofx-prog"><span style="@GetProgressStyle(order.FulfillmentPercent)"></span></span>
+                                        </span>
+                                        @if (order.IsOverdue)
+                                        {
+                                            <span class="ofx-kv">
+                                                <span class="ofx-kv-label">Due</span>
+                                                <span class="ofx-kv-value is-bad">@order.DaysOverdue.ToString("N0")d overdue</span>
+                                            </span>
+                                        }
+                                    </span>
+                                </button>
+
+                                @if (isOpen)
+                                {
+                                    <div class="ofx-group-body">
+                                        <div class="ofx-tablewrap">
+                                            <table class="ofx-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Item</th>
+                                                        <th>Warehouse</th>
+                                                        <th>Status</th>
+                                                        <th>Invoice(s)</th>
+                                                        <th class="ofx-num">Unit price</th>
+                                                        <th class="ofx-num">Qty ordered</th>
+                                                        <th class="ofx-num">Qty invoiced</th>
+                                                        <th class="ofx-num">Qty pending</th>
+                                                        <th class="ofx-num">Invoiced %</th>
+                                                        <th class="ofx-num">Ordered value</th>
+                                                        <th class="ofx-num">Invoiced value</th>
+                                                        <th class="ofx-num">Pending value</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var line in lines)
+                                                    {
+                                                        <tr>
+                                                            <td>
+                                                                <span class="ofx-item">
+                                                                    <span class="ofx-item-name">@line.ItemDescription</span>
+                                                                    <span class="ofx-item-code">@line.ItemCode</span>
+                                                                </span>
+                                                            </td>
+                                                            <td class="ofx-whs">@line.WarehouseCode</td>
+                                                            <td>
+                                                                <span class="ofx-status">
+                                                                    <span class="ofx-dot @GetLineDotClass(line.LineStatus)"></span>
+                                                                    <span class="ofx-status-text">@line.LineStatus</span>
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                @if (!string.IsNullOrWhiteSpace(line.InvoiceNumbers))
+                                                                {
+                                                                    <span class="ofx-invoices">@line.InvoiceNumbers</span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="ofx-none">&mdash;</span>
+                                                                }
+                                                            </td>
+                                                            <td class="ofx-num ofx-money">@FormatMoney(line.UnitPrice, order.DocCurrency)</td>
+                                                            <td class="ofx-num">@line.QuantityOrdered.ToString("N2")</td>
+                                                            <td class="ofx-num">@line.QuantityDelivered.ToString("N2")</td>
+                                                            <td class="ofx-num ofx-pending @(line.QuantityPending > 0 ? null : "is-zero")">@line.QuantityPending.ToString("N2")</td>
+                                                            <td class="ofx-num">@LineFulfilmentPercent(line).ToString("N1")%</td>
+                                                            <td class="ofx-num ofx-money is-strong">@FormatMoney(line.LineTotal, order.DocCurrency)</td>
+                                                            <td class="ofx-num ofx-money is-strong">@FormatMoney(line.InvoicedValue, order.DocCurrency)</td>
+                                                            <td class="ofx-num ofx-money is-strong">@FormatMoney(CalculatePendingLineValue(line), order.DocCurrency)</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                }
                             </div>
                         }
                     </div>
                 }
+            </section>
 
-                @if (filteredOrders.Count > displayedOrders.Count)
-                {
-                    <div class="of-alert of-alert--info">
-                        Showing the first @displayedOrders.Count.ToString("N0") of @filteredOrders.Count.ToString("N0") orders. Refine the search or date range to narrow the result.
+            @if (filteredOrders.Count > displayedOrders.Count)
+            {
+                <div class="ofx-alert is-info">
+                    <i class="ph ph-info" aria-hidden="true"></i>
+                    <div class="ofx-alert-body">
+                        Showing the first @displayedOrders.Count.ToString("N0") of @filteredOrders.Count.ToString("N0") orders.
+                        Refine the search or date range to narrow the result.
                     </div>
-                }
+                </div>
             }
-        </section>
-    }
+        }
+    </div>
 </div>
 
 @code {
@@ -561,26 +662,23 @@
         string.Equals(currency, "ZIG", StringComparison.OrdinalIgnoreCase)
         || string.Equals(currency, "ZiG", StringComparison.OrdinalIgnoreCase);
 
-    private static string GetLineStatusClass(string status) =>
+    private static string GetLineDotClass(string status) =>
         status switch
         {
-            "Invoiced" => "of-status of-status--fulfilled",
-            "Fulfilled" => "of-status of-status--fulfilled",
-            "Partial" => "of-status of-status--partial",
-            "Cancelled" => "of-status of-status--cancelled",
-            _ => "of-status of-status--pending"
+            "Invoiced" => "is-invoiced",
+            "Fulfilled" => "is-invoiced",
+            "Partial" => "is-partial",
+            "Cancelled" => "is-cancelled",
+            _ => "is-pending"
         };
 
-    private static string GetOrderStatusClass(string status) =>
+    private static string GetOrderDotClass(string status) =>
         status switch
         {
-            "Closed" => "of-status of-status--fulfilled",
-            "Cancelled" => "of-status of-status--cancelled",
-            _ => "of-status of-status--pending"
+            "Closed" => "is-invoiced",
+            "Cancelled" => "is-cancelled",
+            _ => "is-pending"
         };
-
-    private static string GetLineRowClass(OrderLineDetail line) =>
-        line.QuantityPending > 0 ? "of-line-needs-action" : string.Empty;
 
     private static string GetProgressStyle(decimal value)
     {

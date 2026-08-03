@@ -1,5 +1,6 @@
 using ShopInventory.Web.Models;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace ShopInventory.Web.Services;
@@ -182,7 +183,13 @@ public class ReportService : IReportService
         try
         {
             var response = await _httpClient.GetAsync($"api/report/order-fulfillment?fromDate={from}&toDate={to}", cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                var reason = await ReadProblemDetailAsync(response, cancellationToken);
+                _logger.LogError("Error fetching order fulfillment report (HTTP {StatusCode}): {Reason}", response.StatusCode, reason);
+                throw new InvalidOperationException($"Failed to fetch order fulfillment: {reason}");
+            }
+
             var result = await response.Content.ReadFromJsonAsync<OrderFulfillmentReport>(cancellationToken);
             _cache.Set(cacheKey, result, CacheDuration);
             return result;
@@ -193,6 +200,52 @@ public class ReportService : IReportService
             throw new InvalidOperationException($"Failed to fetch order fulfillment (HTTP {ex.StatusCode})", ex);
         }
     }
+
+    /// <summary>
+    /// Reads the message the API actually sent with a failed report response.
+    /// </summary>
+    /// <remarks>
+    /// Every report failure — a statement SAP rejected, a timed-out generation, a missing SAP
+    /// session — reaches the controller as an <c>ErrorType.Failure</c>, which
+    /// <c>ApiControllerBase.Problem</c> answers as 400 with the real reason in the ProblemDetails
+    /// title. Calling <see cref="HttpResponseMessage.EnsureSuccessStatusCode"/> discards that body,
+    /// so the page could only ever say "(HTTP BadRequest)" — a sentence that is true of every one
+    /// of those causes and identifies none of them. That is what made a SAP validator rejecting
+    /// COALESCE in the order-line statement look like a page that was simply broken.
+    /// </remarks>
+    private static async Task<string> ReadProblemDetailAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var fallback = $"HTTP {response.StatusCode}";
+
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(body))
+                return fallback;
+
+            using var document = JsonDocument.Parse(body);
+            var title = ReadStringProperty(document.RootElement, "title");
+            var detail = ReadStringProperty(document.RootElement, "detail");
+
+            // The title carries the error; the detail is boilerplate on anything the API classifies
+            // as a server fault, where it is the only thing that is not "An unexpected error
+            // occurred." Prefer whichever is present, and keep the status for correlation.
+            var message = title ?? detail;
+            return string.IsNullOrWhiteSpace(message) ? fallback : $"{message} ({fallback})";
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or IOException)
+        {
+            // A non-ProblemDetails body is still a failure; report the status rather than masking it.
+            return fallback;
+        }
+    }
+
+    private static string? ReadStringProperty(JsonElement element, string propertyName) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var property)
+        && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
 
     public async Task<CreditNoteSummaryReport?> GetCreditNoteSummaryAsync(DateTime? fromDate, DateTime? toDate, CancellationToken cancellationToken = default)
     {

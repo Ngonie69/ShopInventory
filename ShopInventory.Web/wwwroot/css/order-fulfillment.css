@@ -1,0 +1,1055 @@
+/* ==========================================================================
+   Sales Order vs Invoice — Nocturne
+
+   The order-vs-invoice report at /reports/order-fulfillment on the Nocturne
+   design system: a dense, quiet surface on a near-neutral blue-grey ground,
+   Inter at 500, 8px radii, outlined buttons, and freestanding rules that fade
+   to transparent over 48px at each end.
+
+   There is no imported design file for this page. The palette, the density
+   scale and the component vocabulary are copied verbatim from
+   sales-orders.css — which took them from credit-notes.css — so every list
+   surface in the app stays one system.
+
+   What is new here is the disclosure list. This page is not a flat table: an
+   order is a row that opens into its own item lines, and the two levels have
+   to stay legible as one object. The order head is therefore a grid whose
+   figures sit on the same baseline as the table headings beneath it, and the
+   open state is marked by a filled twist and a left accent edge rather than a
+   colour change — a reader scanning twenty orders for the ones with pending
+   quantity should not have to filter colour out first.
+
+   Pending quantity is the one number given a colour fill. Everything else on
+   the page is a quantity that reconciles; pending is the number that means
+   somebody has to act, so it is the only one that earns the emphasis.
+
+   Light is the base and `.dark-theme` the override, matching the order
+   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+
+   Rules live in this file rather than an inline Razor <style> block for the
+   same two reasons as credit-notes.css: a scoped style block cannot reach
+   native controls the way these selectors need to, and app.css carries global
+   `.dark-theme input/select` rules that have to be out-specified — so every
+   control carries a class and every control selector is two classes deep,
+   winning regardless of load order.
+   ========================================================================== */
+
+.ofx {
+    --ofx-bg: #f4f4f8;
+    --ofx-surface: #ffffff;
+    --ofx-field: #ffffff;
+    --ofx-ink: #1b1c26;
+    --ofx-ink-2: #35374a;
+    --ofx-mute: #4e5164;
+    --ofx-mute-2: #656879;
+    --ofx-mute-3: #7b7e8e;
+    --ofx-faint: #a0a2ae;
+    --ofx-placeholder: #9498a8;
+    --ofx-divider: rgba(27, 28, 38, .14);
+    --ofx-rowline: rgba(27, 28, 38, .09);
+    --ofx-hover: rgba(27, 28, 38, .04);
+    --ofx-press: rgba(27, 28, 38, .09);
+    --ofx-field-edge: #d4d6e2;
+    --ofx-field-edge-hi: #a9adc0;
+    --ofx-accent: #5f52c4;
+    --ofx-accent-rgb: 95, 82, 196;
+    /* The accent's text-carrying step: on the dark ground the design uses a
+       pale lavender; on paper the same role has to be the deep end of the
+       ramp instead. */
+    --ofx-accent-text: #473d99;
+    --ofx-tag-bg: #e4e7f5;
+    --ofx-tag-ink: #3f424d;
+    --ofx-dot: #9397ab;
+    --ofx-dot-quiet: #b2b6ca;
+    --ofx-dot-faint: #cfd3e5;
+    --ofx-bad: #b3273c;
+    --ofx-bad-bg: #fdf0f2;
+    --ofx-bad-edge: #f0ccd3;
+    --ofx-warn: #8a5a05;
+    --ofx-warn-bg: #fdf6e8;
+    --ofx-warn-edge: #eeddb8;
+    --ofx-ok: #0b6b4f;
+    --ofx-info-bg: #eef0fb;
+    --ofx-info-edge: #d3d7f0;
+    --ofx-track: rgba(27, 28, 38, .1);
+    --ofx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
+    --ofx-scheme: light;
+    /* The select caret, whole: a var() inside the data URL's quoted string
+       would not be substituted, so each theme carries the finished image. */
+    --ofx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+    /* Nocturne's compact scale — density 0.70x. */
+    --ofx-s1: 2.8px;
+    --ofx-s2: 5.6px;
+    --ofx-s3: 8.4px;
+    --ofx-s4: 11.2px;
+    --ofx-s6: 16.8px;
+    --ofx-s8: 22.4px;
+    --ofx-r-sm: 4px;
+    --ofx-r-md: 8px;
+    --ofx-r-lg: 14px;
+
+    color-scheme: var(--ofx-scheme);
+}
+
+.dark-theme .ofx {
+    --ofx-bg: #161826;
+    --ofx-surface: #232532;
+    --ofx-field: #232532;
+    --ofx-ink: #e9e9ed;
+    --ofx-ink-2: #aeaeb5;
+    --ofx-mute: #9999a1;
+    --ofx-mute-2: #87878f;
+    --ofx-mute-3: #72727d;
+    --ofx-faint: #5a5a66;
+    --ofx-placeholder: #6b6b77;
+    --ofx-divider: rgba(233, 233, 237, .16);
+    --ofx-rowline: rgba(233, 233, 237, .08);
+    --ofx-hover: rgba(233, 233, 237, .04);
+    --ofx-press: rgba(233, 233, 237, .1);
+    --ofx-field-edge: rgba(233, 233, 237, .16);
+    --ofx-field-edge-hi: rgba(233, 233, 237, .45);
+    --ofx-accent: #9184d9;
+    --ofx-accent-rgb: 145, 132, 217;
+    --ofx-accent-text: #d2cefd;
+    --ofx-tag-bg: #3f424d;
+    --ofx-tag-ink: #f3f5fe;
+    --ofx-dot: #b2b6ca;
+    --ofx-dot-quiet: #75798c;
+    --ofx-dot-faint: #595d6c;
+    --ofx-bad: #e8697d;
+    --ofx-bad-bg: #2f2028;
+    --ofx-bad-edge: #4a2c35;
+    --ofx-warn: #e0b062;
+    --ofx-warn-bg: #2c2418;
+    --ofx-warn-edge: #4a3c22;
+    --ofx-ok: #b6ecd8;
+    --ofx-info-bg: #232538;
+    --ofx-info-edge: #383b57;
+    --ofx-track: rgba(233, 233, 237, .12);
+    --ofx-shadow-sm: 0 0 0 1px #3f424d;
+    --ofx-scheme: dark;
+    --ofx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.ofx {
+    min-height: 100vh;
+    background: var(--ofx-bg);
+    color: var(--ofx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.ofx * {
+    box-sizing: border-box;
+}
+
+.ofx :focus-visible {
+    outline: 2px solid var(--ofx-accent);
+    outline-offset: 2px;
+}
+
+.ofx ::selection {
+    background: rgba(var(--ofx-accent-rgb), .3);
+}
+
+/* Nocturne's signature: freestanding rules fade to transparent over 48px at
+   each end. Box outlines and in-control separators stay solid. */
+.ofx-rule {
+    height: 1px;
+    background: linear-gradient(to right,
+            transparent, var(--ofx-divider) 48px,
+            var(--ofx-divider) calc(100% - 48px), transparent);
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the export action
+   stays reachable while the report scrolls past.
+
+   Opaque rather than the design's frosted glass: a translucent bar only hides
+   what passes beneath it while the compositor honours the backdrop blur, and
+   software rendering, a reduced-transparency setting or an offscreen capture
+   all drop the blur. --ofx-bg is the page's own ground, so an opaque bar is
+   indistinguishable from the design at rest. */
+
+.ofx-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--ofx-bg);
+}
+
+.ofx-shell {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ofx-s6) 32px;
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ofx-s8);
+}
+
+.ofx-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.ofx-titles-row {
+    display: flex;
+    align-items: center;
+    gap: var(--ofx-s3);
+}
+
+.ofx-titles-row i {
+    font-size: 17px;
+    color: var(--ofx-accent);
+}
+
+.ofx-kicker {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ofx-accent-text);
+}
+
+.ofx .ofx-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -.01em;
+    color: var(--ofx-ink);
+}
+
+.ofx .ofx-sub {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--ofx-mute-2);
+}
+
+.ofx-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ofx-s4);
+}
+
+.ofx-count {
+    font-size: 12px;
+    color: var(--ofx-mute-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.ofx-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--ofx-s8) 32px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ofx-s6);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.ofx .ofx-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: var(--ofx-s2) calc(var(--ofx-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--ofx-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--ofx-r-md);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.ofx .ofx-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.ofx .ofx-btn-primary {
+    color: var(--ofx-accent);
+    border-color: var(--ofx-accent);
+    letter-spacing: .02em;
+}
+
+.ofx .ofx-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--ofx-accent-rgb), .12);
+}
+
+.ofx .ofx-btn-primary:active:not(:disabled) {
+    background: rgba(var(--ofx-accent-rgb), .22);
+}
+
+.ofx .ofx-btn-secondary {
+    border-color: var(--ofx-divider);
+}
+
+.ofx .ofx-btn-secondary:hover:not(:disabled) {
+    background: var(--ofx-hover);
+}
+
+.ofx .ofx-btn-secondary:active:not(:disabled) {
+    background: var(--ofx-press);
+}
+
+.ofx .ofx-btn-ghost {
+    color: var(--ofx-accent);
+    padding-inline: var(--ofx-s1);
+}
+
+.ofx .ofx-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--ofx-accent-rgb), .1);
+}
+
+.ofx .ofx-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--ofx-accent-rgb), .18);
+}
+
+.ofx .ofx-btn-sm {
+    height: 30px;
+    font-size: 12.5px;
+}
+
+/* ── Figures ───────────────────────────────────────────────────────────── */
+/* Six figures over two rows of three rather than one row of six: two of them
+   carry a currency pair — "$12,345.67 / ZIG 8,910.11" — which cannot be read
+   at a sixth of the content width. */
+
+.ofx-figures {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--ofx-s4);
+}
+
+.ofx-figure {
+    display: flex;
+    align-items: center;
+    gap: var(--ofx-s4);
+    padding: var(--ofx-s4) var(--ofx-s6);
+    background: var(--ofx-surface);
+    border-radius: var(--ofx-r-md);
+    box-shadow: var(--ofx-shadow-sm);
+    min-width: 0;
+}
+
+.ofx-figure-mark {
+    width: 34px;
+    height: 34px;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--ofx-r-md);
+    background: rgba(var(--ofx-accent-rgb), .1);
+    color: var(--ofx-accent);
+    font-size: 16px;
+}
+
+.ofx-figure-mark.is-quiet {
+    background: var(--ofx-hover);
+    color: var(--ofx-mute);
+}
+
+.ofx-figure-mark.is-warn {
+    background: var(--ofx-warn-bg);
+    color: var(--ofx-warn);
+}
+
+.ofx-figure-text {
+    min-width: 0;
+}
+
+.ofx-figure-value {
+    font-size: 19px;
+    font-weight: 500;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+}
+
+/* A money pair is roughly twice the glyph count of a count, so it steps down
+   rather than wrapping under its own label. */
+.ofx-figure-value.is-money {
+    font-size: 15px;
+    line-height: 1.3;
+}
+
+.ofx-figure-value.is-warn {
+    color: var(--ofx-warn);
+}
+
+.ofx-figure-label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ofx-mute-3);
+}
+
+.ofx-figure-note {
+    font-size: 11.5px;
+    color: var(--ofx-mute-2);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.ofx-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ofx-s4);
+    flex-wrap: wrap;
+}
+
+.ofx-field {
+    min-width: 0;
+}
+
+.ofx-field > label {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 5px;
+    color: var(--ofx-mute);
+}
+
+.ofx .ofx-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 5px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.3;
+    color: var(--ofx-ink);
+    caret-color: var(--ofx-accent);
+    background: var(--ofx-field);
+    background-image: none;
+    border: 1px solid var(--ofx-field-edge);
+    border-radius: var(--ofx-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.ofx .ofx-input:hover {
+    border-color: var(--ofx-field-edge-hi);
+}
+
+.ofx .ofx-input:focus-visible {
+    border-color: var(--ofx-accent);
+    outline-offset: 0;
+}
+
+.ofx .ofx-input::placeholder {
+    color: var(--ofx-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--ofx-placeholder);
+}
+
+.ofx .ofx-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.ofx .ofx-input-num {
+    font-variant-numeric: tabular-nums;
+}
+
+/* The date input's own indicator is the control's only affordance, so it is
+   tinted to the ink rather than left as the browser's black-on-dark default. */
+.ofx .ofx-input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: .6;
+}
+
+.dark-theme .ofx .ofx-input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+}
+
+.ofx-select {
+    position: relative;
+}
+
+.ofx .ofx-select select.ofx-input {
+    padding-right: 26px;
+    cursor: pointer;
+}
+
+.ofx-select .ofx-caret {
+    position: absolute;
+    right: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--ofx-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.ofx-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--ofx-s2);
+    margin-left: auto;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+
+.ofx-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--ofx-surface);
+    border-radius: var(--ofx-r-md);
+    box-shadow: var(--ofx-shadow-sm);
+    overflow: hidden;
+}
+
+.ofx-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--ofx-s4);
+    padding: var(--ofx-s4) var(--ofx-s6);
+    min-height: 54px;
+    flex-wrap: wrap;
+}
+
+.ofx-toolbar-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-right: auto;
+    min-width: 0;
+}
+
+.ofx .ofx-toolbar-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ofx-ink);
+}
+
+.ofx .ofx-toolbar-sub {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ofx-mute-3);
+}
+
+.ofx-toolbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ofx-s2);
+}
+
+/* The running totals for whatever the filters currently select. Laid out as
+   label-over-value pairs so the row reads as a set of figures and not as a
+   sentence. */
+.ofx-totals {
+    display: flex;
+    gap: var(--ofx-s6);
+    flex-wrap: wrap;
+    padding: 0 var(--ofx-s6) var(--ofx-s4);
+}
+
+.ofx-total {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.ofx-total-label {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ofx-mute-3);
+}
+
+.ofx-total-value {
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.ofx-total-value.is-warn {
+    color: var(--ofx-warn);
+}
+
+/* ── Order disclosure list ─────────────────────────────────────────────── */
+
+.ofx-groups {
+    display: flex;
+    flex-direction: column;
+}
+
+.ofx-group {
+    border-top: 1px solid var(--ofx-rowline);
+}
+
+.ofx-group:first-child {
+    border-top: 0;
+}
+
+/* The open group is marked structurally — a filled twist and an accent edge —
+   rather than by tinting the row, so a reader scanning for pending quantity
+   is not also filtering out an "is open" colour. */
+.ofx-group.is-open {
+    box-shadow: inset 2px 0 0 var(--ofx-accent);
+    background: var(--ofx-hover);
+}
+
+.ofx .ofx-grouphead {
+    display: grid;
+    grid-template-columns: 18px minmax(120px, .9fr) minmax(150px, 1.5fr) 96px minmax(0, 2.6fr);
+    align-items: center;
+    gap: var(--ofx-s4);
+    width: 100%;
+    padding: var(--ofx-s3) var(--ofx-s6);
+    background: transparent;
+    border: 0;
+    text-align: left;
+    font-family: inherit;
+    font-size: 13px;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ofx .ofx-grouphead:hover {
+    background: var(--ofx-hover);
+}
+
+.ofx-twist {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ofx-mute-3);
+    transition: transform .15s, color .15s;
+}
+
+.ofx-twist svg {
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.ofx-group.is-open .ofx-twist {
+    transform: rotate(90deg);
+    color: var(--ofx-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ofx-twist {
+        transition: none;
+    }
+}
+
+.ofx-group-id,
+.ofx-group-cust {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.ofx-group-doc {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--ofx-accent);
+}
+
+.ofx-group-date {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ofx-mute-3);
+}
+
+.ofx-group-date.is-unset {
+    color: var(--ofx-faint);
+}
+
+.ofx-group-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ofx-group-code {
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--ofx-mute-3);
+}
+
+/* The head's own figures. `auto-fit` rather than a fixed count: the overdue
+   pair only exists on some orders, and the row should close up when it does
+   not rather than leave a gap where it would have been. */
+.ofx-group-figs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    gap: var(--ofx-s4);
+    align-items: center;
+    min-width: 0;
+}
+
+.ofx-kv {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.ofx-kv-label {
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ofx-mute-3);
+    white-space: nowrap;
+}
+
+.ofx-kv-value {
+    font-size: 12.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Pending is the page's one consequential number — it is what somebody still
+   has to invoice — so it is the only figure given a colour fill. */
+.ofx-kv-value.is-pending {
+    color: var(--ofx-warn);
+}
+
+.ofx-kv-value.is-bad {
+    color: var(--ofx-bad);
+}
+
+.ofx-prog {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--ofx-track);
+    overflow: hidden;
+}
+
+.ofx-prog > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--ofx-accent);
+}
+
+.ofx-group-body {
+    padding: 0 var(--ofx-s6) var(--ofx-s6) calc(var(--ofx-s6) + 18px + var(--ofx-s4));
+}
+
+/* ── Status ────────────────────────────────────────────────────────────── */
+/* A dot plus a word — Nocturne does not colour-fill a badge for something the
+   reader scans twenty of per screen. */
+
+.ofx-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.ofx-status .ofx-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--ofx-dot);
+}
+
+.ofx-dot.is-pending {
+    background: var(--ofx-warn);
+}
+
+.ofx-dot.is-partial {
+    background: var(--ofx-accent);
+}
+
+.ofx-dot.is-invoiced {
+    background: var(--ofx-ok);
+}
+
+.ofx-dot.is-cancelled {
+    background: var(--ofx-dot-faint);
+}
+
+.ofx-status-text {
+    color: var(--ofx-mute);
+    font-size: 12.5px;
+}
+
+/* ── Line table ────────────────────────────────────────────────────────── */
+
+.ofx-tablewrap {
+    overflow-x: auto;
+}
+
+.ofx-table {
+    width: 100%;
+    min-width: 1040px;
+    border-collapse: collapse;
+    font-size: 12.5px;
+}
+
+.ofx-table th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ofx-mute);
+    padding: var(--ofx-s2);
+    white-space: nowrap;
+}
+
+.ofx-table td {
+    padding: var(--ofx-s2);
+    vertical-align: middle;
+}
+
+.ofx-table th:first-child,
+.ofx-table td:first-child {
+    padding-left: 0;
+}
+
+.ofx-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Row rules are painted as row-level strips so the end-fade spans the row
+   rather than restarting in every cell. The nested table sits inside a card
+   that already has 48px of quiet at each end, so these fade over 24px. */
+.ofx-table thead tr {
+    background: linear-gradient(to right,
+            var(--ofx-divider), var(--ofx-divider) calc(100% - 24px),
+            transparent) no-repeat bottom / 100% 1px;
+}
+
+.ofx-table tbody tr {
+    background: linear-gradient(to right,
+            var(--ofx-rowline), var(--ofx-rowline) calc(100% - 24px),
+            transparent) no-repeat bottom / 100% 1px;
+}
+
+.ofx-table tbody tr:last-child {
+    background: none;
+}
+
+.ofx-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 170px;
+}
+
+.ofx-item-name {
+    font-weight: 500;
+}
+
+.ofx-item-code {
+    font-size: 11px;
+    letter-spacing: .02em;
+    color: var(--ofx-mute-3);
+}
+
+.ofx-whs {
+    color: var(--ofx-mute-2);
+}
+
+.ofx-invoices {
+    font-variant-numeric: tabular-nums;
+    color: var(--ofx-ink-2);
+}
+
+.ofx-none {
+    color: var(--ofx-faint);
+}
+
+.ofx-money {
+    font-variant-numeric: tabular-nums;
+}
+
+.ofx-money.is-strong {
+    font-weight: 500;
+}
+
+.ofx-pending {
+    font-variant-numeric: tabular-nums;
+    color: var(--ofx-warn);
+}
+
+.ofx-pending.is-zero {
+    color: var(--ofx-mute-3);
+}
+
+/* ── Empty / loading ───────────────────────────────────────────────────── */
+
+.ofx-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--ofx-s3);
+    padding: 56px var(--ofx-s6);
+    font-size: 13.5px;
+    text-align: center;
+}
+
+.ofx-empty i {
+    font-size: 22px;
+    color: var(--ofx-accent);
+    opacity: .8;
+}
+
+.ofx-empty-sub {
+    font-size: 12.5px;
+    color: var(--ofx-mute-2);
+    max-width: 42ch;
+}
+
+.ofx-spinner {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid var(--ofx-track);
+    border-top-color: var(--ofx-accent);
+    animation: ofx-spin .8s linear infinite;
+}
+
+@keyframes ofx-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ofx-spinner {
+        animation: none;
+    }
+}
+
+/* ── Alerts ────────────────────────────────────────────────────────────── */
+
+.ofx-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ofx-s3);
+    padding: var(--ofx-s3) var(--ofx-s4);
+    border-radius: var(--ofx-r-md);
+    background: var(--ofx-bad-bg);
+    border: 1px solid var(--ofx-bad-edge);
+    color: var(--ofx-bad);
+    font-size: 13px;
+}
+
+.ofx-alert-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ofx-alert.is-info {
+    background: var(--ofx-info-bg);
+    border-color: var(--ofx-info-edge);
+    color: var(--ofx-mute);
+}
+
+.ofx-alert.is-info i {
+    color: var(--ofx-accent);
+}
+
+/* ── Narrow screens ───────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .ofx .ofx-grouphead {
+        grid-template-columns: 18px minmax(110px, 1fr) minmax(130px, 1.4fr) 90px;
+    }
+
+    /* Below the four-column head the figures wrap to their own line, spanning
+       the full width rather than squeezing into the status column. */
+    .ofx-group-figs {
+        grid-column: 2 / -1;
+        margin-top: var(--ofx-s2);
+    }
+}
+
+@media (max-width: 1000px) {
+    .ofx-figures {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 860px) {
+    .ofx-shell,
+    .ofx-body {
+        padding-left: var(--ofx-s6);
+        padding-right: var(--ofx-s6);
+    }
+
+    .ofx-shell {
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--ofx-s4);
+    }
+
+    .ofx-head-actions {
+        justify-content: space-between;
+    }
+
+    .ofx-field {
+        flex: 1 1 150px;
+    }
+
+    .ofx-filter-actions {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .ofx .ofx-grouphead {
+        grid-template-columns: 18px minmax(0, 1fr) 90px;
+        row-gap: var(--ofx-s2);
+    }
+
+    .ofx-group-cust {
+        grid-column: 2 / -1;
+    }
+
+    .ofx-group-body {
+        padding-left: var(--ofx-s6);
+    }
+}
+
+@media (max-width: 600px) {
+    .ofx-figures {
+        grid-template-columns: 1fr;
+    }
+
+    .ofx-totals {
+        gap: var(--ofx-s4);
+    }
+}
