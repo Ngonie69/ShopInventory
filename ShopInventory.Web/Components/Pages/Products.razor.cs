@@ -569,9 +569,32 @@ public partial class Products : IDisposable
 
     // ── Formatting ──────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// What can actually leave the warehouse today: on hand, less what customer
+    /// orders have already claimed. Deliberately *not* SAP's
+    /// <see cref="ProductDto.QuantityAvailable"/>, which also counts stock still on
+    /// a purchase order and so answers a different question.
+    /// </summary>
+    /// <remarks>
+    /// Derived here rather than stored, so it cannot drift from the two figures it
+    /// is computed from — both of which are on screen beside it.
+    /// </remarks>
+    private static decimal FreeToSell(ProductDto product)
+        => product.QuantityInStock - product.QuantityCommitted;
+
     private static string Qty(decimal quantity, string? uomCode) => QuantityDisplay.Format(quantity, uomCode);
 
-    private static string ZeroClass(decimal quantity) => quantity > 0 ? string.Empty : "pr-qty-zero";
+    /// <summary>
+    /// The three states a stock figure can be in. Below zero is not the same as
+    /// zero — it means commitments exceed the stock behind them — so it takes the
+    /// notice ink rather than dimming away with the empty rows.
+    /// </summary>
+    private static string StockClass(decimal quantity) => quantity switch
+    {
+        < 0 => "pr-qty-short",
+        0 => "pr-qty-zero",
+        _ => string.Empty
+    };
 
     // Committed and on-order are claims on the item rather than plain counts, so a
     // non-zero one takes the accent and a zero recedes with everything else.

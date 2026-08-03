@@ -292,13 +292,20 @@
                 {
                     <div class="pr-scroll">
                         <div class="pr-grid" role="table" aria-label="Products in @selectedWarehouse?.WarehouseCode">
+                            @* Column order follows the arithmetic: in stock less committed
+                               gives free to sell, plus on order gives SAP's availability. *@
                             <div class="pr-thead" role="row">
                                 <span role="columnheader">Item code</span>
                                 <span role="columnheader">Item name</span>
                                 <span role="columnheader" class="pr-num">In stock</span>
                                 <span role="columnheader" class="pr-num">Committed</span>
+                                <span role="columnheader" class="pr-num" title="In stock less committed — what can leave the warehouse today">
+                                    Free to sell
+                                </span>
                                 <span role="columnheader" class="pr-num">On order</span>
-                                <span role="columnheader" class="pr-num">Available</span>
+                                <span role="columnheader" class="pr-num" title="SAP's availability: free to sell plus stock still on purchase orders">
+                                    Available
+                                </span>
                                 <span role="columnheader">UoM</span>
                                 <span role="columnheader"><span class="pr-vh">Actions</span></span>
                             </div>
@@ -306,6 +313,7 @@
                             @foreach (var product in products)
                             {
                                 var itemCode = product.ItemCode ?? string.Empty;
+                                var freeToSell = FreeToSell(product);
                                 <div class="pr-row" role="row" @onclick="() => ViewProduct(product)">
                                     <span class="pr-code" role="cell">@itemCode</span>
                                     <span class="pr-name-cell" role="cell">
@@ -314,19 +322,33 @@
                                         {
                                             <span class="pr-tag">Out of stock</span>
                                         }
+                                        else if (freeToSell < 0)
+                                        {
+                                            @* Committed exceeds what is on the shelf. *@
+                                            <span class="pr-tag">Oversold</span>
+                                        }
+                                        else if (freeToSell == 0)
+                                        {
+                                            @* On the shelf, but every unit of it is already spoken for. *@
+                                            <span class="pr-tag">Fully committed</span>
+                                        }
                                     </span>
-                                    <span class="pr-qty pr-num pr-cell-stock @ZeroClass(product.QuantityInStock)" role="cell">
+                                    <span class="pr-qty pr-num pr-cell-stock @StockClass(product.QuantityInStock)" role="cell">
                                         <span class="pr-rl">In stock</span>@Qty(product.QuantityInStock, product.UoM)
                                     </span>
                                     <span class="pr-qty pr-num pr-cell-committed @ClaimClass(product.QuantityCommitted)"
                                           role="cell">
                                         <span class="pr-rl">Committed</span>@Qty(product.QuantityCommitted, product.UoM)
                                     </span>
+                                    <span class="pr-qty pr-qty-lead pr-num pr-cell-free @StockClass(freeToSell)"
+                                          role="cell">
+                                        <span class="pr-rl">Free to sell</span>@Qty(freeToSell, product.UoM)
+                                    </span>
                                     <span class="pr-qty pr-num pr-cell-ordered @ClaimClass(product.QuantityOrdered)"
                                           role="cell">
                                         <span class="pr-rl">On order</span>@Qty(product.QuantityOrdered, product.UoM)
                                     </span>
-                                    <span class="pr-qty pr-qty-avail pr-num pr-cell-available @ZeroClass(product.QuantityAvailable)"
+                                    <span class="pr-qty pr-num pr-cell-available @StockClass(product.QuantityAvailable)"
                                           role="cell">
                                         <span class="pr-rl">Available</span>@Qty(product.QuantityAvailable, product.UoM)
                                     </span>
@@ -402,6 +424,7 @@
 {
     var product = selectedProduct;
     var itemCode = product.ItemCode ?? string.Empty;
+    var freeToSell = FreeToSell(product);
 
     <div class="pr pr-scrim" @onclick="CloseDrawer"></div>
     <aside class="pr pr-drawer" role="dialog" aria-modal="true" aria-label="@product.ItemName">
@@ -430,9 +453,10 @@
 
             <section class="pr-section">
                 <h3>Availability</h3>
-                @* The sum written out. SAP counts stock on a purchase order as
-                   available before it arrives, so wherever on order is not zero
-                   availability exceeds what is physically on the shelf. *@
+                @* Two statements, because the page reports two different answers to
+                   "how much is there": what can leave today, and what SAP counts as
+                   available (which includes stock still on a purchase order). Each
+                   figure is shown deriving from the one before it. *@
                 <div class="pr-avail">
                     <div class="pr-avail-row">
                         <div class="pr-avail-term">
@@ -443,6 +467,17 @@
                         <div class="pr-avail-term">
                             <div class="pr-avail-t">Committed</div>
                             <div class="pr-avail-v">@Qty(product.QuantityCommitted, product.UoM)</div>
+                        </div>
+                        <div class="pr-avail-op" aria-hidden="true">=</div>
+                        <div class="pr-avail-term pr-avail-term-result">
+                            <div class="pr-avail-t">Free to sell</div>
+                            <div class="pr-avail-v @StockClass(freeToSell)">@Qty(freeToSell, product.UoM)</div>
+                        </div>
+                    </div>
+                    <div class="pr-avail-row">
+                        <div class="pr-avail-term pr-avail-term-carried">
+                            <div class="pr-avail-t">Free to sell</div>
+                            <div class="pr-avail-v">@Qty(freeToSell, product.UoM)</div>
                         </div>
                         <div class="pr-avail-op" aria-hidden="true">+</div>
                         <div class="pr-avail-term">
@@ -456,20 +491,26 @@
                         </div>
                     </div>
                     <div class="pr-avail-note">
-                        @if (product.QuantityOrdered > 0)
+                        @if (freeToSell < 0)
                         {
                             <text>
-                                @Qty(product.QuantityOrdered, product.UoM) is on a purchase order and has not
-                                arrived, so availability runs ahead of the
-                                @Qty(product.QuantityInStock, product.UoM) actually in
-                                @selectedWarehouse?.WarehouseCode.
+                                Oversold: customer orders claim @Qty(product.QuantityCommitted, product.UoM)
+                                against @Qty(product.QuantityInStock, product.UoM) on hand.
+                            </text>
+                        }
+                        else if (product.QuantityOrdered > 0)
+                        {
+                            <text>
+                                @Qty(freeToSell, product.UoM) can leave @selectedWarehouse?.WarehouseCode today.
+                                SAP's availability is higher because it counts the
+                                @Qty(product.QuantityOrdered, product.UoM) still on a purchase order.
                             </text>
                         }
                         else
                         {
                             <text>
-                                Availability is what SAP reports: on hand, less what is committed to customer
-                                orders, plus anything on a purchase order.
+                                Nothing is inbound, so what can leave today and what SAP reports as available
+                                are the same figure.
                             </text>
                         }
                     </div>

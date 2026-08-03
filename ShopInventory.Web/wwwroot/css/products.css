@@ -77,10 +77,11 @@
     --pr-r-md: 8px;
     --pr-r-lg: 14px;
 
-    /* The directory's eight columns, declared once. The four quantities are
-       equal-width so they read as one row of arithmetic rather than four
-       unrelated figures. */
-    --pr-cols: 108px minmax(0, 2fr) 92px 92px 92px 100px 68px 40px;
+    /* The directory's nine columns, declared once. The five quantities sit in the
+       order the arithmetic runs — in stock, less committed, gives free to sell;
+       plus on order, gives SAP's availability — so the row reads as two
+       statements rather than five unrelated figures. */
+    --pr-cols: 104px minmax(0, 1.8fr) 88px 88px 96px 88px 96px 64px 36px;
 
     color-scheme: var(--pr-scheme);
 }
@@ -616,7 +617,7 @@
 }
 
 .pr-grid {
-    min-width: 940px;
+    min-width: 1040px;
 }
 
 .pr-thead,
@@ -624,7 +625,9 @@
     display: grid;
     grid-template-columns: var(--pr-cols);
     align-items: center;
-    gap: var(--pr-s6);
+    /* Tighter than the page's other grids: nine columns, and the width bought
+       here goes to the item name. */
+    gap: var(--pr-s4);
 }
 
 .pr-thead {
@@ -674,9 +677,13 @@
     white-space: nowrap;
 }
 
-/* The four quantities. A zero recedes rather than shouting; the figures that
-   carry a claim on stock — committed, on order — take the accent, and
-   availability is the one the row is read for, so it holds full ink. */
+/* The five quantities. A zero recedes rather than shouting; the figures that
+   carry a claim on stock — committed, on order — take the accent.
+
+   Free to sell holds full ink and the extra half-point, because it is the one
+   figure the row is usually read for. SAP's availability sits beside it at the
+   ordinary weight: it is the number that ties out against B1, not the number
+   anyone acts on. */
 .pr-qty {
     font-size: 13.5px;
     color: var(--pr-ink-2);
@@ -690,10 +697,17 @@
     color: var(--pr-accent-text);
 }
 
-.pr-qty-avail {
+.pr-qty-lead {
     font-size: 14px;
     font-weight: 500;
     color: var(--pr-ink);
+}
+
+/* Oversold — committed exceeds what is on the shelf. Rare, and worth seeing;
+   the amber is the page's existing notice ink rather than a new alarm colour. */
+.pr-qty-short {
+    color: var(--pr-warn-ink);
+    font-weight: 500;
 }
 
 .pr-uom {
@@ -845,12 +859,19 @@
 
 /* ── Detail drawer ─────────────────────────────────────────────────────── */
 /* Offset below the app bar: the page is a stacking context, so a drawer
-   cannot paint over the topbar however high its z-index. */
+   cannot paint over the topbar however high its z-index. Both overlays sit
+   outside .pr for that reason and carry the class themselves to reach the
+   tokens — which is why both need the min-height reset below. */
 
+/* min-height: 0 undoes the 100vh the page root sets. min-height beats height,
+   so without it the used height is a full 100vh starting at the topbar, and
+   the overlay hangs one topbar below the fold — taking the drawer's footer
+   and its buttons out of reach. */
 .pr-scrim {
     position: fixed;
     inset: var(--kf-topbar-h, 74px) 0 0;
     z-index: 9998;
+    min-height: 0;
     background: var(--pr-scrim);
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
@@ -864,6 +885,7 @@
     z-index: 9999;
     width: min(640px, 100vw);
     height: calc(100vh - var(--kf-topbar-h, 74px));
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--pr-bg);
@@ -970,10 +992,15 @@
 }
 
 /* ── Availability, spelled out ─────────────────────────────────────────── */
-/* The three terms and their result on one line, in the order the arithmetic
-   runs. The list showed availability without the on-order term for a long
-   time, which made items read as available > in stock with nothing to
-   explain the difference; here the sum is the point of the block. */
+/* Two statements, not one, because the page reports two different answers to
+   "how much is there":
+
+     in stock − committed        = free to sell   (what can leave today)
+     free to sell + on order     = available      (what SAP reports)
+
+   The list showed only the second for a long time, and without the on-order
+   term, so items read as available > in stock with nothing to explain the
+   difference. Here each figure is shown deriving from the one before it. */
 
 .pr-avail {
     border: 1px solid var(--pr-divider);
@@ -987,6 +1014,18 @@
     align-items: stretch;
     gap: var(--pr-s3);
     flex-wrap: wrap;
+}
+
+/* The second statement restates the first's result as its own first term, so a
+   rule between them would break the thread; a step of space does not. */
+.pr-avail-row + .pr-avail-row {
+    margin-top: var(--pr-s4);
+}
+
+/* The carried-forward term: already stated above, so it recedes. */
+.pr-avail-term-carried .pr-avail-t,
+.pr-avail-term-carried .pr-avail-v {
+    color: var(--pr-mute-3);
 }
 
 .pr-avail-term {
@@ -1025,6 +1064,10 @@
 
 .pr-avail-term-result .pr-avail-v {
     color: var(--pr-ink);
+}
+
+.pr-avail-term-result .pr-avail-v.pr-qty-short {
+    color: var(--pr-warn-ink);
 }
 
 .pr-avail-note {
@@ -1381,16 +1424,20 @@
         order: 5;
     }
 
-    .pr-row > .pr-cell-ordered {
+    .pr-row > .pr-cell-free {
         order: 6;
     }
 
-    .pr-row > .pr-cell-available {
+    .pr-row > .pr-cell-ordered {
         order: 7;
     }
 
-    .pr-row > .pr-cell-uom {
+    .pr-row > .pr-cell-available {
         order: 8;
+    }
+
+    .pr-row > .pr-cell-uom {
+        order: 9;
     }
 
     .pr-row > .pr-qty {
