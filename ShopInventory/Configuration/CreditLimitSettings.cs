@@ -15,10 +15,14 @@ public sealed class CreditLimitSettings
 
     /// <summary>
     /// Counts sales orders already raised but not yet invoiced (SAP's "Orders" figure on the BP
-    /// master) toward exposure. Without it, two orders submitted back to back each pass on their
-    /// own and jointly break the limit, because neither is in the balance yet.
+    /// master) toward exposure. Off: a customer is over the limit when what it actually owes —
+    /// <c>OCRD.Balance</c> — is over, which is the figure credit control works from and the one SAP's
+    /// own approval query uses. Orders in flight cannot quietly become debt behind that, because SAP
+    /// will not raise an invoice for a customer that is over its limit, so the balance cannot grow
+    /// past the limit through an order this check let through. Turning it on stops those orders at
+    /// capture instead, at the cost of refusing accounts that owe nothing near their limit.
     /// </summary>
-    public bool IncludeOpenOrders { get; set; } = true;
+    public bool IncludeOpenOrders { get; set; } = false;
 
     /// <summary>
     /// Runs the evening sweep for accounts already over their limit. Independent of

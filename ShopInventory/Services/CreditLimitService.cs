@@ -10,13 +10,19 @@ namespace ShopInventory.Services;
 /// </summary>
 /// <remarks>
 /// Mirrors the approval query SAP runs on ORDR:
-/// <c>(DocTotal + OCRD.Balance) &gt; OCRD.CreditLine</c>, with three deliberate differences. Open
-/// sales orders count toward exposure as well, because SAP's balance only holds what has been
-/// invoiced and two orders raised minutes apart would otherwise each pass on their own. Where an
+/// <c>(DocTotal + OCRD.Balance) &gt; OCRD.CreditLine</c>, with two deliberate differences. Where an
 /// account names a consolidating parent (OCRD.FatherCard), the parent's limit is measured against
 /// the whole group's exposure, since that is where the limit is actually held. And the SAP query's
 /// <c>IndustryC = '3'</c> filter is not reproduced: the check applies wherever a limit is actually
 /// set, so an account that was never flagged into that industry is still held to its own limit.
+/// <para>
+/// Open sales orders are not counted. Only what the customer actually owes decides whether it is
+/// over — an account well inside its limit on balance is not refused for orders that have not been
+/// invoiced yet. Nor can those orders break the limit later: SAP refuses to invoice a customer that
+/// is over it, so this check sits in front of that backstop rather than duplicating it.
+/// <see cref="CreditLimitSettings.IncludeOpenOrders"/> adds them back for anyone who wants the
+/// tighter reading.
+/// </para>
 /// </remarks>
 public interface ICreditLimitService
 {
@@ -45,7 +51,10 @@ public sealed class CreditLimitCheckResult
 
     public decimal CreditLimit { get; init; }
 
-    /// <summary>Balance + open orders + this order, in the credit account's currency.</summary>
+    /// <summary>
+    /// Balance + this order, in the credit account's currency — plus open orders where
+    /// <see cref="CreditLimitSettings.IncludeOpenOrders"/> is on.
+    /// </summary>
     public decimal Exposure { get; init; }
 
     public static CreditLimitCheckResult Allowed() => new() { IsWithinLimit = true };
