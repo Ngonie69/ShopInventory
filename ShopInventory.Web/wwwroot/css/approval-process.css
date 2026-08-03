@@ -14,8 +14,12 @@
 
    Light is the base and `.dark-theme` the override, matching the rest of the
    app and the order App.razor's pre-paint script stamps the class in, so
-   neither scheme flashes. Token names and values are deliberately identical
-   to driver-shop-access.css so the two Administration pages stay one system.
+   neither scheme flashes. Both palettes live in nocturne-tokens.css and the
+   block below only aliases them, so this page and driver-shop-access.css stay
+   one system by construction. They previously kept their own copies and claimed
+   the same thing, and three values here had quietly drifted off it — dark
+   --apr-hover, --apr-wash and --apr-field-edge-hi were corrected back when the
+   palette was extracted.
 
    Rules live here rather than an inline Razor <style> block for the same
    reasons as driver-shop-access.css: app.css carries global
@@ -27,97 +31,72 @@
    ========================================================================== */
 
 .apr {
-    --apr-bg: #f4f4f8;
-    --apr-surface: #ffffff;
-    --apr-wash: #ffffff;
-    --apr-ink: #1b1c26;
-    --apr-ink-2: #35374a;
-    --apr-mute: #4e5164;
-    --apr-mute-2: #656879;
-    --apr-mute-3: #7b7e8e;
-    --apr-faint: #a0a2ae;
-    --apr-placeholder: #9498a8;
-    --apr-divider: rgba(27, 28, 38, .14);
-    --apr-hover: rgba(27, 28, 38, .04);
-    --apr-press: rgba(27, 28, 38, .09);
-    --apr-field-bg: rgba(27, 28, 38, .04);
-    --apr-field-edge: #d4d6e2;
-    --apr-field-edge-hi: #a9adc0;
-    --apr-accent: #5f52c4;
-    --apr-accent-rgb: 95, 82, 196;
-    /* The accent's text-carrying step: on the dark ground the design uses
-       --color-accent-200/300 (a pale lavender); on paper the same role has to
-       be the deep end of the ramp instead. */
-    --apr-accent-text: #473d99;
-    --apr-accent-ink: #ffffff;
-    --apr-box-on: #5f52c4;
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values. Folding this sheet in corrected three values that had
+       drifted from the system: dark --apr-hover was .05 (now .04), --apr-wash
+       was .7 (now .6), and --apr-field-edge-hi was the opaque #595d6c (now the
+       system's thinned ink). */
+    --apr-bg: var(--noct-bg);
+    --apr-surface: var(--noct-surface);
+    --apr-wash: var(--noct-wash);
+    --apr-ink: var(--noct-ink);
+    --apr-ink-2: var(--noct-ink-2);
+    --apr-mute: var(--noct-mute);
+    --apr-mute-2: var(--noct-mute-2);
+    --apr-mute-3: var(--noct-mute-3);
+    --apr-faint: var(--noct-faint);
+    --apr-placeholder: var(--noct-placeholder);
+    --apr-divider: var(--noct-divider);
+    --apr-hover: var(--noct-hover);
+    --apr-press: var(--noct-press);
+    --apr-field-bg: var(--noct-field-bg);
+    --apr-field-edge: var(--noct-field-edge);
+    --apr-field-edge-hi: var(--noct-field-edge-hi);
+    --apr-accent: var(--noct-accent);
+    --apr-accent-rgb: var(--noct-accent-rgb);
+    --apr-accent-text: var(--noct-accent-text);
+    --apr-box-on: var(--noct-box);
+    --apr-accent-ink: var(--noct-on-box);
+    --apr-thumb: var(--noct-thumb);
+    --apr-warn-bg: var(--noct-warn-bg);
+    --apr-warn-edge: var(--noct-warn-edge);
+    --apr-warn-ink: var(--noct-warn-ink);
+    --apr-caret: var(--noct-caret);
+    --apr-clear: var(--noct-clear);
+    --apr-scheme: var(--noct-scheme);
+
+    --apr-s1: var(--noct-s1);
+    --apr-s2: var(--noct-s2);
+    --apr-s3: var(--noct-s3);
+    --apr-s4: var(--noct-s4);
+    --apr-s6: var(--noct-s6);
+    --apr-s8: var(--noct-s8);
+    --apr-r-sm: var(--noct-r-sm);
+    --apr-r-md: var(--noct-r-md);
+    --apr-r-lg: var(--noct-r-lg);
+
+    /* This page's own, and not the system's. The danger and good pairs are the
+       hues outside the system this sheet's header calls out: a destructive
+       action, a blocked deletion and an approval have to read as neither accent
+       nor neutral, and they are pitched against this page's own surfaces rather
+       than the family set's. --apr-track is the approval-chain rail. */
     --apr-track: #c9ccd8;
-    --apr-thumb: #c8cad6;
-    /* The one hue outside the system: a destructive action and a blocked
-       deletion have to read as neither accent nor neutral. */
-    --apr-warn-bg: #fdf6e6;
-    --apr-warn-edge: #e5cd94;
-    --apr-warn-ink: #6b4c12;
     --apr-danger: #b3352f;
     --apr-danger-rgb: 179, 53, 47;
     --apr-good-bg: #eaf5ee;
     --apr-good-edge: #a9cdb7;
     --apr-good-ink: #1f5433;
-    /* The select caret, whole: a var() inside the data URL's quoted string
-       would not be substituted, so each theme carries the finished image. */
-    --apr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --apr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --apr-scheme: light;
-
-    /* Nocturne's compact scale — density 0.70x. */
-    --apr-s1: 2.8px;
-    --apr-s2: 5.6px;
-    --apr-s3: 8.4px;
-    --apr-s4: 11.2px;
-    --apr-s6: 16.8px;
-    --apr-s8: 22.4px;
-    --apr-r-sm: 4px;
-    --apr-r-md: 8px;
-    --apr-r-lg: 14px;
 
     color-scheme: var(--apr-scheme);
 }
 
 .dark-theme .apr {
-    --apr-bg: #161826;
-    --apr-surface: #232532;
-    --apr-wash: rgba(35, 37, 50, .7);
-    --apr-ink: #e9e9ed;
-    --apr-ink-2: #e4e7f5;
-    --apr-mute: #cfd3e5;
-    --apr-mute-2: #b2b6ca;
-    --apr-mute-3: #9397ab;
-    --apr-faint: #75798c;
-    --apr-placeholder: #75798c;
-    --apr-divider: rgba(233, 233, 237, .16);
-    --apr-hover: rgba(243, 245, 254, .05);
-    --apr-press: rgba(243, 245, 254, .1);
-    --apr-field-bg: rgba(243, 245, 254, .05);
-    --apr-field-edge: rgba(233, 233, 237, .16);
-    --apr-field-edge-hi: #595d6c;
-    --apr-accent: #9184d9;
-    --apr-accent-rgb: 145, 132, 217;
-    --apr-accent-text: #d2cefd;
-    --apr-accent-ink: #f5f4ff;
-    --apr-box-on: #796cbf;
     --apr-track: #3f424d;
-    --apr-thumb: #3f424d;
-    --apr-warn-bg: rgba(120, 83, 15, .28);
-    --apr-warn-edge: #9a7b3d;
-    --apr-warn-ink: #f2dfae;
     --apr-danger: #e98a84;
     --apr-danger-rgb: 233, 138, 132;
     --apr-good-bg: rgba(31, 84, 51, .3);
     --apr-good-edge: #4a7d5d;
     --apr-good-ink: #b7dcc5;
-    --apr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --apr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --apr-scheme: dark;
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */

@@ -1,0 +1,1060 @@
+/* ==========================================================================
+   Local Stock — Nocturne
+
+   Another derivation, taken the same way audit-trail.css was and from the same
+   place: business-partners.css, whose shape this page shares — a sticky header
+   carrying the one search, a stated hero, a row of four figures, a panel whose
+   rows wash into the ground, and a filter row above them. Palette and spacing
+   come from nocturne-tokens.css — the block below aliases them rather than
+   restating them, so a colour is corrected in one place for the whole system.
+
+   Two things this page has that no sibling did, and which are the reason it
+   needs its own sheet rather than a shared one:
+
+   - A **fetch that runs for minutes across many warehouses**, reporting over
+     SignalR. It gets a rail and a chip per warehouse, because the useful
+     question during a fetch is not "how far along" but "is mine done yet" —
+     and a done chip is clickable, so the answer is also the way in.
+   - **Quantities that mean something by their size.** The four steps
+     (>100, >10, >0, none) are drawn from the family hues, so the column can be
+     read down without stopping on any single figure.
+
+   Light is the base and `.dark-theme` the override — both stated once, in
+   nocturne-tokens.css, in the order App.razor's pre-paint script stamps the
+   class in.
+
+   Rules live here rather than in the inline <style> block this page used to
+   carry, because app.css's global `.dark-theme input/select` rules at (0,1,1)
+   would repaint every field #1e293b; every control selector below is two
+   classes deep and wins regardless of load order. Headings are pinned to
+   Nocturne's 500 against Bootstrap's global 600.
+
+   The seven-column grid is one declaration shared by the header strip, the item
+   rows and the batch rows beneath them, so the three cannot drift. Below 1040px
+   a row becomes a labelled card.
+   ========================================================================== */
+
+.lst {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --lst-bg: var(--noct-bg);
+    --lst-surface: var(--noct-surface);
+    --lst-wash: var(--noct-wash);
+    --lst-ink: var(--noct-ink);
+    --lst-ink-2: var(--noct-ink-2);
+    --lst-mute: var(--noct-mute);
+    --lst-mute-2: var(--noct-mute-2);
+    --lst-mute-3: var(--noct-mute-3);
+    --lst-faint: var(--noct-faint);
+    --lst-placeholder: var(--noct-placeholder);
+    --lst-divider: var(--noct-divider);
+    --lst-rule: var(--noct-rule);
+    --lst-hover: var(--noct-hover);
+    --lst-press: var(--noct-press);
+    --lst-field-bg: var(--noct-field-bg);
+    --lst-field-edge: var(--noct-field-edge);
+    --lst-field-edge-hi: var(--noct-field-edge-hi);
+    --lst-accent: var(--noct-accent);
+    --lst-accent-rgb: var(--noct-accent-rgb);
+    --lst-accent-text: var(--noct-accent-text);
+    --lst-thumb: var(--noct-thumb);
+    --lst-caret: var(--noct-caret);
+    --lst-clear: var(--noct-clear);
+    --lst-scheme: var(--noct-scheme);
+
+    /* Families — the four quantity steps, the snapshot status and the live
+       badge each take one. */
+    --lst-fam-neutral: var(--noct-fam-neutral);
+    --lst-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --lst-fam-accent: var(--noct-fam-accent);
+    --lst-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --lst-fam-info: var(--noct-fam-info);
+    --lst-fam-info-rgb: var(--noct-fam-info-rgb);
+    --lst-fam-good: var(--noct-fam-good);
+    --lst-fam-good-rgb: var(--noct-fam-good-rgb);
+    --lst-fam-warn: var(--noct-fam-warn);
+    --lst-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --lst-fam-bad: var(--noct-fam-bad);
+    --lst-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --lst-s1: var(--noct-s1);
+    --lst-s2: var(--noct-s2);
+    --lst-s3: var(--noct-s3);
+    --lst-s4: var(--noct-s4);
+    --lst-s6: var(--noct-s6);
+    --lst-s8: var(--noct-s8);
+    --lst-r-sm: var(--noct-r-sm);
+    --lst-r-md: var(--noct-r-md);
+    --lst-r-lg: var(--noct-r-lg);
+
+    /* The item grid's seven columns — this page's own, not the system's. */
+    --lst-cols: 26px 150px minmax(0, 1fr) 116px 116px 116px 84px;
+
+    color-scheme: var(--lst-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.lst {
+    min-height: 100vh;
+    background: var(--lst-bg);
+    color: var(--lst-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.lst * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; here that would flatten the quantity families on WebKit. */
+.lst,
+.lst * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.lst :focus-visible {
+    outline: 2px solid var(--lst-accent);
+    outline-offset: 2px;
+}
+
+.lst ::selection {
+    background: rgba(var(--lst-accent-rgb), .3);
+}
+
+.lst h1,
+.lst h2,
+.lst h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Opaque rather than frosted, for the reason the siblings give: the missing
+   12% lets the page title read through wherever the compositor skips the blur. */
+
+.lst-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--lst-bg);
+    border-bottom: 1px solid var(--lst-divider);
+}
+
+.lst-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s6);
+}
+
+.lst-head-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    max-width: 420px;
+}
+
+.lst-head-search svg {
+    position: absolute;
+    left: 11px;
+    pointer-events: none;
+    color: var(--lst-mute-3);
+}
+
+.lst-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s3);
+}
+
+/* The hub connection, stated only when it is up: a "LIVE" that is sometimes
+   absent says more than one that is sometimes grey. */
+.lst-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lst-fam-good);
+    background: rgba(var(--lst-fam-good-rgb), .14);
+    white-space: nowrap;
+}
+
+.lst-live-dot {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 999px;
+    background: currentColor;
+    animation: lst-pulse 2s ease-in-out infinite;
+}
+
+@keyframes lst-pulse {
+    50% {
+        opacity: .35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lst-live-dot {
+        animation: none;
+    }
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.lst .lst-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--lst-s2) calc(var(--lst-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--lst-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--lst-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.lst .lst-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.lst .lst-btn svg {
+    display: block;
+    flex: none;
+}
+
+.lst .lst-btn-primary {
+    color: var(--lst-accent);
+    border-color: var(--lst-accent);
+    letter-spacing: .02em;
+}
+
+.lst .lst-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--lst-accent-rgb), .12);
+}
+
+.lst .lst-btn-primary:active:not(:disabled) {
+    background: rgba(var(--lst-accent-rgb), .22);
+}
+
+.lst .lst-btn-quiet {
+    color: var(--lst-mute-2);
+    border-color: var(--lst-divider);
+}
+
+.lst .lst-btn-quiet:hover:not(:disabled) {
+    color: var(--lst-ink);
+    border-color: var(--lst-field-edge-hi);
+    background: var(--lst-hover);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.lst-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--lst-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.lst-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.lst-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--lst-accent-text);
+    margin-bottom: 9px;
+}
+
+.lst-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.lst-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--lst-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The fetch ─────────────────────────────────────────────────────────── */
+/* A run across every monitored warehouse, minutes long. */
+
+.lst-fetch {
+    padding: var(--lst-s6) 18px;
+    border: 1px solid rgba(var(--lst-accent-rgb), .35);
+    border-radius: var(--lst-r-lg);
+    background:
+        linear-gradient(155deg, rgba(var(--lst-accent-rgb), .1), transparent 62%),
+        var(--lst-surface);
+}
+
+.lst-fetch-head {
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s3);
+    flex-wrap: wrap;
+}
+
+.lst-fetch-head h2 {
+    font-size: 13.5px;
+    letter-spacing: -.01em;
+}
+
+.lst-fetch-count {
+    margin-left: auto;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lst-mute-2);
+}
+
+/* A rail rather than a bar: it is the coarse answer, and the chips below carry
+   the one people actually came for. */
+.lst-rail {
+    height: 4px;
+    margin: var(--lst-s4) 0;
+    border-radius: 999px;
+    background: rgba(var(--lst-accent-rgb), .16);
+    overflow: hidden;
+}
+
+.lst-rail-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--lst-accent);
+    transition: width .4s ease;
+}
+
+.lst-fetch-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--lst-s2);
+    margin-bottom: var(--lst-s3);
+    font-size: 12px;
+    color: var(--lst-mute-2);
+    text-wrap: pretty;
+}
+
+.lst-fetch-note svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.lst-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--lst-s2);
+}
+
+.lst-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border: 1px solid var(--lst-divider);
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lst-mute-2);
+    background: transparent;
+    white-space: nowrap;
+}
+
+/* A finished warehouse is a button, because its snapshot is now loadable and
+   the chip is the shortest way to say so. */
+.lst .lst-chip-done {
+    color: var(--lst-fam-good);
+    border-color: rgba(var(--lst-fam-good-rgb), .45);
+    background: rgba(var(--lst-fam-good-rgb), .12);
+    cursor: pointer;
+    font-family: inherit;
+    transition: background-color .14s;
+}
+
+.lst .lst-chip-done:hover {
+    background: rgba(var(--lst-fam-good-rgb), .22);
+}
+
+.lst-chip-active {
+    color: var(--lst-accent-text);
+    border-color: rgba(var(--lst-accent-rgb), .45);
+    background: rgba(var(--lst-accent-rgb), .14);
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.lst-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--lst-s4);
+}
+
+.lst-stat {
+    padding: var(--lst-s6) 18px;
+    border: 1px solid var(--lst-divider);
+    border-radius: var(--lst-r-lg);
+    background: var(--lst-surface);
+    min-width: 0;
+}
+
+.lst-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--lst-accent-rgb), .12), transparent 62%),
+        var(--lst-surface);
+}
+
+/* Out-of-stock earns the danger tint only when there is something to say. */
+.lst-stat-alert {
+    background:
+        linear-gradient(155deg, rgba(var(--lst-fam-bad-rgb), .12), transparent 62%),
+        var(--lst-surface);
+}
+
+.lst-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--lst-mute-2);
+}
+
+.lst-stat-lead .lst-stat-head {
+    color: var(--lst-accent-text);
+}
+
+.lst-stat-alert .lst-stat-head {
+    color: var(--lst-fam-bad);
+}
+
+.lst-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--lst-mute-3);
+}
+
+.lst-stat-lead .lst-stat-rule {
+    background: var(--lst-accent);
+}
+
+.lst-stat-alert .lst-stat-rule {
+    background: var(--lst-fam-bad);
+}
+
+.lst-stat-num {
+    margin-top: var(--lst-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.lst-stat-alert .lst-stat-num {
+    color: var(--lst-fam-bad);
+}
+
+.lst-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--lst-mute-2);
+}
+
+/* ── The panel ─────────────────────────────────────────────────────────── */
+/* No `overflow` — the snapshot date drops a calendar, and clipping any ancestor
+   cuts it off at the panel edge. The only thing painting into a corner is the
+   panel's own background, which the border radius clips anyway. */
+
+.lst-panel {
+    border: 1px solid var(--lst-divider);
+    border-radius: var(--lst-r-lg);
+    background: linear-gradient(to bottom, var(--lst-wash), transparent 240px);
+}
+
+.lst-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--lst-s4);
+    padding: var(--lst-s4) var(--lst-s8);
+    flex-wrap: wrap;
+}
+
+.lst-panel-head h2 {
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.lst-count {
+    font-size: 12.5px;
+    color: var(--lst-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The snapshot this page is showing, and whether it finished. Stated beside the
+   heading rather than in a banner of its own: it qualifies the rows below, and
+   a separate strip would read as an alert. */
+.lst-snap {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lst-fam, var(--lst-fam-neutral));
+    background: rgba(var(--lst-fam-rgb, var(--lst-fam-neutral-rgb)), .13);
+    white-space: nowrap;
+}
+
+.lst-snap-dot {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.lst-fam-good {
+    --lst-fam: var(--lst-fam-good);
+    --lst-fam-rgb: var(--lst-fam-good-rgb);
+}
+
+.lst-fam-warn {
+    --lst-fam: var(--lst-fam-warn);
+    --lst-fam-rgb: var(--lst-fam-warn-rgb);
+}
+
+.lst-fam-bad {
+    --lst-fam: var(--lst-fam-bad);
+    --lst-fam-rgb: var(--lst-fam-bad-rgb);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+/* Capped rather than fractional: there are only three controls, and stretched
+   across a 1400px panel a warehouse name and a date read as though the page
+   expected far more typing than it does. */
+.lst-filters {
+    display: grid;
+    grid-template-columns: minmax(190px, 340px) minmax(150px, 200px) auto;
+    justify-content: start;
+    gap: var(--lst-s4);
+    padding: 0 var(--lst-s8) var(--lst-s4);
+    align-items: end;
+}
+
+.lst-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.lst-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lst-mute-3);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.lst .lst-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--lst-ink);
+    caret-color: var(--lst-accent);
+    background: var(--lst-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--lst-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.lst .lst-input-search {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.lst .lst-input:hover:not(:disabled) {
+    border-color: var(--lst-field-edge);
+}
+
+.lst .lst-input:focus-visible {
+    border-color: rgba(var(--lst-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.lst .lst-input:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.lst .lst-input::placeholder {
+    color: var(--lst-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--lst-placeholder);
+}
+
+.lst .lst-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--lst-s2);
+    background: var(--lst-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.lst-select {
+    position: relative;
+    display: flex;
+}
+
+.lst .lst-select select.lst-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.lst-select .lst-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--lst-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.lst-scroll {
+    overflow-x: auto;
+}
+
+.lst-grid {
+    min-width: 940px;
+}
+
+.lst-thead,
+.lst-row {
+    display: grid;
+    grid-template-columns: var(--lst-cols);
+    align-items: center;
+    gap: var(--lst-s4);
+}
+
+.lst-thead {
+    padding: 0 var(--lst-s8) var(--lst-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--lst-mute-3);
+}
+
+.lst-row {
+    width: 100%;
+    padding: 10px var(--lst-s8);
+    border: 0;
+    border-top: 1px solid var(--lst-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    transition: background-color .12s ease;
+}
+
+/* Only an item with more than one batch has anything to open. */
+.lst-row-open {
+    cursor: pointer;
+}
+
+.lst-row-open:hover {
+    background: var(--lst-hover);
+}
+
+.lst-caretcell {
+    display: grid;
+    place-items: center;
+    color: var(--lst-mute-3);
+}
+
+.lst-twist {
+    transition: transform .15s ease;
+}
+
+.lst-row-on .lst-twist {
+    transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lst-twist {
+        transition: none;
+    }
+}
+
+.lst-code {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lst-accent-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lst-desc {
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lst-n {
+    text-align: right;
+    font-size: 13.5px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+/* The four steps a quantity can be in. Colour carries the reading so the column
+   can be scanned without stopping on any one figure. */
+.lst-q-good {
+    color: var(--lst-fam-good);
+}
+
+.lst-q-info {
+    color: var(--lst-fam-info);
+}
+
+.lst-q-warn {
+    color: var(--lst-fam-warn);
+}
+
+.lst-q-bad {
+    color: var(--lst-fam-bad);
+}
+
+/* The original figure is context for the adjusted one beside it, so it recedes. */
+.lst-was {
+    color: var(--lst-mute-3);
+}
+
+/* An adjustment reads by sign; zero is the common case and says nothing. */
+.lst-adj-up {
+    color: var(--lst-fam-good);
+}
+
+.lst-adj-down {
+    color: var(--lst-fam-bad);
+}
+
+.lst-adj-nil {
+    color: var(--lst-faint);
+}
+
+.lst-batches {
+    text-align: right;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lst-mute-2);
+}
+
+/* ── Batch rows ────────────────────────────────────────────────────────── */
+/* Opened under their item, indented by the accent stripe rather than by margin
+   so the columns stay aligned with the row above. */
+
+.lst-row-batch {
+    border-top: 1px solid var(--lst-rule);
+    background: var(--lst-hover);
+    box-shadow: inset 2px 0 0 rgba(var(--lst-accent-rgb), .5);
+}
+
+.lst-batch-id {
+    grid-column: span 2;
+    font-size: 12.5px;
+    color: var(--lst-mute-2);
+    min-width: 0;
+}
+
+.lst-batch-no {
+    color: var(--lst-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.lst-batch-exp {
+    color: var(--lst-mute-3);
+}
+
+/* Row labels, carried for the card layout below 1040px. */
+.lst-rl {
+    display: none;
+}
+
+/* ── Notices, empty and loading ────────────────────────────────────────── */
+
+.lst-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--lst-s4);
+    margin: 0 var(--lst-s8) var(--lst-s4);
+    padding: var(--lst-s4) var(--lst-s6);
+    border: 1px solid rgba(var(--lst-fam-warn-rgb), .45);
+    border-radius: var(--lst-r-md);
+    background: rgba(var(--lst-fam-warn-rgb), .1);
+    color: var(--lst-fam-warn);
+    font-size: 13px;
+    text-wrap: pretty;
+}
+
+.lst-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.lst-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--lst-s3);
+    padding: 56px var(--lst-s6);
+    font-size: 13px;
+    color: var(--lst-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.lst-empty h3 {
+    font-size: 15px;
+    color: var(--lst-ink);
+}
+
+.lst-empty svg {
+    color: var(--lst-accent);
+    opacity: .7;
+}
+
+.lst-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--lst-s4);
+    padding: 72px var(--lst-s6);
+    font-size: 13px;
+    color: var(--lst-mute-2);
+}
+
+.lst-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: lst-spin .7s linear infinite;
+}
+
+@keyframes lst-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lst-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.lst-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.lst-scroll::-webkit-scrollbar-thumb {
+    background: var(--lst-thumb);
+    border-radius: 8px;
+}
+
+.lst-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .lst-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below the grid's minimum a row stops being a row and becomes a labelled card,
+   so nothing has to be read out of a horizontal scroll. */
+@media (max-width: 1040px) {
+    .lst-scroll {
+        overflow-x: visible;
+    }
+
+    .lst-grid {
+        min-width: 0;
+    }
+
+    .lst-thead {
+        display: none;
+    }
+
+    .lst-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--lst-s2) var(--lst-s4);
+        padding: var(--lst-s4) var(--lst-s6);
+    }
+
+    .lst-rl {
+        display: inline;
+        margin-right: 4px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--lst-faint);
+    }
+
+    .lst-row > .lst-caretcell {
+        order: 1;
+    }
+
+    .lst-row > .lst-code {
+        order: 2;
+    }
+
+    .lst-row > .lst-batches {
+        order: 3;
+        margin-left: auto;
+    }
+
+    .lst-row > .lst-desc {
+        order: 4;
+        flex: 1 0 100%;
+        white-space: normal;
+        overflow: visible;
+    }
+
+    .lst-row > .lst-n {
+        order: 5;
+        text-align: left;
+    }
+
+    .lst-batch-id {
+        flex: 1 0 100%;
+    }
+}
+
+@media (max-width: 760px) {
+    .lst-head-inner {
+        padding: var(--lst-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--lst-s3);
+    }
+
+    .lst-head-search {
+        max-width: none;
+        flex: 1 1 100%;
+    }
+
+    .lst-head-meta {
+        width: 100%;
+        margin-left: 0;
+        flex-wrap: wrap;
+    }
+
+    .lst-head-meta .lst-btn {
+        flex: 1;
+    }
+
+    .lst-body {
+        padding: var(--lst-s8) 18px 56px;
+    }
+
+    .lst-hero h1 {
+        font-size: 24px;
+    }
+
+    .lst-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .lst-panel-head,
+    .lst-filters,
+    .lst-msg {
+        padding-inline: var(--lst-s6);
+    }
+
+    .lst-msg {
+        margin-inline: var(--lst-s6);
+    }
+
+    .lst-snap {
+        margin-left: 0;
+    }
+
+    .lst-filters {
+        grid-template-columns: 1fr;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .lst .lst-input {
+        font-size: 16px;
+    }
+}

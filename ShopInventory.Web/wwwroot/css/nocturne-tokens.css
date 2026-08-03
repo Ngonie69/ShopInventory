@@ -1,0 +1,210 @@
+/* ==========================================================================
+   Nocturne tokens — the one place the palette's values live
+
+   Every Nocturne page sheet used to carry its own copy of this palette, twice
+   over: a light block and a `.dark-theme` block, both restating the same forty
+   hexes under a page-specific prefix. Correcting a colour meant correcting it
+   once per sheet, and each sheet's header carried a note saying so. The copies
+   had already drifted (see below).
+
+   The values now live here once. A page sheet keeps its prefix — the call sites
+   are unchanged, and a page can still hold a token of its own — but its token
+   block becomes an alias layer:
+
+       .aud { --aud-surface: var(--noct-surface); }
+
+   and its `.dark-theme .aud { … }` block goes away entirely, because these
+   tokens flip at the root and the alias resolves against whichever is in force.
+
+   Why alias rather than rename every call site to `--noct-*`: a page sometimes
+   needs a token to mean something slightly different (nocturne-date-field's
+   `--ndf-accent-ink` is the ink *on* an accent fill, which has to go dark when
+   the fill goes light — the opposite of what the same name meant elsewhere).
+   The alias layer lets a page opt out of one token without opting out of the
+   system, and it keeps this refactor to the token blocks.
+
+   Aliasing sheets: business-partners.css, audit-trail.css, local-stock.css,
+   nocturne-date-field.css, driver-shop-access.css, approval-process.css.
+
+   The last two had drifted. Their headers claimed to be identical to
+   business-partners.css and were not, so folding them in changed four values
+   back to the system's — deliberately, and the only rendering change this
+   extraction made anywhere:
+     - driver-shop-access.css: dark --dsa-hover .05 -> .04.
+     - approval-process.css:   dark --apr-hover .05 -> .04;
+                               --apr-wash .7 -> .6;
+                               --apr-field-edge-hi #595d6c -> rgba(…,.45).
+
+   A sheet can still hold values of its own, and both of those do: an opaque
+   field, a meter's bar and track, an approval rail, and the danger/good pairs
+   approval-process's header calls out as deliberately outside the system. Those
+   stay in their own sheets, under a comment saying why. What must not stay
+   there is a *copy of a shared value* — that is what drifted.
+
+   The other page sheets are single-scheme imports on a different structure and
+   are out of scope. products.css, derived from business-partners.css on a
+   parallel branch, needs the same treatment when the two branches meet.
+
+   Keyed on both the class and the attribute because App.razor's pre-paint
+   script stamps both, and `.dark-theme` must follow `:root` in source order —
+   the two are the same specificity, so order is what decides.
+   ========================================================================== */
+
+:root {
+    /* — Grounds and ink — */
+    --noct-bg: #f4f4f8;
+    --noct-surface: #ffffff;
+    --noct-wash: #ffffff;
+    --noct-ink: #1b1c26;
+    --noct-ink-2: #35374a;
+    --noct-mute: #4e5164;
+    --noct-mute-2: #656879;
+    --noct-mute-3: #7b7e8e;
+    --noct-faint: #a0a2ae;
+    --noct-placeholder: #9498a8;
+
+    /* — Lines and films, all struck from the ink — */
+    --noct-divider: rgba(27, 28, 38, .14);
+    --noct-rule: rgba(27, 28, 38, .08);
+    --noct-hover: rgba(27, 28, 38, .04);
+    --noct-press: rgba(27, 28, 38, .09);
+    --noct-avatar-bg: rgba(27, 28, 38, .07);
+
+    /* — Fields — */
+    --noct-field-bg: rgba(27, 28, 38, .04);
+    --noct-field-edge: #d4d6e2;
+    --noct-field-edge-hi: #a9adc0;
+
+    /* — Accent —
+       `accent-text` is the accent's text-carrying step: on the dark ground the
+       design uses a pale lavender, and on paper the same role has to be the
+       deep end of the ramp instead. `on-accent` is the ink that sits on an
+       accent *fill*, which is why it inverts rather than tracking the others. */
+    --noct-accent: #5f52c4;
+    --noct-accent-rgb: 95, 82, 196;
+    --noct-accent-text: #473d99;
+    --noct-on-accent: #ffffff;
+    /* A filled control — a checked box, a thrown toggle — and the ink on it.
+       Held apart from the accent because the fill is a step darker, which is
+       what lets its ink stay near-white in both schemes while `on-accent` has
+       to invert. */
+    --noct-box: #5f52c4;
+    --noct-on-box: #ffffff;
+    --noct-dot-on: #6d5fc4;
+    --noct-dot-off: #c3c6d2;
+
+    /* — Families —
+       exception-center.css's measured set: 4.5:1 to 5.8:1 on the surface they
+       sit on, held apart in hue so two kinds of thing read as two. */
+    --noct-fam-neutral: #5e6483;
+    --noct-fam-neutral-rgb: 94, 100, 131;
+    --noct-fam-accent: #5a4bb6;
+    --noct-fam-accent-rgb: 90, 75, 182;
+    --noct-fam-info: #1d6ea0;
+    --noct-fam-info-rgb: 29, 110, 160;
+    --noct-fam-good: #1f7a5a;
+    --noct-fam-good-rgb: 31, 122, 90;
+    --noct-fam-warn: #a15c00;
+    --noct-fam-warn-rgb: 161, 92, 0;
+    --noct-fam-bad: #c2334a;
+    --noct-fam-bad-rgb: 194, 51, 74;
+
+    /* — The warning notice — */
+    --noct-warn-bg: #fdf6e6;
+    --noct-warn-edge: #e5cd94;
+    --noct-warn-ink: #6b4c12;
+
+    /* — Overlay and elevation —
+       The dark scheme rings surfaces in opaque grey and drops deep black
+       shadows; neither survives on white, so the light ring is thinned ink and
+       the lift is a soft slate shadow. */
+    --noct-scrim: rgba(27, 28, 38, .45);
+    --noct-thumb: #c8cad6;
+    --noct-shadow-lg: 0 0 0 1px rgba(27, 28, 38, .1), -14px 0 44px rgba(27, 28, 38, .16);
+    --noct-shadow-pop: 0 0 0 1px rgba(27, 28, 38, .08), 0 14px 34px rgba(27, 28, 38, .18);
+
+    /* — Control glyphs —
+       Carried whole per theme: a var() inside the data URL's quoted string
+       would not be substituted, so each scheme needs the finished image. */
+    --noct-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --noct-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+
+    --noct-scheme: light;
+
+    /* — Geometry —
+       Theme-independent, so stated once. Nocturne's compact scale is the 14px
+       base at density 0.70x; the steps are kept whole even where a page uses
+       only some of them, because a scale with a hole in it stops being one. */
+    --noct-s1: 2.8px;
+    --noct-s2: 5.6px;
+    --noct-s3: 8.4px;
+    --noct-s4: 11.2px;
+    --noct-s6: 16.8px;
+    --noct-s8: 22.4px;
+    --noct-r-sm: 4px;
+    --noct-r-md: 8px;
+    --noct-r-lg: 14px;
+}
+
+.dark-theme,
+[data-theme="dark"] {
+    --noct-bg: #161826;
+    --noct-surface: #232532;
+    /* Raised, in dark, means nearer the page's own ground rather than nearer
+       white — so this is a translucent lift, not a solid. */
+    --noct-wash: rgba(35, 37, 50, .6);
+    --noct-ink: #e9e9ed;
+    --noct-ink-2: #e4e7f5;
+    --noct-mute: #cfd3e5;
+    --noct-mute-2: #b2b6ca;
+    --noct-mute-3: #9397ab;
+    --noct-faint: #75798c;
+    --noct-placeholder: #75798c;
+
+    --noct-divider: rgba(233, 233, 237, .16);
+    --noct-rule: rgba(243, 245, 254, .07);
+    --noct-hover: rgba(243, 245, 254, .04);
+    --noct-press: rgba(243, 245, 254, .1);
+    --noct-avatar-bg: rgba(243, 245, 254, .07);
+
+    --noct-field-bg: rgba(243, 245, 254, .05);
+    --noct-field-edge: rgba(233, 233, 237, .16);
+    --noct-field-edge-hi: rgba(233, 233, 237, .45);
+
+    --noct-accent: #9184d9;
+    --noct-accent-rgb: 145, 132, 217;
+    --noct-accent-text: #d2cefd;
+    /* The fill went light, so its ink goes dark. */
+    --noct-on-accent: #14121f;
+    --noct-box: #796cbf;
+    --noct-on-box: #f5f4ff;
+    --noct-dot-on: #968ae0;
+    --noct-dot-off: #595d6c;
+
+    --noct-fam-neutral: #9397ab;
+    --noct-fam-neutral-rgb: 147, 151, 171;
+    --noct-fam-accent: #b5abfc;
+    --noct-fam-accent-rgb: 181, 171, 252;
+    --noct-fam-info: #7fb2d9;
+    --noct-fam-info-rgb: 127, 178, 217;
+    --noct-fam-good: #7fc8a9;
+    --noct-fam-good-rgb: 127, 200, 169;
+    --noct-fam-warn: #e0a44a;
+    --noct-fam-warn-rgb: 224, 164, 74;
+    --noct-fam-bad: #e8697d;
+    --noct-fam-bad-rgb: 232, 105, 125;
+
+    --noct-warn-bg: rgba(120, 83, 15, .28);
+    --noct-warn-edge: #9a7b3d;
+    --noct-warn-ink: #f2dfae;
+
+    --noct-scrim: rgba(10, 11, 18, .6);
+    --noct-thumb: #3f424d;
+    --noct-shadow-lg: 0 0 0 1px #3f424d, -14px 0 44px rgba(0, 0, 0, .6);
+    --noct-shadow-pop: 0 0 0 1px #3f424d, 0 14px 34px rgba(0, 0, 0, .55);
+
+    --noct-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --noct-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+
+    --noct-scheme: dark;
+}

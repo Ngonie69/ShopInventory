@@ -1,0 +1,1401 @@
+/* ==========================================================================
+   Audit Trail — Nocturne
+
+   There is no Audit Trail.dc.html in the design project, so this is a
+   derivation rather than an import — the documented fallback, taken the same
+   way sales-forms.css was taken from create-invoice.css.
+
+   The source is business-partners.css, the closest sibling this app has: both
+   pages are a filterable directory over one long list — a header carrying the
+   single search, a stated hero, a row of four figures, a panel whose rows wash
+   into the ground rather than sitting in a filled card, a pagination foot and a
+   row-click detail drawer. Both pages take their palette and spacing scale from
+   nocturne-tokens.css — the block below aliases it rather than restating it, so
+   a colour is corrected in one place for the whole system.
+
+   What the source had no need of, and this page does, is a way to say what kind
+   of event a row is. Roles, actions and outcomes are drawn as one badge whose
+   hue comes from a family token, and the two hue sets are exception-center.css's
+   measured families — that sheet already solved carrying a set of held-apart
+   hues on both a #161826 ground and a white one, and its numbers are the only
+   ones in this system that were actually measured against their backing.
+
+   Light is the base and `.dark-theme` the override — both now stated once, in
+   nocturne-tokens.css, in the order App.razor's pre-paint script stamps the
+   class in, so neither scheme flashes.
+
+   Rules live here rather than in an inline Razor <style> block for the reason
+   the sibling sheets give: app.css carries global `.dark-theme input/select`
+   rules at (0,1,1) that would otherwise repaint every field #1e293b, so each
+   control carries a class and each control selector is two classes deep,
+   winning regardless of load order. Headings are pinned to Nocturne's 500
+   because Bootstrap's global `h1-h6 { font-weight: 600 }` would bolden them
+   past the weight this system allows.
+
+   The seven-column grid is one `grid-template-columns` declaration shared by
+   the header strip and every row, so the two cannot drift. Below 1040px the row
+   stops being a grid row and becomes a labelled card.
+   ========================================================================== */
+
+.aud {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --aud-bg: var(--noct-bg);
+    --aud-surface: var(--noct-surface);
+    --aud-wash: var(--noct-wash);
+    --aud-ink: var(--noct-ink);
+    --aud-ink-2: var(--noct-ink-2);
+    --aud-mute: var(--noct-mute);
+    --aud-mute-2: var(--noct-mute-2);
+    --aud-mute-3: var(--noct-mute-3);
+    --aud-faint: var(--noct-faint);
+    --aud-placeholder: var(--noct-placeholder);
+    --aud-divider: var(--noct-divider);
+    --aud-rule: var(--noct-rule);
+    --aud-hover: var(--noct-hover);
+    --aud-press: var(--noct-press);
+    --aud-field-bg: var(--noct-field-bg);
+    --aud-field-edge: var(--noct-field-edge);
+    --aud-field-edge-hi: var(--noct-field-edge-hi);
+    --aud-accent: var(--noct-accent);
+    --aud-accent-rgb: var(--noct-accent-rgb);
+    --aud-accent-text: var(--noct-accent-text);
+    --aud-avatar-bg: var(--noct-avatar-bg);
+    --aud-thumb: var(--noct-thumb);
+    --aud-scrim: var(--noct-scrim);
+    --aud-warn-bg: var(--noct-warn-bg);
+    --aud-warn-edge: var(--noct-warn-edge);
+    --aud-warn-ink: var(--noct-warn-ink);
+    --aud-shadow-lg: var(--noct-shadow-lg);
+    --aud-caret: var(--noct-caret);
+    --aud-clear: var(--noct-clear);
+    --aud-scheme: var(--noct-scheme);
+
+    /* Event families — roles, actions and outcomes each tint a badge from one. */
+    --aud-fam-neutral: var(--noct-fam-neutral);
+    --aud-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --aud-fam-accent: var(--noct-fam-accent);
+    --aud-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --aud-fam-info: var(--noct-fam-info);
+    --aud-fam-info-rgb: var(--noct-fam-info-rgb);
+    --aud-fam-good: var(--noct-fam-good);
+    --aud-fam-good-rgb: var(--noct-fam-good-rgb);
+    --aud-fam-warn: var(--noct-fam-warn);
+    --aud-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --aud-fam-bad: var(--noct-fam-bad);
+    --aud-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --aud-s1: var(--noct-s1);
+    --aud-s2: var(--noct-s2);
+    --aud-s3: var(--noct-s3);
+    --aud-s4: var(--noct-s4);
+    --aud-s6: var(--noct-s6);
+    --aud-s8: var(--noct-s8);
+    --aud-r-sm: var(--noct-r-sm);
+    --aud-r-md: var(--noct-r-md);
+    --aud-r-lg: var(--noct-r-lg);
+
+    /* The log's seven columns — this page's own, not the system's. Role and
+       action are sized to the longest names actually in use ("Stock
+       Controller", "Sync Business Partners"); past that the badge ellipsises
+       and the drawer has the whole string. */
+    --aud-cols: 124px minmax(0, 1.1fr) 122px 152px minmax(0, 1.75fr) 126px 92px;
+
+    color-scheme: var(--aud-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.aud {
+    min-height: 100vh;
+    background: var(--aud-bg);
+    color: var(--aud-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.aud * {
+    box-sizing: border-box;
+}
+
+/* The spacing scale above is carried whole, including the step this page has no
+   call for, because a scale with a hole in it stops being a scale. Palette
+   entries are not: --*-accent-ink, the ink on a filled accent, is absent because
+   Nocturne outlines its primary action rather than filling it, so no surface on
+   this page ever needs it. */
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.aud,
+.aud * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.aud :focus-visible {
+    outline: 2px solid var(--aud-accent);
+    outline-offset: 2px;
+}
+
+.aud ::selection {
+    background: rgba(var(--aud-accent-rgb), .3);
+}
+
+/* Nocturne holds its headings at 500; Bootstrap's global heading rule would
+   otherwise take them to 600. */
+.aud h1,
+.aud h2,
+.aud h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+/* Seated on the app bar rather than the viewport top, so the quick search and
+   the two actions stay reachable while a page of events scrolls past.
+
+   Opaque, not frosted — the frosted bar's missing 12% lets the page title read
+   straight through it wherever the compositor skips the blur. --aud-bg is the
+   page ground, so the at-rest look is unchanged. */
+
+.aud-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--aud-bg);
+    border-bottom: 1px solid var(--aud-divider);
+}
+
+.aud-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s6);
+}
+
+.aud-head-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+    max-width: 420px;
+}
+
+.aud-head-search svg {
+    position: absolute;
+    left: 11px;
+    pointer-events: none;
+    color: var(--aud-mute-3);
+}
+
+.aud-head-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s4);
+}
+
+.aud-range {
+    font-size: 12px;
+    color: var(--aud-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.aud .aud-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--aud-s2) calc(var(--aud-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--aud-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--aud-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.aud .aud-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.aud .aud-btn svg {
+    display: block;
+    flex: none;
+}
+
+.aud .aud-btn-primary {
+    color: var(--aud-accent);
+    border-color: var(--aud-accent);
+    letter-spacing: .02em;
+}
+
+.aud .aud-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--aud-accent-rgb), .12);
+}
+
+.aud .aud-btn-primary:active:not(:disabled) {
+    background: rgba(var(--aud-accent-rgb), .22);
+}
+
+.aud .aud-btn-ghost {
+    color: var(--aud-accent);
+}
+
+.aud .aud-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--aud-accent-rgb), .1);
+}
+
+.aud .aud-btn-ghost:active:not(:disabled) {
+    background: rgba(var(--aud-accent-rgb), .18);
+}
+
+.aud .aud-btn-quiet {
+    color: var(--aud-mute-2);
+    border-color: var(--aud-divider);
+}
+
+.aud .aud-btn-quiet:hover:not(:disabled) {
+    color: var(--aud-ink);
+    border-color: var(--aud-field-edge-hi);
+    background: var(--aud-hover);
+}
+
+/* The panel's own controls: an outline rounded to a pill. */
+.aud .aud-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--aud-mute-2);
+    background: transparent;
+    border: 1px solid var(--aud-divider);
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.aud .aud-tool:hover:not(:disabled) {
+    color: var(--aud-ink);
+    border-color: var(--aud-field-edge-hi);
+}
+
+.aud .aud-tool:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.aud .aud-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--aud-r-sm);
+    background: transparent;
+    color: var(--aud-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.aud .aud-icon-btn:hover {
+    background: var(--aud-press);
+    color: var(--aud-ink);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.aud-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--aud-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.aud-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.aud-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--aud-accent-text);
+    margin-bottom: 9px;
+}
+
+.aud-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.aud-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--aud-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.aud-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--aud-s4);
+}
+
+.aud-stat {
+    padding: var(--aud-s6) 18px;
+    border: 1px solid var(--aud-divider);
+    border-radius: var(--aud-r-lg);
+    background: var(--aud-surface);
+    min-width: 0;
+}
+
+/* Only the first card carries the accent — the design's way of saying which
+   figure the page is actually about. */
+.aud-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--aud-accent-rgb), .12), transparent 62%),
+        var(--aud-surface);
+}
+
+/* The failure count is the one figure that changes meaning when it is not
+   zero, so it takes the danger hue only then — a permanently red card would
+   say "something is wrong" on a clean day. */
+.aud-stat-alert {
+    background:
+        linear-gradient(155deg, rgba(var(--aud-fam-bad-rgb), .12), transparent 62%),
+        var(--aud-surface);
+}
+
+.aud-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--aud-mute-2);
+}
+
+.aud-stat-lead .aud-stat-head {
+    color: var(--aud-accent-text);
+}
+
+.aud-stat-alert .aud-stat-head {
+    color: var(--aud-fam-bad);
+}
+
+.aud-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--aud-mute-3);
+}
+
+.aud-stat-lead .aud-stat-rule {
+    background: var(--aud-accent);
+}
+
+.aud-stat-alert .aud-stat-rule {
+    background: var(--aud-fam-bad);
+}
+
+.aud-stat-num {
+    margin-top: var(--aud-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.aud-stat-alert .aud-stat-num {
+    color: var(--aud-fam-bad);
+}
+
+.aud-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--aud-mute-2);
+}
+
+/* ── The log ───────────────────────────────────────────────────────────── */
+/* A wash that falls away into the ground over its first 240px rather than a
+   filled card — the design's one gradient. */
+
+/* The sibling sheet clips this panel to round off its corners. Here it must
+   not: the date fields in the filter row drop a calendar, and an `overflow`
+   other than `visible` on any ancestor cuts it off at the panel edge. Nothing
+   is lost by dropping it — the only painted thing that reaches a corner is the
+   panel's own background, and a background is clipped to the border radius
+   anyway. The rows, which do paint on hover, are inside `.aud-scroll` and
+   bounded by the head and foot besides. */
+.aud-panel {
+    border: 1px solid var(--aud-divider);
+    border-radius: var(--aud-r-lg);
+    background: linear-gradient(to bottom, var(--aud-wash), transparent 240px);
+}
+
+.aud-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s4);
+    padding: var(--aud-s4) var(--aud-s8);
+    flex-wrap: wrap;
+}
+
+.aud-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.aud-count {
+    font-size: 12.5px;
+    color: var(--aud-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.aud-panel-tools {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+/* Always shown rather than disclosed: unlike the directory this page opens on
+   a date window it chose for you (the last seven days), so the controls that
+   set that window have to be visible for the figures above to mean anything. */
+
+.aud-filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--aud-s4);
+    padding: 0 var(--aud-s8) var(--aud-s4);
+    align-items: end;
+}
+
+.aud-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.aud-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aud-mute-3);
+}
+
+.aud-filter-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s3);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.aud .aud-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--aud-ink);
+    caret-color: var(--aud-accent);
+    background: var(--aud-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--aud-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.aud .aud-input-search {
+    padding-left: 33px;
+    border-radius: 999px;
+}
+
+.aud .aud-input:hover {
+    border-color: var(--aud-field-edge);
+}
+
+.aud .aud-input:focus-visible {
+    border-color: rgba(var(--aud-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.aud .aud-input::placeholder {
+    color: var(--aud-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--aud-placeholder);
+}
+
+.aud .aud-input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px;
+    height: 11px;
+    margin-left: var(--aud-s2);
+    background: var(--aud-clear) no-repeat center / contain;
+    opacity: .7;
+    cursor: pointer;
+}
+
+.aud .aud-input[type="search"]::-webkit-search-cancel-button:hover {
+    opacity: 1;
+}
+
+.aud-select {
+    position: relative;
+    display: flex;
+}
+
+.aud .aud-select select.aud-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.aud-select .aud-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--aud-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.aud-scroll {
+    overflow-x: auto;
+}
+
+.aud-grid {
+    min-width: 1120px;
+}
+
+.aud-thead,
+.aud-row {
+    display: grid;
+    grid-template-columns: var(--aud-cols);
+    align-items: center;
+    gap: var(--aud-s6);
+}
+
+.aud-thead {
+    padding: 0 var(--aud-s8) var(--aud-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aud-mute-3);
+}
+
+.aud-row {
+    width: 100%;
+    padding: 12px var(--aud-s8);
+    border: 0;
+    border-top: 1px solid var(--aud-rule);
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color .12s ease;
+}
+
+.aud-row:hover {
+    background: var(--aud-hover);
+}
+
+/* A failed event is marked at the row's edge rather than by washing the whole
+   line: the status badge already says failed, and a full red row would drown
+   the badges beside it. */
+.aud-row-failed {
+    box-shadow: inset 3px 0 0 var(--aud-fam-bad);
+    background: rgba(var(--aud-fam-bad-rgb), .05);
+}
+
+.aud-row-failed:hover {
+    background: rgba(var(--aud-fam-bad-rgb), .1);
+}
+
+/* Timestamp: the date leads and the clock recedes, because a page of events is
+   scanned by time-of-day within a day already known from the filter. */
+.aud-ts {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+}
+
+.aud-ts-date {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--aud-ink-2);
+}
+
+.aud-ts-time {
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--aud-mute-3);
+}
+
+.aud-user {
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s4);
+    min-width: 0;
+}
+
+.aud-avatar {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 500;
+    background: var(--aud-avatar-bg);
+    color: var(--aud-mute);
+}
+
+.aud-name {
+    font-size: 13.5px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+/* inline-block rather than inline-flex: in a flex container the label becomes
+   an anonymous flex item, `text-overflow` does not apply to it, and a long
+   action name is cut mid-letter with nothing to say it was cut. */
+.aud-badge {
+    display: inline-block;
+    max-width: 100%;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    color: var(--aud-fam, var(--aud-mute));
+    background: rgba(var(--aud-fam-rgb, 94, 100, 131), .14);
+}
+
+.aud-fam-neutral {
+    --aud-fam: var(--aud-fam-neutral);
+    --aud-fam-rgb: var(--aud-fam-neutral-rgb);
+}
+
+.aud-fam-accent {
+    --aud-fam: var(--aud-fam-accent);
+    --aud-fam-rgb: var(--aud-fam-accent-rgb);
+}
+
+.aud-fam-info {
+    --aud-fam: var(--aud-fam-info);
+    --aud-fam-rgb: var(--aud-fam-info-rgb);
+}
+
+.aud-fam-good {
+    --aud-fam: var(--aud-fam-good);
+    --aud-fam-rgb: var(--aud-fam-good-rgb);
+}
+
+.aud-fam-warn {
+    --aud-fam: var(--aud-fam-warn);
+    --aud-fam-rgb: var(--aud-fam-warn-rgb);
+}
+
+.aud-fam-bad {
+    --aud-fam: var(--aud-fam-bad);
+    --aud-fam-rgb: var(--aud-fam-bad-rgb);
+}
+
+/* The outcome is the one badge that carries a glyph: it is the column read
+   last and fastest, and a shape survives being scanned at speed better than a
+   hue does. */
+.aud-badge svg {
+    margin-right: 4px;
+    vertical-align: -1.5px;
+}
+
+/* ── Details cell ──────────────────────────────────────────────────────── */
+
+.aud-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.aud-detail-line {
+    display: flex;
+    align-items: center;
+    gap: var(--aud-s2);
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+/* Entity and client tags are data, not prose — they take the figure face so a
+   document number lines up with the one above it. */
+.aud-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1.5px 7px;
+    border-radius: var(--aud-r-sm);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--aud-mute);
+    background: var(--aud-press);
+    white-space: nowrap;
+}
+
+.aud-detail-text {
+    font-size: 12.5px;
+    color: var(--aud-mute-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aud-err {
+    font-size: 12px;
+    color: var(--aud-fam-bad);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aud-ip {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--aud-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.aud-ip-none {
+    color: var(--aud-faint);
+    font-size: 12px;
+}
+
+/* Row labels, carried for the card layout below 1040px and hidden above it. */
+.aud-rl {
+    display: none;
+}
+
+/* ── Pagination ────────────────────────────────────────────────────────── */
+
+.aud-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--aud-s6);
+    padding: var(--aud-s4) var(--aud-s8);
+    border-top: 1px solid var(--aud-divider);
+    font-size: 12.5px;
+    color: var(--aud-mute-3);
+    flex-wrap: wrap;
+}
+
+.aud-foot-info {
+    font-variant-numeric: tabular-nums;
+}
+
+.aud-pages {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.aud .aud-step {
+    padding: 5px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--aud-mute-2);
+    background: transparent;
+    border: 1px solid var(--aud-divider);
+    border-radius: var(--aud-r-md);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.aud .aud-step:hover:not(:disabled) {
+    color: var(--aud-ink);
+    border-color: var(--aud-field-edge-hi);
+}
+
+.aud .aud-step:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.aud .aud-page {
+    padding: 5px 9px;
+    font: inherit;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--aud-mute-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--aud-r-md);
+    cursor: pointer;
+    transition: color .14s, background-color .14s;
+}
+
+.aud .aud-page:hover {
+    color: var(--aud-ink);
+    background: var(--aud-hover);
+}
+
+.aud .aud-page-on {
+    padding-inline: 11px;
+    color: var(--aud-accent-text);
+    background: rgba(var(--aud-accent-rgb), .16);
+}
+
+.aud-gap {
+    padding: 5px 6px;
+    color: var(--aud-faint);
+}
+
+/* ── Detail drawer ─────────────────────────────────────────────────────── */
+/* Offset below the app bar: the page is a stacking context, so a drawer cannot
+   paint over the topbar however high its z-index.
+
+   The scrim and the drawer sit outside the page element and carry `.aud`
+   themselves, which is what puts the tokens in reach — every rule above that
+   reads two classes deep therefore still applies inside them. */
+
+.aud-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* Same reason as the drawer's: `.aud`'s own min-height would stretch the
+       scrim 74px past the bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--aud-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: aud-fade .18s ease;
+}
+
+.aud-drawer {
+    position: fixed;
+    top: var(--kf-topbar-h, 74px);
+    right: 0;
+    z-index: 9999;
+    width: min(640px, 100vw);
+    height: calc(100vh - var(--kf-topbar-h, 74px));
+    /* Carrying `.aud` also carries its `min-height: 100vh`, which would beat
+       the height just set and hang the last 74px of the drawer — and its
+       scrolling body — below the fold. */
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--aud-bg);
+    box-shadow: var(--aud-shadow-lg);
+    animation: aud-slide .22s ease;
+}
+
+@keyframes aud-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes aud-slide {
+    from {
+        transform: translateX(24px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .aud-scrim,
+    .aud-drawer {
+        animation: none;
+    }
+}
+
+.aud-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--aud-s4);
+    padding: var(--aud-s6) var(--aud-s8);
+    border-bottom: 1px solid var(--aud-divider);
+    flex: none;
+}
+
+.aud-drawer-head h2 {
+    font-size: 18px;
+    letter-spacing: -.01em;
+    text-wrap: pretty;
+}
+
+.aud-drawer-sub {
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--aud-mute-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.aud-drawer-x {
+    margin-left: auto;
+}
+
+.aud-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--aud-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--aud-s8);
+}
+
+.aud-section h3 {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--aud-mute-3);
+    margin-bottom: var(--aud-s4);
+}
+
+.aud-dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--aud-s6) var(--aud-s8);
+}
+
+.aud-dt {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--aud-faint);
+    margin-bottom: 2px;
+}
+
+.aud-dd {
+    font-size: 13.5px;
+    color: var(--aud-ink);
+    overflow-wrap: anywhere;
+}
+
+.aud-dd-num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+}
+
+/* Free text the system wrote: given its own recessed ground so a multi-line
+   detail reads as a quotation rather than as more of the page's own prose. */
+.aud-pre {
+    margin: 0;
+    padding: var(--aud-s4) var(--aud-s6);
+    border: 1px solid var(--aud-divider);
+    border-radius: var(--aud-r-md);
+    background: var(--aud-field-bg);
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--aud-ink-2);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.aud-pre-err {
+    border-color: rgba(var(--aud-fam-bad-rgb), .35);
+    background: rgba(var(--aud-fam-bad-rgb), .08);
+    color: var(--aud-fam-bad);
+}
+
+/* Client metadata: a label, the value, and — where the value is worth pasting
+   somewhere else — the button that copies it. */
+.aud-meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--aud-s2);
+}
+
+.aud-meta-row {
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr) 27px;
+    align-items: center;
+    gap: var(--aud-s4);
+    padding: var(--aud-s3) var(--aud-s4);
+    border: 1px solid var(--aud-divider);
+    border-radius: var(--aud-r-md);
+    background: var(--aud-surface);
+}
+
+.aud-meta-row:not(:has(.aud-icon-btn)) {
+    grid-template-columns: 104px minmax(0, 1fr);
+}
+
+.aud-meta-row-long {
+    align-items: start;
+}
+
+.aud-meta-label {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--aud-faint);
+}
+
+.aud-meta-value {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--aud-ink-2);
+    overflow-wrap: anywhere;
+}
+
+/* ── Notices, empty and loading ────────────────────────────────────────── */
+
+.aud-msg {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--aud-s4);
+    padding: var(--aud-s4) var(--aud-s6);
+    border: 1px solid var(--aud-warn-edge);
+    border-radius: var(--aud-r-md);
+    background: var(--aud-warn-bg);
+    color: var(--aud-warn-ink);
+    font-size: 13px;
+    text-wrap: pretty;
+}
+
+.aud-msg svg {
+    flex: none;
+    margin-top: 2px;
+}
+
+.aud .aud-msg-x {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s, background-color .13s;
+}
+
+.aud .aud-msg-x:hover {
+    opacity: 1;
+    background: rgba(27, 28, 38, .08);
+}
+
+.dark-theme .aud .aud-msg-x:hover {
+    background: rgba(243, 245, 254, .12);
+}
+
+.aud-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--aud-s3);
+    padding: 56px var(--aud-s6);
+    font-size: 13px;
+    color: var(--aud-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.aud-empty svg {
+    color: var(--aud-accent);
+    opacity: .7;
+}
+
+.aud-empty-actions {
+    margin-top: var(--aud-s3);
+    display: flex;
+    gap: var(--aud-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.aud-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--aud-s4);
+    padding: 72px var(--aud-s6);
+    border: 1px solid var(--aud-divider);
+    border-radius: var(--aud-r-lg);
+    background: var(--aud-surface);
+    font-size: 13px;
+    color: var(--aud-mute-2);
+}
+
+.aud-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: aud-spin .7s linear infinite;
+}
+
+@keyframes aud-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .aud-spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.aud-scroll::-webkit-scrollbar,
+.aud-drawer-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.aud-scroll::-webkit-scrollbar-thumb,
+.aud-drawer-body::-webkit-scrollbar-thumb {
+    background: var(--aud-thumb);
+    border-radius: 8px;
+}
+
+.aud-scroll::-webkit-scrollbar-track,
+.aud-drawer-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+    .aud-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Below the grid's own minimum the row stops being a row: each becomes a
+   labelled card, so nothing has to be read out of a horizontal scroll. */
+@media (max-width: 1040px) {
+    .aud-scroll {
+        overflow-x: visible;
+    }
+
+    .aud-grid {
+        min-width: 0;
+    }
+
+    .aud-thead {
+        display: none;
+    }
+
+    /* The timestamp and the outcome head the card, the user takes the line
+       below, and the remaining four wrap together as one labelled run rather
+       than stacking into four lines of their own. */
+    .aud-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--aud-s2) var(--aud-s4);
+        padding: var(--aud-s4) var(--aud-s6);
+    }
+
+    .aud-rl {
+        display: inline;
+        margin-right: 4px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--aud-faint);
+    }
+
+    .aud-row > .aud-ts {
+        order: 1;
+        flex-direction: row;
+        align-items: baseline;
+        gap: var(--aud-s2);
+    }
+
+    .aud-row > .aud-cell-status {
+        order: 2;
+        margin-left: auto;
+    }
+
+    .aud-row > .aud-user {
+        order: 3;
+        flex: 1 0 100%;
+    }
+
+    .aud-row > .aud-cell-role {
+        order: 4;
+    }
+
+    .aud-row > .aud-cell-action {
+        order: 5;
+    }
+
+    .aud-row > .aud-cell-ip {
+        order: 6;
+    }
+
+    .aud-row > .aud-detail {
+        order: 7;
+        flex: 1 0 100%;
+    }
+
+    .aud-row > .aud-detail .aud-detail-text,
+    .aud-row > .aud-detail .aud-err,
+    .aud-row > .aud-cell-ip .aud-ip {
+        max-width: 100%;
+        white-space: normal;
+        overflow: visible;
+        overflow-wrap: anywhere;
+    }
+}
+
+@media (max-width: 760px) {
+    .aud-head-inner {
+        padding: var(--aud-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--aud-s3);
+    }
+
+    .aud-head-search {
+        max-width: none;
+        flex: 1 1 100%;
+    }
+
+    .aud-head-meta {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .aud-head-meta .aud-btn {
+        flex: 1;
+    }
+
+    .aud-body {
+        padding: var(--aud-s8) 18px 56px;
+    }
+
+    .aud-hero h1 {
+        font-size: 24px;
+    }
+
+    .aud-stats {
+        grid-template-columns: 1fr;
+    }
+
+    .aud-panel-head,
+    .aud-filters,
+    .aud-foot {
+        padding-inline: var(--aud-s6);
+    }
+
+    .aud-panel-tools {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .aud-panel-tools .aud-tool {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .aud-filters {
+        grid-template-columns: 1fr;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .aud .aud-input {
+        font-size: 16px;
+    }
+
+    .aud-foot {
+        justify-content: center;
+    }
+
+    .aud-dl,
+    .aud-meta-row,
+    .aud-meta-row:not(:has(.aud-icon-btn)) {
+        grid-template-columns: 1fr;
+    }
+
+    .aud-meta-row {
+        align-items: stretch;
+    }
+
+    .aud-meta-row .aud-icon-btn {
+        justify-self: start;
+    }
+
+    .aud-drawer-head,
+    .aud-drawer-body {
+        padding-inline: var(--aud-s6);
+    }
+}

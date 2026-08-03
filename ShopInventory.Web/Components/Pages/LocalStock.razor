@@ -13,509 +13,157 @@
 @implements IDisposable
 @rendermode InteractiveServer
 
-<PageTitle>Local Stock Snapshot - Shop Inventory</PageTitle>
+<PageTitle>Local Stock - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .ls-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
+@* Nocturne. wwwroot/css/local-stock.css (linked from App.razor) carries the
+   design and its light counterpart, and follows the app's theme toggle.
+   Derived from business-partners.css like audit-trail.css beside it; that
+   sheet's header says what the shared palette costs.
 
-    .dark-theme .ls-page { background: #1a1a2e; }
+   Icons are drawn inline rather than from the Phosphor or Bootstrap icon
+   fonts: the search glyph sits inside a field and the twisty is the only thing
+   saying a row opens, so a font that failed to load would leave both reading
+   as nothing.
 
-    /* ── Header ──────────────────────────────────────── */
-    .ls-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
+   The items are a CSS grid rather than a <table>: a batch row spans two of the
+   seven columns and lines up with the item above it, and below 1040px the same
+   markup re-lays as a labelled card, which a table cannot do.
 
-    .ls-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
+   The snapshot date is NocturneDateField — it takes the shorthand people type
+   (`030826`) and draws a calendar that belongs to this design, neither of which
+   a native date input does. *@
 
-    .ls-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
+<div class="lst">
 
-    .ls-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .dark-theme .ls-header h2 { color: #e2e8f0; }
-
-    .ls-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .ls-header-actions {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-    }
-
-    .btn-ls-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-        cursor: pointer;
-    }
-
-    .btn-ls-gradient:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, .35); }
-
-    .btn-ls-outline {
-        background: transparent;
-        border: 1.5px solid #d1d5db;
-        color: #374151;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .dark-theme .btn-ls-outline { border-color: #4b5563; color: #d1d5db; }
-
-    /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .dark-theme .stat-card { background: #1e293b; border-color: #334155; }
-
-    .stat-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.2rem;
-    }
-
-    .stat-icon.purple { background: #ede9fe; color: #7c3aed; }
-    .stat-icon.green { background: #d1fae5; color: #059669; }
-    .stat-icon.amber { background: #fef3c7; color: #d97706; }
-    .stat-icon.blue { background: #dbeafe; color: #2563eb; }
-
-    .stat-value { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; }
-    .dark-theme .stat-value { color: #e2e8f0; }
-    .stat-label { font-size: .75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .dark-theme .filter-bar { background: #1e293b; border-color: #334155; }
-
-    .filter-field { display: flex; flex-direction: column; gap: .25rem; }
-    .filter-field label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
-    .filter-field select,
-    .filter-field input {
-        padding: .45rem .65rem;
-        border: 1.5px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .85rem;
-        background: #fff;
-        color: #374151;
-        min-width: 140px;
-    }
-
-    .dark-theme .filter-field select,
-    .dark-theme .filter-field input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
-
-    .filter-actions-row { display: flex; gap: .5rem; align-items: flex-end; }
-
-    .btn-search {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .45rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-    }
-
-    .btn-clear {
-        background: transparent;
-        border: 1.5px solid #d1d5db;
-        padding: .45rem 1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        color: #6b7280;
-    }
-
-    /* ── Snapshot Info Banner ─────────────────────────── */
-    .snapshot-info {
-        display: flex;
-        align-items: center;
-        gap: .75rem;
-        padding: .65rem 1rem;
-        border-radius: 8px;
-        margin-bottom: 1rem;
-        font-size: .85rem;
-    }
-
-    .snapshot-complete { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
-    .snapshot-pending { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
-    .snapshot-failed { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-
-    /* ── Table ───────────────────────────────────────── */
-    .ls-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .dark-theme .ls-table-wrap { background: #1e293b; border-color: #334155; }
-
-    .ls-table-header {
-        padding: .75rem 1rem;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .dark-theme .ls-table-header { border-color: #334155; }
-
-    .ls-table-header h6 { margin: 0; font-size: .85rem; font-weight: 600; color: #374151; }
-    .dark-theme .ls-table-header h6 { color: #d1d5db; }
-
-    .ls-count-badge {
-        background: #667eea;
-        color: #fff;
-        padding: .15rem .5rem;
-        border-radius: 20px;
-        font-size: .7rem;
-        font-weight: 700;
-        margin-left: .35rem;
-    }
-
-    .ls-table {
-        width: 100%;
-        font-size: .85rem;
-        border-collapse: separate;
-        border-spacing: 0;
-    }
-
-    .ls-table th {
-        background: #f8fafc;
-        font-size: .72rem;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #6b7280;
-        font-weight: 600;
-        padding: .6rem .75rem;
-        border-bottom: 2px solid #e5e7eb;
-        white-space: nowrap;
-    }
-
-    .dark-theme .ls-table th { background: #0f172a; color: #94a3b8; border-color: #334155; }
-
-    .ls-table td {
-        padding: .55rem .75rem;
-        border-bottom: 1px solid #f3f4f6;
-        color: #374151;
-        vertical-align: middle;
-    }
-
-    .dark-theme .ls-table td { color: #cbd5e1; border-color: #1e293b; }
-
-    .ls-table tbody tr { cursor: pointer; transition: background .15s; }
-    .ls-table tbody tr:hover { background: rgba(102, 126, 234, .04); }
-    .dark-theme .ls-table tbody tr:hover { background: rgba(102, 126, 234, .08); }
-
-    .item-code { font-weight: 700; color: #667eea; font-size: .88rem; font-family: 'Space Grotesk', monospace; }
-    .qty-cell { font-family: 'Space Grotesk', monospace; font-weight: 600; font-size: .88rem; }
-    .qty-success { color: #059669; }
-    .qty-warning { color: #d97706; }
-    .qty-danger { color: #dc2626; }
-    .qty-info { color: #2563eb; }
-
-    .adjustment-pos { color: #059669; font-weight: 600; }
-    .adjustment-neg { color: #dc2626; font-weight: 600; }
-    .adjustment-zero { color: #6b7280; }
-
-    /* ── Batch Expandable ────────────────────────────── */
-    .batch-row { background: #f8fafc; }
-    .dark-theme .batch-row { background: #0f172a; }
-    .batch-row td { font-size: .8rem; padding-left: 2rem; }
-
-    /* ── Loading / Empty ─────────────────────────────── */
-    .loading-state { text-align: center; padding: 3rem; color: #6b7280; font-size: .9rem; }
-    .empty-state { text-align: center; padding: 3rem; }
-    .empty-icon { font-size: 3rem; margin-bottom: .75rem; }
-    .empty-state h6 { color: #374151; font-weight: 600; }
-    .empty-state p { color: #6b7280; font-size: .85rem; }
-    .alert-banner { padding: .75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: .85rem; }
-    .error-alert { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-
-    /* ── Search ───────────────────────────────────────── */
-    .search-input {
-        padding: .45rem .65rem;
-        border: 1.5px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .85rem;
-        min-width: 200px;
-    }
-
-    .dark-theme .search-input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
-
-    /* ── Live Indicator ──────────────────────────────── */
-    .live-badge { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #059669; }
-    .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #059669; animation: ls-pulse 1.5s infinite; }
-    @@keyframes ls-pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-
-    /* ── Fetch Progress Panel ────────────────────────── */
-    .fetch-progress-panel {
-        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-        border: 1px solid #4338ca;
-        border-radius: 12px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1rem;
-        color: #e0e7ff;
-    }
-    .fetch-progress-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: .75rem;
-    }
-    .fetch-progress-header h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #c7d2fe;
-        font-size: .95rem;
-    }
-    .fetch-progress-count {
-        font-size: .85rem;
-        color: #a5b4fc;
-        font-weight: 500;
-    }
-    .fetch-progress-bar-track {
-        height: 10px;
-        background: rgba(255,255,255,.1);
-        border-radius: 6px;
-        overflow: hidden;
-        margin-bottom: .75rem;
-    }
-    .fetch-progress-bar-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #818cf8, #a78bfa, #c084fc);
-        border-radius: 6px;
-        transition: width .4s ease;
-    }
-    .fetch-progress-warehouses {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .4rem;
-    }
-    .wh-chip {
-        font-size: .72rem;
-        padding: .2rem .55rem;
-        border-radius: 6px;
-        font-weight: 500;
-        border: 1px solid rgba(255,255,255,.15);
-        background: rgba(255,255,255,.05);
-        color: #94a3b8;
-        transition: all .3s ease;
-    }
-    .wh-chip.done {
-        background: rgba(34,197,94,.15);
-        border-color: rgba(34,197,94,.3);
-        color: #4ade80;
-    }
-    .wh-chip.clickable {
-        cursor: pointer;
-    }
-    .wh-chip.clickable:hover {
-        background: rgba(34,197,94,.3);
-        border-color: rgba(34,197,94,.5);
-        transform: scale(1.05);
-    }
-    .wh-chip.active {
-        background: rgba(129,140,248,.2);
-        border-color: rgba(129,140,248,.4);
-        color: #c7d2fe;
-        animation: ls-pulse 1.2s infinite;
-    }
-
-    /* ── Mobile Responsive ───────────────────────────── */
-    @@media (max-width: 768px) {
-        .ls-page { padding: .75rem; }
-        .ls-header { flex-direction: column; }
-        .ls-header-actions { width: 100%; justify-content: stretch; }
-        .ls-header-actions button { flex: 1; }
-        .stat-row { grid-template-columns: repeat(2, 1fr); }
-        .filter-bar { flex-direction: column; }
-        .filter-field { width: 100%; }
-        .filter-field select,
-        .filter-field input { width: 100%; min-width: unset; }
-        .filter-actions-row { width: 100%; }
-        .filter-actions-row button { flex: 1; }
-        .ls-table { font-size: .78rem; }
-        .ls-table th, .ls-table td { padding: .4rem .5rem; }
-    }
-
-    @@media (max-width: 480px) {
-        .stat-row { grid-template-columns: 1fr; }
-        .ls-header-icon { width: 40px; height: 40px; font-size: 1.1rem; }
-        .ls-header h2 { font-size: 1.3rem; }
-    }
-</style>
-
-<div class="ls-page">
-    <div class="container-fluid">
-        <!-- ━━━ Header ━━━ -->
-        <div class="ls-header">
-            <div class="ls-header-left">
-                <div class="ls-header-icon"><i class="bi bi-clipboard-data"></i></div>
-                <div>
-                    <h2>Local Stock Snapshot</h2>
-                    <p>Daily stock fetched from SAP — adjusted by transfers and sales throughout the day</p>
-                </div>
-            </div>
-            <div class="ls-header-actions">
-                <button class="btn-ls-gradient" @onclick="TriggerStockFetch" disabled="@isFetching">
-                    @if (isFetching)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-cloud-download"></i>
-                    }
-                    Fetch Stock
-                </button>
-                <button class="btn-ls-outline" @onclick="ExportToExcel" disabled="@(isExporting || stockResult == null || !filteredItems.Any())">
-                    @if (isExporting)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-file-earmark-excel"></i>
-                    }
-                    Export
-                </button>
-                <button class="btn-ls-outline" @onclick="LoadStock" disabled="@isLoading">
-                    @if (isLoading)
-                    {
-                        <span class="spinner-border spinner-border-sm"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-arrow-clockwise"></i>
-                    }
-                    Refresh
-                </button>
+    <header class="lst-head">
+        <div class="lst-head-inner">
+            <label class="lst-head-search">
+                <span class="visually-hidden">Search the loaded items</span>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                     stroke-linecap="round" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="M20 20l-3.5-3.5"></path>
+                </svg>
+                @* Disabled rather than hidden until a snapshot is loaded: a search
+                   that comes and goes makes the header jump. *@
+                <input class="lst-input lst-input-search" type="search" autocomplete="off"
+                       placeholder="@(stockResult == null ? "Load a snapshot to search…" : "Item code or description…")"
+                       disabled="@(stockResult == null)" @bind="searchTerm" @bind:event="oninput" />
+            </label>
+            <div class="lst-head-meta">
                 @if (HubService.IsConnected)
                 {
-                    <span class="live-badge"><span class="live-dot"></span> LIVE</span>
+                    <span class="lst-live" title="Receiving live stock updates">
+                        <span class="lst-live-dot" aria-hidden="true"></span>Live
+                    </span>
                 }
+                <button type="button" class="lst-btn lst-btn-quiet" disabled="@isLoading" @onclick="LoadStock">
+                    @if (isLoading)
+                    {
+                        <span class="lst-spin" aria-hidden="true"></span>
+                        <span>Loading&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M20 11a8 8 0 0 0-13.7-5.3L4 8"></path>
+                            <path d="M4 4v4h4"></path>
+                            <path d="M4 13a8 8 0 0 0 13.7 5.3L20 16"></path>
+                            <path d="M20 20v-4h-4"></path>
+                        </svg>
+                        <span>Refresh</span>
+                    }
+                </button>
+                <button type="button" class="lst-btn lst-btn-quiet"
+                        disabled="@(isExporting || stockResult == null || !filteredItems.Any())" @onclick="ExportToExcel">
+                    @if (isExporting)
+                    {
+                        <span class="lst-spin" aria-hidden="true"></span>
+                        <span>Exporting&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 3v12"></path>
+                            <path d="M7.5 10.5L12 15l4.5-4.5"></path>
+                            <path d="M4 19h16"></path>
+                        </svg>
+                        <span>Export</span>
+                    }
+                </button>
+                <button type="button" class="lst-btn lst-btn-primary" disabled="@isFetching" @onclick="TriggerStockFetch">
+                    @if (isFetching)
+                    {
+                        <span class="lst-spin" aria-hidden="true"></span>
+                        <span>Fetching&#8230;</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M7 18a4.5 4.5 0 0 1 .6-9 6 6 0 0 1 11.4 2 3.5 3.5 0 0 1-.5 7"></path>
+                            <path d="M12 12v7M9 16.5l3 3 3-3"></path>
+                        </svg>
+                        <span>Fetch stock</span>
+                    }
+                </button>
             </div>
         </div>
+    </header>
 
-        <!-- ━━━ Fetch Progress Panel ━━━ -->
+    <div class="lst-body">
+
+        <section class="lst-hero">
+            <div>
+                <div class="lst-kicker">Operations</div>
+                <h1>Local stock</h1>
+                <p>The day's snapshot from SAP, adjusted as transfers and sales move stock through the warehouse.</p>
+            </div>
+        </section>
+
         @if (fetchProgress != null)
         {
             var pct = fetchProgress.TotalCount > 0
                 ? (int)((double)fetchProgress.CompletedCount / fetchProgress.TotalCount * 100)
                 : 0;
 
-            <div class="fetch-progress-panel">
-                <div class="fetch-progress-header">
-                    <h6>
-                        <span class="spinner-border spinner-border-sm me-2" style="width:14px;height:14px;"></span>
-                        @if (fetchProgress.Status == "Complete")
+            <section class="lst-fetch" aria-live="polite">
+                <div class="lst-fetch-head">
+                    <span class="lst-spin" aria-hidden="true"></span>
+                    <h2>
+                        @(fetchProgress.Status switch
                         {
-                            <text>Stock Fetch Complete</text>
-                        }
-                        else if (fetchProgress.Status == "Initializing")
-                        {
-                            <text>Initiating Stock Fetch...</text>
-                        }
-                        else
-                        {
-                            <text>Fetching Stock from SAP...</text>
-                        }
-                    </h6>
-                    <span class="fetch-progress-count">@fetchProgress.CompletedCount / @fetchProgress.TotalCount warehouses</span>
+                            "Complete" => "Stock fetch complete",
+                            "Initializing" => "Starting the stock fetch…",
+                            _ => "Fetching stock from SAP…"
+                        })
+                    </h2>
+                    <span class="lst-fetch-count">
+                        @fetchProgress.CompletedCount / @fetchProgress.TotalCount warehouses
+                    </span>
                 </div>
-                <div class="fetch-progress-bar-track">
-                    <div class="fetch-progress-bar-fill" style="width: @(pct)%"></div>
+
+                <div class="lst-rail" role="progressbar" aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100">
+                    <div class="lst-rail-fill" style="width:@(pct)%"></div>
                 </div>
+
                 @if (fetchProgress.Status == "Initializing" && !HubService.IsConnected)
                 {
-                    <div style="font-size:.8rem;color:#a5b4fc;margin-bottom:.5rem">
-                        <i class="bi bi-info-circle me-1"></i>
-                        Real-time updates unavailable — page will refresh automatically when complete
-                    </div>
+                    <p class="lst-fetch-note">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9"></circle>
+                            <path d="M12 11v5.5M12 7.8v.1"></path>
+                        </svg>
+                        Live updates are unavailable, so this will refresh on its own once the fetch finishes.
+                    </p>
                 }
-                <div class="fetch-progress-warehouses">
+
+                @* A finished warehouse is the way into its snapshot, so its chip is
+                   a button and the rest are not. *@
+                <div class="lst-chips">
                     @foreach (var wh in warehouses)
                     {
                         var whCode = wh.WarehouseCode ?? "";
@@ -523,181 +171,232 @@
                         var isActive = !isDone && fetchProgress.CompletedCount < fetchProgress.TotalCount
                             && fetchProgress.CompletedWarehouses.Count > 0
                             && whCode == GetNextWarehouse(fetchProgress);
-                        <span class="wh-chip @(isDone ? "done" : isActive ? "active" : "") @(isDone ? "clickable" : "")"
-                              @onclick="() => { if (isDone) SelectCompletedWarehouse(whCode); }">
-                            @if (isDone) { <text>✓ </text> }
-                            @whCode
-                        </span>
+
+                        if (isDone)
+                        {
+                            <button type="button" class="lst-chip lst-chip-done"
+                                    title="Show the snapshot for @whCode"
+                                    @onclick="() => SelectCompletedWarehouse(whCode)">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                                     aria-hidden="true">
+                                    <path d="M5 12.5l4.5 4.5L19 7"></path>
+                                </svg>
+                                @whCode
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="lst-chip @(isActive ? "lst-chip-active" : "")">@whCode</span>
+                        }
                     }
                 </div>
-            </div>
+            </section>
         }
 
-        <!-- ━━━ Stat Cards ━━━ -->
         @if (stockResult != null)
         {
-            <div class="stat-row">
-                <div class="stat-card">
-                    <div class="stat-icon purple">📦</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@stockResult.Items.Count</div>
-                        <div class="stat-label">Total Items</div>
-                    </div>
+            var outOfStock = stockResult.Items.Count(i => i.AvailableQuantity <= 0);
+
+            <section class="lst-stats">
+                <div class="lst-stat lst-stat-lead">
+                    <div class="lst-stat-head"><span class="lst-stat-rule" aria-hidden="true"></span>Total items</div>
+                    <div class="lst-stat-num">@stockResult.Items.Count.ToString("N0")</div>
+                    <div class="lst-stat-sub">In this snapshot</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon green">✓</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@stockResult.Items.Count(i => i.AvailableQuantity > 0)</div>
-                        <div class="stat-label">In Stock</div>
-                    </div>
+                <div class="lst-stat">
+                    <div class="lst-stat-head"><span class="lst-stat-rule" aria-hidden="true"></span>In stock</div>
+                    <div class="lst-stat-num">@stockResult.Items.Count(i => i.AvailableQuantity > 0).ToString("N0")</div>
+                    <div class="lst-stat-sub">Something available</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon amber">⚠</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@stockResult.Items.Count(i => i.AvailableQuantity <= 0)</div>
-                        <div class="stat-label">Out of Stock</div>
-                    </div>
+                <div class="lst-stat @(outOfStock > 0 ? "lst-stat-alert" : "")">
+                    <div class="lst-stat-head"><span class="lst-stat-rule" aria-hidden="true"></span>Out of stock</div>
+                    <div class="lst-stat-num">@outOfStock.ToString("N0")</div>
+                    <div class="lst-stat-sub">Nothing left to sell</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon blue">🔄</div>
-                    <div class="stat-info">
-                        <div class="stat-value">@stockResult.Items.Count(i => i.TransferAdjustment != 0)</div>
-                        <div class="stat-label">Transfer Adjusted</div>
-                    </div>
+                <div class="lst-stat">
+                    <div class="lst-stat-head"><span class="lst-stat-rule" aria-hidden="true"></span>Transfer adjusted</div>
+                    <div class="lst-stat-num">@stockResult.Items.Count(i => i.TransferAdjustment != 0).ToString("N0")</div>
+                    <div class="lst-stat-sub">Moved since the snapshot</div>
                 </div>
-            </div>
+            </section>
         }
 
-        <!-- ━━━ Filter Bar ━━━ -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>Warehouse</label>
-                <select @bind="selectedWarehouse" @bind:event="onchange">
-                    <option value="">-- Select Warehouse --</option>
-                    @foreach (var wh in warehouses)
-                    {
-                        <option value="@wh.WarehouseCode">@wh.WarehouseCode - @wh.WarehouseName</option>
-                    }
-                </select>
+        <section class="lst-panel">
+            <div class="lst-panel-head">
+                <h2>Items</h2>
+                @if (stockResult != null)
+                {
+                    <span class="lst-count">@filteredItems.Count().ToString("N0") shown</span>
+                    <span class="lst-snap @GetSnapshotFamily(stockResult.SnapshotStatus)">
+                        <span class="lst-snap-dot" aria-hidden="true"></span>
+                        @stockResult.WarehouseCode · @stockResult.SnapshotDate.ToString("dd MMM yyyy") ·
+                        @stockResult.SnapshotStatus
+                    </span>
+                }
             </div>
-            <div class="filter-field">
-                <label>Snapshot Date</label>
-                <input type="date" @bind="snapshotDate" />
+
+            <div class="lst-filters">
+                <label class="lst-field">
+                    <span class="lst-label">Warehouse</span>
+                    <span class="lst-select">
+                        <select class="lst-input" @bind="selectedWarehouse" @bind:event="onchange">
+                            <option value="">Select a warehouse</option>
+                            @foreach (var wh in warehouses)
+                            {
+                                <option value="@wh.WarehouseCode">@wh.WarehouseCode — @wh.WarehouseName</option>
+                            }
+                        </select>
+                        <span class="lst-caret" aria-hidden="true"></span>
+                    </span>
+                </label>
+                @* Not a <label>: the field carries a button and a popup, which a
+                   label would swallow the clicks of. *@
+                <div class="lst-field">
+                    <span class="lst-label">Snapshot date</span>
+                    <NocturneDateField @bind-Date="snapshotDate" AriaLabel="Snapshot date" />
+                </div>
+                <div class="lst-field">
+                    <span class="lst-label">&nbsp;</span>
+                    <button type="button" class="lst-btn lst-btn-primary"
+                            disabled="@(isLoading || string.IsNullOrEmpty(selectedWarehouse))" @onclick="LoadStock">
+                        Load
+                    </button>
+                </div>
             </div>
-            <div class="filter-actions-row">
-                <button class="btn-search" @onclick="LoadStock" disabled="@(isLoading || string.IsNullOrEmpty(selectedWarehouse))">Load</button>
-            </div>
-            @if (stockResult != null)
+
+            @if (errorMessage != null)
             {
-                <div class="filter-field" style="margin-left:auto">
-                    <label>Search Item</label>
-                    <input type="text" class="search-input" placeholder="Item code or description..." @bind="searchTerm" @bind:event="oninput" />
+                <div class="lst-msg" role="alert">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                         stroke-linecap="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                    </svg>
+                    <span>@errorMessage</span>
                 </div>
             }
-        </div>
 
-        <!-- ━━━ Snapshot Status ━━━ -->
-        @if (stockResult != null)
-        {
-            <div class="snapshot-info @GetSnapshotStatusClass(stockResult.SnapshotStatus)">
-                <strong>Snapshot:</strong> @stockResult.WarehouseCode — @stockResult.SnapshotDate.ToString("dd MMM yyyy") —
-                Status: @stockResult.SnapshotStatus
-            </div>
-        }
-
-        <!-- ━━━ Data Table ━━━ -->
-        @if (errorMessage != null)
-        {
-            <div class="alert-banner error-alert">@errorMessage</div>
-        }
-
-        @if (isLoading)
-        {
-            <div class="loading-state">Loading local stock...</div>
-        }
-        else if (string.IsNullOrEmpty(selectedWarehouse))
-        {
-            <div class="empty-state">
-                <div class="empty-icon">🏭</div>
-                <h6>Select a Warehouse</h6>
-                <p>Choose a warehouse to view today's local stock snapshot</p>
-            </div>
-        }
-        else if (filteredItems.Any())
-        {
-            <div class="ls-table-wrap">
-                <div class="ls-table-header">
-                    <h6>Items <span class="ls-count-badge">@filteredItems.Count()</span></h6>
+            @if (isLoading)
+            {
+                <div class="lst-loading">
+                    <span class="lst-spin" aria-hidden="true"></span>
+                    <span>Loading local stock&#8230;</span>
                 </div>
-                <table class="ls-table">
-                    <thead>
-                        <tr>
-                            <th></th>
-                            <th>Item Code</th>
-                            <th>Description</th>
-                            <th>In Stock</th>
-                            <th>Original</th>
-                            <th>Adjustment</th>
-                            <th>Batches</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in filteredItems)
-                        {
-                            <tr @onclick="() => ToggleExpand(item.ItemCode)">
-                                <td style="width:30px">
-                                    @if (item.Batches.Count > 1)
-                                    {
-                                        <i class="bi @(expandedItems.Contains(item.ItemCode) ? "bi-chevron-down" : "bi-chevron-right")" style="font-size:.75rem;color:#6b7280"></i>
-                                    }
-                                </td>
-                                <td><span class="item-code">@item.ItemCode</span></td>
-                                <td>@(item.ItemDescription ?? "—")</td>
-                                <td><span class="qty-cell @GetQtyClass(item.AvailableQuantity)">@QuantityDisplay.Format(item.AvailableQuantity)</span></td>
-                                <td><span class="qty-cell" style="color:#6b7280">@QuantityDisplay.Format(item.OriginalQuantity)</span></td>
-                                <td>
-                                    @{
-                                        var adj = item.TransferAdjustment;
-                                        var adjClass = adj > 0 ? "adjustment-pos" : adj < 0 ? "adjustment-neg" : "adjustment-zero";
-                                        var adjPrefix = adj > 0 ? "+" : "";
-                                    }
-                                    <span class="@adjClass">@adjPrefix@QuantityDisplay.Format(Math.Abs(adj))</span>
-                                </td>
-                                <td>@item.Batches.Count</td>
-                            </tr>
-                            @if (expandedItems.Contains(item.ItemCode) && item.Batches.Count > 1)
+            }
+            else if (string.IsNullOrEmpty(selectedWarehouse))
+            {
+                <div class="lst-empty">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 10.5L12 4l9 6.5V20H3z"></path>
+                        <path d="M8.5 20v-6h7v6"></path>
+                    </svg>
+                    <h3>Pick a warehouse</h3>
+                    <p>Choose one above to see the stock it is holding today.</p>
+                </div>
+            }
+            else
+            {
+                var items = filteredItems.ToList();
+
+                if (items.Count > 0)
+                {
+                    <div class="lst-scroll">
+                        <div class="lst-grid" role="table" aria-label="Stock items">
+                            <div class="lst-thead" role="row">
+                                <span></span>
+                                <span role="columnheader">Item code</span>
+                                <span role="columnheader">Description</span>
+                                <span role="columnheader" class="lst-n">In stock</span>
+                                <span role="columnheader" class="lst-n">Original</span>
+                                <span role="columnheader" class="lst-n">Adjustment</span>
+                                <span role="columnheader" class="lst-batches">Batches</span>
+                            </div>
+
+                            @foreach (var item in items)
                             {
-                                @foreach (var batch in item.Batches.OrderBy(b => b.ExpiryDate))
+                                var opens = item.Batches.Count > 1;
+                                var isOpen = expandedItems.Contains(item.ItemCode);
+                                var adj = item.TransferAdjustment;
+
+                                <div class="lst-row @(opens ? "lst-row-open" : "") @(isOpen ? "lst-row-on" : "")"
+                                     role="row" @onclick="() => { if (opens) ToggleExpand(item.ItemCode); }">
+                                    <span class="lst-caretcell" role="cell">
+                                        @if (opens)
+                                        {
+                                            <svg class="lst-twist" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                 stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M9.5 5.5L16 12l-6.5 6.5"></path>
+                                            </svg>
+                                        }
+                                    </span>
+                                    <span class="lst-code" role="cell">@item.ItemCode</span>
+                                    <span class="lst-desc" role="cell">@(item.ItemDescription ?? "—")</span>
+                                    <span class="lst-n @GetQtyClass(item.AvailableQuantity)" role="cell">
+                                        <span class="lst-rl">In stock</span>@QuantityDisplay.Format(item.AvailableQuantity)
+                                    </span>
+                                    <span class="lst-n lst-was" role="cell">
+                                        <span class="lst-rl">Original</span>@QuantityDisplay.Format(item.OriginalQuantity)
+                                    </span>
+                                    <span class="lst-n @GetAdjClass(adj)" role="cell">
+                                        <span class="lst-rl">Adjustment</span>@(adj > 0 ? "+" : "")@QuantityDisplay.Format(Math.Abs(adj))
+                                    </span>
+                                    <span class="lst-batches" role="cell">
+                                        <span class="lst-rl">Batches</span>@item.Batches.Count
+                                    </span>
+                                </div>
+
+                                @if (isOpen && opens)
                                 {
-                                    <tr class="batch-row">
-                                        <td></td>
-                                        <td colspan="2" style="font-size:.8rem;color:#6b7280">
-                                            Batch: <strong>@(batch.BatchNumber ?? "N/A")</strong>
-                                            @if (batch.ExpiryDate.HasValue)
-                                            {
-                                                <span> — Expires: @batch.ExpiryDate.Value.ToString("dd MMM yyyy")</span>
-                                            }
-                                        </td>
-                                        <td><span class="qty-cell @GetQtyClass(batch.AvailableQuantity)">@QuantityDisplay.Format(batch.AvailableQuantity)</span></td>
-                                        <td><span class="qty-cell" style="color:#6b7280">@QuantityDisplay.Format(batch.OriginalQuantity)</span></td>
-                                        <td></td>
-                                        <td></td>
-                                    </tr>
+                                    @foreach (var batch in item.Batches.OrderBy(b => b.ExpiryDate))
+                                    {
+                                        <div class="lst-row lst-row-batch" role="row">
+                                            <span class="lst-caretcell" role="cell"></span>
+                                            <span class="lst-batch-id" role="cell">
+                                                Batch <span class="lst-batch-no">@(batch.BatchNumber ?? "N/A")</span>
+                                                @if (batch.ExpiryDate.HasValue)
+                                                {
+                                                    <span class="lst-batch-exp">
+                                                        · expires @batch.ExpiryDate.Value.ToString("dd MMM yyyy")
+                                                    </span>
+                                                }
+                                            </span>
+                                            <span class="lst-n @GetQtyClass(batch.AvailableQuantity)" role="cell">
+                                                <span class="lst-rl">In stock</span>@QuantityDisplay.Format(batch.AvailableQuantity)
+                                            </span>
+                                            <span class="lst-n lst-was" role="cell">
+                                                <span class="lst-rl">Original</span>@QuantityDisplay.Format(batch.OriginalQuantity)
+                                            </span>
+                                        </div>
+                                    }
                                 }
                             }
+                        </div>
+                    </div>
+                }
+                else if (stockResult != null)
+                {
+                    <div class="lst-empty">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="M20 20l-3.5-3.5"></path>
+                        </svg>
+                        <h3>Nothing to show</h3>
+                        @if (string.IsNullOrWhiteSpace(searchTerm))
+                        {
+                            <p>This warehouse has no stock recorded for the chosen date.</p>
                         }
-                    </tbody>
-                </table>
-            </div>
-        }
-        else if (stockResult != null)
-        {
-            <div class="empty-state">
-                <div class="empty-icon">🔍</div>
-                <h6>No Items Found</h6>
-                <p>No stock data available for this warehouse and date</p>
-            </div>
-        }
+                        else
+                        {
+                            <p>No item in this snapshot matches &#8220;@searchTerm&#8221;.</p>
+                        }
+                    </div>
+                }
+            }
+        </section>
     </div>
 </div>
 
@@ -968,20 +667,28 @@
             expandedItems.Add(itemCode);
     }
 
+    // The four steps a quantity can be in; the sheet colours each from a family.
     private static string GetQtyClass(decimal qty) => qty switch
     {
-        > 100 => "qty-success",
-        > 10 => "qty-info",
-        > 0 => "qty-warning",
-        _ => "qty-danger"
+        > 100 => "lst-q-good",
+        > 10 => "lst-q-info",
+        > 0 => "lst-q-warn",
+        _ => "lst-q-bad"
     };
 
-    private static string GetSnapshotStatusClass(string status) => status.ToLower() switch
+    private static string GetAdjClass(decimal adj) => adj switch
     {
-        "complete" => "snapshot-complete",
-        "pending" => "snapshot-pending",
-        "failed" => "snapshot-failed",
-        _ => "snapshot-pending"
+        > 0 => "lst-adj-up",
+        < 0 => "lst-adj-down",
+        _ => "lst-adj-nil"
+    };
+
+    private static string GetSnapshotFamily(string status) => status.ToLower() switch
+    {
+        "complete" => "lst-fam-good",
+        "pending" => "lst-fam-warn",
+        "failed" => "lst-fam-bad",
+        _ => "lst-fam-warn"
     };
 
     private async Task ExportToExcel()
