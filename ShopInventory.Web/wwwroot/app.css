@@ -7529,51 +7529,23 @@ html.dark-theme {
     font-family: var(--customer-body-font);
 }
 
-.customer-appbar {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: 0 10px 30px -22px rgba(15, 23, 42, 0.7);
-}
-
-.customer-appbar .mud-typography {
-    font-family: var(--customer-display-font);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-size: 0.95rem;
-}
-
-.customer-drawer {
-    background: radial-gradient(circle at 15% 10%, rgba(14, 165, 233, 0.18), transparent 45%),
-        linear-gradient(180deg, #0b1120 0%, #0f172a 60%, #111827 100%);
-    color: #e2e8f0;
-    border-right: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.customer-drawer-header {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-}
+/* The portal's chrome is presented by css/customer-portal.css under its `.cpx`
+   scope, which the layout carries alongside `customer-shell`. Those selectors
+   are a class deeper than these, so they win; what is left here is only what
+   that sheet does not set. Rules that it fully covered have been removed —
+   before pruning, this section restated the pre-Nocturne indigo/slate chrome
+   that nothing had painted since the rebuild. */
 
 .customer-nav {
     padding: 0.5rem 0.35rem 1rem;
+    /* Suppresses the border MudNavMenu draws for Bordered="true". */
     border: none;
 }
 
-.customer-drawer .mud-divider {
-    background-color: rgba(148, 163, 184, 0.2);
-}
-
+/* Anchors the active-item marker below; customer-portal.css styles the rest of
+   the link but does not position it. */
 .customer-drawer .mud-nav-link {
     position: relative;
-    margin: 0.2rem 0.6rem;
-    padding: 0.55rem 0.85rem;
-    border-radius: 12px;
-    color: #e2e8f0;
-    font-weight: 500;
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-.customer-drawer .mud-nav-link:hover {
-    background: rgba(56, 189, 248, 0.16);
-    color: #f8fafc;
 }
 
 .customer-drawer .mud-nav-link.mud-nav-link-active,
@@ -7601,31 +7573,8 @@ html.dark-theme {
 }
 
 .customer-drawer-footer {
-    padding: 0.75rem;
     border-top: 1px solid rgba(148, 163, 184, 0.2);
     color: #e2e8f0;
-}
-
-.customer-code-card {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.6rem 0.75rem;
-    border-radius: 10px;
-    background: rgba(99, 102, 241, 0.08);
-    border: 1px solid rgba(99, 102, 241, 0.15);
-}
-
-.customer-code-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff;
-    flex-shrink: 0;
 }
 
 .customer-code-icon .mud-icon-root {
@@ -7633,26 +7582,13 @@ html.dark-theme {
     color: #fff !important;
 }
 
-.customer-code-info {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
 .customer-code-label {
-    font-size: 0.6rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #94a3b8;
-    font-weight: 600;
     line-height: 1.2;
 }
 
 .customer-code-value {
     font-size: 0.85rem;
-    font-weight: 700;
     font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
-    color: #e2e8f0;
     letter-spacing: 0.03em;
     line-height: 1.3;
 }
@@ -7661,22 +7597,10 @@ html.dark-theme {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
-    background: linear-gradient(180deg, #f5f1e9 0%, #f8fafc 45%, #f1f5f9 100%);
 }
 
 .customer-content {
     flex: 1 0 auto;
-}
-
-.customer-footer {
-    border-top: 1px solid rgba(15, 23, 42, 0.08);
-    background: rgba(255, 255, 255, 0.92);
-    margin-top: 1.5rem;
-}
-
-.customer-footer-content {
-    color: #64748b;
-    font-size: 0.875rem;
 }
 
 .customer-footer .mud-link {
@@ -7789,37 +7713,17 @@ html.dark-theme {
     --customer-border: rgba(148, 163, 184, 0.15);
 }
 
-.dark-theme .customer-main {
-    background: linear-gradient(180deg, #0b1020 0%, #0f172a 50%, #0b1020 100%);
-}
-
-/* --- Footer --- */
-.dark-theme .customer-footer {
-    border-top-color: rgba(148, 163, 184, 0.15);
-    background: rgba(15, 23, 42, 0.92);
-}
-
-.dark-theme .customer-footer-content {
-    color: #94a3b8;
-}
-
 /* --- Drawer footer --- */
 .dark-theme .customer-drawer-footer {
     background: rgba(15, 23, 42, 0.5);
 }
 
-.dark-theme .customer-code-card {
-    background: rgba(99, 102, 241, 0.1);
-    border-color: rgba(99, 102, 241, 0.2);
-}
-
-.dark-theme .customer-code-label {
-    color: #64748b;
-}
-
-.dark-theme .customer-code-value {
-    color: #f1f5f9;
-}
+/* The three `.dark-theme .customer-code-*` rules that stood here were never
+   reached: the theme class lands on <html>/<body>, never on the shell, so the
+   `:not(.dark-theme)` selectors below match in *both* themes and outrank them
+   at three classes to two. They set the same properties, so removing them
+   changes nothing — but note that the rules below are what actually paints the
+   code card, in dark mode too. */
 
 /* Light mode overrides for drawer footer */
 .customer-shell:not(.dark-theme) .customer-code-card {
@@ -11436,16 +11340,12 @@ canvas {
     }
 
     .customer-account-chip {
-        max-width: 10rem;
         min-width: 0;
         overflow: hidden;
     }
 
     .customer-account-chip .mud-chip-content {
         min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     .customer-auth-button,
@@ -11571,10 +11471,6 @@ canvas {
     .customer-account-chip,
     .customer-drawer-title {
         display: none !important;
-    }
-
-    .customer-auth-label {
-        display: none;
     }
 
     .customer-auth-button {
