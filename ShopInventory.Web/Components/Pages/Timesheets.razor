@@ -23,14 +23,12 @@
     <div class="ts-filters">
         <div class="row g-3">
             <div class="col-md-3">
-                <label class="ts-filter-label">From Date</label>
-                <MudDatePicker @bind-Date="fromDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" Class="ts-date-picker" />
+                <label class="ts-filter-label" for="ts-f-from">From Date</label>
+                <NocturneDateField Id="ts-f-from" Class="ndf-bs" @bind-Date="fromDate" />
             </div>
             <div class="col-md-3">
-                <label class="ts-filter-label">To Date</label>
-                <MudDatePicker @bind-Date="toDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" Class="ts-date-picker" />
+                <label class="ts-filter-label" for="ts-f-to">To Date</label>
+                <NocturneDateField Id="ts-f-to" Class="ndf-bs" @bind-Date="toDate" />
             </div>
             @if (isAdmin)
             {

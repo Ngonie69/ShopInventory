@@ -182,6 +182,9 @@
 
     .filter-field { display: flex; flex-direction: column; gap: .25rem; }
     .filter-field label { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+    /* This pair is (0,1,1) and the date field's own `.ndf .ndf-input` is
+       (0,2,0), so it loses to it and needs no guard. The dark rule below is
+       (0,2,1) and does — see the note there. */
     .filter-field select,
     .filter-field input {
         padding: .45rem .65rem;
@@ -193,8 +196,28 @@
         min-width: 140px;
     }
 
+    /* `:not(.ndf-input)` so this stops short of the date fields. It is (0,2,1)
+       against the component's own (0,2,0), so without the exclusion it would
+       repaint them in dark and not in light. */
     .dark-theme .filter-field select,
-    .dark-theme .filter-field input { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+    .dark-theme .filter-field input:not(.ndf-input) { background: #0f172a; border-color: #475569; color: #e2e8f0; }
+
+    /* The date fields take their metrics from the row they sit in; their
+       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
+    .filter-field .ndf {
+        min-width: 140px;
+        --ndf-pad-y: .45rem;
+        --ndf-pad-x: .65rem;
+        --ndf-fs: .85rem;
+        --ndf-radius: 8px;
+        --ndf-fill: #fff;
+        --ndf-edge: #d1d5db;
+    }
+
+    .dark-theme .filter-field .ndf {
+        --ndf-fill: #0f172a;
+        --ndf-edge: #475569;
+    }
 
     .filter-actions-row { display: flex; gap: .5rem; align-items: flex-end; }
 
@@ -530,7 +553,8 @@
         .filter-bar { flex-direction: column; }
         .filter-field { width: 100%; }
         .filter-field select,
-        .filter-field input { width: 100%; min-width: unset; }
+        .filter-field input,
+        .filter-field .ndf { width: 100%; min-width: unset; }
         .filter-actions-row { width: 100%; }
         .filter-actions-row button { flex: 1; }
         .breakdown-grid { grid-template-columns: repeat(2, 1fr); }
@@ -635,19 +659,19 @@
             @if (selectedPeriod is "Daily" or "Weekly" or "Monthly")
             {
                 <div class="filter-field">
-                    <label>Date</label>
-                    <input type="date" @bind="filterDate" />
+                    <label for="fsr-f-date">Date</label>
+                    <NocturneDateField Id="fsr-f-date" @bind-Date="filterDate" />
                 </div>
             }
             @if (selectedPeriod == "Custom")
             {
                 <div class="filter-field">
-                    <label>From Date</label>
-                    <input type="date" @bind="filterFromDate" />
+                    <label for="fsr-f-from">From Date</label>
+                    <NocturneDateField Id="fsr-f-from" @bind-Date="filterFromDate" />
                 </div>
                 <div class="filter-field">
-                    <label>To Date</label>
-                    <input type="date" @bind="filterToDate" />
+                    <label for="fsr-f-to">To Date</label>
+                    <NocturneDateField Id="fsr-f-to" @bind-Date="filterToDate" />
                 </div>
             }
             <div class="filter-field">

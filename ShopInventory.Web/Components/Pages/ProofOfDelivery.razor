@@ -532,11 +532,11 @@
                     </div>
                     <div class="podx-field">
                         <label for="podx-f-from">From date</label>
-                        <input id="podx-f-from" class="podx-input podx-input-num" type="date" @bind="filterFromDate" />
+                        <NocturneDateField Id="podx-f-from" @bind-Date="filterFromDate" />
                     </div>
                     <div class="podx-field">
                         <label for="podx-f-to">To date</label>
-                        <input id="podx-f-to" class="podx-input podx-input-num" type="date" @bind="filterToDate" />
+                        <NocturneDateField Id="podx-f-to" @bind-Date="filterToDate" />
                     </div>
                     <div class="podx-field">
                         <label>&nbsp;</label>

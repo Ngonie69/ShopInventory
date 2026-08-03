@@ -481,15 +481,19 @@
     font-variant-numeric: tabular-nums;
 }
 
-.ivx .ivx-input[type="date"]::-webkit-calendar-picker-indicator,
-.ivx-overlay .ivx-input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: .6;
-}
-
-.dark-theme .ivx .ivx-input[type="date"]::-webkit-calendar-picker-indicator,
-.dark-theme .ivx-overlay .ivx-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+/* The date fields are NocturneDateField, not native date inputs — the native
+   control draws the browser's own calendar, which no stylesheet can reach.
+   Only the closed field is fitted to this sheet; the calendar itself is the
+   shared one. See nocturne-date-field.css for why these are set from here. */
+.ivx {
+    --ndf-h: 32px;
+    --ndf-pad-y: 5px;
+    --ndf-pad-x: 10px;
+    --ndf-fs: 14px;
+    --ndf-fill: var(--ivx-field);
+    --ndf-edge: var(--ivx-field-edge);
+    --ndf-edge-hi: var(--ivx-field-edge-hi);
+    --ndf-radius: var(--ivx-r-md);
 }
 
 .ivx-select {

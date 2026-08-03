@@ -685,17 +685,22 @@
     resize: vertical;
 }
 
-/* The date field's own picker button is a UA control that ignores the
-   palette, so it is tinted rather than restyled. */
-.qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator,
-.qtn-overlay .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: grayscale(1) opacity(.55);
-    cursor: pointer;
-}
+/* The date fields are NocturneDateField, not native date inputs — the native
+   control draws the browser's own calendar, which no stylesheet can reach, so
+   it could only ever be tinted. Only the closed field is fitted to this sheet;
+   the calendar itself is the shared one. See nocturne-date-field.css for why
+   these are set from here rather than there.
 
-.dark-theme .qtn .qtn-input[type="date"]::-webkit-calendar-picker-indicator,
-.dark-theme .qtn-overlay .qtn-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1) grayscale(1) opacity(.6);
+   Repeated on the overlay because it is a peer of the page root, not a
+   descendant, so it inherits nothing from `.qtn`. */
+.qtn,
+.qtn-overlay {
+    --ndf-h: 32px;
+    --ndf-pad-y: 6px;
+    --ndf-pad-x: 11px;
+    --ndf-fs: 12.5px;
+    --ndf-fill: var(--qtn-field-bg);
+    --ndf-radius: var(--qtn-r-md);
 }
 
 .qtn-input-icon {

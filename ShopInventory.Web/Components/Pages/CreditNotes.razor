@@ -100,11 +100,11 @@
             </div>
             <div class="cnx-field" style="width:134px">
                 <label for="cnx-f-from">From date</label>
-                <input id="cnx-f-from" class="cnx-input cnx-input-num" type="date" @bind="fromDate" />
+                <NocturneDateField Id="cnx-f-from" @bind-Date="fromDate" />
             </div>
             <div class="cnx-field" style="width:134px">
                 <label for="cnx-f-to">To date</label>
-                <input id="cnx-f-to" class="cnx-input cnx-input-num" type="date" @bind="toDate" />
+                <NocturneDateField Id="cnx-f-to" @bind-Date="toDate" />
             </div>
             <div class="cnx-filter-actions">
                 @if (FiltersActive)

@@ -530,11 +530,11 @@
                     </div>
                     <div class="podx-field">
                         <label for="crx-f-from">From date</label>
-                        <input id="crx-f-from" class="podx-input podx-input-num" type="date" @bind="TransactionFilterFromDate" />
+                        <NocturneDateField Id="crx-f-from" @bind-Date="TransactionFilterFromDate" />
                     </div>
                     <div class="podx-field">
                         <label for="crx-f-to">To date</label>
-                        <input id="crx-f-to" class="podx-input podx-input-num" type="date" @bind="TransactionFilterToDate" />
+                        <NocturneDateField Id="crx-f-to" @bind-Date="TransactionFilterToDate" />
                     </div>
                     @if (HasTransactionFilters)
                     {

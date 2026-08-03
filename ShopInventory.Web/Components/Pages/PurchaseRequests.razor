@@ -16,7 +16,15 @@
     .preq-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
     .preq-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.25rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
     .preq-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
+       and it needs no guard. The dark override further down is (0,2,1) and
+       does — see the note there. */
     .preq-field input { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; }
+
+    /* The date fields take their metrics from the row they sit in; their
+       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
+    .preq-field .ndf { --ndf-pad-y: .75rem; --ndf-pad-x: .85rem; --ndf-fs: 1rem; --ndf-radius: 12px; --ndf-fill: #fbfcfe; --ndf-edge: #d7dee7; }
+    .dark-theme .preq-field .ndf { --ndf-fill: #101823; --ndf-edge: #2a3645; }
     .preq-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
     .preq-layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, .95fr); gap: 1rem; }
     .preq-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
@@ -56,7 +64,10 @@
     .dark-theme .preq-title h1, .dark-theme .preq-panel-header h2, .dark-theme .preq-table td, .dark-theme .preq-detail-card div, .dark-theme .preq-line-code, .dark-theme .preq-empty strong, .dark-theme .preq-stat-value { color: #edf2f7; }
     .dark-theme .preq-title p, .dark-theme .preq-panel-header span, .dark-theme .preq-subtext, .dark-theme .preq-empty, .dark-theme .preq-loading, .dark-theme .preq-pager span, .dark-theme .preq-detail-card label, .dark-theme .preq-line-desc, .dark-theme .preq-stat-label, .dark-theme .preq-field label { color: #a9b4c2; }
     .dark-theme .preq-stat, .dark-theme .preq-filters, .dark-theme .preq-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .preq-field input, .dark-theme .preq-detail-card, .dark-theme .preq-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    /* `:not(.ndf-input)` so this stops short of the date fields: it is (0,2,1)
+       against the component's own (0,2,0) and would otherwise repaint them in
+       dark and not in light. */
+    .dark-theme .preq-field input:not(.ndf-input), .dark-theme .preq-detail-card, .dark-theme .preq-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
     .dark-theme .preq-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
     .dark-theme .preq-table td, .dark-theme .preq-panel-header, .dark-theme .preq-pager { border-color: #2a3645; }
     .dark-theme .preq-row:hover { background: #1f2c3b; }
@@ -91,12 +102,12 @@
 
     <div class="preq-filters">
         <div class="preq-field">
-            <label>From Date</label>
-            <input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" />
+            <label for="preq-f-from">From Date</label>
+            <NocturneDateField Id="preq-f-from" @bind-Date="fromDate" />
         </div>
         <div class="preq-field">
-            <label>To Date</label>
-            <input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" />
+            <label for="preq-f-to">To Date</label>
+            <NocturneDateField Id="preq-f-to" @bind-Date="toDate" />
         </div>
         <div class="preq-filter-actions">
             <button class="btn btn-dark" @onclick="SearchAsync" disabled="@isLoading">Apply Filters</button>

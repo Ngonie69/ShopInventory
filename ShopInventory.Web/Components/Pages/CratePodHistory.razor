@@ -131,11 +131,11 @@
                     </div>
                     <div class="podx-field">
                         <label for="crh-f-from">From date</label>
-                        <input id="crh-f-from" class="podx-input podx-input-num" type="date" @bind="PodHistoryFromDate" />
+                        <NocturneDateField Id="crh-f-from" @bind-Date="PodHistoryFromDate" />
                     </div>
                     <div class="podx-field">
                         <label for="crh-f-to">To date</label>
-                        <input id="crh-f-to" class="podx-input podx-input-num" type="date" @bind="PodHistoryToDate" />
+                        <NocturneDateField Id="crh-f-to" @bind-Date="PodHistoryToDate" />
                     </div>
                     @if (HasPodHistoryFilters)
                     {

@@ -143,11 +143,11 @@
 
                 <div class="itx-field">
                     <label for="itx-from">From</label>
-                    <input id="itx-from" class="itx-input itx-input-num" type="date" @bind="fromDate" />
+                    <NocturneDateField Id="itx-from" @bind-Date="fromDate" />
                 </div>
                 <div class="itx-field">
                     <label for="itx-to">To</label>
-                    <input id="itx-to" class="itx-input itx-input-num" type="date" @bind="toDate" />
+                    <NocturneDateField Id="itx-to" @bind-Date="toDate" />
                 </div>
 
                 <div class="itx-grow itx-grow-sm itx-field">
@@ -429,11 +429,11 @@
                     </div>
                     <div class="itx-field">
                         <label for="itx-req-from">From date</label>
-                        <input id="itx-req-from" class="itx-input itx-input-num" type="date" @bind="requestFromDate" />
+                        <NocturneDateField Id="itx-req-from" @bind-Date="requestFromDate" />
                     </div>
                     <div class="itx-field">
                         <label for="itx-req-to">To date</label>
-                        <input id="itx-req-to" class="itx-input itx-input-num" type="date" @bind="requestToDate" />
+                        <NocturneDateField Id="itx-req-to" @bind-Date="requestToDate" />
                     </div>
                     <div class="itx-filters-foot">
                         <button type="button" class="itx-btn itx-btn-sm" @onclick="ClearRequestFilters"

@@ -112,11 +112,11 @@
             </div>
             <div class="pyx-field" style="width:150px">
                 <label for="pyx-f-from">From date</label>
-                <input id="pyx-f-from" class="pyx-input pyx-input-num" type="date" @bind="fromDate" />
+                <NocturneDateField Id="pyx-f-from" @bind-Date="fromDate" />
             </div>
             <div class="pyx-field" style="width:150px">
                 <label for="pyx-f-to">To date</label>
-                <input id="pyx-f-to" class="pyx-input pyx-input-num" type="date" @bind="toDate" />
+                <NocturneDateField Id="pyx-f-to" @bind-Date="toDate" />
             </div>
             <div class="pyx-filter-actions">
                 <button type="button" class="pyx-btn pyx-btn-ghost" @onclick="ClearFilter" disabled="@isLoading">

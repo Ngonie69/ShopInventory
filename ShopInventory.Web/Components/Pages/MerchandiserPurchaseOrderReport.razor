@@ -22,7 +22,15 @@
     .mpor-stat-value { margin-top: .35rem; font-size: 1.55rem; font-weight: 800; color: #172033; }
     .mpor-filters { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; padding: 1rem; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.15rem; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); }
     .mpor-field label { display: block; font-size: .78rem; font-weight: 700; color: #5f6b7a; margin-bottom: .35rem; text-transform: uppercase; letter-spacing: .05em; }
+    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
+       and it needs no guard. The dark override further down is (0,2,1) and
+       does — see the note there. */
     .mpor-field input, .mpor-field select { width: 100%; border: 1px solid #d7dee7; border-radius: 12px; padding: .75rem .85rem; background: #fbfcfe; color: #172033; }
+
+    /* The date fields take their metrics from the row they sit in; their
+       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
+    .mpor-field .ndf { --ndf-pad-y: .75rem; --ndf-pad-x: .85rem; --ndf-fs: 1rem; --ndf-radius: 12px; --ndf-fill: #fbfcfe; --ndf-edge: #d7dee7; }
+    .dark-theme .mpor-field .ndf { --ndf-fill: #101823; --ndf-edge: #2a3645; }
     .mpor-field small { display: block; margin-top: .35rem; color: #7c8798; }
     .mpor-filter-actions { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
     .mpor-summary-panel, .mpor-panel { background: #fff; border: 1px solid #e6ebf0; border-radius: 18px; box-shadow: 0 10px 28px rgba(23, 32, 51, .05); overflow: hidden; }
@@ -200,7 +208,10 @@
     .dark-theme .mpor-title h1, .dark-theme .mpor-panel-header h2, .dark-theme .mpor-stat-value, .dark-theme .mpor-summary-table td, .dark-theme .mpor-table td, .dark-theme .mpor-detail-card div, .dark-theme .mpor-section h3, .dark-theme .mpor-attachment-name, .dark-theme .mpor-line-code, .dark-theme .mpor-empty strong, .dark-theme .mpor-loading strong { color: #edf2f7; }
     .dark-theme .mpor-title p, .dark-theme .mpor-panel-header span, .dark-theme .mpor-subtext, .dark-theme .mpor-empty, .dark-theme .mpor-loading, .dark-theme .mpor-detail-card label, .dark-theme .mpor-attachment-meta, .dark-theme .mpor-line-meta, .dark-theme .mpor-stat-label, .dark-theme .mpor-field label, .dark-theme .mpor-meta, .dark-theme .mpor-field small { color: #a9b4c2; }
     .dark-theme .mpor-stat, .dark-theme .mpor-filters, .dark-theme .mpor-summary-panel, .dark-theme .mpor-panel { background: #16202c; border-color: #2a3645; box-shadow: none; }
-    .dark-theme .mpor-field input, .dark-theme .mpor-field select, .dark-theme .mpor-detail-card, .dark-theme .mpor-attachment, .dark-theme .mpor-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
+    /* `:not(.ndf-input)` so this stops short of the date fields: it is (0,2,1)
+       against the component's own (0,2,0) and would otherwise repaint them in
+       dark and not in light. */
+    .dark-theme .mpor-field input:not(.ndf-input), .dark-theme .mpor-field select, .dark-theme .mpor-detail-card, .dark-theme .mpor-attachment, .dark-theme .mpor-line { background: #101823; border-color: #2a3645; color: #edf2f7; }
     .dark-theme .mpor-summary-table th, .dark-theme .mpor-table th { background: #101823; border-color: #2a3645; color: #a9b4c2; }
     .dark-theme .mpor-summary-table td, .dark-theme .mpor-table td, .dark-theme .mpor-panel-header { border-color: #2a3645; }
     .dark-theme .mpor-row:hover { background: #1f2c3b; }
@@ -282,12 +293,12 @@
             </select>
         </div>
         <div class="mpor-field">
-            <label>From Date</label>
-            <input type="date" @bind-value="fromDate" @bind-value:format="yyyy-MM-dd" />
+            <label for="mpor-f-from">From Date</label>
+            <NocturneDateField Id="mpor-f-from" @bind-Date="fromDate" />
         </div>
         <div class="mpor-field">
-            <label>To Date</label>
-            <input type="date" @bind-value="toDate" @bind-value:format="yyyy-MM-dd" />
+            <label for="mpor-f-to">To Date</label>
+            <NocturneDateField Id="mpor-f-to" @bind-Date="toDate" />
         </div>
         <div class="mpor-filter-actions">
             <button class="btn btn-dark" @onclick="ApplyFiltersAsync" disabled="@(isLoading || isExporting)">Apply Filters</button>

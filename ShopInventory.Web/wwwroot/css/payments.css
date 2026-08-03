@@ -454,13 +454,19 @@
     font-variant-numeric: tabular-nums;
 }
 
-.pyx .pyx-input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    opacity: .6;
-}
-
-.dark-theme .pyx .pyx-input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+/* The date fields are NocturneDateField, not native date inputs — the native
+   control draws the browser's own calendar, which no stylesheet can reach.
+   Only the closed field is fitted to this sheet; the calendar itself is the
+   shared one. See nocturne-date-field.css for why these are set from here. */
+.pyx {
+    --ndf-h: 32px;
+    --ndf-pad-y: 5px;
+    --ndf-pad-x: 10px;
+    --ndf-fs: 14px;
+    --ndf-fill: var(--pyx-field);
+    --ndf-edge: var(--pyx-field-edge);
+    --ndf-edge-hi: var(--pyx-field-edge-hi);
+    --ndf-radius: var(--pyx-r-md);
 }
 
 .pyx-select {

@@ -404,14 +404,17 @@
                 <section class="bp-section">
                     <h3>Statement</h3>
                     <div class="bp-stmt">
-                        <label class="bp-field">
-                            <span class="bp-label">From</span>
-                            <input type="date" class="bp-input" @bind="statementFromDate" @bind:format="yyyy-MM-dd" />
-                        </label>
-                        <label class="bp-field">
-                            <span class="bp-label">To</span>
-                            <input type="date" class="bp-input" @bind="statementToDate" @bind:format="yyyy-MM-dd" />
-                        </label>
+                        @* The label names the field by `for` rather than wrapping it: the date
+                           field carries its own calendar button, and a wrapping label would
+                           forward a click on that button to the text input as well. *@
+                        <div class="bp-field">
+                            <label class="bp-label" for="bp-stmt-from">From</label>
+                            <NocturneDateField Id="bp-stmt-from" @bind-Date="statementFromDate" />
+                        </div>
+                        <div class="bp-field">
+                            <label class="bp-label" for="bp-stmt-to">To</label>
+                            <NocturneDateField Id="bp-stmt-to" @bind-Date="statementToDate" />
+                        </div>
                         <button type="button" class="bp-btn bp-btn-primary bp-btn-lg" disabled="@isGeneratingStatement"
                                 @onclick="() => GenerateStatement(cardCode)">
                             @if (isGeneratingStatement)

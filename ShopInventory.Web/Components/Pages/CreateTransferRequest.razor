@@ -147,15 +147,18 @@
                             }
                         </label>
 
-                        <label class="tfm-lab">
-                            <span class="tfm-lab-t">Document date</span>
-                            <input type="date" class="tfm-input" @bind="docDate" />
-                        </label>
+                        @* Divs rather than wrapping labels: the date field carries its own calendar
+                           button, and a label would forward a click on that button to the text
+                           input as well. *@
+                        <div class="tfm-lab">
+                            <label class="tfm-lab-t" for="tfm-doc-date">Document date</label>
+                            <NocturneDateField Id="tfm-doc-date" @bind-Date="docDate" />
+                        </div>
 
-                        <label class="tfm-lab">
-                            <span class="tfm-lab-t">Due date</span>
-                            <input type="date" class="tfm-input" @bind="dueDate" />
-                        </label>
+                        <div class="tfm-lab">
+                            <label class="tfm-lab-t" for="tfm-due-date">Due date</label>
+                            <NocturneDateField Id="tfm-due-date" @bind-Date="dueDate" />
+                        </div>
 
                         @* Read-only, not an input: the API overwrites both fields with the signed-in
                            user's own name and email before it builds the SAP document, so an editable

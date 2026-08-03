@@ -9981,6 +9981,9 @@ html.dark-theme {
     color: #ef4444;
 }
 
+/* These are (0,1,1) and the date field's own `.ndf .ndf-input` is (0,2,0), so
+   they lose to it on every property they set and need no guard. Their
+   `.dark-theme` twins below are (0,2,1) and do — see the note there. */
 .pdoc-create-field input,
 .pdoc-create-field select,
 .pdoc-create-field textarea,
@@ -10003,6 +10006,32 @@ html.dark-theme {
     padding: 0.4rem 0.6rem;
     border-radius: 7px;
     font-size: 0.85rem;
+}
+
+/* The date fields take their metrics from the row they sit in; their calendar
+   is the shared one. See wwwroot/css/nocturne-date-field.css. */
+.pdoc-create-field .ndf {
+    --ndf-pad-y: 0.5rem;
+    --ndf-pad-x: 0.75rem;
+    --ndf-fs: 0.88rem;
+    --ndf-radius: 8px;
+    --ndf-fill: #fff;
+    --ndf-edge: #d1d5db;
+}
+
+.pdoc-create-table .ndf {
+    --ndf-pad-y: 0.4rem;
+    --ndf-pad-x: 0.6rem;
+    --ndf-fs: 0.85rem;
+    --ndf-radius: 7px;
+    --ndf-fill: #fff;
+    --ndf-edge: #d1d5db;
+}
+
+.dark-theme .pdoc-create-field .ndf,
+.dark-theme .pdoc-create-table .ndf {
+    --ndf-fill: #101823;
+    --ndf-edge: #2a3645;
 }
 
 .pdoc-create-field input:focus,
@@ -10364,10 +10393,16 @@ html.dark-theme {
     box-shadow: none;
 }
 
-.dark-theme .pdoc-create-field input,
+/* `:not(.ndf-input)` so this stops short of the date fields. It is (0,2,1)
+   against the component's own (0,2,0), so without the exclusion it would
+   repaint them in dark and not in light — a field that changes colour in one
+   theme only. Excluding by class rather than by `>` because these wrappers
+   also hold controls nested inside a search wrapper, which a child combinator
+   would strip. */
+.dark-theme .pdoc-create-field input:not(.ndf-input),
 .dark-theme .pdoc-create-field select,
 .dark-theme .pdoc-create-field textarea,
-.dark-theme .pdoc-create-table input,
+.dark-theme .pdoc-create-table input:not(.ndf-input),
 .dark-theme .pdoc-create-table select,
 .dark-theme .pdoc-create-table textarea {
     background: #101823;
@@ -10486,7 +10521,11 @@ html.dark-theme {
     box-shadow: none;
 }
 
-.dark-theme .cpo-field input,
+/* `:not(.ndf-input)` so this stops short of the delivery date, which is a
+   NocturneDateField. This rule is (0,2,1) against the component's own (0,2,0),
+   so without the exclusion it would repaint the field in dark and not in
+   light. */
+.dark-theme .cpo-field input:not(.ndf-input),
 .dark-theme .cpo-field select,
 .dark-theme .cpo-field textarea {
     background: #101823;
@@ -10494,13 +10533,14 @@ html.dark-theme {
     color: #edf2f7;
 }
 
-.dark-theme .cpo-field input::placeholder,
+.dark-theme .cpo-field input:not(.ndf-input)::placeholder,
 .dark-theme .cpo-field textarea::placeholder {
     color: #64748b;
 }
 
-.dark-theme .cpo-field input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(1);
+.dark-theme .cpo-field .ndf {
+    --ndf-fill: #101823;
+    --ndf-edge: #2a3645;
 }
 
 .dark-theme .cpo-dropdown {

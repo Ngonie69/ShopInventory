@@ -649,6 +649,25 @@
     resize: vertical;
 }
 
+/* The document and due dates are NocturneDateField, not native date inputs —
+   the native control draws the browser's own calendar, which no stylesheet can
+   reach, and refuses the shorthand operators type (`030826`). Only the closed
+   field is fitted to this sheet; the calendar itself is the shared one. See
+   wwwroot/css/nocturne-date-field.css for why these are set from here.
+
+   37px is where a `.tfm-input` lands with 9px of padding around 13.5px text,
+   and a date field short of its neighbours staggers the row. */
+.tfm {
+    --ndf-h: 37px;
+    --ndf-pad-y: 9px;
+    --ndf-pad-x: 11px;
+    --ndf-fs: 13.5px;
+    --ndf-fill: var(--tfm-field);
+    --ndf-edge: var(--tfm-field-edge);
+    --ndf-edge-hi: var(--tfm-field-edge-hi);
+    --ndf-radius: 8px;
+}
+
 .tfm .tfm-input:hover:not(:disabled):not([readonly]),
 .tfm .tfm-select:hover:not(:disabled),
 .tfm .tfm-area:hover:not(:disabled) {

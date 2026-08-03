@@ -143,12 +143,12 @@
 
             <div class="qtn-field" style="width:150px">
                 <label class="qtn-label" for="qtn-f-from">Issued from</label>
-                <input id="qtn-f-from" class="qtn-input qtn-input-num" type="date" @bind="fromDate" />
+                <NocturneDateField Id="qtn-f-from" @bind-Date="fromDate" />
             </div>
 
             <div class="qtn-field" style="width:150px">
                 <label class="qtn-label" for="qtn-f-to">Issued to</label>
-                <input id="qtn-f-to" class="qtn-input qtn-input-num" type="date" @bind="toDate" />
+                <NocturneDateField Id="qtn-f-to" @bind-Date="toDate" />
             </div>
 
             <div class="qtn-filter-actions">
@@ -745,7 +745,7 @@
 
                             <div class="qtn-field">
                                 <label class="qtn-label" for="qtn-c-valid">Valid until</label>
-                                <input id="qtn-c-valid" class="qtn-input qtn-input-num" type="date" @bind="validUntilDate" />
+                                <NocturneDateField Id="qtn-c-valid" @bind-Date="validUntilDate" />
                             </div>
 
                             <div class="qtn-field">

@@ -166,6 +166,9 @@
         color: #ef4444;
     }
 
+    /* (0,1,1), so the date field's own `.ndf .ndf-input` at (0,2,0) beats it
+       and it needs no guard. app.css's `.dark-theme .cpo-field` twin is
+       (0,2,1) and does — it excludes `.ndf-input` there. */
     .cpo-field input,
     .cpo-field select,
     .cpo-field textarea {
@@ -177,6 +180,17 @@
         color: #374151;
         background: #fff;
         transition: all .15s;
+    }
+
+    /* The delivery date takes its metrics from the row it sits in; its
+       calendar is the shared one. See wwwroot/css/nocturne-date-field.css. */
+    .cpo-field .ndf {
+        --ndf-pad-y: .5rem;
+        --ndf-pad-x: .75rem;
+        --ndf-fs: .88rem;
+        --ndf-radius: 8px;
+        --ndf-fill: #fff;
+        --ndf-edge: #d1d5db;
     }
 
     .cpo-field textarea {
@@ -729,8 +743,8 @@
                             <input type="text" @bind="purchaseOrder.SupplierRefNo" placeholder="Quote / Ref number" />
                         </div>
                         <div class="cpo-field">
-                            <label>Delivery Date</label>
-                            <input type="date" @bind-value="deliveryDate" @bind-value:format="yyyy-MM-dd" />
+                            <label for="cpo-delivery-date">Delivery Date</label>
+                            <NocturneDateField Id="cpo-delivery-date" @bind-Date="deliveryDate" />
                         </div>
                         <div class="cpo-field">
                             <label>Currency</label>

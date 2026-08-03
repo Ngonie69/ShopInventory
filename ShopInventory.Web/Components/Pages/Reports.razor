@@ -102,12 +102,12 @@
                                     <div class="card-body py-3">
                                         <div class="row g-3 align-items-end">
                                             <div class="col-md-3">
-                                                <label class="form-label small fw-semibold text-uppercase text-muted">From Date</label>
-                                                <MudDatePicker @bind-Date="fromDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
+                                                <label class="form-label small fw-semibold text-uppercase text-muted" for="rpt-f-from">From Date</label>
+                                                <NocturneDateField Id="rpt-f-from" Class="ndf-bs" @bind-Date="fromDatePicker" />
                                             </div>
                                             <div class="col-md-3">
-                                                <label class="form-label small fw-semibold text-uppercase text-muted">To Date</label>
-                                                <MudDatePicker @bind-Date="toDatePicker" Variant="Variant.Outlined" Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
+                                                <label class="form-label small fw-semibold text-uppercase text-muted" for="rpt-f-to">To Date</label>
+                                                <NocturneDateField Id="rpt-f-to" Class="ndf-bs" @bind-Date="toDatePicker" />
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>

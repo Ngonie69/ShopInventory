@@ -24,14 +24,12 @@
     <div class="tsr-filters">
         <div class="row g-3 align-items-end">
             <div class="col-md-3">
-                <label class="tsr-filter-label">From Date</label>
-                <MudDatePicker @bind-Date="fromDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" />
+                <label class="tsr-filter-label" for="tsr-f-from">From Date</label>
+                <NocturneDateField Id="tsr-f-from" Class="ndf-bs" @bind-Date="fromDate" />
             </div>
             <div class="col-md-3">
-                <label class="tsr-filter-label">To Date</label>
-                <MudDatePicker @bind-Date="toDate" DateFormat="dd/MM/yyyy" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" />
+                <label class="tsr-filter-label" for="tsr-f-to">To Date</label>
+                <NocturneDateField Id="tsr-f-to" Class="ndf-bs" @bind-Date="toDate" />
             </div>
             @if (isAdmin)
             {

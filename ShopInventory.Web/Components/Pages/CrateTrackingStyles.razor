@@ -136,6 +136,19 @@
         color: var(--crt-muted);
     }
 
+    /* The effective-date field is NocturneDateField, which draws its own
+       calendar rather than the browser's. Only the closed field is fitted to
+       this page; see wwwroot/css/nocturne-date-field.css. */
+    .crt-page .ndf {
+        --ndf-h: 42px;
+        --ndf-pad-y: .65rem;
+        --ndf-pad-x: .8rem;
+        --ndf-fs: 1rem;
+        --ndf-radius: 12px;
+        --ndf-fill: var(--crt-surface-alt);
+        --ndf-edge: var(--crt-border);
+    }
+
     .crt-form-control:focus,
     .crt-form-select:focus {
         outline: none;

@@ -63,12 +63,12 @@
             }
             <div class="pdoc-create-form-grid three-cols">
                 <div class="pdoc-create-field">
-                    <label>Posting Date</label>
-                    <input type="date" @bind-value="purchaseRequest.DocDate" @bind-value:format="yyyy-MM-dd" />
+                    <label for="preq-c-doc-date">Posting Date</label>
+                    <NocturneDateField Id="preq-c-doc-date" @bind-Date="purchaseRequest.DocDate" />
                 </div>
                 <div class="pdoc-create-field">
-                    <label>Required Date</label>
-                    <input type="date" @bind-value="purchaseRequest.RequriedDate" @bind-value:format="yyyy-MM-dd" />
+                    <label for="preq-c-required">Required Date</label>
+                    <NocturneDateField Id="preq-c-required" @bind-Date="purchaseRequest.RequriedDate" />
                 </div>
                 <div class="pdoc-create-field">
                     <label>Requester ID</label>
@@ -142,7 +142,7 @@
                                     <input list="purchase-request-warehouses" @bind="line.WarehouseCode" placeholder="Warehouse" />
                                 </td>
                                 <td class="cell-compact">
-                                    <input type="date" @bind-value="line.RequiredDate" @bind-value:format="yyyy-MM-dd" />
+                                    <NocturneDateField @bind-Date="line.RequiredDate" AriaLabel="Required date for this line" />
                                 </td>
                                 <td>
                                     <input @bind="line.LineVendor" placeholder="Preferred vendor" />

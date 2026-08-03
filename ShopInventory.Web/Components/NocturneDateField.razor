@@ -17,7 +17,7 @@
    Outside clicks are caught by a fixed veil behind the popup rather than by a
    document listener, which keeps the whole component free of JS interop. *@
 
-<div class="ndf @(_open ? "ndf-open" : "")" @onkeydown="OnKeyDown">
+<div class="ndf @Class @(_open ? "ndf-open" : "")" @onkeydown="OnKeyDown">
     <input type="text" class="ndf-input @(_invalid ? "ndf-input-bad" : "")" id="@Id"
            value="@_text" @onchange="OnTextChanged" placeholder="@Placeholder"
            disabled="@Disabled" autocomplete="off" inputmode="numeric"
@@ -93,6 +93,13 @@
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public string? Id { get; set; }
     [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>
+    /// Extra classes for the wrapper. The one the stylesheet defines is
+    /// <c>ndf-bs</c>, which fits the field to a Bootstrap <c>.form-control</c>
+    /// for the pages that are still built out of them.
+    /// </summary>
+    [Parameter] public string? Class { get; set; }
 
     private const string DisplayFormat = "dd.MM.yyyy";
 

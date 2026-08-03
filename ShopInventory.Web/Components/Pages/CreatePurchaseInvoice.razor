@@ -156,6 +156,25 @@
         transition: all .15s;
     }
 
+    /* The three dates are NocturneDateField, which draws its own calendar
+       rather than the browser's. Only the closed field is fitted to this form;
+       see wwwroot/css/nocturne-date-field.css. The dark values are app.css's
+       blanket `.dark-theme input` fill, which is what the fields either side
+       of these land on. */
+    .form-field .ndf {
+        --ndf-pad-y: .5rem;
+        --ndf-pad-x: .75rem;
+        --ndf-fs: .88rem;
+        --ndf-radius: 8px;
+        --ndf-fill: #fff;
+        --ndf-edge: #d1d5db;
+    }
+
+    .dark-theme .form-field .ndf {
+        --ndf-fill: #1e293b;
+        --ndf-edge: #334155;
+    }
+
     .form-field input:focus,
     .form-field select:focus,
     .form-field textarea:focus {
@@ -414,16 +433,20 @@
                 <div class="form-card-title"><i class="bi bi-journal-text"></i> Invoice Details</div>
                 <div class="form-grid">
                     <div class="form-field">
-                        <label>Posting Date</label>
-                        <input type="date" @bind-value="purchaseInvoice.DocDate" @bind-value:format="yyyy-MM-dd" />
+                        <label for="apinv-c-doc-date">Posting Date</label>
+                        @* The posting date is not nullable on the request — an invoice has to be
+                           dated. Clearing it therefore puts the previous date back rather than
+                           leaving the model holding a date the box no longer shows. *@
+                        <NocturneDateField Id="apinv-c-doc-date" Date="purchaseInvoice.DocDate"
+                                           DateChanged="d => purchaseInvoice.DocDate = d ?? purchaseInvoice.DocDate" />
                     </div>
                     <div class="form-field">
-                        <label>Due Date</label>
-                        <input type="date" @bind-value="purchaseInvoice.DocDueDate" @bind-value:format="yyyy-MM-dd" />
+                        <label for="apinv-c-due-date">Due Date</label>
+                        <NocturneDateField Id="apinv-c-due-date" @bind-Date="purchaseInvoice.DocDueDate" />
                     </div>
                     <div class="form-field">
-                        <label>Tax Date</label>
-                        <input type="date" @bind-value="purchaseInvoice.TaxDate" @bind-value:format="yyyy-MM-dd" />
+                        <label for="apinv-c-tax-date">Tax Date</label>
+                        <NocturneDateField Id="apinv-c-tax-date" @bind-Date="purchaseInvoice.TaxDate" />
                     </div>
                     <div class="form-field">
                         <label>Currency</label>

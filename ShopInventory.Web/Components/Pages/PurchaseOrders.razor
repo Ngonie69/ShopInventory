@@ -240,6 +240,23 @@
         box-shadow: 0 0 0 3px rgba(5, 150, 105, .15);
     }
 
+    /* The date fields are NocturneDateField rather than MudDatePicker, which
+       drew its calendar in MudBlazor's palette. Only the closed field is
+       fitted to this row; see wwwroot/css/nocturne-date-field.css. */
+    .filter-bar .filter-field .ndf {
+        --ndf-pad-y: .5rem;
+        --ndf-pad-x: .75rem;
+        --ndf-fs: .88rem;
+        --ndf-radius: 8px;
+        --ndf-fill: #fff;
+        --ndf-edge: #d1d5db;
+    }
+
+    .dark-theme .filter-bar .filter-field .ndf {
+        --ndf-fill: #1e293b;
+        --ndf-edge: var(--border-color);
+    }
+
     .filter-actions-row {
         display: flex;
         gap: .5rem;
@@ -1028,14 +1045,12 @@
                     </select>
                 </div>
                 <div class="filter-field">
-                    <label>From Date</label>
-                    <MudDatePicker @bind-Date="fromDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
+                    <label for="po-f-from">From Date</label>
+                    <NocturneDateField Id="po-f-from" @bind-Date="fromDate" />
                 </div>
                 <div class="filter-field">
-                    <label>To Date</label>
-                    <MudDatePicker @bind-Date="toDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                   DateFormat="@AppSettings.DateFormat" Editable="true" />
+                    <label for="po-f-to">To Date</label>
+                    <NocturneDateField Id="po-f-to" @bind-Date="toDate" />
                 </div>
                 <div class="filter-actions-row">
                     <MudButton Class="btn-search" OnClick="ApplyFilter">

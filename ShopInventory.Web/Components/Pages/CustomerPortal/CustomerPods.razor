@@ -104,11 +104,16 @@
             </div>
             <div class="card-body">
                 <div class="row g-3 align-items-end">
+                    @* NocturneDateField rather than FlexibleDatePicker: it keeps the shorthand
+                       entry that component was written for and draws the same calendar as the
+                       rest of the portal, instead of MudBlazor's. *@
                     <div class="col-md-3">
-                        <FlexibleDatePicker Label="From" @bind-Date="fromDate" />
+                        <label class="form-label small fw-semibold text-uppercase text-muted" for="cpod-f-from">From</label>
+                        <NocturneDateField Id="cpod-f-from" Class="ndf-bs" @bind-Date="fromDate" />
                     </div>
                     <div class="col-md-3">
-                        <FlexibleDatePicker Label="To" @bind-Date="toDate" />
+                        <label class="form-label small fw-semibold text-uppercase text-muted" for="cpod-f-to">To</label>
+                        <NocturneDateField Id="cpod-f-to" Class="ndf-bs" @bind-Date="toDate" />
                     </div>
                     @if (isMultiAccount && linkedAccounts.Any())
                     {
