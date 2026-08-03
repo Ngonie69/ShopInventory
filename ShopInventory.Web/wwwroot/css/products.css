@@ -881,16 +881,18 @@
    Scoping it this way rather than putting .pr on the scrim and drawer matters:
    .pr also carries min-height: 100vh, which beats the drawer's height below and
    would push it, and its footer, a topbar's worth past the fold. */
-/* This has to repeat the page root's type context, not just its font and ink.
-   `.pr` sets font-size: 14px and line-height: 1.55, and when the drawer carried
-   `.pr` it got them by being that element. Under the overlay it does not, and
-   every control inside inherits the document's 16px/normal instead — measured
-   at the conversion, before the two sizes were put back. */
+/* The type context has to come with the palette, not just the family: .pr sets
+   the size, leading and smoothing for everything inside it, and the drawer
+   inherits none of them out here. Without these it fell through to the
+   document's 16px/normal — 198 computed properties adrift across the drawer,
+   measured at the conversion. So this is the .pr page rule minus min-height and
+   background, the two that caused the overflow. Same shape as .bp-overlay and
+   .cnx-overlay. */
 .pr-overlay {
+    color: var(--pr-ink);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 14px;
     line-height: 1.55;
-    color: var(--pr-ink);
     -webkit-font-smoothing: antialiased;
 }
 

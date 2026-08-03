@@ -250,6 +250,7 @@ public class CustomerStatementService : ICustomerStatementService
             summary.TotalOutstanding = openInvoices.Sum(i => i.Balance);
             summary.OverdueInvoicesCount = openInvoices.Count(i => i.DaysOverdue > 0);
             summary.OverdueAmount = openInvoices.Where(i => i.DaysOverdue > 0).Sum(i => i.Balance);
+            summary.OldestOverdueDays = openInvoices.Count > 0 ? Math.Max(0, openInvoices.Max(i => i.DaysOverdue)) : 0;
             summary.RecentInvoices = openInvoices.Take(5).ToList();
 
             // Derive aging from already-fetched invoices (no extra SAP call)
@@ -263,6 +264,9 @@ public class CustomerStatementService : ICustomerStatementService
                 summary.LastPaymentDate = lastPayment.DocDate;
                 summary.LastPaymentAmount = lastPayment.DocTotal;
             }
+            // Totalled over everything fetched, not over RecentPayments — that list is the
+            // first five, and the dashboard states this as the period's receipts.
+            summary.PaymentsReceived = payments.Sum(p => p.DocTotal);
             summary.RecentPayments = payments.Take(5).ToList();
 
             // Derive monthly spend from already-fetched invoices (no extra SAP call)
@@ -318,15 +322,30 @@ public class CustomerStatementService : ICustomerStatementService
             var daysOverdue = invoice.DaysOverdue;
 
             if (daysOverdue <= 0)
+            {
                 aging.Current += invoice.Balance;
+                aging.CurrentCount++;
+            }
             else if (daysOverdue <= bucket)
+            {
                 aging.Days1To30 += invoice.Balance;
+                aging.Bucket1Count++;
+            }
             else if (daysOverdue <= bucket * 2)
+            {
                 aging.Days31To60 += invoice.Balance;
+                aging.Bucket2Count++;
+            }
             else if (daysOverdue <= bucket * 3)
+            {
                 aging.Days61To90 += invoice.Balance;
+                aging.Bucket3Count++;
+            }
             else
+            {
                 aging.Over90Days += invoice.Balance;
+                aging.Bucket4Count++;
+            }
         }
 
         aging.Total = aging.Current + aging.Days1To30 + aging.Days31To60 + aging.Days61To90 + aging.Over90Days;

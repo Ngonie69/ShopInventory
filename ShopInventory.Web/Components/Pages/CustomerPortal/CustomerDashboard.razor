@@ -1,4 +1,5 @@
 @page "/customer-portal/dashboard"
+@using System.Globalization
 @using ShopInventory.Web.Models
 @inject ICustomerStatementService StatementService
 @inject ICustomerPortalSessionService CustomerSession
@@ -9,30 +10,30 @@
 
 <PageTitle>Dashboard - Customer Portal</PageTitle>
 
-<div class="container-fluid fade-in staff-dashboard staff-shell customer-dashboard">
+@* Built from the `Customer Portal Dashboard.dc.html` design. The sidebar, top
+   bar and account chip it also draws are CustomerPortalLayout's, so only the
+   content region is here; `cpd` is this page's section of customer-portal.css,
+   and `cpx` comes down from the shell. *@
+<div class="cpd fade-in">
     @if (isLoading)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <div class="spinner-border" role="status" style="width: 2.25rem; height: 2.25rem;">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <p class="text-muted mt-3 mb-0">Loading your account...</p>
+                <p class="mt-3 mb-0">Loading your account...</p>
             </div>
         </div>
     }
     else if (customerInfo == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
-                     class="mb-3">
-                    <path
-                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-                </svg>
-                <h2 class="mb-2">Authentication Required</h2>
-                <p class="text-muted mb-4">Please login to access your account.</p>
-                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <i class="ph ph-lock-key" style="font-size: 34px;"></i>
+                <h5 class="mt-3 mb-2">Authentication required</h5>
+                <p class="mb-4">Please sign in to see your account.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Sign in to the portal</a>
             </div>
         </div>
     }
@@ -41,679 +42,388 @@
         var accountBalance = dashboard?.AccountBalance ?? 0;
         var totalOutstanding = dashboard?.TotalOutstanding ?? 0;
         var overdueAmount = dashboard?.OverdueAmount ?? 0;
+        var overdueCount = dashboard?.OverdueInvoicesCount ?? 0;
+        var openCount = dashboard?.OpenInvoicesCount ?? 0;
+        var oldestOverdue = dashboard?.OldestOverdueDays ?? 0;
         var lastPaymentAmount = dashboard?.LastPaymentAmount ?? 0;
+        var terms = dashboard?.Customer?.PaymentTermsName;
+        var mainAccounts = dashboard?.AccountBreakdown?.Count(a => a.AccountType == "Main") ?? 0;
 
         @if (!string.IsNullOrWhiteSpace(errorMessage))
         {
             <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-3" role="alert">
                 <span>@errorMessage</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="RefreshData">Try again</button>
+                <button type="button" class="btn btn-outline-primary" @onclick="RefreshData">Try again</button>
             </div>
         }
 
-        <div class="dashboard-hero">
-            <div class="page-header staff-dashboard-header">
-                <div class="dashboard-title">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"
-                             viewBox="0 0 16 16">
-                            <path
-                            d="M8 0a5.53 5.53 0 0 0-3.594 1.342c-.766.63-1.48 1.647-1.907 2.79-.465 1.239-.717 2.63-.717 4.037 0 2.858 1.343 5.446 3.421 6.833.42.28.963.001.963-.482v-1.603c.528.276 1.112.437 1.834.437s1.306-.161 1.834-.437v1.603c0 .483.544.762.964.482C12.657 13.615 14 11.027 14 8.169c0-1.407-.252-2.798-.717-4.037-.427-1.143-1.141-2.16-1.907-2.79A5.53 5.53 0 0 0 8 0zm0 1a4.53 4.53 0 0 1 2.996 1.143c.62.51 1.23 1.377 1.62 2.428.421 1.131.656 2.396.656 3.598 0 2.193-.995 4.268-2.5 5.532v-.77c0-.435-.306-.811-.735-.917A5.484 5.484 0 0 0 8 11.834a5.48 5.48 0 0 0-2.037.18.944.944 0 0 0-.735.917v.77c-1.505-1.264-2.5-3.339-2.5-5.532 0-1.202.235-2.467.656-3.598.39-1.051 1-1.918 1.62-2.428A4.53 4.53 0 0 1 8 1z" />
-                        </svg>
-                        Welcome, @customerInfo.CardName
-                    </h2>
-                    <span class="text-muted">Customer Code: @customerInfo.CardCode</span>
+        <div class="cpd-hero">
+            <div class="cpd-hero-text">
+                <h2>@customerInfo.CardName</h2>
+                <div class="cpd-hero-meta">
+                    <span>Account @customerInfo.CardCode</span>
+                    @if (!string.IsNullOrWhiteSpace(terms))
+                    {
+                        <span>Terms @terms</span>
+                    }
                     @if (customerInfo.AccountStructure == "Multi")
                     {
-                        <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                            <i class="bi bi-diagram-3 me-1"></i> Multi-Account &mdash; @(customerInfo.LinkedAccounts?.Count ??
-                                                                                                                                                                                                                                                                                                            0) linked accounts
-                        </span>
+                        <span>@(customerInfo.LinkedAccounts?.Count ?? 0) linked accounts</span>
+                    }
+                    <span>
+                        @(lastUpdated.HasValue
+                            ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC"
+                            : "Updated on refresh")
+                    </span>
+                </div>
+            </div>
+            <div class="cpd-hero-actions">
+                <button type="button" class="btn btn-outline-primary" @onclick="RefreshData">
+                    <i class="ph ph-arrows-clockwise"></i> Refresh
+                </button>
+                <a href="/customer-portal/statements" class="btn btn-primary">View statement</a>
+            </div>
+        </div>
+
+        @* The strip states the overdue position in one sentence and hands over a
+           single action. It is the design's one piece of markup that is absent
+           on a healthy account rather than merely empty. *@
+        @if (overdueAmount > 0)
+        {
+            <div class="cpd-banner" role="status">
+                <i class="ph ph-warning-circle"></i>
+                <div class="cpd-banner-text">
+                    <span class="cpd-banner-num">@FormatCurrency(overdueAmount)</span>
+                    past due across @overdueCount @Plural(overdueCount, "invoice")@(oldestOverdue > 0
+                        ? $" — oldest {oldestOverdue} {Plural(oldestOverdue, "day")} over terms."
+                        : ".")
+                </div>
+                <a href="/customer-portal/invoices" class="btn cpd-banner-action">Review overdue</a>
+            </div>
+        }
+
+        <section class="cpd-kpis">
+            <div class="cpd-kpi">
+                <div class="cpd-kpi-top">
+                    <span class="cpd-kpi-label">Account balance</span>
+                    <i class="ph ph-wallet"></i>
+                </div>
+                <div class="cpd-kpi-num">@FormatCurrency(Math.Abs(accountBalance))</div>
+                <div class="cpd-kpi-sub">
+                    @if (customerInfo.AccountStructure == "Multi")
+                    {
+                        <text>Combined across @mainAccounts main @Plural(mainAccounts, "account")</text>
+                    }
+                    else
+                    {
+                        @(accountBalance > 0 ? "Outstanding balance" : "In credit")
                     }
                 </div>
-                <div class="dashboard-meta">
-                    <span class="meta-pill">
-                        <span class="meta-dot"></span>
-                        Account Snapshot
-                    </span>
-                    <span class="meta-subtitle">
-                        @(lastUpdated.HasValue ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC" : "Updated on refresh")
-                    </span>
-                    <div class="d-flex flex-wrap gap-2 mt-2">
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="RefreshData">
-                            Refresh</MudButton>
-                            <a href="/customer-portal/statements" class="btn btn-primary btn-sm">View Statement</a>
+                <a class="cpd-link" href="/customer-portal/statements">
+                    View statement <i class="ph ph-arrow-right"></i>
+                </a>
+            </div>
+
+            <div class="cpd-kpi">
+                <div class="cpd-kpi-top">
+                    <span class="cpd-kpi-label">Total outstanding</span>
+                    <i class="ph ph-receipt"></i>
+                </div>
+                <div class="cpd-kpi-num">@FormatCurrency(totalOutstanding)</div>
+                <div class="cpd-kpi-sub">@openCount open @Plural(openCount, "invoice")</div>
+                <a class="cpd-link" href="/customer-portal/invoices">
+                    Review invoices <i class="ph ph-arrow-right"></i>
+                </a>
+            </div>
+
+            <div class="cpd-kpi @(overdueAmount > 0 ? "is-alert" : "")">
+                <div class="cpd-kpi-top">
+                    <span class="cpd-kpi-label">Overdue amount</span>
+                    <i class="ph ph-clock"></i>
+                </div>
+                <div class="cpd-kpi-num">@FormatCurrency(overdueAmount)</div>
+                <div class="cpd-kpi-sub">
+                    @if (overdueCount > 0)
+                    {
+                        <text>@overdueCount @Plural(overdueCount, "invoice")@(oldestOverdue > 0
+                            ? $", oldest {oldestOverdue} {Plural(oldestOverdue, "day")} over"
+                            : "")</text>
+                    }
+                    else
+                    {
+                        <text>Nothing past due</text>
+                    }
+                </div>
+                <a class="cpd-link" href="/customer-portal/invoices">
+                    View overdue <i class="ph ph-arrow-right"></i>
+                </a>
+            </div>
+
+            <div class="cpd-kpi">
+                <div class="cpd-kpi-top">
+                    <span class="cpd-kpi-label">Last payment</span>
+                    <i class="ph ph-arrow-circle-down"></i>
+                </div>
+                <div class="cpd-kpi-num">@FormatCurrency(lastPaymentAmount)</div>
+                <div class="cpd-kpi-sub">@LastPaymentCaption()</div>
+                <a class="cpd-link" href="/customer-portal/payments">
+                    View payments <i class="ph ph-arrow-right"></i>
+                </a>
+            </div>
+        </section>
+
+        @if (dashboard?.AccountBreakdown?.Any() == true)
+        {
+            <section class="cpd-panel">
+                <div class="cpd-panel-head">
+                    <h5>Account breakdown</h5>
+                    <span class="cpd-tag">@dashboard.AccountBreakdown.Count accounts</span>
+                </div>
+                <div class="cpd-accounts">
+                    @foreach (var account in dashboard.AccountBreakdown)
+                    {
+                        <div class="cpd-account @(account.AccountType == "Main" ? "is-main" : "")">
+                            <div class="cpd-account-top">
+                                <span class="cpd-account-name" title="@account.CardName">@account.CardName</span>
+                                <span class="cpd-account-code">@account.CardCode</span>
+                            </div>
+                            <div class="cpd-facts">
+                                <div class="cpd-fact">
+                                    <span class="cpd-fact-k">@account.AccountType account</span>
+                                    <span class="cpd-fact-v">
+                                        @(account.AllowedTransactions.Any()
+                                            ? string.Join(", ", account.AllowedTransactions.Select(FriendlyTransaction))
+                                            : "—")
+                                    </span>
+                                </div>
+                                <div class="cpd-fact">
+                                    <span class="cpd-fact-k">Balance</span>
+                                    <span class="cpd-fact-v">
+                                        @FormatCurrencyWithCode(account.Balance, account.Currency)
+                                    </span>
+                                </div>
+                                <div class="cpd-fact">
+                                    <span class="cpd-fact-k">Outstanding</span>
+                                    <span class="cpd-fact-v">
+                                        @FormatCurrencyWithCode(account.TotalOutstanding, account.Currency)
+                                    </span>
+                                </div>
+                                <div class="cpd-fact">
+                                    <span class="cpd-fact-k">Open invoices</span>
+                                    <span class="cpd-fact-v">@account.OpenInvoicesCount</span>
+                                </div>
+                                @if (account.AccountType == "Sub")
+                                {
+                                    <div class="cpd-fact">
+                                        <span class="cpd-fact-k">Open sales orders</span>
+                                        <span class="cpd-fact-v">@account.OpenSalesOrdersCount</span>
+                                    </div>
+                                }
+                            </div>
                         </div>
+                    }
+                </div>
+            </section>
+        }
+
+        <section class="cpd-row">
+            <div class="cpd-col-wide">
+                <div class="cpd-panel">
+                    <div class="cpd-panel-head">
+                        <h5>Aging summary</h5>
+                        @if (!string.IsNullOrWhiteSpace(terms))
+                        {
+                            <span class="cpd-tag">Terms @terms</span>
+                        }
+                        <span class="cpd-panel-total">
+                            Total <strong>@FormatCurrency(AgingTotal)</strong>
+                        </span>
+                    </div>
+
+                    @* The bar is the buckets grown by their share of the total, so it
+                       needs no percentage arithmetic of its own — and an invariant
+                       format, because a comma decimal separator is not a CSS number. *@
+                    <div class="cpd-aging-bar">
+                        @foreach (var bucket in AgingBuckets.Where(b => b.Amount > 0))
+                        {
+                            <div class="cpd-aging-seg @bucket.Key"
+                                 style="flex: @(bucket.Amount.ToString("F2", CultureInfo.InvariantCulture))"></div>
+                        }
+                    </div>
+
+                    <div class="cpd-aging-legend">
+                        @foreach (var bucket in AgingBuckets)
+                        {
+                            <div class="cpd-aging-item @bucket.Key @(bucket.Amount > 0 ? "" : "is-empty")">
+                                <div class="cpd-aging-key">
+                                    <span class="cpd-dot"></span>@bucket.Label
+                                </div>
+                                <div class="cpd-aging-val">@FormatCurrency(bucket.Amount)</div>
+                                @if (bucket.Amount > 0)
+                                {
+                                    <div class="cpd-aging-sub">
+                                        @if (bucket.Count > 0)
+                                        {
+                                            <text>@bucket.Count @Plural(bucket.Count, "invoice")</text>
+                                        }
+                                        else
+                                        {
+                                            <text>@ShareOfTotal(bucket.Amount)% of balance</text>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
 
-            <div class="row mb-4 g-4 dashboard-stats">
-                <div class="col-md-6 col-xl-3">
-                    <div class="card stat-card staff-stat-card bg-primary">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between align-items-start">
-                                <div>
-                                    <p class="stat-label mb-2">Account Balance</p>
-                                    <h2 class="stat-value @(accountBalance <= 0 ? "text-success" : "text-danger")">
-                                        @FormatCurrency(Math.Abs(accountBalance))</h2>
-                                        <p class="text-muted mb-0 small">
-                                            @if (customerInfo.AccountStructure == "Multi")
-                                            {
-                                                <span>Combined across @(dashboard?.AccountBreakdown?.Count(a => a.AccountType == "Main")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            ?? 0) main accounts</span>
-                                                }
-                                    else
-                                                {
-                                                    @(accountBalance > 0 ? "Outstanding balance" : "In credit")
-                                                }
-                                            </p>
-                                        </div>
-                                        <div class="stat-icon">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor"
-                                                 viewBox="0 0 16 16">
-                                                <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1H1zm7 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
-                                                <path
-                                                d="M0 5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V5zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V7a2 2 0 0 1-2-2H3z" />
-                                            </svg>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="card-footer bg-transparent border-0 pt-0">
-                                    <a href="/customer-portal/statements" class="stat-link d-flex align-items-center">
-                                        View statement
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                             viewBox="0 0 16 16" class="ms-2">
-                                            <path fill-rule="evenodd"
-                                                  d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
-                                        </svg>
-                                    </a>
-                                </div>
-                            </div>
+            <div class="cpd-col">
+                <div class="cpd-panel cpd-month">
+                    <div class="cpd-panel-head">
+                        <h5>This month</h5>
+                    </div>
+                    @if (CurrentMonth is not null)
+                    {
+                        <div>
+                            <div class="cpd-month-label">Billed &mdash; @CurrentMonth.Month</div>
+                            <div class="cpd-month-num">@FormatCurrency(CurrentMonth.Invoiced)</div>
                         </div>
+                    }
+                    <div class="cpd-facts">
+                        <div class="cpd-fact">
+                            <span class="cpd-fact-k">Open invoices</span>
+                            <span class="cpd-fact-v">@openCount</span>
+                        </div>
+                        <div class="cpd-fact">
+                            <span class="cpd-fact-k">Overdue invoices</span>
+                            <span class="cpd-fact-v @(overdueCount > 0 ? "is-alert" : "")">@overdueCount</span>
+                        </div>
+                        <div class="cpd-fact">
+                            <span class="cpd-fact-k">Payments received</span>
+                            <span class="cpd-fact-v">@FormatCurrency(dashboard?.PaymentsReceived ?? 0)</span>
+                        </div>
+                        <div class="cpd-fact">
+                            <span class="cpd-fact-k">Oldest overdue</span>
+                            <span class="cpd-fact-v @(oldestOverdue > 0 ? "is-alert" : "")">
+                                @(oldestOverdue > 0 ? $"{oldestOverdue} {Plural(oldestOverdue, "day")}" : "None")
+                            </span>
+                        </div>
+                    </div>
+                    <a class="cpd-link" href="/customer-portal/activity-log">
+                        Full activity log <i class="ph ph-arrow-right"></i>
+                    </a>
+                </div>
+            </div>
+        </section>
 
-                        <div class="col-md-6 col-xl-3">
-                            <div class="card stat-card staff-stat-card bg-success">
-                                <div class="card-body">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <div>
-                                            <p class="stat-label mb-2">Total Outstanding</p>
-                                            <h2 class="stat-value @(totalOutstanding > 0 ? "text-danger" : "text-success")">
-                                                @FormatCurrency(totalOutstanding)</h2>
-                                                <p class="text-muted mb-0 small">@(dashboard?.OpenInvoicesCount ?? 0) open invoices</p>
-                                            </div>
-                                            <div class="stat-icon">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor"
-                                                     viewBox="0 0 16 16">
-                                                    <path
-                                                    d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="card-footer bg-transparent border-0 pt-0">
-                                        <a href="/customer-portal/invoices" class="stat-link d-flex align-items-center">
-                                            Review invoices
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                                 viewBox="0 0 16 16" class="ms-2">
-                                                <path fill-rule="evenodd"
-                                                      d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
-                                            </svg>
-                                        </a>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="col-md-6 col-xl-3">
-                                <div class="card stat-card staff-stat-card bg-info">
-                                    <div class="card-body">
-                                        <div class="d-flex justify-content-between align-items-start">
-                                            <div>
-                                                <p class="stat-label mb-2">Overdue Amount</p>
-                                                <h2 class="stat-value @(overdueAmount > 0 ? "text-danger" : "text-muted")">
-                                                    @FormatCurrency(overdueAmount)</h2>
-                                                    <p class="text-muted mb-0 small">@(dashboard?.OverdueInvoicesCount ?? 0) overdue invoices
-                                                    </p>
-                                                </div>
-                                                <div class="stat-icon">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor"
-                                                         viewBox="0 0 16 16">
-                                                        <path
-                                                        d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
-                                                        <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
-                                                    </svg>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="card-footer bg-transparent border-0 pt-0">
-                                            <a href="/customer-portal/invoices" class="stat-link d-flex align-items-center">
-                                                View overdue
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                                     viewBox="0 0 16 16" class="ms-2">
-                                                    <path fill-rule="evenodd"
-                                                          d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
-                                                </svg>
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-6 col-xl-3">
-                                    <div class="card stat-card staff-stat-card bg-primary">
-                                        <div class="card-body">
-                                            <div class="d-flex justify-content-between align-items-start">
-                                                <div>
-                                                    <p class="stat-label mb-2">Last Payment</p>
-                                                    <h2 class="stat-value @(lastPaymentAmount > 0 ? "text-success" : "text-muted")">
-                                                        @FormatCurrency(lastPaymentAmount)</h2>
-                                                        <p class="text-muted mb-0 small">@(dashboard?.LastPaymentDate?.ToString("MMM dd, yyyy") ??
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   "No payments")</p>
-                                                        </div>
-                                                        <div class="stat-icon">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="42" height="42" fill="currentColor"
-                                                                 viewBox="0 0 16 16">
-                                                                <path
-                                                                d="M0 3a2 2 0 0 1 2-2h13.5a.5.5 0 0 1 0 1H15v2a1 1 0 0 1 1 1v8.5a1.5 1.5 0 0 1-1.5 1.5h-12A2.5 2.5 0 0 1 0 12.5V3zm1 1.732V12.5A1.5 1.5 0 0 0 2.5 14h12a.5.5 0 0 0 .5-.5V5H2a1.99 1.99 0 0 1-1-.268zM1 3a1 1 0 0 0 1 1h12V2H2a1 1 0 0 0-1 1z" />
-                                                            </svg>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div class="card-footer bg-transparent border-0 pt-0">
-                                                    <a href="/customer-portal/payments" class="stat-link d-flex align-items-center">
-                                                        View payments
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                                             viewBox="0 0 16 16" class="ms-2">
-                                                            <path fill-rule="evenodd"
-                                                                  d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z" />
-                                                        </svg>
-                                                    </a>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    @* ===== Account Breakdown for Multi-Account Customers ===== *@
-                                    @if (dashboard?.AccountBreakdown?.Any() == true)
+        <section class="cpd-row">
+            <div class="cpd-col-wide">
+                <div class="cpd-panel cpd-ledger">
+                    <div class="cpd-panel-head">
+                        <h5>Recent invoices</h5>
+                        <a class="cpd-link" href="/customer-portal/invoices">
+                            View all <i class="ph ph-arrow-right"></i>
+                        </a>
+                    </div>
+                    @if (dashboard?.RecentInvoices?.Any() == true)
+                    {
+                        <div class="table-responsive">
+                            <table class="cpd-table mobile-card-table">
+                                <thead>
+                                    <tr>
+                                        <th>Invoice</th>
+                                        <th>Due</th>
+                                        <th class="cpd-num">Amount</th>
+                                        <th class="cpd-num">Balance</th>
+                                        <th class="cpd-num">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var invoice in dashboard.RecentInvoices)
                                     {
-                                        <div class="row g-4 mb-4">
-                                            <div class="col-12">
-                                                <div class="card dashboard-panel">
-                                                    <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                                                        <h5 class="mb-0 d-flex align-items-center gap-2">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                                                                 viewBox="0 0 16 16" class="panel-icon">
-                                                                <path
-                                                                d="M6 3.5A1.5 1.5 0 0 1 7.5 2h1A1.5 1.5 0 0 1 10 3.5v1A1.5 1.5 0 0 1 8.5 6v1H14a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-1 0V8h-5v.5a.5.5 0 0 1-1 0V8h-5v.5a.5.5 0 0 1-1 0v-1A.5.5 0 0 1 2 7h5.5V6A1.5 1.5 0 0 1 6 4.5v-1z" />
-                                                                <path
-                                                                d="M1 11.5A1.5 1.5 0 0 1 2.5 10h1A1.5 1.5 0 0 1 5 11.5v1A1.5 1.5 0 0 1 3.5 14h-1A1.5 1.5 0 0 1 1 12.5v-1zm5 0A1.5 1.5 0 0 1 7.5 10h1A1.5 1.5 0 0 1 10 11.5v1A1.5 1.5 0 0 1 8.5 14h-1A1.5 1.5 0 0 1 6 12.5v-1zm5 0a1.5 1.5 0 0 1 1.5-1.5h1a1.5 1.5 0 0 1 1.5 1.5v1a1.5 1.5 0 0 1-1.5 1.5h-1a1.5 1.5 0 0 1-1.5-1.5v-1z" />
-                                                            </svg>
-                                                            Account Breakdown
-                                                        </h5>
-                                                        <span class="badge bg-info">@dashboard.AccountBreakdown.Count accounts</span>
-                                                    </div>
-                                                    <div class="card-body">
-                                                        <div class="row g-3">
-                                                            @foreach (var account in dashboard.AccountBreakdown)
-                                                            {
-                                                                <div class="col-md-6 col-xl-4">
-                                                                    <div
-                                                                        class="card border @(account.AccountType == "Main" ? "border-primary" : "border-secondary") h-100">
-                                                                        <div
-                                                                            class="card-header bg-transparent d-flex align-items-center justify-content-between py-2">
-                                                                            <div class="d-flex align-items-center gap-2">
-                                                                                <span
-                                                                                    class="badge @(account.AccountType == "Main" ? "bg-primary" : "bg-secondary")">
-                                                                                    @account.AccountType
-                                                                                </span>
-                                                                                @if (!string.IsNullOrEmpty(account.Currency))
-                                                                                {
-                                                                                    <span class="badge bg-outline-dark border">@account.Currency</span>
-                                                                                }
-                                                                            </div>
-                                                                            <small class="text-muted">@account.CardCode</small>
-                                                                        </div>
-                                                                        <div class="card-body py-2">
-                                                                            <h6 class="mb-1 text-truncate" title="@account.CardName">@account.CardName</h6>
-                                                                            @if (!string.IsNullOrEmpty(account.Description))
-                                                                            {
-                                                                                <small class="text-muted d-block mb-2">@account.Description</small>
-                                                                            }
+                                        var status = InvoiceStatus(invoice);
+                                        <tr>
+                                            <td data-label="Invoice">
+                                                @* One element, not two: below 992px each cell becomes a
+                                                   labelled grid row, and a second child would be placed
+                                                   into the label track. *@
+                                                <span class="cpd-doc">
+                                                    <span class="cpd-doc-id">@invoice.DocNum</span>
+                                                    <span class="cpd-doc-sub">Issued @invoice.DocDate.ToString("MMM dd")</span>
+                                                </span>
+                                            </td>
+                                            <td data-label="Due" class="cpd-quiet">
+                                                @(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "—")
+                                            </td>
+                                            <td data-label="Amount" class="cpd-num">@FormatCurrency(invoice.DocTotal)</td>
+                                            <td data-label="Balance" class="cpd-num cpd-strong">@FormatCurrency(invoice.Balance)</td>
+                                            <td data-label="Status" class="cpd-num">
+                                                <span class="cpd-status @status.Cls">@status.Text</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cpd-empty">No open invoices</div>
+                    }
+                </div>
+            </div>
 
-                                                                            @if (account.AccountType == "Main" || account.AccountType == "Sub")
-                                                                            {
-                                                                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                                                                    <small class="text-muted">Balance</small>
-                                                                                    <span
-                                                                                        class="fw-semibold @(account.Balance >= 0 ? "text-success" : "text-danger")">
-                                                                                        @FormatCurrencyWithCode(account.Balance, account.Currency)
-                                                                                    </span>
-                                                                                </div>
-                                                                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                                                                    <small class="text-muted">Outstanding</small>
-                                                                                    <span class="fw-semibold">@FormatCurrencyWithCode(account.TotalOutstanding,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            account.Currency)</span>
-                                                                                    </div>
-                                                                                    <div class="d-flex justify-content-between align-items-center">
-                                                                                        <small class="text-muted">Open Invoices</small>
-                                                                                        <span class="badge bg-warning text-dark">@account.OpenInvoicesCount</span>
-                                                                                    </div>
-                                                                                    @if (account.AccountType == "Sub")
-                                                                                    {
-                                                                                        <div class="d-flex justify-content-between align-items-center mt-1">
-                                                                                            <small class="text-muted">Open Sales Orders</small>
-                                                                                            <span class="badge bg-info">@account.OpenSalesOrdersCount</span>
-                                                                                        </div>
-                                                                                    }
-                                                                                }
-                                                                            </div>
-                                                                            <div class="card-footer bg-transparent py-1">
-                                                                                <small class="text-muted">
-                                                                                    @string.Join(", ", account.AllowedTransactions.Select(t =>
-                                                                                        t == "Invoice" ? "Invoicing" :
-                                                                                        t == "Payment" ? "Payments" :
-                                                                                        t == "SalesOrder" ? "Sales Orders" : t))
-                                                                                </small>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                }
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
-
-                                        <div class="row g-4 mb-4">
-                                            <div class="col-12">
-                                                <div class="card dashboard-panel">
-                                                    <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                                                        <h5 class="mb-0 d-flex align-items-center gap-2">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                                                                 viewBox="0 0 16 16" class="panel-icon-amber">
-                                                                <path
-                                                                d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z" />
-                                                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z" />
-                                                            </svg>
-                                                            Aging Summary
-                                                        </h5>
-                                                        @if (!string.IsNullOrEmpty(dashboard?.Customer?.PaymentTermsName))
-                                                        {
-                                                            <span class="badge bg-info text-dark me-2">Terms: @dashboard.Customer.PaymentTermsName</span>
-                                                        }
-                                                        <a href="/customer-portal/invoices" class="btn btn-sm btn-outline-primary">Review invoices</a>
-                                                    </div>
-                                                    <div class="card-body">
-                                                        <div class="aging-chart">
-                                                            <div class="aging-bar">
-                                                                @{
-                                                                    var total = dashboard?.Aging?.Total ?? 1;
-                                                                    var currentPct = total > 0 ? (dashboard?.Aging?.Current ?? 0) / total * 100 : 0;
-                                                                    var days30Pct = total > 0 ? (dashboard?.Aging?.Days1To30 ?? 0) / total * 100 : 0;
-                                                                    var days60Pct = total > 0 ? (dashboard?.Aging?.Days31To60 ?? 0) / total * 100 : 0;
-                                                                    var days90Pct = total > 0 ? (dashboard?.Aging?.Days61To90 ?? 0) / total * 100 : 0;
-                                                                    var over90Pct = total > 0 ? (dashboard?.Aging?.Over90Days ?? 0) / total * 100 : 0;
-                                                                }
-                                                                <div class="bar-segment current" style="width: @currentPct.ToString("F1")%"></div>
-                                                                <div class="bar-segment days-30" style="width: @days30Pct.ToString("F1")%"></div>
-                                                                <div class="bar-segment days-60" style="width: @days60Pct.ToString("F1")%"></div>
-                                                                <div class="bar-segment days-90" style="width: @days90Pct.ToString("F1")%"></div>
-                                                                <div class="bar-segment over-90" style="width: @over90Pct.ToString("F1")%"></div>
-                                                            </div>
-                                                            <div class="aging-legend">
-                                                                <div class="legend-item">
-                                                                    <span class="legend-color current"></span>
-                                                                    <span class="legend-label">Current</span>
-                                                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Current ?? 0)</span>
-                                                                </div>
-                                                                <div class="legend-item">
-                                                                    <span class="legend-color days-30"></span>
-                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket1Label ?? "1-30 Days")</span>
-                                                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days1To30 ?? 0)</span>
-                                                                </div>
-                                                                <div class="legend-item">
-                                                                    <span class="legend-color days-60"></span>
-                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket2Label ?? "31-60 Days")</span>
-                                                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days31To60 ?? 0)</span>
-                                                                </div>
-                                                                <div class="legend-item">
-                                                                    <span class="legend-color days-90"></span>
-                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket3Label ?? "61-90 Days")</span>
-                                                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Days61To90 ?? 0)</span>
-                                                                </div>
-                                                                <div class="legend-item">
-                                                                    <span class="legend-color over-90"></span>
-                                                                    <span class="legend-label">@(dashboard?.Aging?.Bucket4Label ?? "Over 90 Days")</span>
-                                                                    <span class="legend-value">@FormatCurrency(dashboard?.Aging?.Over90Days ?? 0)</span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        @* ===== Monthly Spend Chart ===== *@
-                                        @if (dashboard?.MonthlySpend?.Any() == true)
-                                        {
-                                            <div class="row g-4 mb-4">
-                                                <div class="col-12">
-                                                    <div class="card dashboard-panel">
-                                                        <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                                                            <h5 class="mb-0 d-flex align-items-center gap-2">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                                                                     viewBox="0 0 16 16" class="panel-icon">
-                                                                    <path
-                                                                    d="M4 11H2v3h2v-3zm5-4H7v7h2V7zm5-5h-2v12h2V2zm-2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1h-2zM6 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7zm-5 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-3z" />
-                                                                </svg>
-                                                                Monthly Spend
-                                                            </h5>
-                                                            <span class="badge bg-primary">Last @dashboard.MonthlySpend.Count months</span>
-                                                        </div>
-                                                        <div class="card-body">
-                                                            @{
-                                                                var maxSpend = dashboard.MonthlySpend.Max(m => m.Invoiced);
-                                                                if (maxSpend <= 0) maxSpend = 1;
-                                                            }
-                                                            <div class="spend-chart">
-                                                                @foreach (var month in dashboard.MonthlySpend)
-                                                                {
-                                                                    var pct = (double)(month.Invoiced / maxSpend) * 100;
-                                                                    <div class="spend-bar-group">
-                                                                        <div class="spend-bar-value">@FormatCurrency(month.Invoiced)</div>
-                                                                        <div class="spend-bar-track">
-                                                                            <div class="spend-bar-fill" style="height: @pct.ToString("F1")%"></div>
-                                                                        </div>
-                                                                        <div class="spend-bar-label">@month.Month</div>
-                                                                    </div>
-                                                                }
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
-
-                                        <div class="row g-4">
-                                            <div class="col-lg-6">
-                                                <div class="card h-100 dashboard-panel">
-                                                    <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                                                        <h5 class="mb-0 d-flex align-items-center gap-2">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                                                                 viewBox="0 0 16 16" class="panel-icon">
-                                                                <path
-                                                                d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
-                                                            </svg>
-                                                            Recent Invoices
-                                                        </h5>
-                                                        <a href="/customer-portal/invoices" class="btn btn-sm btn-outline-primary">View All</a>
-                                                    </div>
-                                                    <div class="card-body p-0">
-                                                        @if (dashboard?.RecentInvoices?.Any() == true)
-                                                        {
-                                                            <div class="table-responsive">
-                                                                <table class="table table-hover mb-0 align-middle dashboard-table mobile-card-table">
-                                                                    <thead>
-                                                                        <tr>
-                                                                            <th>Invoice #</th>
-                                                                            <th>Date</th>
-                                                                            <th>Due Date</th>
-                                                                            <th class="text-end">Amount</th>
-                                                                            <th class="text-end">Balance</th>
-                                                                            <th>Status</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var invoice in dashboard.RecentInvoices)
-                                                                        {
-                                                                            <tr>
-                                                                                <td data-label="Invoice #"><span class="badge bg-primary">@invoice.DocNum</span>
-                                                                                </td>
-                                                                                <td data-label="Date">@invoice.DocDate.ToString("MMM dd, yyyy")</td>
-                                                                                <td data-label="Due Date">@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "-")</td>
-                                                                                <td data-label="Amount" class="text-end">@FormatCurrency(invoice.DocTotal)</td>
-                                                                                <td data-label="Balance" class="text-end fw-semibold">
-                                                                                    @FormatCurrency(invoice.Balance)</td>
-                                                                                    <td data-label="Status">
-                                                                                        <span class="badge @GetStatusClass(invoice)">@(GetStatusText(invoice))</span>
-                                                                                    </td>
-                                                                                </tr>
-                                                                            }
-                                                                        </tbody>
-                                                                    </table>
-                                                                </div>
-                                                            }
-                                                        else
-                                                            {
-                                                                <div class="text-center py-5 dashboard-empty">
-                                                                    <p class="text-muted mb-0">No invoices found</p>
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div class="col-lg-6">
-                                                    <div class="card h-100 dashboard-panel">
-                                                        <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                                                            <h5 class="mb-0 d-flex align-items-center gap-2">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                                                                     viewBox="0 0 16 16" class="panel-icon-emerald">
-                                                                    <path d="M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
-                                                                    <path
-                                                                    d="M0 4a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V4zm3 0a2 2 0 0 1-2 2v4a2 2 0 0 1 2 2h10a2 2 0 0 1 2-2V6a2 2 0 0 1-2-2H3z" />
-                                                                </svg>
-                                                                Recent Payments
-                                                            </h5>
-                                                            <a href="/customer-portal/payments" class="btn btn-sm btn-outline-primary">View All</a>
-                                                        </div>
-                                                        <div class="card-body p-0">
-                                                            @if (dashboard?.RecentPayments?.Any() == true)
-                                                            {
-                                                                <div class="table-responsive">
-                                                                    <table class="table table-hover mb-0 align-middle dashboard-table mobile-card-table">
-                                                                        <thead>
-                                                                            <tr>
-                                                                                <th>Payment #</th>
-                                                                                <th>Date</th>
-                                                                                <th>Method</th>
-                                                                                <th>Reference</th>
-                                                                                <th class="text-end">Amount</th>
-                                                                            </tr>
-                                                                        </thead>
-                                                                        <tbody>
-                                                                            @foreach (var payment in dashboard.RecentPayments)
-                                                                            {
-                                                                                <tr>
-                                                                                    <td data-label="Payment #"><span class="badge bg-success">@payment.DocNum</span>
-                                                                                    </td>
-                                                                                    <td data-label="Date">@payment.DocDate.ToString("MMM dd, yyyy")</td>
-                                                                                    <td data-label="Method">@payment.PaymentMethod</td>
-                                                                                    <td data-label="Reference">@(payment.Reference ?? "-")</td>
-                                                                                    <td data-label="Amount" class="text-end fw-semibold text-success">
-                                                                                        @FormatCurrency(payment.DocTotal)</td>
-                                                                                    </tr>
-                                                                                }
-                                                                            </tbody>
-                                                                        </table>
-                                                                    </div>
-                                                                }
-                                                        else
-                                                                {
-                                                                    <div class="text-center py-5 dashboard-empty">
-                                                                        <p class="text-muted mb-0">No payments found</p>
-                                                                    </div>
-                                                                }
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            }
-                                        </div>
-
-                                        <style>
-                                            .customer-dashboard .aging-chart {
-                                                display: flex;
-                                                flex-direction: column;
-                                                gap: 1rem;
-                                            }
-
-                                            .customer-dashboard .aging-bar {
-                                                height: 22px;
-                                                display: flex;
-                                                border-radius: 999px;
-                                                overflow: hidden;
-                                                background: rgba(15, 23, 42, 0.08);
-                                            }
-
-                                            .customer-dashboard .bar-segment {
-                                                height: 100%;
-                                                transition: width 0.3s ease;
-                                            }
-
-                                            .customer-dashboard .bar-segment.current {
-                                                background: #10b981;
-                                            }
-
-                                            .customer-dashboard .bar-segment.days-30 {
-                                                background: #f59e0b;
-                                            }
-
-                                            .customer-dashboard .bar-segment.days-60 {
-                                                background: #f97316;
-                                            }
-
-                                            .customer-dashboard .bar-segment.days-90 {
-                                                background: #ef4444;
-                                            }
-
-                                            .customer-dashboard .bar-segment.over-90 {
-                                                background: #dc2626;
-                                            }
-
-                                            .customer-dashboard .aging-legend {
-                                                display: flex;
-                                                flex-wrap: wrap;
-                                                gap: 1.25rem;
-                                            }
-
-                                            .customer-dashboard .legend-item {
-                                                display: flex;
-                                                align-items: center;
-                                                gap: 0.5rem;
-                                            }
-
-                                            .customer-dashboard .legend-color {
-                                                width: 10px;
-                                                height: 10px;
-                                                border-radius: 3px;
-                                            }
-
-                                            .customer-dashboard .legend-color.current {
-                                                background: #10b981;
-                                            }
-
-                                            .customer-dashboard .legend-color.days-30 {
-                                                background: #f59e0b;
-                                            }
-
-                                            .customer-dashboard .legend-color.days-60 {
-                                                background: #f97316;
-                                            }
-
-                                            .customer-dashboard .legend-color.days-90 {
-                                                background: #ef4444;
-                                            }
-
-                                            .customer-dashboard .legend-color.over-90 {
-                                                background: #dc2626;
-                                            }
-
-                                            .customer-dashboard .legend-label {
-                                                font-size: 0.85rem;
-                                                color: var(--staff-muted);
-                                            }
-
-                                            .customer-dashboard .legend-value {
-                                                font-size: 0.85rem;
-                                                font-weight: 600;
-                                                color: var(--staff-ink);
-                                            }
-
-                                            @@media (max-width: 768px) {
-                                                .customer-dashboard .aging-legend {
-                                                    flex-direction: column;
-                                                    gap: 0.5rem;
-                                                }
-                                            }
-
-                                            /* Monthly Spend Chart */
-                                            .customer-dashboard .spend-chart {
-                                                display: flex;
-                                                align-items: flex-end;
-                                                gap: 1rem;
-                                                height: 220px;
-                                                padding-top: 1rem;
-                                            }
-
-                                            .customer-dashboard .spend-bar-group {
-                                                flex: 1;
-                                                display: flex;
-                                                flex-direction: column;
-                                                align-items: center;
-                                                gap: 0.5rem;
-                                                height: 100%;
-                                            }
-
-                                            .customer-dashboard .spend-bar-value {
-                                                font-size: 0.75rem;
-                                                font-weight: 600;
-                                                color: var(--staff-ink);
-                                                white-space: nowrap;
-                                            }
-
-                                            .customer-dashboard .spend-bar-track {
-                                                flex: 1;
-                                                width: 100%;
-                                                max-width: 56px;
-                                                background: rgba(15, 23, 42, 0.06);
-                                                border-radius: 6px 6px 0 0;
-                                                display: flex;
-                                                flex-direction: column;
-                                                justify-content: flex-end;
-                                                overflow: hidden;
-                                            }
-
-                                            .customer-dashboard .spend-bar-fill {
-                                                width: 100%;
-                                                background: linear-gradient(180deg, #3b82f6, #2563eb);
-                                                border-radius: 6px 6px 0 0;
-                                                transition: height 0.4s ease;
-                                                min-height: 2px;
-                                            }
-
-                                            .customer-dashboard .spend-bar-label {
-                                                font-size: 0.78rem;
-                                                color: var(--staff-muted);
-                                                text-align: center;
-                                                font-weight: 500;
-                                            }
-
-                                            @@media (max-width: 768px) {
-                                                .customer-dashboard .spend-chart {
-                                                    height: 160px;
-                                                    gap: 0.5rem;
-                                                }
-
-                                                .customer-dashboard .spend-bar-value {
-                                                    font-size: 0.65rem;
-                                                }
-
-                                                .customer-dashboard .spend-bar-track {
-                                                    max-width: 36px;
-                                                }
-                                            }
-                                        </style>
+            <div class="cpd-col">
+                <div class="cpd-panel cpd-ledger">
+                    <div class="cpd-panel-head">
+                        <h5>Recent payments</h5>
+                        <a class="cpd-link" href="/customer-portal/payments">
+                            View all <i class="ph ph-arrow-right"></i>
+                        </a>
+                    </div>
+                    @if (dashboard?.RecentPayments?.Any() == true)
+                    {
+                        <div class="table-responsive">
+                            <table class="cpd-table mobile-card-table">
+                                <thead>
+                                    <tr>
+                                        <th>Payment</th>
+                                        <th>Date</th>
+                                        <th>Method</th>
+                                        <th class="cpd-num">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var payment in dashboard.RecentPayments)
+                                    {
+                                        <tr>
+                                            <td data-label="Payment">
+                                                <span class="cpd-doc">
+                                                    <span class="cpd-doc-id">@payment.DocNum</span>
+                                                    <span class="cpd-doc-sub">
+                                                        @(string.IsNullOrWhiteSpace(payment.Reference) ? "No reference" : payment.Reference)
+                                                    </span>
+                                                </span>
+                                            </td>
+                                            <td data-label="Date" class="cpd-quiet">@payment.DocDate.ToString("MMM dd, yyyy")</td>
+                                            <td data-label="Method" class="cpd-quiet">@payment.PaymentMethod</td>
+                                            <td data-label="Amount" class="cpd-num cpd-strong">@FormatCurrency(payment.DocTotal)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="cpd-empty">No payments recorded</div>
+                    }
+                </div>
+            </div>
+        </section>
+    }
+</div>
 
 @code {
     private CustomerPortalSession? portalSession;
@@ -725,6 +435,24 @@
 #pragma warning disable CS0414
     private bool _hasLoadedData;
 #pragma warning restore CS0414
+
+    /// <summary>One aging bucket as the legend and the bar both want it.</summary>
+    private sealed record AgingBucket(string Key, string Label, decimal Amount, int Count);
+
+    private AgingSummary Aging => dashboard?.Aging ?? new AgingSummary();
+
+    private decimal AgingTotal => Aging.Total;
+
+    private List<AgingBucket> AgingBuckets => new()
+    {
+        new("cpd-b-current", "Current", Aging.Current, Aging.CurrentCount),
+        new("cpd-b-1", Aging.Bucket1Label, Aging.Days1To30, Aging.Bucket1Count),
+        new("cpd-b-2", Aging.Bucket2Label, Aging.Days31To60, Aging.Bucket2Count),
+        new("cpd-b-3", Aging.Bucket3Label, Aging.Days61To90, Aging.Bucket3Count),
+        new("cpd-b-4", Aging.Bucket4Label, Aging.Over90Days, Aging.Bucket4Count)
+    };
+
+    private MonthlySpend? CurrentMonth => dashboard?.MonthlySpend?.LastOrDefault();
 
     protected override async Task OnInitializedAsync()
     {
@@ -794,17 +522,51 @@
         };
     }
 
-    private string GetStatusClass(CustomerInvoiceSummary invoice)
+    private static string Plural(int count, string noun) => count == 1 ? noun : noun + "s";
+
+    /// <summary>
+    /// The bucket's share of the balance, to the whole percent the design labels it with.
+    /// </summary>
+    private string ShareOfTotal(decimal amount)
     {
-        if (invoice.Balance <= 0) return "text-bg-primary";
-        if (invoice.DaysOverdue > 0) return "text-bg-danger";
-        return "text-bg-success";
+        if (AgingTotal <= 0) return "0";
+        return Math.Round(amount / AgingTotal * 100, 0).ToString("0", CultureInfo.InvariantCulture);
     }
 
-    private string GetStatusText(CustomerInvoiceSummary invoice)
+    private static (string Cls, string Text) InvoiceStatus(CustomerInvoiceSummary invoice)
     {
-        if (invoice.Balance <= 0) return "Paid";
-        if (invoice.DaysOverdue > 0) return $"Overdue ({invoice.DaysOverdue} days)";
-        return "Current";
+        if (invoice.Balance <= 0) return ("is-paid", "Paid");
+        if (invoice.DaysOverdue > 0) return ("is-over", $"{invoice.DaysOverdue} {Plural(invoice.DaysOverdue, "day")} over");
+        return (string.Empty, "Current");
     }
+
+    /// <summary>
+    /// "Transfer · Aug 01, 2026" when the tile's amount and the listed payment are
+    /// certainly the same document, and the date alone when they might not be:
+    /// the amount comes from every payment fetched, the list from the first five,
+    /// so naming a method off the list could caption the figure with another
+    /// payment's method.
+    /// </summary>
+    private string LastPaymentCaption()
+    {
+        if (dashboard?.LastPaymentDate is not { } paidOn)
+        {
+            return "No payments recorded";
+        }
+
+        var date = paidOn.ToString("MMM dd, yyyy");
+        var method = dashboard.RecentPayments
+            .FirstOrDefault(p => p.DocDate == paidOn && p.DocTotal == dashboard.LastPaymentAmount)?
+            .PaymentMethod;
+
+        return string.IsNullOrWhiteSpace(method) ? date : $"{method} · {date}";
+    }
+
+    private static string FriendlyTransaction(string transaction) => transaction switch
+    {
+        "Invoice" => "Invoicing",
+        "Payment" => "Payments",
+        "SalesOrder" => "Sales orders",
+        _ => transaction
+    };
 }
