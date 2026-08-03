@@ -7,13 +7,14 @@
    stated hero, a row of figures, and a directory that washes into the ground
    rather than sitting in a filled card, with a right-hand detail drawer.
 
-   The palette block below is byte-identical to business-partners.css,
-   driver-shop-access.css and approval-process.css so the pages stay one
-   system. The standing cost is the one that sheet already carries: a colour
-   fixed in one has to be fixed in the others.
-
-   Light is the base and `.dark-theme` the override, matching the order
-   App.razor's pre-paint script stamps the class in, so neither scheme flashes.
+   This sheet carried its own copy of the palette when it was derived, because
+   that was the house rule then. It is not any more: the values live once in
+   nocturne-tokens.css and the block below only aliases them, so there is no
+   `.dark-theme` block here at all — the canonical tokens flip at the root and
+   the aliases resolve against whichever is in force. The copy reached main
+   before the extraction did, so this sheet was folded in afterwards; every
+   token's resolved light and dark value was compared against the copy it
+   replaced, and none moved.
 
    Rules live here rather than an inline Razor <style> block because app.css
    carries global `.dark-theme input/select` rules at (0,1,1) that a
@@ -21,102 +22,76 @@
    classes deep and wins regardless of load order. Headings are pinned to
    Nocturne's 500 against Bootstrap's global `h1-h6 { font-weight: 600 }`.
 
-   What this page adds over its parent: an eight-column grid whose four
-   quantity columns are one arithmetic statement — in stock, committed, on
-   order and the availability they produce — and a drawer that spells that
-   arithmetic out. The columns are declared once in --pr-cols and shared by
-   the header strip and every row, so the two cannot drift. Below 900px the
-   row stops being a grid row and becomes a labelled card.
+   Those two-class selectors are exactly why `.pr-overlay` is paired with `.pr`
+   on every one of them and not only on the token block: the drawer's controls
+   live under `.pr-overlay`, so a rule left scoped to `.pr` alone would stop
+   matching them and that control would quietly lose its styling.
+
+   What this page adds over its parent: a nine-column grid whose five quantity
+   columns are two arithmetic statements — in stock less committed gives free
+   to sell, plus on order gives SAP's availability — and a drawer that spells
+   both out. The columns are declared once in --pr-cols and shared by the
+   header strip and every row, so the two cannot drift. Below 900px the row
+   stops being a grid row and becomes a labelled card.
    ========================================================================== */
 
-.pr {
-    --pr-bg: #f4f4f8;
-    --pr-surface: #ffffff;
-    --pr-wash: #ffffff;
-    --pr-ink: #1b1c26;
-    --pr-ink-2: #35374a;
-    --pr-mute: #4e5164;
-    --pr-mute-2: #656879;
-    --pr-mute-3: #7b7e8e;
-    --pr-faint: #a0a2ae;
-    --pr-placeholder: #9498a8;
-    --pr-divider: rgba(27, 28, 38, .14);
-    --pr-rule: rgba(27, 28, 38, .08);
-    --pr-hover: rgba(27, 28, 38, .04);
-    --pr-press: rgba(27, 28, 38, .09);
-    --pr-field-bg: rgba(27, 28, 38, .04);
-    --pr-field-edge: #d4d6e2;
-    --pr-field-edge-hi: #a9adc0;
-    --pr-accent: #5f52c4;
-    --pr-accent-rgb: 95, 82, 196;
-    /* The accent's text-carrying step: on the dark ground the design uses a
-       pale lavender; on paper the same role has to be the deep end of the
-       ramp instead (#9184d9 is 3.0:1 on white — enough for chrome, not text). */
-    --pr-accent-text: #473d99;
-    --pr-accent-ink: #ffffff;
-    --pr-scrim: rgba(27, 28, 38, .45);
-    --pr-thumb: #c8cad6;
-    --pr-warn-bg: #fdf6e6;
-    --pr-warn-edge: #e5cd94;
-    --pr-warn-ink: #6b4c12;
-    --pr-shadow-lg: 0 0 0 1px rgba(27, 28, 38, .1), -14px 0 44px rgba(27, 28, 38, .16);
-    /* The select caret, whole: a var() inside the data URL's quoted string
-       would not be substituted, so each theme carries the finished image. */
-    --pr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --pr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%23656879' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --pr-scheme: light;
+.pr,
+.pr-overlay {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. Only what this page
+       actually uses is aliased.
 
-    /* Nocturne's compact scale — density 0.70x. */
-    --pr-s1: 2.8px;
-    --pr-s2: 5.6px;
-    --pr-s3: 8.4px;
-    --pr-s4: 11.2px;
-    --pr-s6: 16.8px;
-    --pr-s8: 22.4px;
-    --pr-r-sm: 4px;
-    --pr-r-md: 8px;
-    --pr-r-lg: 14px;
+       The overlay takes the same tokens. The drawer and its scrim sit outside
+       the page element and carry `.pr-overlay` rather than `.pr`, so that they
+       reach the palette without also inheriting `.pr`'s `min-height: 100vh` —
+       which beats their own height and hangs the drawer a topbar below the
+       fold. */
+    --pr-bg: var(--noct-bg);
+    --pr-surface: var(--noct-surface);
+    --pr-wash: var(--noct-wash);
+    --pr-ink: var(--noct-ink);
+    --pr-ink-2: var(--noct-ink-2);
+    --pr-mute: var(--noct-mute);
+    --pr-mute-2: var(--noct-mute-2);
+    --pr-mute-3: var(--noct-mute-3);
+    --pr-faint: var(--noct-faint);
+    --pr-placeholder: var(--noct-placeholder);
+    --pr-divider: var(--noct-divider);
+    --pr-rule: var(--noct-rule);
+    --pr-hover: var(--noct-hover);
+    --pr-press: var(--noct-press);
+    --pr-field-bg: var(--noct-field-bg);
+    --pr-field-edge: var(--noct-field-edge);
+    --pr-field-edge-hi: var(--noct-field-edge-hi);
+    --pr-accent: var(--noct-accent);
+    --pr-accent-rgb: var(--noct-accent-rgb);
+    --pr-accent-text: var(--noct-accent-text);
+    --pr-thumb: var(--noct-thumb);
+    --pr-scrim: var(--noct-scrim);
+    --pr-warn-bg: var(--noct-warn-bg);
+    --pr-warn-edge: var(--noct-warn-edge);
+    --pr-warn-ink: var(--noct-warn-ink);
+    --pr-shadow-lg: var(--noct-shadow-lg);
+    --pr-caret: var(--noct-caret);
+    --pr-clear: var(--noct-clear);
+    --pr-scheme: var(--noct-scheme);
 
-    /* The directory's nine columns, declared once. The five quantities sit in the
-       order the arithmetic runs — in stock, less committed, gives free to sell;
-       plus on order, gives SAP's availability — so the row reads as two
-       statements rather than five unrelated figures. */
+    --pr-s1: var(--noct-s1);
+    --pr-s2: var(--noct-s2);
+    --pr-s3: var(--noct-s3);
+    --pr-s4: var(--noct-s4);
+    --pr-s6: var(--noct-s6);
+    --pr-s8: var(--noct-s8);
+    --pr-r-sm: var(--noct-r-sm);
+    --pr-r-md: var(--noct-r-md);
+    --pr-r-lg: var(--noct-r-lg);
+
+    /* The catalogue's nine columns — this page's own, not the system's. The
+       five quantities sit in the order the arithmetic runs: in stock, less
+       committed, gives free to sell; plus on order, gives SAP's availability. */
     --pr-cols: 104px minmax(0, 1.8fr) 88px 88px 96px 88px 96px 64px 36px;
 
     color-scheme: var(--pr-scheme);
-}
-
-.dark-theme .pr {
-    --pr-bg: #161826;
-    --pr-surface: #232532;
-    --pr-wash: rgba(35, 37, 50, .6);
-    --pr-ink: #e9e9ed;
-    --pr-ink-2: #e4e7f5;
-    --pr-mute: #cfd3e5;
-    --pr-mute-2: #b2b6ca;
-    --pr-mute-3: #9397ab;
-    --pr-faint: #75798c;
-    --pr-placeholder: #75798c;
-    --pr-divider: rgba(233, 233, 237, .16);
-    --pr-rule: rgba(243, 245, 254, .07);
-    --pr-hover: rgba(243, 245, 254, .04);
-    --pr-press: rgba(243, 245, 254, .1);
-    --pr-field-bg: rgba(243, 245, 254, .05);
-    --pr-field-edge: rgba(233, 233, 237, .16);
-    --pr-field-edge-hi: rgba(233, 233, 237, .45);
-    --pr-accent: #9184d9;
-    --pr-accent-rgb: 145, 132, 217;
-    --pr-accent-text: #d2cefd;
-    --pr-accent-ink: #f5f4ff;
-    --pr-scrim: rgba(10, 11, 18, .6);
-    --pr-thumb: #3f424d;
-    --pr-warn-bg: rgba(120, 83, 15, .28);
-    --pr-warn-edge: #9a7b3d;
-    --pr-warn-ink: #f2dfae;
-    --pr-shadow-lg: 0 0 0 1px #3f424d, -14px 0 44px rgba(0, 0, 0, .6);
-    --pr-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%239397ab' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    --pr-clear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' fill='none' stroke='%239397ab' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    --pr-scheme: dark;
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
@@ -131,22 +106,28 @@
     -webkit-font-smoothing: antialiased;
 }
 
-.pr * {
+.pr *,
+.pr-overlay * {
     box-sizing: border-box;
 }
 
-.pr :focus-visible {
+.pr :focus-visible,
+.pr-overlay :focus-visible {
     outline: 2px solid var(--pr-accent);
     outline-offset: 2px;
 }
 
-.pr ::selection {
+.pr ::selection,
+.pr-overlay ::selection {
     background: rgba(var(--pr-accent-rgb), .3);
 }
 
 .pr h1,
 .pr h2,
-.pr h3 {
+.pr h3,
+.pr-overlay h1,
+.pr-overlay h2,
+.pr-overlay h3 {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 500;
     margin: 0;
@@ -231,7 +212,8 @@
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 /* Nocturne outlines its primary action rather than filling it. */
 
-.pr .pr-btn {
+.pr .pr-btn,
+.pr-overlay .pr-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -251,56 +233,67 @@
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.pr .pr-btn:disabled {
+.pr .pr-btn:disabled,
+.pr-overlay .pr-btn:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
 
-.pr .pr-btn svg {
+.pr .pr-btn svg,
+.pr-overlay .pr-btn svg {
     display: block;
     flex: none;
 }
 
-.pr .pr-btn-primary {
+.pr .pr-btn-primary,
+.pr-overlay .pr-btn-primary {
     color: var(--pr-accent);
     border-color: var(--pr-accent);
     letter-spacing: .02em;
 }
 
-.pr .pr-btn-primary:hover:not(:disabled) {
+.pr .pr-btn-primary:hover:not(:disabled),
+.pr-overlay .pr-btn-primary:hover:not(:disabled) {
     background: rgba(var(--pr-accent-rgb), .12);
 }
 
-.pr .pr-btn-primary:active:not(:disabled) {
+.pr .pr-btn-primary:active:not(:disabled),
+.pr-overlay .pr-btn-primary:active:not(:disabled) {
     background: rgba(var(--pr-accent-rgb), .22);
 }
 
-.pr .pr-btn-ghost {
+.pr .pr-btn-ghost,
+.pr-overlay .pr-btn-ghost {
     color: var(--pr-accent);
 }
 
-.pr .pr-btn-ghost:hover:not(:disabled) {
+.pr .pr-btn-ghost:hover:not(:disabled),
+.pr-overlay .pr-btn-ghost:hover:not(:disabled) {
     background: rgba(var(--pr-accent-rgb), .1);
 }
 
-.pr .pr-btn-quiet {
+.pr .pr-btn-quiet,
+.pr-overlay .pr-btn-quiet {
     color: var(--pr-mute-2);
     border-color: var(--pr-divider);
 }
 
-.pr .pr-btn-quiet:hover:not(:disabled) {
+.pr .pr-btn-quiet:hover:not(:disabled),
+.pr-overlay .pr-btn-quiet:hover:not(:disabled) {
     color: var(--pr-ink);
     border-color: var(--pr-field-edge-hi);
     background: var(--pr-hover);
 }
 
-.pr .pr-btn-lg {
+.pr .pr-btn-lg,
+.pr-overlay .pr-btn-lg {
     height: 36px;
     font-size: 13px;
     padding-inline: var(--pr-s6);
 }
 
-.pr .pr-tool {
+.pr .pr-tool,
+.pr-overlay .pr-tool {
     display: inline-flex;
     align-items: center;
     gap: 7px;
@@ -316,12 +309,14 @@
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.pr .pr-tool:hover:not(:disabled) {
+.pr .pr-tool:hover:not(:disabled),
+.pr-overlay .pr-tool:hover:not(:disabled) {
     color: var(--pr-ink);
     border-color: var(--pr-field-edge-hi);
 }
 
-.pr .pr-tool:disabled {
+.pr .pr-tool:disabled,
+.pr-overlay .pr-tool:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
@@ -514,7 +509,8 @@
 
 /* ── Controls ──────────────────────────────────────────────────────────── */
 
-.pr .pr-input {
+.pr .pr-input,
+.pr-overlay .pr-input {
     width: 100%;
     min-height: 34px;
     padding: 8px 12px;
@@ -532,32 +528,38 @@
     transition: border-color .15s, background-color .15s;
 }
 
-.pr .pr-input-search {
+.pr .pr-input-search,
+.pr-overlay .pr-input-search {
     padding-left: 33px;
     border-radius: 999px;
 }
 
-.pr .pr-input:hover:not(:disabled) {
+.pr .pr-input:hover:not(:disabled),
+.pr-overlay .pr-input:hover:not(:disabled) {
     border-color: var(--pr-field-edge);
 }
 
-.pr .pr-input:focus-visible {
+.pr .pr-input:focus-visible,
+.pr-overlay .pr-input:focus-visible {
     border-color: rgba(var(--pr-accent-rgb), .55);
     outline-offset: 0;
 }
 
-.pr .pr-input:disabled {
+.pr .pr-input:disabled,
+.pr-overlay .pr-input:disabled {
     opacity: .55;
     cursor: not-allowed;
 }
 
-.pr .pr-input::placeholder {
+.pr .pr-input::placeholder,
+.pr-overlay .pr-input::placeholder {
     color: var(--pr-placeholder);
     opacity: 1;
     -webkit-text-fill-color: var(--pr-placeholder);
 }
 
-.pr .pr-input[type="search"]::-webkit-search-cancel-button {
+.pr .pr-input[type="search"]::-webkit-search-cancel-button,
+.pr-overlay .pr-input[type="search"]::-webkit-search-cancel-button {
     -webkit-appearance: none;
     appearance: none;
     width: 11px;
@@ -568,12 +570,14 @@
     cursor: pointer;
 }
 
-.pr .pr-input[type="search"]::-webkit-search-cancel-button:hover {
+.pr .pr-input[type="search"]::-webkit-search-cancel-button:hover,
+.pr-overlay .pr-input[type="search"]::-webkit-search-cancel-button:hover {
     opacity: 1;
 }
 
 /* The scan field is monospaced-by-numbers: a barcode is read digit by digit. */
-.pr .pr-input-code {
+.pr .pr-input-code,
+.pr-overlay .pr-input-code {
     font-variant-numeric: tabular-nums;
     letter-spacing: .02em;
 }
@@ -594,7 +598,8 @@
     display: flex;
 }
 
-.pr .pr-select select.pr-input {
+.pr .pr-select select.pr-input,
+.pr-overlay .pr-select select.pr-input {
     padding: 8px 28px 8px 11px;
     cursor: pointer;
 }
@@ -747,7 +752,8 @@
     justify-content: flex-end;
 }
 
-.pr .pr-icon-btn {
+.pr .pr-icon-btn,
+.pr-overlay .pr-icon-btn {
     display: grid;
     place-items: center;
     width: 27px;
@@ -762,7 +768,8 @@
     transition: background-color .13s, color .13s;
 }
 
-.pr .pr-icon-btn:hover {
+.pr .pr-icon-btn:hover,
+.pr-overlay .pr-icon-btn:hover {
     background: var(--pr-press);
     color: var(--pr-ink);
 }
@@ -792,7 +799,8 @@
     gap: var(--pr-s3);
 }
 
-.pr .pr-per select.pr-input {
+.pr .pr-per select.pr-input,
+.pr-overlay .pr-per select.pr-input {
     width: auto;
     min-height: 30px;
     padding: 5px 26px 5px 9px;
@@ -806,7 +814,8 @@
     flex-wrap: wrap;
 }
 
-.pr .pr-step {
+.pr .pr-step,
+.pr-overlay .pr-step {
     padding: 5px 10px;
     font: inherit;
     font-size: 12.5px;
@@ -818,17 +827,20 @@
     transition: color .14s, border-color .14s;
 }
 
-.pr .pr-step:hover:not(:disabled) {
+.pr .pr-step:hover:not(:disabled),
+.pr-overlay .pr-step:hover:not(:disabled) {
     color: var(--pr-ink);
     border-color: var(--pr-field-edge-hi);
 }
 
-.pr .pr-step:disabled {
+.pr .pr-step:disabled,
+.pr-overlay .pr-step:disabled {
     opacity: .4;
     cursor: not-allowed;
 }
 
-.pr .pr-page {
+.pr .pr-page,
+.pr-overlay .pr-page {
     padding: 5px 9px;
     font: inherit;
     font-size: 12.5px;
@@ -841,12 +853,14 @@
     transition: color .14s, background-color .14s;
 }
 
-.pr .pr-page:hover {
+.pr .pr-page:hover,
+.pr-overlay .pr-page:hover {
     color: var(--pr-ink);
     background: var(--pr-hover);
 }
 
-.pr .pr-page-on {
+.pr .pr-page-on,
+.pr-overlay .pr-page-on {
     padding-inline: 11px;
     color: var(--pr-accent-text);
     background: rgba(var(--pr-accent-rgb), .16);
@@ -859,19 +873,31 @@
 
 /* ── Detail drawer ─────────────────────────────────────────────────────── */
 /* Offset below the app bar: the page is a stacking context, so a drawer
-   cannot paint over the topbar however high its z-index. Both overlays sit
-   outside .pr for that reason and carry the class themselves to reach the
-   tokens — which is why both need the min-height reset below. */
+   cannot paint over the topbar however high its z-index. */
 
-/* min-height: 0 undoes the 100vh the page root sets. min-height beats height,
-   so without it the used height is a full 100vh starting at the topbar, and
-   the overlay hangs one topbar below the fold — taking the drawer's footer
-   and its buttons out of reach. */
+/* The overlay renders outside the .pr root, so it carries the palette itself —
+   .pr-overlay is paired with .pr on the token block and on every scoped rule
+   above, the same arrangement business-partners.css and credit-notes.css use.
+   Scoping it this way rather than putting .pr on the scrim and drawer matters:
+   .pr also carries min-height: 100vh, which beats the drawer's height below and
+   would push it, and its footer, a topbar's worth past the fold. */
+/* This has to repeat the page root's type context, not just its font and ink.
+   `.pr` sets font-size: 14px and line-height: 1.55, and when the drawer carried
+   `.pr` it got them by being that element. Under the overlay it does not, and
+   every control inside inherits the document's 16px/normal instead — measured
+   at the conversion, before the two sizes were put back. */
+.pr-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--pr-ink);
+    -webkit-font-smoothing: antialiased;
+}
+
 .pr-scrim {
     position: fixed;
     inset: var(--kf-topbar-h, 74px) 0 0;
     z-index: 9998;
-    min-height: 0;
     background: var(--pr-scrim);
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
@@ -885,7 +911,6 @@
     z-index: 9999;
     width: min(640px, 100vw);
     height: calc(100vh - var(--kf-topbar-h, 74px));
-    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--pr-bg);
@@ -1207,7 +1232,8 @@
     margin-top: 2px;
 }
 
-.pr .pr-msg-act {
+.pr .pr-msg-act,
+.pr-overlay .pr-msg-act {
     padding: 2px 10px;
     font: inherit;
     font-size: 12.5px;
@@ -1219,11 +1245,13 @@
     opacity: .8;
 }
 
-.pr .pr-msg-act:hover {
+.pr .pr-msg-act:hover,
+.pr-overlay .pr-msg-act:hover {
     opacity: 1;
 }
 
-.pr .pr-msg-x {
+.pr .pr-msg-x,
+.pr-overlay .pr-msg-x {
     margin-left: auto;
     display: grid;
     place-items: center;
@@ -1240,12 +1268,14 @@
     transition: opacity .13s, background-color .13s;
 }
 
-.pr .pr-msg-x:hover {
+.pr .pr-msg-x:hover,
+.pr-overlay .pr-msg-x:hover {
     opacity: 1;
     background: rgba(27, 28, 38, .08);
 }
 
-.dark-theme .pr .pr-msg-x:hover {
+.dark-theme .pr .pr-msg-x:hover,
+.dark-theme .pr-overlay .pr-msg-x:hover {
     background: rgba(243, 245, 254, .12);
 }
 
@@ -1504,7 +1534,8 @@
 
     /* 16px is the smallest size iOS will render a focused field at without
        zooming the page. */
-    .pr .pr-input {
+    .pr .pr-input,
+    .pr-overlay .pr-input {
         font-size: 16px;
     }
 

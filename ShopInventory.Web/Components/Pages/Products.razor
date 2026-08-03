@@ -426,206 +426,213 @@
     var itemCode = product.ItemCode ?? string.Empty;
     var freeToSell = FreeToSell(product);
 
-    <div class="pr pr-scrim" @onclick="CloseDrawer"></div>
-    <aside class="pr pr-drawer" role="dialog" aria-modal="true" aria-label="@product.ItemName">
-        <div class="pr-drawer-head">
-            <div>
-                <h2>@product.ItemName</h2>
-                <div class="pr-drawer-sub">
-                    @itemCode
-                    @if (!string.IsNullOrWhiteSpace(product.BarCode))
-                    {
-                        <text> · @product.BarCode</text>
-                    }
-                    <text> · </text>@selectedWarehouse?.WarehouseCode
+    @* The overlay renders outside the .pr root so the page cannot clip it, and
+       carries .pr-overlay rather than .pr: the sheet pairs that class with .pr on
+       the token block and on every scoped rule, so the drawer reaches the palette
+       without also inheriting .pr's min-height: 100vh — which beats the drawer's
+       own height and would hang it, and its footer, a topbar below the fold. *@
+    <div class="pr-overlay">
+        <div class="pr-scrim" @onclick="CloseDrawer"></div>
+        <aside class="pr-drawer" role="dialog" aria-modal="true" aria-label="@product.ItemName">
+            <div class="pr-drawer-head">
+                <div>
+                    <h2>@product.ItemName</h2>
+                    <div class="pr-drawer-sub">
+                        @itemCode
+                        @if (!string.IsNullOrWhiteSpace(product.BarCode))
+                        {
+                            <text> · @product.BarCode</text>
+                        }
+                        <text> · </text>@selectedWarehouse?.WarehouseCode
+                    </div>
                 </div>
+                <button type="button" class="pr-icon-btn" style="margin-left:auto" aria-label="Close"
+                        @onclick="CloseDrawer">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18"></path>
+                    </svg>
+                </button>
             </div>
-            <button type="button" class="pr-icon-btn" style="margin-left:auto" aria-label="Close"
-                    @onclick="CloseDrawer">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                     stroke-linecap="round" aria-hidden="true">
-                    <path d="M6 6l12 12M18 6L6 18"></path>
-                </svg>
-            </button>
-        </div>
 
-        <div class="pr-drawer-body">
+            <div class="pr-drawer-body">
 
-            <section class="pr-section">
-                <h3>Availability</h3>
-                @* Two statements, because the page reports two different answers to
-                   "how much is there": what can leave today, and what SAP counts as
-                   available (which includes stock still on a purchase order). Each
-                   figure is shown deriving from the one before it. *@
-                <div class="pr-avail">
-                    <div class="pr-avail-row">
-                        <div class="pr-avail-term">
-                            <div class="pr-avail-t">In stock</div>
-                            <div class="pr-avail-v">@Qty(product.QuantityInStock, product.UoM)</div>
+                <section class="pr-section">
+                    <h3>Availability</h3>
+                    @* Two statements, because the page reports two different answers to
+                       "how much is there": what can leave today, and what SAP counts as
+                       available (which includes stock still on a purchase order). Each
+                       figure is shown deriving from the one before it. *@
+                    <div class="pr-avail">
+                        <div class="pr-avail-row">
+                            <div class="pr-avail-term">
+                                <div class="pr-avail-t">In stock</div>
+                                <div class="pr-avail-v">@Qty(product.QuantityInStock, product.UoM)</div>
+                            </div>
+                            <div class="pr-avail-op" aria-hidden="true">−</div>
+                            <div class="pr-avail-term">
+                                <div class="pr-avail-t">Committed</div>
+                                <div class="pr-avail-v">@Qty(product.QuantityCommitted, product.UoM)</div>
+                            </div>
+                            <div class="pr-avail-op" aria-hidden="true">=</div>
+                            <div class="pr-avail-term pr-avail-term-result">
+                                <div class="pr-avail-t">Free to sell</div>
+                                <div class="pr-avail-v @StockClass(freeToSell)">@Qty(freeToSell, product.UoM)</div>
+                            </div>
                         </div>
-                        <div class="pr-avail-op" aria-hidden="true">−</div>
-                        <div class="pr-avail-term">
-                            <div class="pr-avail-t">Committed</div>
-                            <div class="pr-avail-v">@Qty(product.QuantityCommitted, product.UoM)</div>
+                        <div class="pr-avail-row">
+                            <div class="pr-avail-term pr-avail-term-carried">
+                                <div class="pr-avail-t">Free to sell</div>
+                                <div class="pr-avail-v">@Qty(freeToSell, product.UoM)</div>
+                            </div>
+                            <div class="pr-avail-op" aria-hidden="true">+</div>
+                            <div class="pr-avail-term">
+                                <div class="pr-avail-t">On order</div>
+                                <div class="pr-avail-v">@Qty(product.QuantityOrdered, product.UoM)</div>
+                            </div>
+                            <div class="pr-avail-op" aria-hidden="true">=</div>
+                            <div class="pr-avail-term pr-avail-term-result">
+                                <div class="pr-avail-t">Available</div>
+                                <div class="pr-avail-v">@Qty(product.QuantityAvailable, product.UoM)</div>
+                            </div>
                         </div>
-                        <div class="pr-avail-op" aria-hidden="true">=</div>
-                        <div class="pr-avail-term pr-avail-term-result">
-                            <div class="pr-avail-t">Free to sell</div>
-                            <div class="pr-avail-v @StockClass(freeToSell)">@Qty(freeToSell, product.UoM)</div>
+                        <div class="pr-avail-note">
+                            @if (freeToSell < 0)
+                            {
+                                <text>
+                                    Oversold: customer orders claim @Qty(product.QuantityCommitted, product.UoM)
+                                    against @Qty(product.QuantityInStock, product.UoM) on hand.
+                                </text>
+                            }
+                            else if (product.QuantityOrdered > 0)
+                            {
+                                <text>
+                                    @Qty(freeToSell, product.UoM) can leave @selectedWarehouse?.WarehouseCode today.
+                                    SAP's availability is higher because it counts the
+                                    @Qty(product.QuantityOrdered, product.UoM) still on a purchase order.
+                                </text>
+                            }
+                            else
+                            {
+                                <text>
+                                    Nothing is inbound, so what can leave today and what SAP reports as available
+                                    are the same figure.
+                                </text>
+                            }
                         </div>
                     </div>
-                    <div class="pr-avail-row">
-                        <div class="pr-avail-term pr-avail-term-carried">
-                            <div class="pr-avail-t">Free to sell</div>
-                            <div class="pr-avail-v">@Qty(freeToSell, product.UoM)</div>
+                </section>
+
+                <section class="pr-section">
+                    <h3>Item</h3>
+                    <div class="pr-dl">
+                        <div>
+                            <div class="pr-dt">Item code</div>
+                            <div class="pr-dd pr-dd-num">@itemCode</div>
                         </div>
-                        <div class="pr-avail-op" aria-hidden="true">+</div>
-                        <div class="pr-avail-term">
-                            <div class="pr-avail-t">On order</div>
-                            <div class="pr-avail-v">@Qty(product.QuantityOrdered, product.UoM)</div>
+                        <div>
+                            <div class="pr-dt">Barcode</div>
+                            <div class="pr-dd pr-dd-num">
+                                @(string.IsNullOrWhiteSpace(product.BarCode) ? "—" : product.BarCode)
+                            </div>
                         </div>
-                        <div class="pr-avail-op" aria-hidden="true">=</div>
-                        <div class="pr-avail-term pr-avail-term-result">
-                            <div class="pr-avail-t">Available</div>
-                            <div class="pr-avail-v">@Qty(product.QuantityAvailable, product.UoM)</div>
+                        <div>
+                            <div class="pr-dt">Unit of measure</div>
+                            <div class="pr-dd">@(string.IsNullOrWhiteSpace(product.UoM) ? "—" : product.UoM)</div>
+                        </div>
+                        <div>
+                            <div class="pr-dt">Warehouse</div>
+                            <div class="pr-dd">@selectedWarehouse?.DisplayName</div>
                         </div>
                     </div>
-                    <div class="pr-avail-note">
-                        @if (freeToSell < 0)
+                </section>
+
+                <section class="pr-section">
+                    <div class="pr-batch-head">
+                        <h3>Batches</h3>
+                        @if (batches is { Count: > 0 })
                         {
-                            <text>
-                                Oversold: customer orders claim @Qty(product.QuantityCommitted, product.UoM)
-                                against @Qty(product.QuantityInStock, product.UoM) on hand.
-                            </text>
-                        }
-                        else if (product.QuantityOrdered > 0)
-                        {
-                            <text>
-                                @Qty(freeToSell, product.UoM) can leave @selectedWarehouse?.WarehouseCode today.
-                                SAP's availability is higher because it counts the
-                                @Qty(product.QuantityOrdered, product.UoM) still on a purchase order.
-                            </text>
-                        }
-                        else
-                        {
-                            <text>
-                                Nothing is inbound, so what can leave today and what SAP reports as available
-                                are the same figure.
-                            </text>
+                            <span class="pr-batch-count">@batches.Count in @selectedWarehouse?.WarehouseCode</span>
                         }
                     </div>
-                </div>
-            </section>
 
-            <section class="pr-section">
-                <h3>Item</h3>
-                <div class="pr-dl">
-                    <div>
-                        <div class="pr-dt">Item code</div>
-                        <div class="pr-dd pr-dd-num">@itemCode</div>
-                    </div>
-                    <div>
-                        <div class="pr-dt">Barcode</div>
-                        <div class="pr-dd pr-dd-num">
-                            @(string.IsNullOrWhiteSpace(product.BarCode) ? "—" : product.BarCode)
-                        </div>
-                    </div>
-                    <div>
-                        <div class="pr-dt">Unit of measure</div>
-                        <div class="pr-dd">@(string.IsNullOrWhiteSpace(product.UoM) ? "—" : product.UoM)</div>
-                    </div>
-                    <div>
-                        <div class="pr-dt">Warehouse</div>
-                        <div class="pr-dd">@selectedWarehouse?.DisplayName</div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="pr-section">
-                <div class="pr-batch-head">
-                    <h3>Batches</h3>
-                    @if (batches is { Count: > 0 })
+                    @* Read from SAP when the drawer opens. The list itself comes from the
+                       stock cache, which knows nothing about batches — so this is the only
+                       place that can answer the question, and it must be asked per item. *@
+                    @if (isLoadingBatches)
                     {
-                        <span class="pr-batch-count">@batches.Count in @selectedWarehouse?.WarehouseCode</span>
-                    }
-                </div>
-
-                @* Read from SAP when the drawer opens. The list itself comes from the
-                   stock cache, which knows nothing about batches — so this is the only
-                   place that can answer the question, and it must be asked per item. *@
-                @if (isLoadingBatches)
-                {
-                    <div class="pr-inline-loading">
-                        <span class="pr-spin" aria-hidden="true"></span>
-                        <span>Reading batches from SAP…</span>
-                    </div>
-                }
-                else if (batchError is not null)
-                {
-                    <div class="pr-msg">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
-                            <circle cx="12" cy="12" r="9"></circle>
-                            <path d="M12 7.5v5.5M12 16.2v.1"></path>
-                        </svg>
-                        <span>@batchError</span>
-                        <button type="button" class="pr-msg-act" @onclick="() => LoadBatchesAsync(product)">
-                            Retry
-                        </button>
-                    </div>
-                }
-                else if (batches is { Count: > 0 })
-                {
-                    <div class="pr-batches">
-                        <div class="pr-batch-thead">
-                            <span>Batch</span>
-                            <span class="pr-num">Quantity</span>
-                            <span>Status</span>
-                            <span>Expires</span>
+                        <div class="pr-inline-loading">
+                            <span class="pr-spin" aria-hidden="true"></span>
+                            <span>Reading batches from SAP…</span>
                         </div>
-                        @foreach (var batch in batches)
+                    }
+                    else if (batchError is not null)
+                    {
+                        <div class="pr-msg">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="M12 7.5v5.5M12 16.2v.1"></path>
+                            </svg>
+                            <span>@batchError</span>
+                            <button type="button" class="pr-msg-act" @onclick="() => LoadBatchesAsync(product)">
+                                Retry
+                            </button>
+                        </div>
+                    }
+                    else if (batches is { Count: > 0 })
+                    {
+                        <div class="pr-batches">
+                            <div class="pr-batch-thead">
+                                <span>Batch</span>
+                                <span class="pr-num">Quantity</span>
+                                <span>Status</span>
+                                <span>Expires</span>
+                            </div>
+                            @foreach (var batch in batches)
+                            {
+                                <div class="pr-batch-row">
+                                    <span class="pr-batch-no">@batch.BatchNumber</span>
+                                    <span class="pr-num">@Qty(batch.Quantity, product.UoM)</span>
+                                    <span class="pr-status @BatchStatusClass(batch.Status)">
+                                        <span class="pr-dot" aria-hidden="true"></span>
+                                        @(string.IsNullOrWhiteSpace(batch.Status) ? "—" : batch.Status)
+                                    </span>
+                                    <span class="pr-batch-date">@BatchDate(batch.ExpiryDate)</span>
+                                </div>
+                            }
+                            <div class="pr-batch-foot">
+                                <span>Total</span>
+                                <span class="pr-num">@Qty(batches.Sum(b => b.Quantity), product.UoM)</span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        </div>
+                        @if (batches.Sum(b => b.Quantity) != product.QuantityInStock)
                         {
-                            <div class="pr-batch-row">
-                                <span class="pr-batch-no">@batch.BatchNumber</span>
-                                <span class="pr-num">@Qty(batch.Quantity, product.UoM)</span>
-                                <span class="pr-status @BatchStatusClass(batch.Status)">
-                                    <span class="pr-dot" aria-hidden="true"></span>
-                                    @(string.IsNullOrWhiteSpace(batch.Status) ? "—" : batch.Status)
-                                </span>
-                                <span class="pr-batch-date">@BatchDate(batch.ExpiryDate)</span>
+                            @* Worth stating rather than hiding: batch quantities and the
+                               warehouse on-hand figure are read from different SAP tables
+                               and can legitimately disagree. *@
+                            <div class="pr-avail-note">
+                                Batch quantities total @Qty(batches.Sum(b => b.Quantity), product.UoM), against
+                                @Qty(product.QuantityInStock, product.UoM) on hand.
                             </div>
                         }
-                        <div class="pr-batch-foot">
-                            <span>Total</span>
-                            <span class="pr-num">@Qty(batches.Sum(b => b.Quantity), product.UoM)</span>
-                            <span></span>
-                            <span></span>
-                        </div>
-                    </div>
-                    @if (batches.Sum(b => b.Quantity) != product.QuantityInStock)
+                    }
+                    else
                     {
-                        @* Worth stating rather than hiding: batch quantities and the
-                           warehouse on-hand figure are read from different SAP tables
-                           and can legitimately disagree. *@
-                        <div class="pr-avail-note">
-                            Batch quantities total @Qty(batches.Sum(b => b.Quantity), product.UoM), against
-                            @Qty(product.QuantityInStock, product.UoM) on hand.
+                        <div class="pr-quiet">
+                            No batch records for this item in @selectedWarehouse?.WarehouseCode — either it is not
+                            batch-managed, or none of its batches carry stock here.
                         </div>
                     }
-                }
-                else
-                {
-                    <div class="pr-quiet">
-                        No batch records for this item in @selectedWarehouse?.WarehouseCode — either it is not
-                        batch-managed, or none of its batches carry stock here.
-                    </div>
-                }
-            </section>
+                </section>
 
-        </div>
+            </div>
 
-        <div class="pr-drawer-foot">
-            <button type="button" class="pr-btn pr-btn-quiet" @onclick="CloseDrawer">Close</button>
-        </div>
-    </aside>
+            <div class="pr-drawer-foot">
+                <button type="button" class="pr-btn pr-btn-quiet" @onclick="CloseDrawer">Close</button>
+            </div>
+        </aside>
+    </div>
 }

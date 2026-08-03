@@ -913,9 +913,19 @@
    it this way rather than putting .bp on the scrim and drawer matters: .bp also
    carries min-height: 100vh, which beats the drawer's height below and would
    push it, and its footer, a topbar's worth past the fold. */
+/* This has to repeat the page root's type context, not just its font and ink.
+   `.bp` sets font-size: 14px and line-height: 1.55, and while the drawer carried
+   `.bp` it had them by being that element. Moving to the overlay dropped both,
+   so the drawer fell back to the document's 16px/normal — measured 2026-08-03,
+   after the move and before these two lines went in. The elements with a size of
+   their own were unaffected, which is why it did not show: what moved was the
+   line-height of everything, and the size of anything unstyled. */
 .bp-overlay {
     font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
     color: var(--bp-ink);
+    -webkit-font-smoothing: antialiased;
 }
 
 .bp-scrim {
