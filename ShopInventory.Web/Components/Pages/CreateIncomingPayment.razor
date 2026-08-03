@@ -15,1527 +15,497 @@
 
 <PageTitle>Create Incoming Payment - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .cp-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Breadcrumb ──────────────────────────────────── */
-    .cp-breadcrumb {
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-        font-size: .85rem;
-        color: #6b7280;
-        margin-bottom: 1.25rem;
-    }
-
-    .cp-breadcrumb a {
-        color: #059669;
-        text-decoration: none;
-        font-weight: 500;
-    }
-
-    .cp-breadcrumb a:hover {
-        text-decoration: underline;
-    }
-
-    .cp-breadcrumb .sep {
-        color: #d1d5db;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .cp-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .cp-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .cp-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #059669, #10b981);
-        box-shadow: 0 4px 14px rgba(5, 150, 105, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .cp-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-    }
-
-    .cp-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    /* ── Section Card ────────────────────────────────── */
-    .section-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        overflow: hidden;
-        margin-bottom: 1.25rem;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .section-card .card-hdr {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: .85rem 1.25rem;
-        border-bottom: 1px solid #f3f4f6;
-    }
-
-    .section-card .card-hdr .hdr-left {
-        display: flex;
-        align-items: center;
-        gap: .65rem;
-    }
-
-    .section-card .card-hdr .header-icon {
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: .95rem;
-        flex-shrink: 0;
-    }
-
-    .section-card .card-hdr h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .95rem;
-    }
-
-    .section-card .card-body-inner {
-        padding: 1.25rem;
-    }
-
-    /* ── Method Tabs ─────────────────────────────────── */
-    .method-tabs {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: .6rem;
-        margin-bottom: 1.25rem;
-    }
-
-    .method-tab {
-        cursor: pointer;
-        padding: .7rem .5rem;
-        border-radius: 10px;
-        text-align: center;
-        border: 2px solid #e5e7eb;
-        transition: all .2s;
-        background: #fff;
-    }
-
-    .method-tab:hover {
-        border-color: #059669;
-    }
-
-    .method-tab.active {
-        border-color: #059669;
-        background: rgba(5, 150, 105, .06);
-        box-shadow: 0 0 0 3px rgba(5, 150, 105, .1);
-    }
-
-    .method-tab .tab-icon {
-        font-size: 1.3rem;
-        display: block;
-        margin-bottom: .2rem;
-    }
-
-    .method-tab .tab-label {
-        font-size: .78rem;
-        font-weight: 600;
-        color: #374151;
-    }
-
-    /* ── Form Fields ─────────────────────────────────── */
-    .field-label {
-        display: block;
-        font-size: .75rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .35rem;
-    }
-
-    .field-label .required {
-        color: #ef4444;
-    }
-
-    /* ── Invoice Line Cards ──────────────────────────── */
-    .inv-card {
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 1rem 1.15rem;
-        margin-bottom: .75rem;
-        transition: all .2s;
-        position: relative;
-    }
-
-    .inv-card:hover {
-        border-color: #059669;
-        box-shadow: 0 2px 10px rgba(5, 150, 105, .08);
-    }
-
-    .inv-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        background: #d1fae5;
-        color: #065f46;
-        font-size: .72rem;
-        font-weight: 600;
-        padding: .15rem .5rem;
-        border-radius: 5px;
-    }
-
-    .inv-remove {
-        position: absolute;
-        top: .75rem;
-        right: .75rem;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #dc2626;
-        width: 28px;
-        height: 28px;
-        border-radius: 7px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .8rem;
-    }
-
-    .inv-remove:hover {
-        background: #dc2626;
-        color: #fff;
-        border-color: #dc2626;
-    }
-
-    /* ── Empty State ──────────────────────────────────── */
-    .inv-empty {
-        text-align: center;
-        padding: 2rem 1rem;
-        color: #9ca3af;
-    }
-
-    .inv-empty .empty-ico {
-        font-size: 2rem;
-        margin-bottom: .5rem;
-        display: block;
-    }
-
-    /* ── Validation ───── */
-    .validation-error {
-        border-color: #ef4444 !important;
-    }
-
-    .val-msg {
-        color: #ef4444;
-        font-size: .78rem;
-        margin-top: .2rem;
-    }
-
-    /* ── Dropdown ─────────────────────────────────────── */
-    .bp-dropdown {
-        position: absolute;
-        z-index: 1050;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        max-height: 250px;
-        overflow-y: auto;
-        width: 100%;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, .12);
-    }
-
-    .bp-item {
-        padding: .55rem 1rem;
-        cursor: pointer;
-        transition: background .12s;
-        font-size: .88rem;
-    }
-
-    .bp-item:hover {
-        background: #f0fdf4;
-    }
-
-    .bp-selected {
-        margin-top: .5rem;
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 8px;
-        padding: .5rem .75rem;
-        font-size: .85rem;
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-    }
-
-    /* ── Summary Sidebar ─────────────────────────────── */
-    .summary-section {
-        position: sticky;
-        top: 1.5rem;
-    }
-
-    .summary-card {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .summary-hdr {
-        padding: .85rem 1.15rem;
-        border-bottom: 1px solid #f3f4f6;
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-    }
-
-    .summary-hdr h6 {
-        margin: 0;
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .95rem;
-    }
-
-    .summary-body {
-        padding: 1.15rem;
-    }
-
-    /* Validation Checklist */
-    .check-list {
-        list-style: none;
-        padding: 0;
-        margin: 0 0 1rem 0;
-    }
-
-    .check-list li {
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-        padding: .35rem 0;
-        font-size: .84rem;
-        color: #374151;
-    }
-
-    .check-list li .check-icon {
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: .65rem;
-        flex-shrink: 0;
-    }
-
-    .check-list li .check-icon.pass {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .check-list li .check-icon.fail {
-        background: #fef2f2;
-        color: #ef4444;
-    }
-
-    /* Summary Lines */
-    .sum-line {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: .3rem 0;
-        font-size: .88rem;
-    }
-
-    .sum-line .sum-label {
-        color: #6b7280;
-    }
-
-    .sum-line .sum-value {
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .sum-divider {
-        border: none;
-        border-top: 1px dashed #e5e7eb;
-        margin: .6rem 0;
-    }
-
-    .sum-total {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: .5rem 0;
-    }
-
-    .sum-total .total-label {
-        font-weight: 600;
-        color: #1a1a2e;
-        font-size: .95rem;
-    }
-
-    .sum-total .total-value {
-        font-weight: 700;
-        color: #059669;
-        font-size: 1.25rem;
-    }
-
-    /* Buttons */
-    .btn-execute {
-        width: 100%;
-        background: linear-gradient(135deg, #059669, #10b981);
-        border: none;
-        color: #fff;
-        padding: .65rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .92rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(5, 150, 105, .25);
-        margin-bottom: .6rem;
-    }
-
-    .btn-execute:hover:not(:disabled) {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(5, 150, 105, .4);
-    }
-
-    .btn-execute:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    .btn-secondary-action {
-        width: 100%;
-        background: #fff;
-        border: 1px solid #d1d5db;
-        color: #374151;
-        padding: .55rem;
-        border-radius: 10px;
-        font-weight: 500;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .15s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: .4rem;
-    }
-
-    .btn-secondary-action:hover {
-        background: #f3f4f6;
-    }
-
-    .btn-back {
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-        background: #fff;
-        border: 1px solid #d1d5db;
-        color: #374151;
-        padding: .45rem 1rem;
-        border-radius: 8px;
-        font-weight: 500;
-        font-size: .85rem;
-        text-decoration: none;
-        transition: all .15s;
-    }
-
-    .btn-back:hover {
-        background: #f3f4f6;
-        color: #374151;
-    }
-
-    .info-hint {
-        font-size: .78rem;
-        color: #6b7280;
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        padding: .55rem .75rem;
-        margin-top: .75rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .4rem;
-    }
-
-    /* ── Alerts ───────────────────────────────────────── */
-    .alert-banner {
-        border-radius: 10px;
-        padding: .75rem 1rem;
-        display: flex;
-        align-items: flex-start;
-        gap: .6rem;
-        margin-bottom: 1rem;
-        font-size: .88rem;
-        animation: slideDown .3s ease;
-    }
-
-    .alert-banner.success-alert {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-    }
-
-    .alert-banner.error-alert {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #991b1b;
-    }
-
-    .alert-banner .alert-body {
-        flex: 1;
-    }
-
-    .alert-banner .alert-close {
-        background: none;
-        border: none;
-        color: inherit;
-        opacity: .45;
-        cursor: pointer;
-        padding: .2rem;
-        font-size: 1rem;
-    }
-
-    .alert-banner .alert-close:hover {
-        opacity: 1;
-    }
-
-    @@keyframes slideDown {
-        from {
-            opacity: 0;
-            transform: translateY(-6px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    /* ── Attachment Upload ────────────────────────────── */
-    .upload-zone {
-        border: 2px dashed #d1d5db;
-        border-radius: 12px;
-        padding: 1.5rem;
-        text-align: center;
-        cursor: pointer;
-        transition: all .2s;
-        background: #f8fafc;
-        position: relative;
-    }
-
-    .upload-zone:hover {
-        border-color: #059669;
-        background: #f0fdf4;
-    }
-
-    .upload-zone.has-file {
-        border-style: solid;
-        border-color: #059669;
-        background: #f0fdf4;
-    }
-
-    .upload-zone .upload-icon {
-        font-size: 2rem;
-        color: #9ca3af;
-        margin-bottom: .5rem;
-    }
-
-    .upload-zone.has-file .upload-icon {
-        color: #059669;
-    }
-
-    .upload-zone .upload-text {
-        font-size: .88rem;
-        color: #6b7280;
-    }
-
-    .upload-zone .upload-hint {
-        font-size: .75rem;
-        color: #9ca3af;
-        margin-top: .25rem;
-    }
-
-    .file-preview {
-        display: flex;
-        align-items: center;
-        gap: .75rem;
-        padding: .65rem .85rem;
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        border-radius: 10px;
-        margin-top: .75rem;
-    }
-
-    .file-preview .file-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 8px;
-        background: #d1fae5;
-        color: #059669;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1rem;
-        flex-shrink: 0;
-    }
-
-    .file-preview .file-info {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .file-preview .file-name {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .file-preview .file-size {
-        font-size: .75rem;
-        color: #6b7280;
-    }
-
-    .file-preview .file-remove {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #dc2626;
-        width: 28px;
-        height: 28px;
-        border-radius: 7px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: all .15s;
-        font-size: .8rem;
-        flex-shrink: 0;
-    }
-
-    .file-preview .file-remove:hover {
-        background: #dc2626;
-        color: #fff;
-    }
-
-    /* ── Responsive ──────────────────────────────────── */
-    @@media (max-width:768px) {
-        .method-tabs {
-            grid-template-columns: 1fr 1fr;
-        }
-    }
-
-    /* ── Dark Mode ────────────────────────────────────── */
-    .dark-theme .cp-page {
-        background: #0f172a;
-    }
-
-    .dark-theme .cp-breadcrumb {
-        color: #94a3b8;
-    }
-
-    .dark-theme .cp-breadcrumb a {
-        color: #34d399;
-    }
-
-    .dark-theme .cp-breadcrumb .sep {
-        color: #475569;
-    }
-
-    .dark-theme .cp-header h2 {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .cp-header p {
-        color: #94a3b8;
-    }
-
-    /* Section cards */
-    .dark-theme .section-card {
-        background: #1e293b;
-        border-color: #334155;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
-    }
-
-    .dark-theme .section-card .card-hdr {
-        border-bottom-color: #334155;
-    }
-
-    .dark-theme .section-card .card-hdr h6 {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .section-card .card-hdr .header-icon {
-        background: rgba(5, 150, 105, .15) !important;
-        color: #34d399 !important;
-    }
-
-    .dark-theme .section-card .card-hdr .header-icon[style*="#dbeafe"] {
-        background: rgba(37, 99, 235, .15) !important;
-        color: #60a5fa !important;
-    }
-
-    .dark-theme .section-card .card-hdr .header-icon[style*="#fef3c7"] {
-        background: rgba(217, 119, 6, .15) !important;
-        color: #fbbf24 !important;
-    }
-
-    .dark-theme .section-card .card-hdr .header-icon[style*="#ede9fe"] {
-        background: rgba(124, 58, 237, .15) !important;
-        color: #a78bfa !important;
-    }
-
-    /* Form fields */
-    .dark-theme .field-label {
-        color: #94a3b8;
-    }
-
-    .dark-theme .form-control,
-    .dark-theme .form-select {
-        background: #0f172a;
-        border-color: #475569;
-        color: #e2e8f0;
-    }
-
-    .dark-theme .form-control::placeholder {
-        color: #64748b;
-    }
-
-    .dark-theme .form-control:focus,
-    .dark-theme .form-select:focus {
-        background: #0f172a;
-        border-color: #059669;
-        color: #e2e8f0;
-        box-shadow: 0 0 0 0.2rem rgba(5, 150, 105, .15);
-    }
-
-    .dark-theme .input-group-text {
-        background: #334155;
-        border-color: #475569;
-        color: #94a3b8;
-    }
-
-    /* Method tabs */
-    .dark-theme .method-tab {
-        background: #0f172a;
-        border-color: #334155;
-    }
-
-    .dark-theme .method-tab:hover {
-        border-color: #10b981;
-    }
-
-    .dark-theme .method-tab.active {
-        border-color: #10b981;
-        background: rgba(5, 150, 105, .08);
-        box-shadow: 0 0 0 3px rgba(5, 150, 105, .12);
-    }
-
-    .dark-theme .method-tab .tab-label {
-        color: #cbd5e1;
-    }
-
-    .dark-theme .method-tab .tab-icon {
-        color: #94a3b8;
-    }
-
-    .dark-theme .method-tab.active .tab-icon,
-    .dark-theme .method-tab.active .tab-label {
-        color: #34d399;
-    }
-
-    /* Business partner dropdown */
-    .dark-theme .bp-dropdown {
-        background: #1e293b;
-        border-color: #334155;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, .4);
-    }
-
-    .dark-theme .bp-item {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .bp-item:hover {
-        background: rgba(5, 150, 105, .1);
-    }
-
-    .dark-theme .bp-selected {
-        background: rgba(5, 150, 105, .1);
-        border-color: rgba(16, 185, 129, .3);
-        color: #e2e8f0;
-    }
-
-    /* Invoice line cards */
-    .dark-theme .inv-card {
-        background: #0f172a;
-        border-color: #334155;
-    }
-
-    .dark-theme .inv-card:hover {
-        border-color: #10b981;
-        box-shadow: 0 2px 10px rgba(5, 150, 105, .12);
-    }
-
-    .dark-theme .inv-badge {
-        background: rgba(5, 150, 105, .15);
-        color: #34d399;
-    }
-
-    .dark-theme .inv-remove {
-        background: rgba(239, 68, 68, .1);
-        border-color: rgba(239, 68, 68, .25);
-        color: #f87171;
-    }
-
-    .dark-theme .inv-remove:hover {
-        background: #dc2626;
-        color: #fff;
-        border-color: #dc2626;
-    }
-
-    .dark-theme .inv-empty {
-        color: #64748b;
-    }
-
-    /* Upload zone */
-    .dark-theme .upload-zone {
-        border-color: #475569;
-        background: #0f172a;
-    }
-
-    .dark-theme .upload-zone:hover {
-        border-color: #10b981;
-        background: rgba(5, 150, 105, .05);
-    }
-
-    .dark-theme .upload-zone.has-file {
-        border-color: #10b981;
-        background: rgba(5, 150, 105, .08);
-    }
-
-    .dark-theme .upload-zone .upload-icon {
-        color: #64748b;
-    }
-
-    .dark-theme .upload-zone.has-file .upload-icon {
-        color: #34d399;
-    }
-
-    .dark-theme .upload-zone .upload-text {
-        color: #94a3b8;
-    }
-
-    .dark-theme .upload-zone .upload-hint {
-        color: #64748b;
-    }
-
-    .dark-theme .file-preview {
-        background: rgba(5, 150, 105, .08);
-        border-color: rgba(16, 185, 129, .25);
-    }
-
-    .dark-theme .file-preview .file-icon {
-        background: rgba(5, 150, 105, .2);
-        color: #34d399;
-    }
-
-    .dark-theme .file-preview .file-name {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .file-preview .file-size {
-        color: #94a3b8;
-    }
-
-    .dark-theme .file-preview .file-remove {
-        background: rgba(239, 68, 68, .1);
-        border-color: rgba(239, 68, 68, .25);
-        color: #f87171;
-    }
-
-    .dark-theme .file-preview .file-remove:hover {
-        background: #dc2626;
-        color: #fff;
-    }
-
-    /* Summary sidebar */
-    .dark-theme .summary-card {
-        background: #1e293b;
-        border-color: #334155;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .25);
-    }
-
-    .dark-theme .summary-hdr {
-        border-bottom-color: #334155;
-    }
-
-    .dark-theme .summary-hdr h6 {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .check-list li {
-        color: #cbd5e1;
-    }
-
-    .dark-theme .check-list li .check-icon.pass {
-        background: rgba(5, 150, 105, .2);
-        color: #34d399;
-    }
-
-    .dark-theme .check-list li .check-icon.fail {
-        background: rgba(239, 68, 68, .15);
-        color: #f87171;
-    }
-
-    .dark-theme .sum-line .sum-label {
-        color: #94a3b8;
-    }
-
-    .dark-theme .sum-line .sum-value {
-        color: #e2e8f0;
-    }
-
-    .dark-theme .sum-divider {
-        border-top-color: #334155;
-    }
-
-    .dark-theme .sum-total .total-label {
-        color: #e2e8f0;
-    }
-
-    /* Buttons */
-    .dark-theme .btn-back {
-        background: #1e293b;
-        border-color: #475569;
-        color: #cbd5e1;
-    }
-
-    .dark-theme .btn-back:hover {
-        background: #334155;
-        color: #e2e8f0;
-    }
-
-    .dark-theme .btn-secondary-action {
-        background: #1e293b;
-        border-color: #475569;
-        color: #cbd5e1;
-    }
-
-    .dark-theme .btn-secondary-action:hover {
-        background: #334155;
-        color: #e2e8f0;
-    }
-
-    .dark-theme .btn-execute:disabled {
-        opacity: .35;
-    }
-
-    /* Alerts */
-    .dark-theme .alert-banner.success-alert {
-        background: rgba(16, 185, 129, .1);
-        border-color: rgba(16, 185, 129, .25);
-        color: #6ee7b7;
-    }
-
-    .dark-theme .alert-banner.error-alert {
-        background: rgba(239, 68, 68, .1);
-        border-color: rgba(239, 68, 68, .25);
-        color: #fca5a5;
-    }
-
-    /* Info hint */
-    .dark-theme .info-hint {
-        background: rgba(5, 150, 105, .06);
-        border-color: #334155;
-        color: #94a3b8;
-    }
-
-    /* MudBlazor overrides */
-    .dark-theme .mud-input-outlined .mud-input-outlined-border {
-        border-color: #475569 !important;
-    }
-
-    .dark-theme .mud-input.mud-input-outlined {
-        color: #e2e8f0 !important;
-    }
-
-    .dark-theme .mud-input-label {
-        color: #94a3b8 !important;
-    }
-
-    .dark-theme .mud-input-slot,
-    .dark-theme .mud-input>input {
-        color: #e2e8f0 !important;
-    }
-</style>
-
-<div class="cp-page">
-    <div class="container-fluid">
-
-        <!-- Breadcrumb -->
-        <div class="cp-breadcrumb">
-            <a href="/payments">Incoming Payments</a>
-            <span class="sep">/</span>
-            <span>Create New</span>
+@* Styles live in wwwroot/css/sales-forms.css (linked from App.razor), shared
+   with the other four sales document forms — see that file's header. The sheet
+   carries a light and a dark palette and follows the app's theme toggle.
+
+   `is-receipt` selects this form's row columns from the sheet. It is the one
+   form of the five that does not edit lines: its rows are the invoices the
+   money is applied to, and the four payment means above them are the branch
+   the whole form turns on.
+
+   Icon-only controls draw their glyph inline rather than from the Phosphor
+   font: the glyph is their whole label, so a font that failed to load would
+   leave them reading as dead controls. Icons beside a word keep the font. *@
+
+<div class="sfm is-receipt">
+    <div class="sfm-accentbar"></div>
+    <div class="sfm-shell">
+
+        <!-- ── Breadcrumb strip ───────────────────────────────────────── -->
+        <div class="sfm-crumbs">
+            <a href="/payments">Incoming payments</a>
+            <span class="sfm-crumb-sep">/</span>
+            <span class="sfm-crumb-now">Create new</span>
+            <span class="sfm-spacer"></span>
+            <a href="/payments" class="sfm-btn"><i class="ph ph-arrow-left"></i>Back</a>
         </div>
 
-        <!-- Header -->
-        <div class="cp-header">
-            <div class="cp-header-left">
-                <div class="cp-header-icon"><i class="bi bi-plus-circle-fill"></i></div>
-                <div>
-                    <h2>Create Incoming Payment</h2>
-                    <p>Record a new payment receipt from a customer</p>
+        <!-- ── Head ───────────────────────────────────────────────────── -->
+        <div class="sfm-head">
+            <div class="sfm-head-main">
+                <h1>Create incoming payment</h1>
+                <p>Records a receipt from a customer &middot; posts directly to SAP Business One</p>
+            </div>
+            <div class="sfm-stats">
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Method</div>
+                    <div class="sfm-stat-v">@PaymentMethodLabel</div>
+                </div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Applied</div>
+                    <div class="sfm-stat-v">@AppliedTotal.ToString("N2")</div>
+                </div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">Total payment</div>
+                    <div class="sfm-stat-v is-total">@TotalPayment.ToString("N2")</div>
                 </div>
             </div>
-            <a href="/payments" class="btn-back"><i class="bi bi-arrow-left"></i> Back to Payments</a>
         </div>
 
-        <!-- Alerts -->
+        <!-- ── Alerts ─────────────────────────────────────────────────── -->
         @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="alert-banner success-alert">
-                <i class="bi bi-check-circle-fill"></i>
-                <div class="alert-body">@successMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => successMessage = null" Size="Size.Small"
-                               Class="alert-close" />
+            <div class="sfm-alert is-ok">
+                <i class="ph-fill ph-check-circle"></i>
+                <div class="sfm-alert-bd">@successMessage</div>
+                <button type="button" class="sfm-alert-x" @onclick="() => successMessage = null" aria-label="Dismiss">
+                    <i class="ph ph-x"></i>
+                </button>
             </div>
         }
         @if (!string.IsNullOrEmpty(errorMessage))
         {
-            <div class="alert-banner error-alert">
-                <i class="bi bi-exclamation-octagon-fill"></i>
-                <div class="alert-body">@errorMessage</div>
-                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="() => errorMessage = null" Size="Size.Small"
-                               Class="alert-close" />
+            <div class="sfm-alert is-err">
+                <i class="ph-fill ph-warning-octagon"></i>
+                <div class="sfm-alert-bd">@errorMessage</div>
+                <button type="button" class="sfm-alert-x" @onclick="() => errorMessage = null" aria-label="Dismiss">
+                    <i class="ph ph-x"></i>
+                </button>
             </div>
         }
 
-        <div class="row g-4">
-            <!-- ━━━ Left Column ━━━ -->
-            <div class="col-lg-8">
+        <div class="sfm-grid">
+            <div class="sfm-main">
 
-                <!-- ── Customer Section ── -->
-                <div class="section-card">
-                    <div class="card-hdr">
-                        <div class="hdr-left">
-                            <div class="header-icon" style="background:#d1fae5; color:#059669;"><i
-                                class="bi bi-person-fill"></i></div>
-                                <h6>Customer Information</h6>
-                            </div>
-                        </div>
-                        <div class="card-body-inner">
-                            <div class="row g-3">
-                                <div class="col-md-8">
-                                    <label class="field-label">Customer <span class="required">*</span></label>
-                                    <div class="position-relative">
-                                        <input type="text"
-                                               class="form-control @(validationErrors.ContainsKey("CardCode") ? "validation-error" : "")"
-                                               placeholder="Search by code or name…" value="@bpSearchTerm"
-                                               @oninput="OnBpSearchInput" @onfocus="() => showBpDropdown = true"
-                                               @onblur="HandleBpBlur" />
-                                        @if (isBpLoading)
+                <!-- ── Customer ───────────────────────────────────────── -->
+                <section class="sfm-card">
+                    <div class="sfm-card-hd">
+                        <i class="ph ph-user-circle"></i>
+                        <h2>Customer</h2>
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-note">@allBusinessPartners.Count.ToString("N0") cached</span>
+                    </div>
+                    <div class="sfm-card-bd sfm-fields">
+                        @* Not a <label>: the field carries a result list, and a label would
+                           forward stray clicks on it back to the input. *@
+                        <div class="sfm-lab sfm-span2">
+                            <span class="sfm-lab-t">Customer <span class="sfm-req">*</span></span>
+                            <div class="sfm-combo">
+                                <input class="sfm-input @(validationErrors.ContainsKey("CardCode") ? "is-bad" : "")"
+                                       value="@bpSearchTerm" @oninput="OnBpSearchInput"
+                                       @onfocus="() => showBpDropdown = true" @onblur="HandleBpBlur"
+                                       placeholder="Search by code or name&hellip;" autocomplete="off" />
+                                @if (isBpLoading)
+                                {
+                                    <span class="sfm-combo-clear"><span class="sfm-spin"></span></span>
+                                }
+                                @if (showBpDropdown && filteredBusinessPartners?.Any() == true)
+                                {
+                                    <div class="sfm-drop is-wide">
+                                        @foreach (var bp in filteredBusinessPartners.Take(20))
                                         {
-                                            <div style="position:absolute; right:12px; top:50%; transform:translateY(-50%);">
-                                                <span class="spinner-border spinner-border-sm text-success"
-                                                      role="status"></span>
-                                            </div>
-                                        }
-                                        @if (showBpDropdown && filteredBusinessPartners?.Any() == true)
-                                        {
-                                            <div class="bp-dropdown">
-                                                @foreach (var bp in filteredBusinessPartners.Take(20))
+                                            <button type="button" class="sfm-drop-i"
+                                                    @onmousedown:preventDefault="true"
+                                                    @onmousedown="() => SelectBusinessPartner(bp)">
+                                                <span>
+                                                    <span class="sfm-drop-code">@bp.CardCode</span>
+                                                    <span class="sfm-drop-sub">@bp.CardName</span>
+                                                </span>
+                                                @if (bp.Balance > 0)
                                                 {
-                                                    <div class="bp-item" @onmousedown="() => SelectBusinessPartner(bp)">
-                                                        <strong>@bp.CardCode</strong> — @bp.CardName
-                                                        @if (bp.Balance > 0)
-                                                        {
-                                                            <span class="badge bg-warning ms-2" style="font-size:.7rem;">Bal:
-                                                                @bp.Balance?.ToString("N2")</span>
-                                                            }
-                                                        </div>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                        @if (validationErrors.ContainsKey("CardCode"))
-                                        {
-                                            <div class="val-msg">@validationErrors["CardCode"]</div>
-                                        }
-                                        @if (selectedBusinessPartner != null)
-                                        {
-                                            <div class="bp-selected">
-                                                <i class="bi bi-check-circle-fill" style="color:#059669;"></i>
-                                                <strong>@selectedBusinessPartner.CardCode</strong> —
-                                                @selectedBusinessPartner.CardName
-                                                @if (!string.IsNullOrEmpty(selectedBusinessPartner.Currency))
-                                                {
-                                                    <span class="badge"
-                                                          style="background:#dbeafe; color:#1e40af; font-size:.7rem;">@selectedBusinessPartner.Currency</span>
+                                                    <span class="sfm-drop-price">
+                                                        @bp.Balance?.ToString("N2")
+                                                        <small>balance</small>
+                                                    </span>
                                                 }
-                                            </div>
+                                            </button>
                                         }
                                     </div>
-                                    <div class="col-md-4">
-                                        <label class="field-label">Document Date</label>
-                                        <MudDatePicker @bind-Date="docDate" Variant="Variant.Outlined" Margin="Margin.Dense"
-                                                       DateFormat="@AppSettings.DateFormat" Editable="true" />
-                                    </div>
-                                </div>
-                                <div class="row g-3 mt-1">
-                                    <div class="col-12">
-                                        <label class="field-label">Remarks</label>
-                                        <textarea class="form-control" rows="2" placeholder="Optional payment remarks…"
-                                                  @bind="remarks"></textarea>
-                                    </div>
-                                </div>
+                                }
                             </div>
+                            @if (validationErrors.ContainsKey("CardCode"))
+                            {
+                                <div class="sfm-field-err">@validationErrors["CardCode"]</div>
+                            }
+                            @if (selectedBusinessPartner != null)
+                            {
+                                <div class="sfm-field-meta">
+                                    <i class="ph-fill ph-check-circle"></i>@selectedBusinessPartner.CardCode
+                                    &mdash; @selectedBusinessPartner.CardName
+                                    @if (!string.IsNullOrEmpty(selectedBusinessPartner.Currency))
+                                    {
+                                        <span> &middot; @selectedBusinessPartner.Currency</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <label class="sfm-lab">
+                            @* A native date input rather than MudDatePicker: it themes from this
+                               sheet, and opens the platform picker. It shows the operator's own
+                               locale format, not AppSettings.DateFormat — the browser owns that. *@
+                            <span class="sfm-lab-t">Document date</span>
+                            <input type="date" class="sfm-input" @bind="docDate" />
+                        </label>
+                        <label class="sfm-lab sfm-span3">
+                            <span class="sfm-lab-t">Remarks</span>
+                            <input class="sfm-input" @bind="remarks" placeholder="Optional payment remarks&hellip;" />
+                        </label>
+                    </div>
+                </section>
+
+                <!-- ── Payment method ─────────────────────────────────── -->
+                <section class="sfm-card">
+                    <div class="sfm-card-hd">
+                        <i class="ph ph-wallet"></i>
+                        <h2>Payment method</h2>
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-note">@PaymentMethodLabel</span>
+                    </div>
+                    <div class="sfm-card-bd">
+                        @if (validationErrors.ContainsKey("PaymentAmount"))
+                        {
+                            <div class="sfm-alert is-err">
+                                <i class="ph-fill ph-warning-octagon"></i>
+                                <div class="sfm-alert-bd">@validationErrors["PaymentAmount"]</div>
+                            </div>
+                        }
+
+                        @* A segmented control rather than a select: there are four, they are the
+                           form's main branch, and which one is chosen decides the fields below. *@
+                        <div class="sfm-seg">
+                            @foreach (var methodKey in AvailablePaymentMethods)
+                            {
+                                if (AllPaymentMethods.TryGetValue(methodKey, out var info))
+                                {
+                                    <button type="button" class="sfm-seg-i @(activePaymentMethod == methodKey ? "is-on" : "")"
+                                            @onclick="() => SetPaymentMethod(info.Type)">
+                                        <i class="@info.Icon"></i>@info.Label
+                                    </button>
+                                }
+                            }
                         </div>
 
-                        <!-- ── Payment Method Section ── -->
-                        <div class="section-card">
-                            <div class="card-hdr">
-                                <div class="hdr-left">
-                                    <div class="header-icon" style="background:#dbeafe; color:#2563eb;"><i
-                                        class="bi bi-wallet2"></i></div>
-                                        <h6>Payment Method — @PaymentMethodLabel</h6>
+                        <div class="sfm-fields sfm-gap-md">
+                            @if (activePaymentMethod == "cash")
+                            {
+                                <label class="sfm-lab sfm-span2">
+                                    <span class="sfm-lab-t">Cash amount</span>
+                                    <input type="number" step="0.01" min="0" class="sfm-input"
+                                           placeholder="0.00" @bind="cashSum" />
+                                </label>
+                            }
+                            else if (activePaymentMethod == "transfer")
+                            {
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Transfer amount</span>
+                                    <input type="number" step="0.01" min="0" class="sfm-input"
+                                           placeholder="0.00" @bind="transferSum" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Reference number</span>
+                                    <input class="sfm-input" placeholder="Transfer reference" @bind="transferReference" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Transfer date</span>
+                                    <input type="date" class="sfm-input" @bind="transferDate" />
+                                </label>
+                            }
+                            else if (activePaymentMethod == "check")
+                            {
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Check amount</span>
+                                    <input type="number" step="0.01" min="0" class="sfm-input"
+                                           placeholder="0.00" @bind="checkSum" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Check number</span>
+                                    <input type="number" class="sfm-input" placeholder="Check #" @bind="checkNumber" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Due date</span>
+                                    <input type="date" class="sfm-input" @bind="checkDueDate" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Bank code</span>
+                                    <input class="sfm-input" placeholder="Bank code" @bind="checkBankCode" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Branch</span>
+                                    <input class="sfm-input" placeholder="Branch" @bind="checkBranch" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Account number</span>
+                                    <input class="sfm-input" placeholder="Account #" @bind="checkAccountNum" />
+                                </label>
+                            }
+                            else if (activePaymentMethod == "credit")
+                            {
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Credit amount</span>
+                                    <input type="number" step="0.01" min="0" class="sfm-input"
+                                           placeholder="0.00" @bind="creditSum" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Card number (last 4)</span>
+                                    <input class="sfm-input" maxlength="4" placeholder="XXXX" @bind="creditCardNumber" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Valid until</span>
+                                    <input class="sfm-input" placeholder="MM/YY" @bind="creditCardValidUntil" />
+                                </label>
+                                <label class="sfm-lab">
+                                    <span class="sfm-lab-t">Voucher number</span>
+                                    <input class="sfm-input" placeholder="Voucher #" @bind="creditVoucherNum" />
+                                </label>
+                            }
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Applied invoices ───────────────────────────────── -->
+                <section class="sfm-card">
+                    <div class="sfm-card-hd">
+                        <i class="ph ph-receipt"></i>
+                        <h2>Apply to invoices</h2>
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-note">Optional</span>
+                        <span class="sfm-count">@invoiceLines.Count</span>
+                    </div>
+                    <div class="sfm-lines">
+                        <div class="sfm-lines-inner">
+                            @if (invoiceLines.Count == 0)
+                            {
+                                <div class="sfm-info-note">
+                                    <i class="ph ph-info"></i>
+                                    <div>
+                                        Nothing applied yet. A payment with no invoices named is recorded
+                                        on account, which is a valid outcome &mdash; add rows only to settle
+                                        specific documents.
                                     </div>
                                 </div>
-                                <div class="card-body-inner">
-
-                                    @if (validationErrors.ContainsKey("PaymentAmount"))
-                                    {
-                                        <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
-                                            <i class="bi bi-exclamation-circle-fill"></i>
-                                            <div class="alert-body">@validationErrors["PaymentAmount"]</div>
-                                        </div>
-                                    }
-
-                                    <!-- Payment Method Tabs -->
-                                    @{
-                                        var availMethods = AvailablePaymentMethods;
-                                    }
-                                    @if (availMethods.Count > 1)
-                                    {
-                                        <div class="method-tabs" style="margin-bottom:1rem;">
-                                            @foreach (var methodKey in availMethods)
-                                            {
-                                                if (AllPaymentMethods.TryGetValue(methodKey, out var info))
-                                                {
-                                                    <div class="method-tab @GetMethodTabClass(methodKey)"
-                                                         @onclick="() => SetPaymentMethod(info.Type)" style="cursor:pointer;">
-                                                        <span class="tab-icon"><i class="bi @info.Icon"></i></span>
-                                                        <span class="tab-label">@info.Label</span>
-                                                    </div>
-                                                }
-                                            }
-                                        </div>
-                                    }
-
-                                    <!-- Cash -->
-                                    @if (activePaymentMethod == "cash")
-                                    {
-                                        <div class="row g-3">
-                                            <div class="col-md-6">
-                                                <label class="field-label">Cash Amount</label>
-                                                <div class="input-group">
-                                                    <span class="input-group-text"><i class="bi bi-cash"></i></span>
-                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
-                                                           @bind="cashSum" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <!-- Transfer -->
-                                    @if (activePaymentMethod == "transfer")
-                                    {
-                                        <div class="row g-3">
-                                            <div class="col-md-4">
-                                                <label class="field-label">Transfer Amount</label>
-                                                <div class="input-group">
-                                                    <span class="input-group-text"><i class="bi bi-bank"></i></span>
-                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
-                                                           @bind="transferSum" />
-                                                </div>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Reference Number</label>
-                                                <input type="text" class="form-control" placeholder="Transfer reference"
-                                                       @bind="transferReference" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Transfer Date</label>
-                                                <MudDatePicker @bind-Date="transferDate" Variant="Variant.Outlined"
-                                                               Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <!-- Check -->
-                                    @if (activePaymentMethod == "check")
-                                    {
-                                        <div class="row g-3">
-                                            <div class="col-md-4">
-                                                <label class="field-label">Check Amount</label>
-                                                <div class="input-group">
-                                                    <span class="input-group-text"><i class="bi bi-journal-check"></i></span>
-                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
-                                                           @bind="checkSum" />
-                                                </div>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Check Number</label>
-                                                <input type="number" class="form-control" placeholder="Check #" @bind="checkNumber" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Due Date</label>
-                                                <MudDatePicker @bind-Date="checkDueDate" Variant="Variant.Outlined"
-                                                               Margin="Margin.Dense" DateFormat="@AppSettings.DateFormat" Editable="true" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Bank Code</label>
-                                                <input type="text" class="form-control" placeholder="Bank code" @bind="checkBankCode" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Branch</label>
-                                                <input type="text" class="form-control" placeholder="Branch" @bind="checkBranch" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Account Number</label>
-                                                <input type="text" class="form-control" placeholder="Account #"
-                                                       @bind="checkAccountNum" />
-                                            </div>
-                                        </div>
-                                    }
-
-                                    <!-- Credit Card -->
-                                    @if (activePaymentMethod == "credit")
-                                    {
-                                        <div class="row g-3">
-                                            <div class="col-md-4">
-                                                <label class="field-label">Credit Amount</label>
-                                                <div class="input-group">
-                                                    <span class="input-group-text"><i class="bi bi-credit-card"></i></span>
-                                                    <input type="number" class="form-control" step="0.01" min="0" placeholder="0.00"
-                                                           @bind="creditSum" />
-                                                </div>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Card Number (last 4)</label>
-                                                <input type="text" class="form-control" maxlength="4" placeholder="XXXX"
-                                                       @bind="creditCardNumber" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Valid Until</label>
-                                                <input type="text" class="form-control" placeholder="MM/YY"
-                                                       @bind="creditCardValidUntil" />
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label class="field-label">Voucher Number</label>
-                                                <input type="text" class="form-control" placeholder="Voucher #"
-                                                       @bind="creditVoucherNum" />
-                                            </div>
-                                        </div>
-                                    }
+                                <button type="button" class="sfm-addline" @onclick="AddInvoiceLine">
+                                    <i class="ph ph-plus"></i>Apply to an invoice
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="sfm-row is-head">
+                                    <div>#</div>
+                                    <div>Doc entry</div>
+                                    <div class="sfm-r">Amount applied</div>
+                                    <div>Invoice type</div>
+                                    <div></div>
                                 </div>
-                            </div>
 
-                            <!-- ── Applied Invoices Section ── -->
-                            <div class="section-card">
-                                <div class="card-hdr">
-                                    <div class="hdr-left">
-                                        <div class="header-icon" style="background:#fef3c7; color:#d97706;"><i
-                                            class="bi bi-receipt"></i></div>
-                                            <h6>Apply to Invoices <span
-                                                style="font-weight:400; color:#9ca3af; font-size:.82rem;">(Optional)</span></h6>
-                                            </div>
-                                            <MudButton Class="btn btn-sm"
-                                                       Style="background:#d1fae5; color:#059669; border:none; border-radius:7px; font-weight:600; font-size:.8rem; padding:.3rem .7rem;"
-                                                       OnClick="AddInvoiceLine">
-                                                <i class="bi bi-plus-lg me-1"></i>Add Invoice
-                                            </MudButton>
-                                        </div>
-                                        <div class="card-body-inner">
-                                            @if (invoiceLines.Count == 0)
-                                            {
-                                                <div class="inv-empty">
-                                                    <span class="empty-ico"><i class="bi bi-receipt-cutoff"></i></span>
-                                                    <p style="margin:0;">No invoices added. Click <strong>"Add Invoice"</strong> to apply this
-                                                        payment to specific invoices.</p>
-                                                        <p style="margin:.25rem 0 0; font-size:.8rem;">If no invoices are specified, the payment
-                                                            will be recorded as on-account.</p>
-                                                        </div>
-                                                    }
+                                @for (int i = 0; i < invoiceLines.Count; i++)
+                                {
+                                    var index = i;
+                                    var lineErrors = GetInvoiceLineErrors(index);
+
+                                    <div class="sfm-row">
+                                        <div class="sfm-n">@(index + 1)</div>
+                                        <input type="number"
+                                               class="sfm-input sfm-cell @(lineErrors.ContainsKey("DocEntry") ? "is-bad" : "")"
+                                               placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
+                                        <input type="number" step="0.01" min="0"
+                                               class="sfm-input sfm-num @(lineErrors.ContainsKey("SumApplied") ? "is-bad" : "")"
+                                               placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
+                                        <select class="sfm-select sfm-cell" @bind="invoiceLines[index].InvoiceType">
+                                            <option value="it_Invoice">Invoice</option>
+                                            <option value="it_DownPayment">Down payment</option>
+                                        </select>
+                                        @* The glyph is drawn inline, not set in the icon font: it is this
+                                           button's only label, so a font that fails to load would leave an
+                                           empty square that reads as a broken control. *@
+                                        <button type="button" class="sfm-btn-x" title="Remove invoice"
+                                                aria-label="Remove invoice @(index + 1)"
+                                                @onclick="() => RemoveInvoiceLine(index)">
+                                            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                                <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                            </svg>
+                                        </button>
+                                        @if (lineErrors.Any())
+                                        {
+                                            <div class="sfm-row-err">@string.Join(" · ", lineErrors.Values)</div>
+                                        }
+                                    </div>
+                                }
+
+                                <button type="button" class="sfm-addline" @onclick="AddInvoiceLine">
+                                    <i class="ph ph-plus"></i>Apply to another invoice
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ── Attachment ─────────────────────────────────────── -->
+                <section class="sfm-card">
+                    <div class="sfm-card-hd">
+                        <i class="ph ph-paperclip"></i>
+                        <h2>Attachment <span class="sfm-req">*</span></h2>
+                        <span class="sfm-spacer"></span>
+                        @if (paymentAttachment != null)
+                        {
+                            <span class="sfm-tag">Uploaded</span>
+                        }
+                    </div>
+                    <div class="sfm-card-bd">
+                        @if (validationErrors.ContainsKey("Attachment"))
+                        {
+                            <div class="sfm-alert is-err">
+                                <i class="ph-fill ph-warning-octagon"></i>
+                                <div class="sfm-alert-bd">@validationErrors["Attachment"]</div>
+                            </div>
+                        }
+
+                        <label class="sfm-upload @(paymentAttachment != null ? "has-file" : "")">
+                            @* The label is the drop zone; the input is hidden visually but
+                               stays in the tab order, and .sfm-upload:focus-within draws its
+                               focus ring. See the sheet. *@
+                            <InputFile OnChange="OnAttachmentSelected" accept=".pdf,.jpg,.jpeg,.png,.webp" />
+                            <span class="sfm-upload-i">
+                                <i class="ph @(paymentAttachment != null ? "ph-file-text" : "ph-cloud-arrow-up")"></i>
+                            </span>
+                            <span class="sfm-upload-t">
+                                @(paymentAttachment != null ? "Click to replace file" : "Click to upload proof of payment")
+                            </span>
+                            <span class="sfm-upload-x">PDF, JPEG, PNG or WebP &mdash; max 20 MB</span>
+                        </label>
+
+                        @if (paymentAttachment != null)
+                        {
+                            <div class="sfm-file">
+                                <i class="ph @(paymentAttachment.ContentType.Contains("pdf") ? "ph-file-pdf" : "ph-file-image") sfm-file-i"></i>
+                                <div class="sfm-file-bd">
+                                    <div class="sfm-file-n">@paymentAttachment.Name</div>
+                                    <div class="sfm-file-s">@FormatFileSize(paymentAttachment.Size)</div>
+                                </div>
+                                <button type="button" class="sfm-btn-x" title="Remove attachment"
+                                        aria-label="Remove attachment" @onclick="RemoveAttachment">
+                                    <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+                                        <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+
+            <!-- ── Aside ──────────────────────────────────────────────── -->
+            <aside class="sfm-aside">
+                <div class="sfm-card sfm-total-card">
+                    <div class="sfm-total-hd">
+                        <span class="sfm-total-k">Total payment</span>
+                        <span class="sfm-total-cur">@(selectedBusinessPartner?.Currency ?? "")</span>
+                    </div>
+                    <div class="sfm-total-v @(IsOverApplied ? "is-over" : "")">@TotalPayment.ToString("N2")</div>
+
+                    <div class="sfm-sum-rule"></div>
+                    <div class="sfm-sum @(cashSum > 0 ? "" : "is-zero")">
+                        <span class="sfm-sum-k"><i class="ph ph-money"></i>Cash</span>
+                        <span class="sfm-sum-v">@cashSum.ToString("N2")</span>
+                    </div>
+                    <div class="sfm-sum @(transferSum > 0 ? "" : "is-zero")">
+                        <span class="sfm-sum-k"><i class="ph ph-bank"></i>Transfer</span>
+                        <span class="sfm-sum-v">@transferSum.ToString("N2")</span>
+                    </div>
+                    <div class="sfm-sum @(checkSum > 0 ? "" : "is-zero")">
+                        <span class="sfm-sum-k"><i class="ph ph-check-square"></i>Check</span>
+                        <span class="sfm-sum-v">@checkSum.ToString("N2")</span>
+                    </div>
+                    <div class="sfm-sum @(creditSum > 0 ? "" : "is-zero")">
+                        <span class="sfm-sum-k"><i class="ph ph-credit-card"></i>Credit</span>
+                        <span class="sfm-sum-v">@creditSum.ToString("N2")</span>
+                    </div>
+
+                    @if (AppliedTotal > 0)
+                    {
+                        <div class="sfm-sum-rule"></div>
+                        <div class="sfm-sum">
+                            <span class="sfm-sum-k">Applied to invoices</span>
+                            <span class="sfm-sum-v">@AppliedTotal.ToString("N2")</span>
+                        </div>
+                        <div class="sfm-total-sub">
+                            @invoiceLines.Count(l => l.DocEntry > 0) invoice(s)
+                            @if (IsOverApplied)
+                            {
+                                <span> &middot; more than the payment covers</span>
+                            }
+                        </div>
+                    }
+
+                    <button type="button" class="sfm-btn-solid sfm-gap-md" @onclick="SubmitPayment"
+                            disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="sfm-spin on-solid"></span>
+                            <span>Creating&hellip;</span>
+                        }
                         else
-                                                    {
-                                                        @for (int i = 0; i < invoiceLines.Count; i++)
-                                                        {
-                                                            var index = i;
-                                                            <div class="inv-card">
-                                                                <MudButton Class="inv-remove" OnClick="() => RemoveInvoiceLine(index)" title="Remove"><i
-                                                                    class="bi bi-x"></i></MudButton>
-                                                                    <div style="margin-bottom:.6rem;">
-                                                                        <span class="inv-badge"><i class="bi bi-receipt"></i> Invoice @(index + 1)</span>
-                                                                    </div>
-                                                                    <div class="row g-3">
-                                                                        <div class="col-md-4">
-                                                                            <label class="field-label">Doc Entry <span class="required">*</span></label>
-                                                                            <input type="number"
-                                                                                   class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("DocEntry") ? "validation-error" : "")"
-                                                                                   placeholder="DocEntry" @bind="invoiceLines[index].DocEntry" />
-                                                                            @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                                                                                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("DocEntry"))
-                                                                            {
-                                                                                <div class="val-msg">@invoiceValidationErrors[index]["DocEntry"]</div>
-                                                                            }
-                                                                        </div>
-                                                                        <div class="col-md-4">
-                                                                            <label class="field-label">Amount Applied <span class="required">*</span></label>
-                                                                            <input type="number"
-                                                                                   class="form-control form-control-sm @(invoiceValidationErrors.ContainsKey(index) && invoiceValidationErrors[index].ContainsKey("SumApplied") ? "validation-error" : "")"
-                                                                                   step="0.01" min="0" placeholder="0.00" @bind="invoiceLines[index].SumApplied" />
-                                                                            @if (invoiceValidationErrors.ContainsKey(index) &&
-                                                                                                                                                                                                                                                                                                                                                                                                                                invoiceValidationErrors[index].ContainsKey("SumApplied"))
-                                                                            {
-                                                                                <div class="val-msg">@invoiceValidationErrors[index]["SumApplied"]</div>
-                                                                            }
-                                                                        </div>
-                                                                        <div class="col-md-4">
-                                                                            <label class="field-label">Invoice Type</label>
-                                                                            <select class="form-select form-select-sm" @bind="invoiceLines[index].InvoiceType">
-                                                                                <option value="it_Invoice">Invoice</option>
-                                                                                <option value="it_DownPayment">Down Payment</option>
-                                                                            </select>
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            }
-                                                        }
-                                                    </div>
-                                                </div>
-                                            </div>
+                        {
+                            <i class="ph-fill ph-check-circle"></i>
+                            <span>Create payment</span>
+                        }
+                    </button>
+                    <button type="button" class="sfm-btn sfm-btn-wide sfm-btn-danger sfm-gap-sm"
+                            @onclick="ClearForm" disabled="@isSubmitting">
+                        <i class="ph ph-arrow-counter-clockwise"></i>Clear form
+                    </button>
+                </div>
 
-                                            <!-- ── Attachment Section ── -->
-                                            <div class="section-card">
-                                                <div class="card-hdr">
-                                                    <div class="hdr-left">
-                                                        <div class="header-icon" style="background:#ede9fe; color:#7c3aed;"><i
-                                                            class="bi bi-paperclip"></i></div>
-                                                            <h6>Attachment <span class="required">*</span></h6>
-                                                        </div>
-                                                        @if (paymentAttachment != null)
-                                                        {
-                                                            <span class="badge" style="background:#d1fae5; color:#065f46; font-size:.72rem; font-weight:600;"><i
-                                                                class="bi bi-check-lg me-1"></i>Uploaded</span>
-                                                            }
-                                                        </div>
-                                                        <div class="card-body-inner">
-                                                            @if (validationErrors.ContainsKey("Attachment"))
-                                                            {
-                                                                <div class="alert-banner error-alert" style="margin-bottom:.75rem;">
-                                                                    <i class="bi bi-exclamation-circle-fill"></i>
-                                                                    <div class="alert-body">@validationErrors["Attachment"]</div>
-                                                                </div>
-                                                            }
+                <div class="sfm-card sfm-panel">
+                    <div class="sfm-card-hd">
+                        <i class="ph ph-shield-check"></i>
+                        <span class="sfm-panel-t">Pre-flight checks</span>
+                        <span class="sfm-spacer"></span>
+                        <span class="sfm-note">@PassedCheckCount/4</span>
+                    </div>
+                    <div class="sfm-checks">
+                        <div class="sfm-checks-i @(HasCustomer ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(HasCustomer ? "ph-check" : "ph-x")"></i></span>
+                            <span>Customer selected</span>
+                        </div>
+                        <div class="sfm-checks-i @(HasAmount ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(HasAmount ? "ph-check" : "ph-x")"></i></span>
+                            <span>Payment amount entered</span>
+                        </div>
+                        <div class="sfm-checks-i @(HasMethodDetails ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(HasMethodDetails ? "ph-check" : "ph-x")"></i></span>
+                            <span>Method details filled</span>
+                        </div>
+                        <div class="sfm-checks-i @(HasAttachment ? "" : "is-no")">
+                            <span class="sfm-checks-ic"><i class="ph-fill @(HasAttachment ? "ph-check" : "ph-x")"></i></span>
+                            <span>Attachment uploaded</span>
+                        </div>
+                    </div>
+                </div>
 
-                                                            <label class="upload-zone @(paymentAttachment != null ? "has-file" : "")">
-                                                                <InputFile OnChange="OnAttachmentSelected" accept=".pdf,.jpg,.jpeg,.png,.webp"
-                                                                           style="display:none;" />
-                                                                <div class="upload-icon"><i
-                                                                    class="bi @(paymentAttachment != null ? "bi-file-earmark-check" : "bi-cloud-arrow-up")"></i>
-                                                                </div>
-                                                                <div class="upload-text">
-                                                                    @if (paymentAttachment != null)
-                                                                    {
-                                                                        <span>Click to replace file</span>
-                                                                    }
-                                                                    else
-                                                                    {
-                                                                        <span>Click to upload proof of payment</span>
-                                                                    }
-                                                                </div>
-                                                                <div class="upload-hint">PDF, JPEG, PNG or WebP — Max 20 MB</div>
-                                                            </label>
-
-                                                            @if (paymentAttachment != null)
-                                                            {
-                                                                <div class="file-preview">
-                                                                    <div class="file-icon">
-                                                                        <i
-                                                                        class="bi @(paymentAttachment.ContentType.Contains("pdf") ? "bi-file-earmark-pdf" : "bi-file-earmark-image")"></i>
-                                                                    </div>
-                                                                    <div class="file-info">
-                                                                        <div class="file-name">@paymentAttachment.Name</div>
-                                                                        <div class="file-size">@FormatFileSize(paymentAttachment.Size)</div>
-                                                                    </div>
-                                                                    <button type="button" class="file-remove" @onclick="RemoveAttachment" title="Remove">
-                                                                        <i class="bi bi-x"></i>
-                                                                    </button>
-                                                                </div>
-                                                            }
-                                                        </div>
-                                                    </div>
-
-                                                    <!-- ━━━ Right Column: Summary Sidebar ━━━ -->
-                                                    <div class="col-lg-4">
-                                                        <div class="summary-section">
-                                                            <div class="summary-card">
-                                                                <!-- Validation Checklist -->
-                                                                <div class="summary-hdr">
-                                                                    <i class="bi bi-shield-check" style="color:#059669;"></i>
-                                                                    <h6>Validation Checklist</h6>
-                                                                </div>
-                                                                <div style="padding:.85rem 1.15rem; border-bottom:1px solid #f3f4f6;">
-                                                                    <ul class="check-list">
-                                                                        <li>
-                                                                            <span
-                                                                                class="check-icon @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "pass" : "fail")">
-                                                                                <i
-                                                                                class="bi @(selectedBusinessPartner != null || !string.IsNullOrWhiteSpace(bpSearchTerm) ? "bi-check" : "bi-x")"></i>
-                                                                            </span>
-                                                                            Customer selected
-                                                                        </li>
-                                                                        <li>
-                                                                            <span class="check-icon @(TotalPayment > 0 ? "pass" : "fail")">
-                                                                                <i class="bi @(TotalPayment > 0 ? "bi-check" : "bi-x")"></i>
-                                                                            </span>
-                                                                            Payment amount entered
-                                                                        </li>
-                                                                        <li>
-                                                                            <span
-                                                                                class="check-icon @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "fail" : "pass")">
-                                                                                <i
-                                                                                class="bi @(activePaymentMethod == "transfer" && string.IsNullOrWhiteSpace(transferReference) ? "bi-x" : "bi-check")"></i>
-                                                                            </span>
-                                                                            Method details filled
-                                                                        </li>
-                                                                        <li>
-                                                                            <span class="check-icon @(paymentAttachment != null ? "pass" : "fail")">
-                                                                                <i class="bi @(paymentAttachment != null ? "bi-check" : "bi-x")"></i>
-                                                                            </span>
-                                                                            Attachment uploaded
-                                                                        </li>
-                                                                    </ul>
-                                                                </div>
-
-                                                                <!-- Summary -->
-                                                                <div class="summary-hdr" style="border-bottom:none;">
-                                                                    <i class="bi bi-calculator" style="color:#059669;"></i>
-                                                                    <h6>Payment Summary</h6>
-                                                                </div>
-                                                                <div class="summary-body" style="padding-top:0;">
-                                                                    <div class="sum-line">
-                                                                        <span class="sum-label"><i class="bi bi-cash me-1"
-                                                                                                       style="color:#059669;"></i>Cash</span>
-                                                                            <span class="sum-value">@cashSum.ToString("N2")</span>
-                                                                        </div>
-                                                                        <div class="sum-line">
-                                                                            <span class="sum-label"><i class="bi bi-bank me-1"
-                                                                                                           style="color:#2563eb;"></i>Transfer</span>
-                                                                                <span class="sum-value">@transferSum.ToString("N2")</span>
-                                                                            </div>
-                                                                            <div class="sum-line">
-                                                                                <span class="sum-label"><i class="bi bi-journal-check me-1"
-                                                                                                               style="color:#d97706;"></i>Check</span>
-                                                                                    <span class="sum-value">@checkSum.ToString("N2")</span>
-                                                                                </div>
-                                                                                <div class="sum-line">
-                                                                                    <span class="sum-label"><i class="bi bi-credit-card me-1"
-                                                                                                                   style="color:#7c3aed;"></i>Credit</span>
-                                                                                        <span class="sum-value">@creditSum.ToString("N2")</span>
-                                                                                    </div>
-
-                                                                                    @if (invoiceLines.Any(l => l.SumApplied > 0))
-                                                                                    {
-                                                                                        <hr class="sum-divider" />
-                                                                                        <div class="sum-line">
-                                                                                            <span class="sum-label">Applied to Invoices</span>
-                                                                                            <span class="sum-value">@invoiceLines.Sum(l => l.SumApplied).ToString("N2")</span>
-                                                                                        </div>
-                                                                                        <div style="font-size:.78rem; color:#6b7280; text-align:right;">@invoiceLines.Count(l =>
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            l.DocEntry > 0) invoice(s)</div>
-                                                                                        }
-
-                                                                                        <hr class="sum-divider" />
-                                                                                        <div class="sum-total">
-                                                                                            <span class="total-label">Total Payment</span>
-                                                                                            <span class="total-value">@TotalPayment.ToString("N2")</span>
-                                                                                        </div>
-                                                                                    </div>
-
-                                                                                    <!-- Actions -->
-                                                                                    <div style="padding:0 1.15rem 1.15rem;">
-                                                                                        <MudButton Class="btn-execute" OnClick="SubmitPayment" Disabled="@isSubmitting">
-                                                                                            @if (isSubmitting)
-                                                                                            {
-                                                                                                <span class="spinner-border spinner-border-sm"></span>
-                                                                                                <span>Creating…</span>
-                                                                                            }
-                                                                                            else
-                                                                                            {
-                                                                                                <i class="bi bi-check-circle-fill"></i>
-                                                                                                <span>Create Payment</span>
-                                                                                            }
-                                                                                        </MudButton>
-                                                                                        <MudButton Class="btn-secondary-action" OnClick="ClearForm" Disabled="@isSubmitting">
-                                                                                            <i class="bi bi-arrow-counterclockwise"></i> Clear Form
-                                                                                        </MudButton>
-                                                                                        <div class="info-hint">
-                                                                                            <i class="bi bi-info-circle" style="flex-shrink:0; margin-top:1px;"></i>
-                                                                                            <span>Payments are posted directly to SAP Business One. Ensure all details are correct
-                                                                                                before submitting.</span>
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                        }
-                                                                    </div>
-                                                                </div>
+                <div class="sfm-card sfm-panel">
+                    <div class="sfm-info-note">
+                        <i class="ph ph-info"></i>
+                        <div>
+                            Payments post directly to SAP Business One. Check the details before
+                            submitting &mdash; a posted receipt is reversed there, not here.
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+</div>
 
 @code {
     // State
@@ -1566,10 +536,12 @@
     private static readonly Dictionary<string, (string Label, string Icon, PaymentMethodType Type)> AllPaymentMethods =
 new()
     {
-        { "cash", ("Cash", "bi-cash-coin", PaymentMethodType.Cash) },
-        { "transfer", ("Transfer", "bi-bank", PaymentMethodType.Transfer) },
-        { "check", ("Check", "bi-card-checklist", PaymentMethodType.Check) },
-        { "credit", ("Credit Card", "bi-credit-card", PaymentMethodType.Credit) }
+        // Phosphor classes, not Bootstrap's: the page renders these straight into
+        // class= and the rest of the module is on Phosphor.
+        { "cash", ("Cash", "ph ph-money", PaymentMethodType.Cash) },
+        { "transfer", ("Transfer", "ph ph-bank", PaymentMethodType.Transfer) },
+        { "check", ("Check", "ph ph-check-square", PaymentMethodType.Check) },
+        { "credit", ("Credit Card", "ph ph-credit-card", PaymentMethodType.Credit) }
     };
 
     private List<string> AvailablePaymentMethods => AllPaymentMethods.Keys.ToList();
@@ -1594,7 +566,36 @@ new()
         _ => "cash"
     };
 
-    private string GetMethodTabClass(string method) => activePaymentMethod == method ? "active" : "";
+    private Dictionary<string, string> GetInvoiceLineErrors(int index)
+        => invoiceValidationErrors.TryGetValue(index, out var errors)
+            ? errors
+            : new Dictionary<string, string>();
+
+    // ── Pre-flight checks ───────────────────────────────
+    // Stated in the aside so the operator sees what is still missing before
+    // pressing Create, rather than after the round trip. The method-details
+    // check mirrors the server's own rule: only a transfer requires a
+    // reference, so the other three methods pass it by having nothing to fill.
+
+    private bool HasCustomer => selectedBusinessPartner != null
+        || !string.IsNullOrWhiteSpace(bpSearchTerm);
+
+    private bool HasAmount => TotalPayment > 0;
+
+    private bool HasMethodDetails =>
+        activePaymentMethod != "transfer" || !string.IsNullOrWhiteSpace(transferReference);
+
+    private bool HasAttachment => paymentAttachment != null;
+
+    private int PassedCheckCount =>
+        (HasCustomer ? 1 : 0) + (HasAmount ? 1 : 0)
+        + (HasMethodDetails ? 1 : 0) + (HasAttachment ? 1 : 0);
+
+    private decimal AppliedTotal => invoiceLines.Sum(l => l.SumApplied);
+
+    // Not blocked, and not an error: SAP puts the difference on account. It is
+    // stated because it is never what the operator meant to do.
+    private bool IsOverApplied => AppliedTotal > TotalPayment;
 
     // Cash
     private decimal cashSum;
