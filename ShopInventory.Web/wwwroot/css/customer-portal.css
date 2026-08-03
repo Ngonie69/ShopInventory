@@ -989,6 +989,689 @@
 }
 
 /* ==========================================================================
+   Dashboard
+
+   From the `Customer Portal Dashboard.dc.html` design: a stated hero, an
+   overdue strip, four figures, an aging panel beside a period summary, and two
+   ledgers side by side. Composition, spacing and type are taken from it as
+   drawn; the palette is the portal's own, for the reason at the top of this
+   file and exactly as the sign-in import below was handled.
+
+   One substitution the palette forces. Stock Nocturne has a single chromatic
+   colour, so the design necessarily spends it on both jobs at once: the accent
+   is the brand *and* the alert — it marks links and the primary button, and it
+   also marks the overdue banner, the overdue figure, the 1-7 day bucket and
+   every "days over" tag. The portal's accent is teal, which cannot carry the
+   second job; money that is past due must not look settled. So the design's
+   single accent splits in two here: brand keeps `--cpx-accent`, and everything
+   the design was using to mean *overdue* takes `--cpd-alert`. The overdue path
+   still reads as one highlighted thread through the page, which is what the
+   design was doing with it — it is just no longer the same colour as the
+   links. `.cpx .aging-b4` on the statement page already made this trade.
+
+   Class names are prefixed `cpd-` rather than reusing the shared
+   `stat-card` / `dashboard-panel` vocabulary the other portal pages carry:
+   those are restyled Bootstrap, and this page's tiles and panels are a
+   different object. The two ledgers do borrow `mobile-card-table`, whose rules
+   are keyed on that class alone, so they stack into cards below 992px for
+   free.
+   ========================================================================== */
+
+.cpx .cpd {
+    --cpd-alert: var(--cpx-bad);
+    --cpd-alert-soft: var(--cpx-bad-bg);
+    --cpd-alert-edge: var(--cpx-bad-edge);
+    /* The design's 16px panel headings against a 30px page heading — a step
+       shorter than the portal's shared --cpx-h2. */
+    --cpd-title: clamp(.95rem, .91rem + .2vw, 1.06rem);
+
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s6);
+    /* The figure row counts columns off this, not off the viewport: the drawer
+       takes 240px on a laptop and nothing on a phone, so the same viewport
+       width leaves the content two different widths. */
+    container-type: inline-size;
+}
+
+/* Hero -------------------------------------------------------------------- */
+
+.cpx .cpd-hero {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: var(--cpx-s4) var(--cpx-s8);
+}
+
+.cpx .cpd-hero-text {
+    min-width: 0;
+}
+
+.cpx .cpd-hero-text h2 {
+    margin: 0 0 4px;
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: var(--cpx-h1);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.015em;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+/* The account line is one sentence of facts separated by middots. They are
+   emitted as separate spans so a wrapped line breaks between facts rather than
+   orphaning a separator. */
+.cpx .cpd-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px var(--cpx-s3);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-hero-meta>span+span::before {
+    content: "·";
+    margin-right: var(--cpx-s3);
+    color: var(--cpx-faint);
+}
+
+.cpx .cpd-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cpx-s2);
+    margin-left: auto;
+}
+
+/* Overdue strip ----------------------------------------------------------- */
+
+.cpx .cpd-banner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cpx-s4);
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpd-alert-soft);
+    /* The design's two-part edge: a 2px mark down the leading side and a
+       hairline round the rest. */
+    box-shadow: inset 2px 0 0 var(--cpd-alert), 0 0 0 1px var(--cpd-alert-edge);
+}
+
+.cpx .cpd-banner>i {
+    flex: none;
+    font-size: 19px;
+    color: var(--cpd-alert);
+}
+
+/* Takes the slack and holds a basis, so on a phone the sentence stays beside
+   its icon and only the action drops to a second line — rather than the icon
+   being left stranded on a line of its own. */
+.cpx .cpd-banner-text {
+    flex: 1 1 12rem;
+    min-width: 0;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-banner-num {
+    font-weight: 600;
+    font-size: var(--cpx-text);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-banner .cpd-banner-action {
+    flex: none;
+    margin-left: auto;
+    background: var(--cpd-alert);
+    border-color: var(--cpd-alert);
+    color: var(--cpx-surface);
+}
+
+.cpx .cpd-banner .cpd-banner-action:hover,
+.cpx .cpd-banner .cpd-banner-action:focus {
+    background: var(--cpx-ink);
+    border-color: var(--cpx-ink);
+    color: var(--cpx-surface);
+}
+
+/* Figures ----------------------------------------------------------------- */
+
+/* Four, two or one — never three, which strands the fourth figure alone on a
+   row half the page wide. That is the one thing `auto-fit` cannot be told, so
+   the counts are stated. */
+.cpx .cpd-kpis {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--cpx-s4);
+}
+
+@container (min-width: 460px) {
+    .cpx .cpd-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container (min-width: 920px) {
+    .cpx .cpd-kpis {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+.cpx .cpd-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-pad);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface);
+    box-shadow: var(--cpx-shadow-sm);
+    transition: box-shadow .15s ease;
+}
+
+.cpx .cpd-kpi:hover {
+    box-shadow: 0 0 0 1px var(--cpx-edge-hi);
+}
+
+.cpx .cpd-kpi-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpx-s3);
+}
+
+.cpx .cpd-kpi-label {
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpd-kpi-top i {
+    font-size: 15px;
+    color: var(--cpx-faint);
+}
+
+.cpx .cpd-kpi-num {
+    font-size: var(--cpx-num);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -.02em;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpd-kpi-sub {
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+}
+
+/* The overdue figure is ringed and tinted rather than merely labelled — the
+   design's one raised tile in the row. */
+.cpx .cpd-kpi.is-alert {
+    box-shadow: 0 0 0 1px var(--cpd-alert-edge);
+}
+
+.cpx .cpd-kpi.is-alert:hover {
+    box-shadow: 0 0 0 1px var(--cpd-alert);
+}
+
+.cpx .cpd-kpi.is-alert .cpd-kpi-label,
+.cpx .cpd-kpi.is-alert .cpd-kpi-num,
+.cpx .cpd-kpi.is-alert .cpd-kpi-top i {
+    color: var(--cpd-alert);
+}
+
+/* The link that closes each tile. `margin-top: auto` pins it to the bottom, so
+   a tile whose sub-line wraps does not push its link out of line with the
+   others. */
+.cpx .cpd-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: var(--cpx-s2);
+    margin-top: auto;
+    font-size: var(--cpx-text-sm);
+    font-weight: 600;
+    color: var(--cpx-accent-text);
+    text-decoration: none;
+}
+
+.cpx .cpd-link i {
+    font-size: 13px;
+}
+
+.cpx .cpd-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* Panels ------------------------------------------------------------------ */
+
+.cpx .cpd-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cpx-s6);
+}
+
+.cpx .cpd-col-wide {
+    flex: 2.1 1 360px;
+    min-width: 0;
+}
+
+.cpx .cpd-col {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.cpx .cpd-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: var(--cpx-pad);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface);
+    box-shadow: var(--cpx-shadow-sm);
+}
+
+.cpx .cpd-panel-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--cpx-s2) var(--cpx-s4);
+    margin-bottom: var(--cpx-s6);
+}
+
+.cpx .cpd-panel-head h5 {
+    margin: 0;
+    font-size: var(--cpd-title);
+    font-weight: 600;
+    letter-spacing: -.005em;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: var(--cpx-r-sm);
+    background: var(--cpx-tag-bg);
+    color: var(--cpx-tag-ink);
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+
+.cpx .cpd-panel-total {
+    margin-left: auto;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+    white-space: nowrap;
+}
+
+.cpx .cpd-panel-total strong {
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+/* Aging ------------------------------------------------------------------- */
+
+/* The two auto margins split whatever height the panel is given beyond its own
+   content, so the bar and its legend settle together in the middle of it. The
+   panel is as tall as its neighbour in the row, and this aging summary is the
+   shorter of the two — without this it hangs off the header with the slack
+   pooled underneath, and the panel reads as cut short. */
+.cpx .cpd-aging-bar {
+    display: flex;
+    height: 10px;
+    margin-top: auto;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--cpx-rowline);
+}
+
+/* Segments are flex-grown by their share, so a bucket holding a rounding
+   crumb still shows as a sliver rather than disappearing. The inset rule is
+   what keeps two adjacent bands readable as two — it has to be wide enough to
+   survive the pair whose tones are closest, which is the last two. */
+.cpx .cpd-aging-seg {
+    min-width: 2px;
+    background: var(--cpd-seg, var(--cpx-faint));
+    box-shadow: inset 2px 0 0 var(--cpx-surface);
+}
+
+.cpx .cpd-aging-seg:first-child {
+    box-shadow: none;
+}
+
+.cpx .cpd-aging-legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
+    gap: var(--cpx-s4);
+    margin-top: var(--cpx-s6);
+    margin-bottom: auto;
+}
+
+.cpx .cpd-aging-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+/* A bucket holding nothing stays in the row — the five buckets are a scale,
+   and dropping the empty ones would make the same page a different shape from
+   one week to the next — but stands well back. */
+.cpx .cpd-aging-item.is-empty {
+    opacity: .45;
+}
+
+.cpx .cpd-aging-key {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    font-size: .74rem;
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: 2px;
+    background: var(--cpd-seg, var(--cpx-faint));
+}
+
+.cpx .cpd-aging-val {
+    font-size: var(--cpx-text);
+    font-weight: 600;
+    color: var(--cpx-ink);
+    overflow-wrap: anywhere;
+}
+
+.cpx .cpd-aging-sub {
+    font-size: .69rem;
+    color: var(--cpx-faint);
+}
+
+/* The settled-to-overdue ramp. It is deliberately not the statement page's
+   ramp below, which opens `aging-b1` on a muted teal: there the buckets are
+   separate cards wearing a 3px edge, and a gentle first step is right. Here
+   they are contiguous bands of one bar, and on the dark theme that teal sits
+   almost exactly on top of `--cpx-ok` — the bar's whole job is to show where
+   current ends and overdue begins, and it was showing one green smear. So the
+   first overdue step is amber, and the two hottest are mixed from values the
+   sheet already holds rather than invented. */
+.cpx .cpd-b-current {
+    --cpd-seg: var(--cpx-ok);
+}
+
+.cpx .cpd-b-1 {
+    --cpd-seg: var(--cpx-warn);
+}
+
+.cpx .cpd-b-2 {
+    --cpd-seg: #d4761f;
+}
+
+.cpx .cpd-b-3 {
+    --cpd-seg: color-mix(in srgb, var(--cpx-bad) 75%, #d4761f);
+}
+
+.cpx .cpd-b-4 {
+    --cpd-seg: var(--cpx-bad);
+}
+
+/* Two jobs, two channels: the dot says which bucket this is, by matching its
+   band in the bar; the figure says whether it is a problem. So every overdue
+   bucket holding money states its figure in the alert tone, and an empty
+   bucket keeps a neutral key — a $0.00 in rose would be reporting trouble
+   that isn't there. */
+.cpx .cpd-aging-item:not(.is-empty).cpd-b-1 .cpd-aging-val,
+.cpx .cpd-aging-item:not(.is-empty).cpd-b-2 .cpd-aging-val,
+.cpx .cpd-aging-item:not(.is-empty).cpd-b-3 .cpd-aging-val,
+.cpx .cpd-aging-item:not(.is-empty).cpd-b-4 .cpd-aging-val {
+    color: var(--cpd-alert);
+}
+
+.cpx .cpd-aging-item.is-empty .cpd-dot {
+    background: var(--cpx-faint);
+}
+
+/* Period summary ---------------------------------------------------------- */
+
+.cpx .cpd-month {
+    gap: var(--cpx-s4);
+}
+
+.cpx .cpd-month-label {
+    font-size: .68rem;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpd-month-num {
+    margin-top: 4px;
+    font-size: clamp(1.05rem, .93rem + .55vw, 1.4rem);
+    font-weight: 600;
+    letter-spacing: -.02em;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-facts {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s3);
+    font-size: var(--cpx-text-sm);
+}
+
+.cpx .cpd-fact {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--cpx-s3);
+}
+
+.cpx .cpd-fact-k {
+    color: var(--cpx-mute);
+}
+
+.cpx .cpd-fact-v {
+    font-weight: 600;
+    color: var(--cpx-ink);
+    white-space: nowrap;
+}
+
+.cpx .cpd-fact-v.is-alert {
+    color: var(--cpd-alert);
+}
+
+.cpx .cpd-month .cpd-link {
+    margin-top: auto;
+    padding-top: var(--cpx-s2);
+}
+
+/* Ledgers ------------------------------------------------------------------
+   The panel keeps its padding on the heading row and gives it up around the
+   table, so the rows run the full width and their hover band reaches the
+   panel edge. */
+
+.cpx .cpd-ledger {
+    padding: var(--cpx-pad) 0 var(--cpx-s2);
+}
+
+.cpx .cpd-ledger .cpd-panel-head {
+    padding-inline: var(--cpx-pad);
+}
+
+.cpx .cpd-ledger .cpd-link {
+    margin: 0 0 0 auto;
+}
+
+.cpx .cpd-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-table th {
+    padding: 0 var(--cpx-pad) var(--cpx-s2);
+    border: none;
+    text-align: left;
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--cpx-mute-2);
+    white-space: nowrap;
+}
+
+.cpx .cpd-table td {
+    padding: var(--cpx-s3) var(--cpx-pad);
+    border: none;
+    border-top: 1px solid var(--cpx-rowline);
+    vertical-align: top;
+}
+
+.cpx .cpd-table tbody tr:hover td {
+    background: var(--cpx-hover);
+}
+
+.cpx .cpd-num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.cpx .cpd-doc {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.cpx .cpd-doc-id {
+    font-weight: 600;
+    color: var(--cpx-ink);
+}
+
+.cpx .cpd-doc-sub {
+    font-size: .69rem;
+    color: var(--cpx-faint);
+}
+
+.cpx .cpd-quiet {
+    color: var(--cpx-mute);
+    white-space: nowrap;
+}
+
+.cpx .cpd-strong {
+    font-weight: 600;
+}
+
+/* Status is an outlined tag rather than a filled badge: five of these stacked
+   down a column read as a colour chart when they are solid. `justify-self`
+   only bites below 992px, where the cell is a grid track and an inline-flex
+   child would otherwise be stretched the width of it. */
+.cpx .cpd-status {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    padding: 2px 9px;
+    border: 1px solid var(--cpx-edge);
+    border-radius: var(--cpx-r-sm);
+    font-size: .66rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    color: var(--cpx-mute);
+    white-space: nowrap;
+}
+
+.cpx .cpd-status.is-over {
+    border-color: var(--cpd-alert-edge);
+    color: var(--cpd-alert);
+}
+
+.cpx .cpd-status.is-paid {
+    border-color: var(--cpx-ok-edge);
+    color: var(--cpx-ok);
+}
+
+.cpx .cpd-empty {
+    padding: var(--cpx-s8) var(--cpx-pad);
+    text-align: center;
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-mute-2);
+}
+
+/* Below the ledger breakpoint the rows become cards, and the panel takes its
+   side padding back so the cards are inset from its edge like everything
+   else. */
+@media (max-width: 991.98px) {
+    .cpx .cpd-ledger {
+        padding-inline: var(--cpx-s2);
+    }
+
+    .cpx .cpd-ledger .cpd-panel-head {
+        padding-inline: var(--cpx-s3);
+    }
+}
+
+/* Account breakdown --------------------------------------------------------
+   Multi-account customers only, and not something the design draws — it was
+   drawn against a single-account customer. Dressed to sit in the same row of
+   panels rather than left on its Bootstrap cards. */
+
+.cpx .cpd-accounts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: var(--cpx-s4);
+}
+
+.cpx .cpd-account {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s2);
+    padding: var(--cpx-s4);
+    border: 1px solid var(--cpx-divider);
+    border-left: 3px solid var(--cpd-account-accent, var(--cpx-faint));
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+}
+
+.cpx .cpd-account.is-main {
+    --cpd-account-accent: var(--cpx-accent);
+}
+
+.cpx .cpd-account-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--cpx-s2);
+}
+
+.cpx .cpd-account-name {
+    font-weight: 600;
+    color: var(--cpx-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cpx .cpd-account-code {
+    font-size: .69rem;
+    color: var(--cpx-faint);
+    white-space: nowrap;
+}
+
+.cpx .cpd-account .cpd-facts {
+    gap: var(--cpx-s2);
+}
+
+/* ==========================================================================
    Statement page
    ========================================================================== */
 
