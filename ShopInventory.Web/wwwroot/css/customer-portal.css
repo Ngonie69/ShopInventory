@@ -474,15 +474,71 @@
 
 /* ==========================================================================
    Panels
+
+   — Why the selectors below are `.cpx.customer-shell` and not just `.cpx` —
+
+   This is the one thing to understand before editing anything in this file that
+   paints a surface. app.css predates the portal's redesign and still carries a
+   full slate-blue dark theme for the shared class vocabulary. Several of those
+   rules out-rank a plain `.cpx .x` selector, so the portal's own palette was
+   losing — in **dark only**, and only on colour, which is why it read as a set
+   of drab palette choices rather than as a cascade defect. Measured on
+   2026-08-03, before this change, with the portal's dark tokens asking for
+   `--cpx-surface: #1a2524`:
+
+     .dashboard-panel background   #0f172a   (wanted #1a2524)
+     dashboard-table thead th bg   #1e293b   (wanted #16201f)
+     dashboard-table thead th ink  #f1f5f9   (wanted #7e918d)
+     tbody rows                    striped #0f172a / #1e293b (wanted none)
+
+   Three separate mechanisms beat us, and each needs a different answer:
+
+   1. `.dark-theme .dashboard-panel { background: #0f172a !important }` — an
+      `!important` at (0,2,0). No amount of specificity beats it; the portal's
+      declaration has to be `!important` too. Marked `[a]` below.
+   2. `.dark-theme .customer-shell table thead th` at **(0,2,3)** — two classes
+      and three elements. `CustomerPortalLayout` renders
+      `<MudLayout Class="customer-shell cpx">`, so both classes land on one
+      element and `.cpx .dashboard-table thead th` was (0,2,2): level on
+      classes, beaten on the element count. Writing the scope as the compound
+      `.cpx.customer-shell` makes it (0,3,2) and wins outright. Marked `[b]`.
+   3. `.dark-theme .table tbody tr:nth-child(odd|even)` at (0,3,2) — this is
+      what striped the rows, and it paints the `tr` while the portal only ever
+      styled the `td`. A transparent `td` let it straight through, so the row
+      itself now has to be neutralised. Marked `[c]`.
+
+   The fix belongs here rather than in app.css: the staff pages still want those
+   slate rules, and this file is the portal's own scope. Sign-in is deliberately
+   left out — it renders `.cpx.signin` outside the layout, so it has no
+   `.customer-shell` and none of these surfaces.
+
+   Verify with a computed-style probe, never by eye: the failure is dark-only,
+   and both themes have to be read to see that light did not move.
    ========================================================================== */
 
-.cpx .card,
-.cpx .dashboard-panel {
+.cpx.customer-shell .card,
+.cpx.customer-shell .dashboard-panel {
+    /* [a] .dark-theme .dashboard-panel forces both of these. */
     border: 1px solid var(--cpx-divider);
+    border-color: var(--cpx-divider) !important;
     border-radius: var(--cpx-r-lg);
-    background: var(--cpx-surface);
+    background: var(--cpx-surface) !important;
     box-shadow: var(--cpx-shadow-sm);
     color: var(--cpx-ink);
+}
+
+/* [b] `.dark-theme .dashboard-panel .card-body` is (0,3,1) and repainted panel
+   copy #f8fafc, so body text came out blue-grey in dark and portal ink in
+   light. Three classes clears it. */
+.cpx.customer-shell .card .card-body,
+.cpx.customer-shell .dashboard-panel .card-body {
+    color: var(--cpx-ink);
+}
+
+/* `.dark-theme p` is only (0,1,1), but nothing in this file claimed `p`, so
+   panel copy fell through to app.css's secondary ink in dark. */
+.cpx.customer-shell .card-body p {
+    color: inherit;
 }
 
 .cpx .card-header,
@@ -626,7 +682,7 @@
     border-radius: 0 0 var(--cpx-r-lg) var(--cpx-r-lg);
 }
 
-.cpx .dashboard-table {
+.cpx.customer-shell .dashboard-table {
     width: 100%;
     margin: 0;
     border-collapse: separate;
@@ -635,23 +691,27 @@
     color: var(--cpx-ink);
 }
 
-.cpx .dashboard-table thead th {
+/* [a] `.dark-theme .table thead th` sets background-color, color and
+   border-color with `!important`, so these three cannot be won on specificity
+   alone. Everything else in the block is ordinary. */
+.cpx.customer-shell .dashboard-table thead th {
     position: sticky;
     top: 0;
     z-index: 2;
     padding: var(--cpx-s3) var(--cpx-s4);
     border: none;
     border-bottom: 1px solid var(--cpx-divider);
-    background: var(--cpx-surface-2);
+    border-bottom-color: var(--cpx-divider) !important;
+    background: var(--cpx-surface-2) !important;
     font-size: .68rem;
     font-weight: 600;
     letter-spacing: .08em;
     text-transform: uppercase;
-    color: var(--cpx-mute-2);
+    color: var(--cpx-mute-2) !important;
     white-space: nowrap;
 }
 
-.cpx .dashboard-table tbody td {
+.cpx.customer-shell .dashboard-table tbody td {
     padding: var(--cpx-s3) var(--cpx-s4);
     border: none;
     border-bottom: 1px solid var(--cpx-rowline);
@@ -660,24 +720,82 @@
     color: var(--cpx-ink);
 }
 
-.cpx .dashboard-table tbody tr:last-child td {
+.cpx.customer-shell .dashboard-table tbody tr:last-child td {
     border-bottom: none;
 }
 
-.cpx .dashboard-table.table-hover tbody tr:hover td {
+/* [c] The row, not just the cell. app.css stripes `tbody tr` at (0,3,2) via
+   :nth-child and tints it again on :hover, and because the portal's `td` is
+   transparent both came straight through — this is what made every other
+   portal page's dark tables read as a navy ledger. `.table.dashboard-table` is
+   two classes on one element, which lifts the base rule to (0,4,2); the hover
+   selector needs its own pseudo-class to clear
+   `.dark-theme .customer-shell table tbody tr:hover` at (0,3,3). */
+.cpx.customer-shell .table.dashboard-table tbody tr,
+.cpx.customer-shell .table.dashboard-table tbody tr:hover,
+.cpx.customer-shell .table.staff-table tbody tr,
+.cpx.customer-shell .table.staff-table tbody tr:hover,
+.cpx.customer-shell .table.invoice-items-table tbody tr,
+.cpx.customer-shell .table.invoice-items-table tbody tr:hover,
+.cpx.customer-shell .cpod-table tbody tr,
+.cpx.customer-shell .cpod-table tbody tr:hover {
+    background: transparent;
+}
+
+/* The hover tint the portal does want, carried by the cell so it layers over
+   the row rule rather than replacing it. */
+.cpx.customer-shell .dashboard-table.table-hover tbody tr:hover td {
+    background: var(--cpx-hover);
+}
+
+/* Three tables the redesign never reached — the activity log, the invoice
+   detail drawer and the POD list. They were left on app.css's styling, which in
+   dark is the same slate the rules above are fighting, so inside the portal
+   they rendered as navy panels next to teal ones. Only their colours are
+   brought across; their own padding and type sizing are their business. In
+   light this moves almost nothing (#f8fafc -> #f8fafb on one header fill, and a
+   label from #4a4a4a to the portal's mute), which is the point — the defect was
+   only ever in dark. */
+.cpx.customer-shell .staff-table thead th,
+.cpx.customer-shell .invoice-items-table thead th,
+.cpx.customer-shell .cpod-table thead th {
+    border-bottom-color: var(--cpx-divider) !important;
+    background: var(--cpx-surface-2) !important;
+    color: var(--cpx-mute-2) !important;
+}
+
+.cpx.customer-shell .staff-table tbody td,
+.cpx.customer-shell .invoice-items-table tbody td,
+.cpx.customer-shell .cpod-table tbody td {
+    border-bottom-color: var(--cpx-rowline) !important;
+    color: var(--cpx-ink);
+}
+
+.cpx.customer-shell .staff-table.table-hover tbody tr:hover td,
+.cpx.customer-shell .cpod-table tbody tr:hover td {
     background: var(--cpx-hover);
 }
 
 /* The opening and closing rows are structure, not data. Bootstrap's
    table-light / table-dark would paint them as blocks of unrelated colour, so
-   they are re-cast as a tinted band and a rule. */
-.cpx .dashboard-table tbody tr.table-light td {
+   they are re-cast as a tinted band and a rule.
+
+   [a] The row underneath needs saying too. `.dark-theme .table-light` is
+   `background-color: #1e293b !important`, and while the opaque cell above hides
+   it at these settings, it is only hidden — `border-spacing` or a dropped cell
+   would put the slate straight back on screen. Both are `!important`, so
+   specificity decides, and (0,5,2) takes it. */
+.cpx.customer-shell .table.dashboard-table tbody tr.table-light {
+    background: transparent !important;
+}
+
+.cpx.customer-shell .dashboard-table tbody tr.table-light td {
     background: var(--cpx-surface-2);
     font-weight: 600;
     color: var(--cpx-ink);
 }
 
-.cpx .dashboard-table tbody tr.table-dark td {
+.cpx.customer-shell .dashboard-table tbody tr.table-dark td {
     background: var(--cpx-accent-soft);
     border-top: 2px solid var(--cpx-accent);
     border-bottom: none;
@@ -685,37 +803,41 @@
     color: var(--cpx-accent-text);
 }
 
-.cpx .dashboard-table .text-success {
+.cpx.customer-shell .dashboard-table .text-success {
     color: var(--cpx-ok) !important;
 }
 
-.cpx .dashboard-table .text-dark {
+.cpx.customer-shell .dashboard-table .text-dark {
     color: var(--cpx-ink) !important;
 }
 
-.cpx .dashboard-table small.text-muted {
+.cpx.customer-shell .dashboard-table small.text-muted {
     color: var(--cpx-mute-2) !important;
     font-size: .72rem;
 }
 
 @media (max-width: 991.98px) {
 
-    .cpx .mobile-card-table thead {
+    .cpx.customer-shell .mobile-card-table thead {
         display: none;
     }
 
-    .cpx .mobile-card-table tbody,
-    .cpx .mobile-card-table tfoot {
+    .cpx.customer-shell .mobile-card-table tbody,
+    .cpx.customer-shell .mobile-card-table tfoot {
         display: block;
         padding: var(--cpx-s3);
     }
 
-    .cpx .mobile-card-table tfoot {
+    .cpx.customer-shell .mobile-card-table tfoot {
         padding-top: 0;
     }
 
-    .cpx .mobile-card-table tbody tr,
-    .cpx .mobile-card-table tfoot tr {
+    /* `.table.` here for the same reason as the desktop row rule, plus one of
+       its own: that rule is (0,4,2) and applies at every width, so a card whose
+       own background rule stayed at (0,2,1) would come out transparent rather
+       than merely mis-coloured. Equal specificity, later in the file, wins. */
+    .cpx.customer-shell .table.mobile-card-table tbody tr,
+    .cpx.customer-shell .table.mobile-card-table tfoot tr {
         display: grid;
         /* Label and value share a row on anything but the narrowest phone, and
            the value keeps the right edge where the eye already reads totals. */
@@ -729,13 +851,13 @@
         box-shadow: var(--cpx-shadow-sm);
     }
 
-    .cpx .mobile-card-table tbody tr:last-child,
-    .cpx .mobile-card-table tfoot tr:last-child {
+    .cpx.customer-shell .mobile-card-table tbody tr:last-child,
+    .cpx.customer-shell .mobile-card-table tfoot tr:last-child {
         margin-bottom: 0;
     }
 
-    .cpx .mobile-card-table tbody td,
-    .cpx .mobile-card-table tfoot td {
+    .cpx.customer-shell .mobile-card-table tbody td,
+    .cpx.customer-shell .mobile-card-table tfoot td {
         display: grid;
         grid-column: 1 / -1;
         grid-template-columns: subgrid;
@@ -747,8 +869,8 @@
         white-space: normal;
     }
 
-    .cpx .mobile-card-table tbody td::before,
-    .cpx .mobile-card-table tfoot td::before {
+    .cpx.customer-shell .mobile-card-table tbody td::before,
+    .cpx.customer-shell .mobile-card-table tfoot td::before {
         content: attr(data-label);
         font-size: .66rem;
         font-weight: 600;
@@ -758,32 +880,35 @@
     }
 
     /* A cell with no label spans both tracks rather than leaving a gutter. */
-    .cpx .mobile-card-table tbody td:not([data-label])::before,
-    .cpx .mobile-card-table tfoot td:not([data-label])::before {
+    .cpx.customer-shell .mobile-card-table tbody td:not([data-label])::before,
+    .cpx.customer-shell .mobile-card-table tfoot td:not([data-label])::before {
         content: none;
     }
 
-    .cpx .mobile-card-table tbody td:not([data-label]),
-    .cpx .mobile-card-table tfoot td:not([data-label]) {
+    .cpx.customer-shell .mobile-card-table tbody td:not([data-label]),
+    .cpx.customer-shell .mobile-card-table tfoot td:not([data-label]) {
         display: block;
     }
 
-    .cpx .mobile-card-table tbody tr.table-light td,
-    .cpx .mobile-card-table tbody tr.table-dark td {
+    .cpx.customer-shell .mobile-card-table tbody tr.table-light td,
+    .cpx.customer-shell .mobile-card-table tbody tr.table-dark td {
         background: transparent;
         border: none;
     }
 
-    .cpx .mobile-card-table tbody tr.table-light {
-        background: var(--cpx-surface-2);
+    /* [a] `.dark-theme .table-light` is `background-color: #1e293b !important`
+       at (0,2,0), and in card mode the row *is* the card — so unlike the ledger,
+       where an opaque cell hid it, this one shows. */
+    .cpx.customer-shell .table.mobile-card-table tbody tr.table-light {
+        background: var(--cpx-surface-2) !important;
     }
 
-    .cpx .mobile-card-table tbody tr.table-dark {
+    .cpx.customer-shell .table.mobile-card-table tbody tr.table-dark {
         background: var(--cpx-accent-soft);
         border-color: var(--cpx-accent);
     }
 
-    .cpx .mobile-card-table tbody tr.table-dark td {
+    .cpx.customer-shell .mobile-card-table tbody tr.table-dark td {
         color: var(--cpx-accent-text);
     }
 
@@ -791,13 +916,13 @@
        both tracks onto one another. Stacked is the safe shape. */
     @supports not (grid-template-columns: subgrid) {
 
-        .cpx .mobile-card-table tbody tr,
-        .cpx .mobile-card-table tfoot tr {
+        .cpx.customer-shell .table.mobile-card-table tbody tr,
+        .cpx.customer-shell .table.mobile-card-table tfoot tr {
             display: block;
         }
 
-        .cpx .mobile-card-table tbody td,
-        .cpx .mobile-card-table tfoot td {
+        .cpx.customer-shell .mobile-card-table tbody td,
+        .cpx.customer-shell .mobile-card-table tfoot td {
             display: block;
         }
     }
