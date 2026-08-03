@@ -12,522 +12,490 @@
 
 <PageTitle>Invoices - Customer Portal</PageTitle>
 
-<div class="container-fluid fade-in staff-dashboard staff-shell customer-invoices">
-    @if (isLoading)
+@* On the portal's page vocabulary — the `cpd` blocks the dashboard was built
+   from; see the Page vocabulary section of customer-portal.css. `cpx` comes
+   down from the shell. *@
+<div class="cpd fade-in">
+    @if (isLoading && customerInfo == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <div class="spinner-border" role="status" style="width: 2.25rem; height: 2.25rem;">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <p class="text-muted mt-3 mb-0">Loading invoices...</p>
+                <p class="mt-3 mb-0">Loading invoices...</p>
             </div>
         </div>
     }
     else if (customerInfo == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
-                     class="mb-3">
-                    <path
-                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-                </svg>
-                <h2 class="mb-2">Authentication Required</h2>
-                <p class="text-muted mb-4">Please login to view your invoices.</p>
-                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <i class="ph ph-lock-key"></i>
+                <h5>Authentication required</h5>
+                <p>Please sign in to see your invoices.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Sign in to the portal</a>
             </div>
         </div>
     }
     else
     {
-        <div class="dashboard-hero">
-            <div class="page-header staff-dashboard-header">
-                <div class="dashboard-title">
-                    <h2>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"
-                             viewBox="0 0 16 16">
-                            <path
-                            d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
-                        </svg>
-                        Invoices
-                    </h2>
-                    <span class="text-muted">Open invoices for @customerInfo.CardName</span>
-                    @if (customerInfo.AccountStructure == "Multi")
+        <div class="cpd-hero">
+            <div class="cpd-hero-text">
+                <h2>Invoices</h2>
+                <div class="cpd-hero-meta">
+                    <span>@customerInfo.CardName</span>
+                    <span>Account @customerInfo.CardCode</span>
+                    @if (isMultiAccount)
                     {
-                        @if (string.IsNullOrEmpty(selectedAccountFilter))
-                        {
-                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                                Multi-Account &mdash; showing invoices across all main accounts
-                            </span>
-                        }
-                        else
-                        {
-                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
-                                                                                                                    ?? selectedAccountFilter)
-                            </span>
-                        }
+                        <span>@AccountScopeCaption()</span>
                     }
-                </div>
-                <div class="dashboard-meta">
-                    <span class="meta-pill">
-                        <span class="meta-dot"></span>
-                        Open Balance
+                    <span>
+                        @(lastUpdated.HasValue
+                            ? $"Updated {lastUpdated.Value:MMM dd, yyyy 'at' HH:mm} UTC"
+                            : "Not loaded yet")
                     </span>
-                    <span class="meta-subtitle">
-                        @if (hasLoaded)
-                        {
-                            @($"{FormatCurrency(filteredOutstanding)} across {filteredInvoices.Count} invoices")
-                        }
-                        else
-                        {
-                            <text>Select date range and load invoices</text>
-                        }
-                    </span>
-                    <div class="d-flex flex-wrap gap-2 mt-2">
-                        <a href="/customer-portal/dashboard" class="btn btn-outline-primary btn-sm">Back to Dashboard</a>
-                        <a href="/customer-portal/statements" class="btn btn-primary btn-sm">View Statement</a>
-                    </div>
                 </div>
+            </div>
+            <div class="cpd-hero-actions">
+                <a href="/customer-portal/dashboard" class="btn btn-outline-primary">
+                    <i class="ph ph-arrow-left"></i> Dashboard
+                </a>
+                <a href="/customer-portal/statements" class="btn btn-primary">View statement</a>
             </div>
         </div>
 
-        <!-- Filters -->
-        <div class="card dashboard-panel mb-3">
-            <div class="card-header dashboard-panel-header">
-                <h5 class="mb-0 d-flex align-items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
-                         class="panel-icon">
-                        <path
-                        d="M1.5 1.5A.5.5 0 0 1 2 1h12a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-.128.334L10 8.692V13.5a.5.5 0 0 1-.342.474l-3 1A.5.5 0 0 1 6 14.5V8.692L1.628 3.834A.5.5 0 0 1 1.5 3.5v-2z" />
-                    </svg>
-                    Filters
-                </h5>
-            </div>
-            <div class="card-body">
-                <div class="row g-3 align-items-end">
-                    @* NocturneDateField rather than FlexibleDatePicker: it keeps the shorthand
-                       entry that component was written for and draws the same calendar as the
-                       rest of the portal, instead of MudBlazor's. *@
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold text-uppercase text-muted" for="cinv-f-from">From</label>
-                        <NocturneDateField Id="cinv-f-from" Class="ndf-bs" @bind-Date="fromDate" />
-                    </div>
-                    <div class="col-md-3">
-                        <label class="form-label small fw-semibold text-uppercase text-muted" for="cinv-f-to">To</label>
-                        <NocturneDateField Id="cinv-f-to" Class="ndf-bs" @bind-Date="toDate" />
-                    </div>
-                    @if (isMultiAccount && linkedAccounts.Any())
-                    {
-                        <div class="col-md-3">
-                            <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
-                                       AnchorOrigin="Origin.BottomCenter">
-                                <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
-                                @foreach (var account in linkedAccounts)
-                                {
-                                    <MudSelectItem T="string" Value="@account.CardCode">
-                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
-                                        — @account.CardCode
-                                    </MudSelectItem>
-                                }
-                            </MudSelect>
-                        </div>
-                        <div class="col-md-3">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadInvoices"
-                                       Disabled="@isLoading">
-                                @if (isLoading)
-                                {
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                    <span>Loading...</span>
-                                }
-                                else
-                                {
-                                    <span>Load Invoices</span>
-                                }
-                            </MudButton>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="col-md-6">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100" OnClick="LoadInvoices"
-                                       Disabled="@isLoading">
-                                @if (isLoading)
-                                {
-                                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
-                                    <span>Loading...</span>
-                                }
-                                else
-                                {
-                                    <span>Load Invoices</span>
-                                }
-                            </MudButton>
-                        </div>
-                    }
+        @* The strip states the overdue position in one sentence, exactly as the
+           dashboard does. Absent on an account with nothing past due, rather
+           than merely empty. *@
+        @if (hasLoaded && OverdueAmount > 0)
+        {
+            <div class="cpd-banner" role="status">
+                <i class="ph ph-warning-circle"></i>
+                <div class="cpd-banner-text">
+                    <span class="cpd-banner-num">@FormatCurrency(OverdueAmount)</span>
+                    past due across @OverdueCount @Plural(OverdueCount, "invoice")@(OldestOverdueDays > 0
+                        ? $" — oldest {OldestOverdueDays} {Plural(OldestOverdueDays, "day")} over terms."
+                        : ".")
                 </div>
             </div>
-        </div>
+        }
+
+        <section class="cpd-panel">
+            <div class="cpd-panel-head">
+                <h5>Period</h5>
+                @if (hasLoaded)
+                {
+                    <span class="cpd-tag">@filteredInvoices.Count @Plural(filteredInvoices.Count, "invoice")</span>
+                }
+            </div>
+            <div class="cpd-filters">
+                @* NocturneDateField rather than FlexibleDatePicker: it keeps the shorthand
+                   entry that component was written for and draws the same calendar as the
+                   rest of the portal, instead of MudBlazor's. *@
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="cinv-f-from">From</label>
+                    <NocturneDateField Id="cinv-f-from" Class="ndf-bs" @bind-Date="fromDate" />
+                </div>
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="cinv-f-to">To</label>
+                    <NocturneDateField Id="cinv-f-to" Class="ndf-bs" @bind-Date="toDate" />
+                </div>
+                @if (isMultiAccount && linkedAccounts.Any())
+                {
+                    <div class="cpd-field">
+                        <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
+                                   ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
+                                   AnchorOrigin="Origin.BottomCenter">
+                            <MudSelectItem T="string" Value="@("")">All accounts</MudSelectItem>
+                            @foreach (var account in linkedAccounts)
+                            {
+                                <MudSelectItem T="string" Value="@account.CardCode">
+                                    @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
+                                    — @account.CardCode
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                }
+                <div class="cpd-field cpd-field-action">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadInvoices"
+                               Disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <span>Loading...</span>
+                        }
+                        else
+                        {
+                            <span>@(hasLoaded ? "Reload invoices" : "Load invoices")</span>
+                        }
+                    </MudButton>
+                </div>
+            </div>
+        </section>
 
         @if (hasLoaded)
         {
-            <div class="card dashboard-panel invoices-panel">
-                <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                    <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
-                             class="panel-icon">
-                            <path
-                            d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
-                        </svg>
-                        Open Invoices
-                        <span class="badge bg-primary bg-opacity-10 text-primary ms-2"
-                              style="font-size: 0.75rem;">@filteredInvoices.Count total</span>
-                    </h5>
-                    <span class="text-muted small">Last updated @(lastUpdated?.ToString("MMM dd, yyyy 'at' HH:mm") ?? "just now") UTC</span>
+            <section class="cpd-kpis">
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Outstanding</span>
+                        <i class="ph ph-receipt"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(filteredOutstanding)</div>
+                    <div class="cpd-kpi-sub">@PeriodCaption()</div>
                 </div>
-                <div class="card-body p-0">
-                    @if (pagedInvoices.Any())
-                    {
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle dashboard-table invoices-table mobile-card-table">
-                                <thead>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Open invoices</span>
+                        <i class="ph ph-files"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@OpenCount</div>
+                    <div class="cpd-kpi-sub">
+                        @(PaidCount > 0 ? $"{PaidCount} settled in range" : "None settled in range")
+                    </div>
+                </div>
+
+                <div class="cpd-kpi @(OverdueAmount > 0 ? "is-alert" : "")">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Overdue</span>
+                        <i class="ph ph-clock"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(OverdueAmount)</div>
+                    <div class="cpd-kpi-sub">
+                        @if (OverdueCount > 0)
+                        {
+                            <text>@OverdueCount @Plural(OverdueCount, "invoice")@(OldestOverdueDays > 0
+                                ? $", oldest {OldestOverdueDays} {Plural(OldestOverdueDays, "day")} over"
+                                : "")</text>
+                        }
+                        else
+                        {
+                            <text>Nothing past due</text>
+                        }
+                    </div>
+                </div>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Next due</span>
+                        <i class="ph ph-calendar-check"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(NextDue?.Balance ?? 0)</div>
+                    <div class="cpd-kpi-sub">@NextDueCaption()</div>
+                </div>
+            </section>
+
+            <section class="cpd-panel cpd-ledger">
+                <div class="cpd-panel-head">
+                    <h5>Open invoices</h5>
+                    <span class="cpd-panel-total">
+                        Balance <strong>@FormatCurrency(filteredOutstanding)</strong>
+                    </span>
+                </div>
+
+                @if (pagedInvoices.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="cpd-table mobile-card-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice</th>
+                                    @if (isMultiAccount)
+                                    {
+                                        <th>Account</th>
+                                    }
+                                    <th>Due</th>
+                                    <th class="cpd-num">Amount</th>
+                                    <th class="cpd-num">Paid</th>
+                                    <th class="cpd-num">Balance</th>
+                                    <th class="cpd-num">Status</th>
+                                    <th class="cpd-num">Detail</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var invoice in pagedInvoices)
+                                {
+                                    var status = InvoiceStatus(invoice);
                                     <tr>
-                                        <th>Invoice #</th>
+                                        <td data-label="Invoice">
+                                            @* One element, not two: below 992px each cell becomes a
+                                               labelled grid row, and a second child would be placed
+                                               into the label track. *@
+                                            <span class="cpd-doc">
+                                                <span class="cpd-doc-id">@invoice.DocNum</span>
+                                                <span class="cpd-doc-sub">Issued @invoice.DocDate.ToString("MMM dd, yyyy")</span>
+                                            </span>
+                                        </td>
                                         @if (isMultiAccount)
                                         {
-                                            <th>Account</th>
+                                            <td data-label="Account" class="cpd-quiet">
+                                                <span class="cpd-doc">
+                                                    <span class="cpd-doc-id">@(invoice.CardCode ?? "—")</span>
+                                                    <span class="cpd-doc-sub">@(invoice.Currency ?? "")</span>
+                                                </span>
+                                            </td>
                                         }
-                                        <th>Date</th>
-                                        <th>Due Date</th>
-                                        <th class="text-end">Amount</th>
-                                        <th class="text-end">Paid</th>
-                                        <th class="text-end">Balance</th>
-                                        <th>Status</th>
-                                        <th class="text-end">Details</th>
+                                        <td data-label="Due" class="cpd-quiet">
+                                            @(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "—")
+                                        </td>
+                                        <td data-label="Amount" class="cpd-num">@FormatCurrency(invoice.DocTotal)</td>
+                                        <td data-label="Paid" class="cpd-num cpd-quiet">@FormatCurrency(invoice.PaidToDate)</td>
+                                        <td data-label="Balance" class="cpd-num cpd-strong">@FormatCurrency(invoice.Balance)</td>
+                                        <td data-label="Status" class="cpd-num">
+                                            <span class="cpd-status @status.Cls">@status.Text</span>
+                                        </td>
+                                        <td data-label="Detail" class="cpd-num">
+                                            <button type="button" class="btn btn-outline-primary btn-sm"
+                                                    @onclick="() => ViewInvoiceDetails(invoice)">
+                                                View
+                                            </button>
+                                        </td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var invoice in pagedInvoices)
-                                    {
-                                        <tr class="invoice-row">
-                                            <td data-label="Invoice #">
-                                                <span class="invoice-num-badge">@invoice.DocNum</span>
-                                            </td>
-                                            @if (isMultiAccount)
-                                            {
-                                                <td data-label="Account">
-                                                    <div class="mobile-card-inline-group">
-                                                        <small class="d-block fw-semibold">@(invoice.CardCode ?? "-")</small>
-                                                        @if (!string.IsNullOrEmpty(invoice.Currency))
-                                                        {
-                                                            <span class="badge bg-outline-dark border"
-                                                                  style="font-size: 0.65rem;">@invoice.Currency</span>
-                                                        }
-                                                    </div>
-                                                </td>
-                                            }
-                                            <td data-label="Date">@invoice.DocDate.ToString("MMM dd, yyyy")</td>
-                                            <td data-label="Due Date">@(invoice.DueDate?.ToString("MMM dd, yyyy") ?? "-")</td>
-                                            <td data-label="Amount" class="text-end">@FormatCurrency(invoice.DocTotal)</td>
-                                            <td data-label="Paid" class="text-end">@FormatCurrency(invoice.PaidToDate)</td>
-                                            <td data-label="Balance" class="text-end fw-semibold">@FormatCurrency(invoice.Balance)</td>
-                                            <td data-label="Status"><span
-                                                class="badge status-pill @GetStatusClass(invoice)">@GetStatusText(invoice)</span>
-                                            </td>
-                                            <td data-label="Details" class="text-end">
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                                           OnClick="() => ViewInvoiceDetails(invoice)">
-                                                    VIEW
-                                                </MudButton>
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
 
-                        @* Pagination *@
-                        @if (totalPages > 1)
-                        {
-                            <div class="invoices-pagination">
-                                <div class="pagination-info">
-                                    Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize,
-                                                                                                                                                                                                        filteredInvoices.Count)) of @filteredInvoices.Count invoices
-                                </div>
-                                <nav>
-                                    <ul class="pagination pagination-sm mb-0">
-                                        <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                            <button class="page-link" @onclick="() => GoToPage(1)" disabled="@(currentPage == 1)">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                     viewBox="0 0 16 16">
-                                                    <path fill-rule="evenodd"
-                                                          d="M8.354 1.646a.5.5 0 0 1 0 .708L2.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0zM12.354 1.646a.5.5 0 0 1 0 .708L6.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
-                                                </svg>
-                                            </button>
-                                        </li>
-                                        <li class="page-item @(currentPage == 1 ? "disabled" : "")">
-                                            <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
-                                                    disabled="@(currentPage == 1)">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                     viewBox="0 0 16 16">
-                                                    <path fill-rule="evenodd"
-                                                          d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
-                                                </svg>
-                                            </button>
-                                        </li>
-                                        @foreach (var pg in GetVisiblePages())
-                                        {
-                                            @if (pg == -1)
-                                            {
-                                                <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
-                                            }
-                                            else
-                                            {
-                                                <li class="page-item @(pg == currentPage ? "active" : "")">
-                                                    <button class="page-link" @onclick="() => GoToPage(pg)">@pg</button>
-                                                </li>
-                                            }
-                                        }
-                                        <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                            <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
-                                                    disabled="@(currentPage == totalPages)">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                     viewBox="0 0 16 16">
-                                                    <path fill-rule="evenodd"
-                                                          d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
-                                                </svg>
-                                            </button>
-                                        </li>
-                                        <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
-                                            <button class="page-link" @onclick="() => GoToPage(totalPages)"
-                                                    disabled="@(currentPage == totalPages)">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
-                                                     viewBox="0 0 16 16">
-                                                    <path fill-rule="evenodd"
-                                                          d="M3.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L9.293 8 3.646 2.354a.5.5 0 0 1 0-.708zM7.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L13.293 8 7.646 2.354a.5.5 0 0 1 0-.708z" />
-                                                </svg>
-                                            </button>
-                                        </li>
-                                    </ul>
-                                </nav>
-                            </div>
-                        }
-                    }
-                    else
+                    @if (totalPages > 1)
                     {
-                        <div class="text-center py-5 dashboard-empty">
-                            <p class="text-muted mb-0">No open invoices found for the selected period.</p>
+                        <div class="cpd-pager">
+                            <div class="cpd-pager-info">
+                                Showing @(((currentPage - 1) * pageSize) + 1)&ndash;@(Math.Min(currentPage * pageSize, filteredInvoices.Count))
+                                of @filteredInvoices.Count invoices
+                            </div>
+                            <nav aria-label="Invoice pages">
+                                <ul class="pagination pagination-sm mb-0">
+                                    <li class="page-item @(currentPage == 1 ? "disabled" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(currentPage - 1)"
+                                                disabled="@(currentPage == 1)" aria-label="Previous page">
+                                            <i class="ph ph-caret-left"></i>
+                                        </button>
+                                    </li>
+                                    @foreach (var pg in GetVisiblePages())
+                                    {
+                                        @if (pg == -1)
+                                        {
+                                            <li class="page-item disabled"><span class="page-link">&hellip;</span></li>
+                                        }
+                                        else
+                                        {
+                                            <li class="page-item @(pg == currentPage ? "active" : "")">
+                                                <button class="page-link" @onclick="() => GoToPage(pg)">@pg</button>
+                                            </li>
+                                        }
+                                    }
+                                    <li class="page-item @(currentPage == totalPages ? "disabled" : "")">
+                                        <button class="page-link" @onclick="() => GoToPage(currentPage + 1)"
+                                                disabled="@(currentPage == totalPages)" aria-label="Next page">
+                                            <i class="ph ph-caret-right"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </nav>
                         </div>
                     }
+                }
+                else
+                {
+                    <div class="cpd-empty">No open invoices found for the selected period.</div>
+                }
+            </section>
+        }
+        else
+        {
+            <div class="cpd-panel">
+                <div class="cpd-empty">
+                    <i class="ph ph-receipt"></i>
+                    <h5>Choose a period</h5>
+                    <p>Set the dates above and load your open invoices.</p>
                 </div>
             </div>
         }
     }
 </div>
 
+@* The detail sheet. It renders inside CustomerPortalLayout, so `.cpx` is above
+   it and it needs no peer scope class of its own. *@
 @if (showInvoiceModal)
 {
-    <div class="modal fade show d-block" tabindex="-1"
-         style="background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px);">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
-            <div class="modal-content invoice-modal-content">
-                <div class="modal-header invoice-modal-header">
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="invoice-modal-icon">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                                 viewBox="0 0 16 16">
-                                <path
-                                d="M1.92.506a.5.5 0 0 1 .434.14L3 1.293l.646-.647a.5.5 0 0 1 .708 0L5 1.293l.646-.647a.5.5 0 0 1 .708 0L7 1.293l.646-.647a.5.5 0 0 1 .708 0L9 1.293l.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .708 0l.646.647.646-.647a.5.5 0 0 1 .801.13l.5 1A.5.5 0 0 1 15 2v12a.5.5 0 0 1-.053.224l-.5 1a.5.5 0 0 1-.8.13L13 14.707l-.646.647a.5.5 0 0 1-.708 0L11 14.707l-.646.647a.5.5 0 0 1-.708 0L9 14.707l-.646.647a.5.5 0 0 1-.708 0L7 14.707l-.646.647a.5.5 0 0 1-.708 0L5 14.707l-.646.647a.5.5 0 0 1-.708 0L3 14.707l-.646.647a.5.5 0 0 1-.801-.13l-.5-1A.5.5 0 0 1 1 14V2a.5.5 0 0 1 .053-.224l.5-1a.5.5 0 0 1 .367-.27z" />
-                            </svg>
+    <div class="cpd cpd-overlay" role="dialog" aria-modal="true" aria-label="Invoice detail">
+        <div class="cpd-sheet">
+            <div class="cpd-sheet-head">
+                <i class="ph ph-receipt"></i>
+                <h5>Invoice @(selectedInvoice?.DocNum ?? selectedInvoiceSummary?.DocNum)</h5>
+                <button type="button" class="cpd-sheet-close" @onclick="CloseInvoiceModal" aria-label="Close">
+                    <i class="ph ph-x"></i>
+                </button>
+            </div>
+
+            <div class="cpd-sheet-body">
+                @if (isDetailLoading)
+                {
+                    <div class="cpd-empty">
+                        <div class="spinner-border" role="status" style="width: 2rem; height: 2rem;">
+                            <span class="visually-hidden">Loading...</span>
                         </div>
-                        <div>
-                            <h5 class="modal-title mb-0">Invoice #@(selectedInvoice?.DocNum ??
-                                                                                                                                                                                            selectedInvoiceSummary?.DocNum)</h5>
-                            </div>
-                        </div>
-                        <button type="button" class="invoice-modal-close" @onclick="CloseInvoiceModal">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
-                                 viewBox="0 0 16 16">
-                                <path
-                                d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z" />
-                            </svg>
-                        </button>
+                        <p class="mt-3 mb-0">Loading invoice details...</p>
                     </div>
-                    <div class="modal-body invoice-modal-body">
-                        @if (isDetailLoading)
-                        {
-                            <div class="text-center py-5">
-                                <div class="spinner-border" role="status" style="width: 2rem; height: 2rem;">
-                                    <span class="visually-hidden">Loading...</span>
-                                </div>
-                                <p class="text-muted mt-3 mb-0">Loading invoice details...</p>
-                            </div>
-                        }
-                        else if (!string.IsNullOrEmpty(detailError))
-                        {
-                            <div class="alert alert-danger mb-0">@detailError</div>
-                        }
-                        else if (selectedInvoice == null)
-                        {
-                            <div class="alert alert-warning mb-0">Invoice details are not available.</div>
-                        }
-                        else
-                        {
-                            <div class="invoice-detail-grid">
-                                <div class="invoice-detail-card">
-                                    <div class="detail-label">Invoice Date</div>
-                                    <div class="detail-value">@FormatDate(selectedInvoice.DocDate)</div>
-                                </div>
-                                <div class="invoice-detail-card">
-                                    <div class="detail-label">Due Date</div>
-                                    <div class="detail-value">@FormatDate(selectedInvoice.DocDueDate)</div>
-                                </div>
-                                <div class="invoice-detail-card">
-                                    <div class="detail-label">Amount</div>
-                                    <div class="detail-value detail-value-lg">@FormatCurrencyWithCode(selectedInvoice.DocTotal,
-                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</div>
-                                    </div>
-                                    <div class="invoice-detail-card">
-                                        <div class="detail-label">VAT</div>
-                                        <div class="detail-value">@FormatCurrencyWithCode(selectedInvoice.VatSum,
-                                                                                                                                                                                                                                                        selectedInvoice.DocCurrency)</div>
-                                        </div>
-                                        <div class="invoice-detail-card">
-                                            <div class="detail-label">Reference</div>
-                                            <div class="detail-value">@(selectedInvoice.NumAtCard ?? "-")</div>
-                                        </div>
-                                        <div class="invoice-detail-card">
-                                            <div class="detail-label">Status</div>
-                                            <div class="detail-value">
-                                                <span
-                                                class="badge status-pill @GetStatusClass(selectedInvoiceSummary!)">@GetSelectedInvoiceStatusText()</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="invoice-section-header mt-4">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                             viewBox="0 0 16 16">
-                                            <path
-                                            d="M0 .5A.5.5 0 0 1 .5 0h15a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H.5a.5.5 0 0 1-.5-.5v-3zm0 6A.5.5 0 0 1 .5 6h15a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H.5a.5.5 0 0 1-.5-.5v-3zm0 6a.5.5 0 0 1 .5-.5h15a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H.5a.5.5 0 0 1-.5-.5v-3z" />
-                                        </svg>
-                                        Items Invoiced
-                                    </div>
-                                    @if (selectedInvoice.Lines?.Any() == true)
-                                    {
-                                        <div class="table-responsive mb-4">
-                                            <table class="table table-sm align-middle invoice-items-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>#</th>
-                                                        <th>Item Code</th>
-                                                        <th>Description</th>
-                                                        <th class="text-end">Qty</th>
-                                                        <th>UoM</th>
-                                                        <th class="text-end">Gross Price</th>
-                                                        <th class="text-end">Total</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var line in selectedInvoice.Lines)
-                                                    {
-                                                        <tr>
-                                                            <td>@line.LineNum</td>
-                                                            <td><code class="item-code">@line.ItemCode</code></td>
-                                                            <td>@line.ItemDescription</td>
-                                                            <td class="text-end">@QuantityDisplay.Format(line.Quantity, line.UoMCode)</td>
-                                                            <td>@(line.UoMCode ?? "-")</td>
-                                                            <td class="text-end">@FormatCurrencyWithCode(line.GrossPrice,
-                                                                                                                                                                                                                                                                                                                                                                    selectedInvoice.DocCurrency)</td>
-                                                                <td class="text-end fw-semibold">@FormatCurrencyWithCode(line.LineTotal,
-                                                                                                                                                                                                                                                                                                                                                                                        selectedInvoice.DocCurrency)</td>
-                                                                </tr>
-                                                            }
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            }
-                        else
-                                            {
-                                                <div class="text-muted small mb-4">No line items available for this invoice.</div>
-                                            }
-
-                                            <div class="invoice-section-header">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                                     viewBox="0 0 16 16">
-                                                    <path
-                                                    d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
-                                                    <path
-                                                    d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
-                                                </svg>
-                                                Proof of Delivery (POD)
-                                            </div>
-                                            @if (podAttachments.Any())
-                                            {
-                                                <div class="pod-list">
-                                                    @foreach (var attachment in podAttachments)
-                                                    {
-                                                        <div class="pod-item">
-                                                            <div class="pod-item-info">
-                                                                <div class="fw-semibold">@attachment.FileName</div>
-                                                                <div class="text-muted small">
-                                                                    @attachment.FileSizeFormatted &middot; @attachment.UploadedAt.ToString("MMM dd, yyyy")
-                                                                    @if (!string.IsNullOrWhiteSpace(attachment.Description))
-                                                                    {
-                                                                        <span>&middot; @attachment.Description</span>
-                                                                    }
-                                                                </div>
-                                                            </div>
-                                                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small"
-                                                                       OnClick="() => DownloadAttachment(attachment)">
-                                                                View POD
-                                                            </MudButton>
-                                                        </div>
-                                                    }
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                <div class="pod-empty">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                                         viewBox="0 0 16 16">
-                                                        <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" />
-                                                        <path
-                                                        d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z" />
-                                                    </svg>
-                                                    No POD is attached to this invoice yet.
-                                                </div>
-                                            }
-                                        }
-                                    </div>
-                                    <div class="modal-footer invoice-modal-footer">
-                                        <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Primary"
-                                                   OnClick="DownloadInvoicePdf" Disabled="@isPdfLoading">
-                                            @if (isPdfLoading)
-                                            {
-                                                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-                                                <span>Generating...</span>
-                                            }
-                                            else
-                                            {
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-                                                     viewBox="0 0 16 16" class="me-2">
-                                                    <path
-                                                    d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
-                                                    <path
-                                                    d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" />
-                                                </svg>
-                                                <span>Download PDF</span>
-                                            }
-                                        </MudButton>
-                                        <MudButton ButtonType="ButtonType.Button" Variant="Variant.Outlined" Color="Color.Default"
-                                                   OnClick="CloseInvoiceModal">Close</MudButton>
-                                    </div>
-                                </div>
-                            </div>
+                }
+                else if (!string.IsNullOrEmpty(detailError))
+                {
+                    <div class="alert alert-danger mb-0">@detailError</div>
+                }
+                else if (selectedInvoice == null)
+                {
+                    <div class="alert alert-warning mb-0">Invoice details are not available.</div>
+                }
+                else
+                {
+                    <div class="cpd-defs">
+                        <div class="cpd-def">
+                            <span class="cpd-def-k">Invoice date</span>
+                            <span class="cpd-def-v">@FormatDate(selectedInvoice.DocDate)</span>
                         </div>
+                        <div class="cpd-def">
+                            <span class="cpd-def-k">Due date</span>
+                            <span class="cpd-def-v">@FormatDate(selectedInvoice.DocDueDate)</span>
+                        </div>
+                        <div class="cpd-def">
+                            <span class="cpd-def-k">Amount</span>
+                            <span class="cpd-def-v is-lg">
+                                @FormatCurrencyWithCode(selectedInvoice.DocTotal, selectedInvoice.DocCurrency)
+                            </span>
+                        </div>
+                        <div class="cpd-def">
+                            <span class="cpd-def-k">VAT</span>
+                            <span class="cpd-def-v">
+                                @FormatCurrencyWithCode(selectedInvoice.VatSum, selectedInvoice.DocCurrency)
+                            </span>
+                        </div>
+                        <div class="cpd-def">
+                            <span class="cpd-def-k">Reference</span>
+                            <span class="cpd-def-v">@(string.IsNullOrWhiteSpace(selectedInvoice.NumAtCard) ? "—" : selectedInvoice.NumAtCard)</span>
+                        </div>
+                        <div class="cpd-def">
+                            <span class="cpd-def-k">Status</span>
+                            <span class="cpd-def-v">
+                                @if (selectedInvoiceSummary is not null)
+                                {
+                                    var status = InvoiceStatus(selectedInvoiceSummary);
+                                    <span class="cpd-status @status.Cls">@status.Text</span>
+                                }
+                                else
+                                {
+                                    <text>—</text>
+                                }
+                            </span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="cpd-sub-head">
+                            <i class="ph ph-list-bullets"></i> Items invoiced
+                        </div>
+                        @if (selectedInvoice.Lines?.Any() == true)
+                        {
+                            <div class="table-responsive">
+                                <table class="cpd-table mobile-card-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th class="cpd-num">Qty</th>
+                                            <th>UoM</th>
+                                            <th class="cpd-num">Gross price</th>
+                                            <th class="cpd-num">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var line in selectedInvoice.Lines)
+                                        {
+                                            <tr>
+                                                <td data-label="Item">
+                                                    <span class="cpd-doc">
+                                                        <span class="cpd-doc-id">@line.ItemDescription</span>
+                                                        <span class="cpd-doc-sub">@line.ItemCode</span>
+                                                    </span>
+                                                </td>
+                                                <td data-label="Qty" class="cpd-num">
+                                                    @QuantityDisplay.Format(line.Quantity, line.UoMCode)
+                                                </td>
+                                                <td data-label="UoM" class="cpd-quiet">@(line.UoMCode ?? "—")</td>
+                                                <td data-label="Gross price" class="cpd-num cpd-quiet">
+                                                    @FormatCurrencyWithCode(line.GrossPrice, selectedInvoice.DocCurrency)
+                                                </td>
+                                                <td data-label="Total" class="cpd-num cpd-strong">
+                                                    @FormatCurrencyWithCode(line.LineTotal, selectedInvoice.DocCurrency)
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="cpd-empty">No line items available for this invoice.</div>
+                        }
+                    </div>
+
+                    <div>
+                        <div class="cpd-sub-head">
+                            <i class="ph ph-file-arrow-down"></i> Proof of delivery
+                        </div>
+                        @if (podAttachments.Any())
+                        {
+                            @foreach (var attachment in podAttachments)
+                            {
+                                <div class="cpd-media">
+                                    <span class="cpd-media-icon"><i class="ph ph-paperclip"></i></span>
+                                    <div class="cpd-media-text">
+                                        <div class="cpd-media-title">@attachment.FileName</div>
+                                        <div class="cpd-media-sub">
+                                            @attachment.FileSizeFormatted &middot; @attachment.UploadedAt.ToString("MMM dd, yyyy")
+                                            @if (!string.IsNullOrWhiteSpace(attachment.Description))
+                                            {
+                                                <span>&middot; @attachment.Description</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="cpd-media-action">
+                                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                                @onclick="() => DownloadAttachment(attachment)">
+                                            View POD
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="cpd-empty">No POD is attached to this invoice yet.</div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="cpd-sheet-foot">
+                <button type="button" class="btn btn-outline-primary" @onclick="CloseInvoiceModal">Close</button>
+                <MudButton ButtonType="ButtonType.Button" Variant="Variant.Filled" Color="Color.Primary"
+                           OnClick="DownloadInvoicePdf" Disabled="@(isPdfLoading || selectedInvoice == null)">
+                    @if (isPdfLoading)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                        <span>Generating...</span>
                     }
+                    else
+                    {
+                        <span>Download PDF</span>
+                    }
+                </MudButton>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private CustomerPortalSession? portalSession;
@@ -560,6 +528,30 @@
     private List<CustomerInvoiceSummary> filteredInvoices => string.IsNullOrEmpty(selectedAccountFilter)
         ? invoices
         : invoices.Where(i => i.CardCode == selectedAccountFilter).ToList();
+
+    private List<CustomerInvoiceSummary> OpenInvoices => filteredInvoices.Where(i => i.Balance > 0).ToList();
+
+    private int OpenCount => OpenInvoices.Count;
+
+    private int PaidCount => filteredInvoices.Count - OpenCount;
+
+    private decimal OverdueAmount => OpenInvoices.Where(i => i.DaysOverdue > 0).Sum(i => i.Balance);
+
+    private int OverdueCount => OpenInvoices.Count(i => i.DaysOverdue > 0);
+
+    private int OldestOverdueDays => OpenInvoices.Any(i => i.DaysOverdue > 0)
+        ? OpenInvoices.Max(i => i.DaysOverdue)
+        : 0;
+
+    /// <summary>
+    /// The soonest invoice not yet over terms. Deliberately not "the oldest open
+    /// invoice": one already past due is stated by the overdue figure beside it,
+    /// and counting it twice would make the row read as more debt than there is.
+    /// </summary>
+    private CustomerInvoiceSummary? NextDue => OpenInvoices
+        .Where(i => i.DaysOverdue <= 0 && i.DueDate.HasValue)
+        .OrderBy(i => i.DueDate)
+        .FirstOrDefault();
 
     protected override async Task OnInitializedAsync()
     {
@@ -745,6 +737,50 @@
         return $"{currency} {amount:N2}";
     }
 
+    private static string Plural(int count, string noun) => count == 1 ? noun : noun + "s";
+
+    /// <summary>The period the figures cover, as the filter currently states it.</summary>
+    private string PeriodCaption()
+    {
+        if (fromDate is null && toDate is null) return "All invoices on record";
+        if (fromDate is null) return $"Up to {toDate:MMM dd, yyyy}";
+        if (toDate is null) return $"Since {fromDate:MMM dd, yyyy}";
+        return $"{fromDate:MMM dd, yyyy} – {toDate:MMM dd, yyyy}";
+    }
+
+    /// <summary>
+    /// Which accounts the list is showing, for a customer whose portal login
+    /// reaches more than one.
+    /// </summary>
+    private string AccountScopeCaption()
+    {
+        if (string.IsNullOrEmpty(selectedAccountFilter))
+        {
+            return "All main accounts";
+        }
+
+        return linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
+            ?? selectedAccountFilter;
+    }
+
+    private string NextDueCaption()
+    {
+        if (NextDue?.DueDate is not { } dueOn)
+        {
+            return OpenCount > 0 ? "Everything open is past due" : "Nothing outstanding";
+        }
+
+        var days = (dueOn.Date - DateTime.Today).Days;
+        var when = days switch
+        {
+            <= 0 => "due today",
+            1 => "due tomorrow",
+            _ => $"due in {days} days"
+        };
+
+        return $"Invoice {NextDue.DocNum} — {when}";
+    }
+
     private static bool IsPodAttachment(DocumentAttachmentDto attachment)
     {
         var label = $"{attachment.FileName} {attachment.Description}";
@@ -781,30 +817,19 @@
         return pages;
     }
 
-    private string GetStatusClass(CustomerInvoiceSummary invoice)
+    /// <summary>The same three states the dashboard's ledger states, said the same way.</summary>
+    private static (string Cls, string Text) InvoiceStatus(CustomerInvoiceSummary invoice)
     {
-        if (invoice.Balance <= 0) return "text-bg-primary";
-        if (invoice.DaysOverdue > 0) return "text-bg-danger";
-        return "text-bg-success";
-    }
-
-    private string GetStatusText(CustomerInvoiceSummary invoice)
-    {
-        if (invoice.Balance <= 0) return "Paid";
-        if (invoice.DaysOverdue > 0) return $"Overdue ({invoice.DaysOverdue} days)";
-        return "Current";
-    }
-
-    private string GetSelectedInvoiceStatusText()
-    {
-        return selectedInvoiceSummary == null ? "-" : GetStatusText(selectedInvoiceSummary);
+        if (invoice.Balance <= 0) return ("is-paid", "Paid");
+        if (invoice.DaysOverdue > 0) return ("is-over", $"{invoice.DaysOverdue} {Plural(invoice.DaysOverdue, "day")} over");
+        return (string.Empty, "Current");
     }
 
     private string FormatDate(string? dateStr)
     {
         if (string.IsNullOrWhiteSpace(dateStr))
         {
-            return "-";
+            return "—";
         }
 
         return DateTime.TryParse(dateStr, out var date)

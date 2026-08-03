@@ -10,255 +10,288 @@
 
 <PageTitle>Item Summary - Customer Portal</PageTitle>
 
-<div class="container-fluid fade-in staff-dashboard staff-shell customer-dashboard">
-    @if (isLoading)
+@* On the portal's page vocabulary — the `cpd` blocks the dashboard was built
+   from; see the Page vocabulary section of customer-portal.css. `cpx` comes
+   down from the shell. *@
+<div class="cpd fade-in">
+    @if (isLoading && customerInfo == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <div class="spinner-border" role="status" style="width: 2.5rem; height: 2.5rem;">
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <div class="spinner-border" role="status" style="width: 2.25rem; height: 2.25rem;">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <p class="text-muted mt-3 mb-0">Loading item summary...</p>
+                <p class="mt-3 mb-0">Loading item summary...</p>
             </div>
         </div>
     }
     else if (customerInfo == null)
     {
-        <div class="card dashboard-panel">
-            <div class="card-body text-center py-5">
-                <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" fill="currentColor" viewBox="0 0 16 16"
-                     class="mb-3">
-                    <path
-                    d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-                </svg>
-                <h2 class="mb-2">Authentication Required</h2>
-                <p class="text-muted mb-4">Please login to access your account.</p>
-                <a href="/customer-portal/login" class="btn btn-primary">Login to Portal</a>
+        <div class="cpd-panel">
+            <div class="cpd-empty">
+                <i class="ph ph-lock-key"></i>
+                <h5>Authentication required</h5>
+                <p>Please sign in to see your purchase history.</p>
+                <a href="/customer-portal/login" class="btn btn-primary">Sign in to the portal</a>
             </div>
         </div>
     }
     else
     {
-        <div class="page-header staff-dashboard-header mb-4">
-            <div class="dashboard-title">
-                <h2>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor" viewBox="0 0 16 16">
-                        <path
-                        d="M0 2.5A.5.5 0 0 1 .5 2H2a.5.5 0 0 1 .485.379L2.89 4H14.5a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 13 11H4a.5.5 0 0 1-.485-.379L1.61 3H.5a.5.5 0 0 1-.5-.5zM3.14 5l1.25 5h8.22l1.25-5H3.14zM5 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0zm9-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0z" />
-                    </svg>
-                    Item Purchase Summary
-                </h2>
-                <span class="text-muted">Invoiced items adjusted for credit notes &mdash; @customerInfo.CardName
-                    (@customerInfo.CardCode)</span>
+        <div class="cpd-hero">
+            <div class="cpd-hero-text">
+                <h2>Item purchases</h2>
+                <div class="cpd-hero-meta">
+                    <span>@customerInfo.CardName</span>
+                    <span>Account @customerInfo.CardCode</span>
                     @if (isMultiAccount)
                     {
-                        @if (string.IsNullOrEmpty(selectedAccountFilter))
+                        <span>@AccountScopeCaption()</span>
+                    }
+                    <span>Invoiced quantities net of credit notes</span>
+                </div>
+            </div>
+            <div class="cpd-hero-actions">
+                <a href="/customer-portal/dashboard" class="btn btn-outline-primary">
+                    <i class="ph ph-arrow-left"></i> Dashboard
+                </a>
+                <a href="/customer-portal/invoices" class="btn btn-primary">View invoices</a>
+            </div>
+        </div>
+
+        <section class="cpd-panel">
+            <div class="cpd-panel-head">
+                <h5>Period and filters</h5>
+                @if (hasLoadedData)
+                {
+                    <span class="cpd-tag">@filteredItems.Count() @Plural(filteredItems.Count(), "item")</span>
+                }
+            </div>
+            <div class="cpd-filters">
+                @* NocturneDateField rather than MudDatePicker: it draws the same calendar
+                   as the rest of the portal instead of MudBlazor's own. *@
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="cis-f-from">From</label>
+                    <NocturneDateField Id="cis-f-from" Class="ndf-bs" @bind-Date="fromDate" />
+                </div>
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="cis-f-to">To</label>
+                    <NocturneDateField Id="cis-f-to" Class="ndf-bs" @bind-Date="toDate" />
+                </div>
+                @if (isMultiAccount && linkedAccounts.Any())
+                {
+                    <div class="cpd-field">
+                        <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
+                                   ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined" Dense="true"
+                                   AnchorOrigin="Origin.BottomCenter">
+                            <MudSelectItem T="string" Value="@("")">All accounts</MudSelectItem>
+                            @foreach (var account in linkedAccounts)
+                            {
+                                <MudSelectItem T="string" Value="@account.CardCode">
+                                    @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "")
+                                    — @account.CardCode
+                                </MudSelectItem>
+                            }
+                        </MudSelect>
+                    </div>
+                }
+                <div class="cpd-field">
+                    <MudSelect T="string" @bind-Value="selectedCategory" Label="Category" Variant="Variant.Outlined"
+                               Dense="true" AnchorOrigin="Origin.BottomCenter" Clearable="true">
+                        <MudSelectItem T="string" Value="@((string)null!)">All categories</MudSelectItem>
+                        @foreach (var cat in availableCategories)
                         {
-                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                                Multi-Account &mdash; showing items across all accounts
-                            </span>
+                            <MudSelectItem T="string" Value="@cat">@cat</MudSelectItem>
+                        }
+                    </MudSelect>
+                </div>
+                <div class="cpd-field">
+                    <label class="cpd-field-label" for="cis-f-search">Search</label>
+                    <input id="cis-f-search" class="cpd-input" type="search" @bind="searchText" @bind:event="oninput"
+                           placeholder="Item code or description" />
+                </div>
+                <div class="cpd-field cpd-field-action">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyFilters"
+                               Disabled="@(isLoading || !fromDate.HasValue || !toDate.HasValue)">
+                        @if (isLoading)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-1" />
+                            <span>Loading...</span>
                         }
                         else
                         {
-                            <span class="badge bg-info mt-1" style="font-size: 0.75rem;">
-                                Filtered &mdash; @(linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName ?? selectedAccountFilter)
-                            </span>
+                            <span>@(hasLoadedData ? "Reload items" : "Load items")</span>
                         }
-                    }
+                    </MudButton>
                 </div>
-                <div class="dashboard-meta">
-                    <div class="d-flex flex-wrap gap-2 align-items-end">
-                        @* NocturneDateField rather than MudDatePicker: it draws the same calendar
-                           as the rest of the portal instead of MudBlazor's own. *@
-                        <div style="min-width: 160px;">
-                            <label class="form-label small fw-semibold text-uppercase text-muted" for="cis-f-from">From Date</label>
-                            <NocturneDateField Id="cis-f-from" Class="ndf-bs" @bind-Date="fromDate" />
-                        </div>
-                        <div style="min-width: 160px;">
-                            <label class="form-label small fw-semibold text-uppercase text-muted" for="cis-f-to">To Date</label>
-                            <NocturneDateField Id="cis-f-to" Class="ndf-bs" @bind-Date="toDate" />
-                        </div>
-                        @if (isMultiAccount && linkedAccounts.Any())
-                        {
-                            <MudSelect T="string" Label="Account" Value="@selectedAccountFilter"
-                                       ValueChanged="OnAccountFilterChanged" Variant="Variant.Outlined"
-                                       Margin="Margin.Dense" Style="min-width: 200px;">
-                                <MudSelectItem T="string" Value="@("")">All Accounts</MudSelectItem>
-                                @foreach (var account in linkedAccounts)
+            </div>
+        </section>
+
+        @if (hasLoadedData)
+        {
+            @* Materialised once per render. The figures, the rows and the totals
+               row read it a dozen times between them, and `filteredItems` is a
+               deferred query that re-runs the whole filter and sort on each
+               enumeration. *@
+            var shown = filteredItems.ToList();
+            var topItem = shown.OrderByDescending(i => i.NetAmount).FirstOrDefault();
+            var returnedLines = shown.Count(i => i.CreditedQuantity > 0);
+
+            <section class="cpd-kpis">
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Purchased</span>
+                        <i class="ph ph-shopping-cart"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(shown.Sum(i => i.InvoicedAmount))</div>
+                    <div class="cpd-kpi-sub">@PeriodCaption()</div>
+                </div>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Returned</span>
+                        <i class="ph ph-arrow-u-up-left"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(shown.Sum(i => i.CreditedAmount))</div>
+                    <div class="cpd-kpi-sub">
+                        @(returnedLines > 0
+                            ? $"{returnedLines} {Plural(returnedLines, "item")} credited"
+                            : "Nothing credited back")
+                    </div>
+                </div>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Net spend</span>
+                        <i class="ph ph-wallet"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(shown.Sum(i => i.NetAmount))</div>
+                    <div class="cpd-kpi-sub">Purchases less returns</div>
+                </div>
+
+                <div class="cpd-kpi">
+                    <div class="cpd-kpi-top">
+                        <span class="cpd-kpi-label">Top item</span>
+                        <i class="ph ph-package"></i>
+                    </div>
+                    <div class="cpd-kpi-num">@FormatCurrency(topItem?.NetAmount ?? 0)</div>
+                    <div class="cpd-kpi-sub">@(topItem?.ItemDescription ?? topItem?.ItemCode ?? "No items in range")</div>
+                </div>
+            </section>
+
+            <section class="cpd-panel cpd-ledger">
+                <div class="cpd-panel-head">
+                    <h5>Items</h5>
+                    @* The breakdown is four more columns, not a different table, so it is
+                       a state of this panel rather than a filter above it. *@
+                    <button type="button" class="btn btn-outline-primary btn-sm" @onclick="ToggleBreakdown"
+                            aria-pressed="@showBreakdown">
+                        <i class="ph @(showBreakdown ? "ph-eye-slash" : "ph-eye")"></i>
+                        @(showBreakdown ? "Hide breakdown" : "Show breakdown")
+                    </button>
+                    <span class="cpd-panel-total">
+                        Net <strong>@FormatCurrency(shown.Sum(i => i.NetAmount))</strong>
+                    </span>
+                </div>
+
+                @if (shown.Any())
+                {
+                    <div class="table-responsive">
+                        <table class="cpd-table mobile-card-table">
+                            <thead>
+                                <tr>
+                                    <th>@SortButton("ItemCode", "Item")</th>
+                                    <th>@SortButton("Description", "Description")</th>
+                                    @if (showBreakdown)
+                                    {
+                                        <th class="cpd-num">@SortButton("InvoicedQty", "Purchased qty")</th>
+                                        <th class="cpd-num">@SortButton("InvoicedAmt", "Purchased")</th>
+                                        <th class="cpd-num">@SortButton("CreditedQty", "Returned qty")</th>
+                                        <th class="cpd-num">@SortButton("CreditedAmt", "Returned")</th>
+                                    }
+                                    <th class="cpd-num">@SortButton("NetQty", "Qty")</th>
+                                    <th class="cpd-num">@SortButton("NetAmt", "Amount")</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in shown)
                                 {
-                                    <MudSelectItem T="string" Value="@account.CardCode">
-                                        @account.CardName @(!string.IsNullOrEmpty(account.Currency) ? $"({account.Currency})" : "") — @account.CardCode
-                                    </MudSelectItem>
-                                }
-                            </MudSelect>
-                        }
-                        <MudSelect T="string" @bind-Value="selectedCategory" Label="Product Category" Variant="Variant.Outlined"
-                                   Margin="Margin.Dense" Style="min-width: 180px;" Clearable="true">
-                            <MudSelectItem T="string" Value="@((string)null!)">All Categories</MudSelectItem>
-                            @foreach (var cat in availableCategories)
-                            {
-                                <MudSelectItem T="string" Value="@cat">@cat</MudSelectItem>
-                            }
-                        </MudSelect>
-                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" OnClick="ApplyFilters"
-                                   StartIcon="@Icons.Material.Filled.FilterAlt" Disabled="@(isLoading || !fromDate.HasValue || !toDate.HasValue)">Apply</MudButton>
-                        <MudTextField T="string" @bind-Value="searchText" Placeholder="Search item code or description..."
-                                      Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" Adornment="Adornment.Start"
-                                      AdornmentIcon="@Icons.Material.Filled.Search" Class="item-search" Style="min-width: 250px;" />
-                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" OnClick="RefreshData"
-                                   StartIcon="@Icons.Material.Filled.Refresh" Disabled="@(!hasLoadedData)">Refresh</MudButton>
-                    </div>
-                </div>
-            </div>
-
-            @* Summary cards *@
-            <div class="row mb-4 g-4 dashboard-stats">
-                <div class="col-md-4">
-                    <div class="card stat-card staff-stat-card bg-primary">
-                        <div class="card-body">
-                            <p class="stat-label mb-2">Total Purchased</p>
-                            <h2 class="stat-value">@FormatCurrency(items?.Sum(i => i.InvoicedAmount) ?? 0)</h2>
-                            <p class="text-muted mb-0 small">across @(items?.Sum(i => i.InvoiceCount) ?? 0) items on invoices</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card stat-card staff-stat-card bg-info">
-                        <div class="card-body">
-                            <p class="stat-label mb-2">Total Returns</p>
-                            <h2 class="stat-value text-danger">-@FormatCurrency(items?.Sum(i => i.CreditedAmount) ?? 0)</h2>
-                            <p class="text-muted mb-0 small">across @(items?.Sum(i => i.CreditNoteCount) ?? 0) items returned</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card stat-card staff-stat-card bg-success">
-                        <div class="card-body">
-                            <p class="stat-label mb-2">Net Spend</p>
-                            <h2 class="stat-value">@FormatCurrency(items?.Sum(i => i.NetAmount) ?? 0)</h2>
-                            <p class="text-muted mb-0 small">@(filteredItems?.Count() ?? 0) unique items</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            @* Main table *@
-            <div class="card dashboard-panel">
-                <div class="card-header d-flex align-items-center justify-content-between dashboard-panel-header">
-                    <h5 class="mb-0 d-flex align-items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"
-                             class="panel-icon">
-                            <path
-                            d="M0 2.5A.5.5 0 0 1 .5 2H2a.5.5 0 0 1 .485.379L2.89 4H14.5a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 13 11H4a.5.5 0 0 1-.485-.379L1.61 3H.5a.5.5 0 0 1-.5-.5zM3.14 5l1.25 5h8.22l1.25-5H3.14zM5 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0zm9-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0z" />
-                        </svg>
-                        Items
-                    </h5>
-                    <div class="d-flex align-items-center gap-3">
-                        <MudSwitch T="bool" @bind-Value="showBreakdown" Color="Color.Primary" Label="Show Breakdown" Size="Size.Small" />
-                        <span class="badge bg-primary">@(filteredItems?.Count() ?? 0) items</span>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    @if (filteredItems?.Any() == true)
-                    {
-                        <div class="table-responsive">
-                            <table class="table table-hover mb-0 align-middle dashboard-table">
-                                <thead>
                                     <tr>
-                                        <th style="cursor:pointer" @onclick='() => SetSort("ItemCode")'>
-                                            Item Code @SortIndicator("ItemCode")
-                                        </th>
-                                        <th style="cursor:pointer" @onclick='() => SetSort("Description")'>
-                                            Description @SortIndicator("Description")
-                                        </th>
+                                        <td data-label="Item"><span class="cpd-code">@item.ItemCode</span></td>
+                                        <td data-label="Description">@(item.ItemDescription ?? "—")</td>
                                         @if (showBreakdown)
                                         {
-                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("InvoicedQty")'>
-                                                Purchased Qty @SortIndicator("InvoicedQty")
-                                            </th>
-                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("InvoicedAmt")'>
-                                                Purchased Amt @SortIndicator("InvoicedAmt")
-                                            </th>
-                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("CreditedQty")'>
-                                                Returned Qty @SortIndicator("CreditedQty")
-                                            </th>
-                                            <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("CreditedAmt")'>
-                                                Returned Amt @SortIndicator("CreditedAmt")
-                                            </th>
+                                            <td data-label="Purchased qty" class="cpd-num cpd-quiet">
+                                                @QuantityDisplay.Format(item.InvoicedQuantity)
+                                            </td>
+                                            <td data-label="Purchased" class="cpd-num cpd-quiet">
+                                                @FormatCurrency(item.InvoicedAmount)
+                                            </td>
+                                            <td data-label="Returned qty" class="cpd-num @(item.CreditedQuantity > 0 ? "cpd-minus" : "cpd-quiet")">
+                                                @(item.CreditedQuantity > 0 ? $"-{QuantityDisplay.Format(item.CreditedQuantity)}" : "0")
+                                            </td>
+                                            <td data-label="Returned" class="cpd-num @(item.CreditedAmount > 0 ? "cpd-minus" : "cpd-quiet")">
+                                                @(item.CreditedAmount > 0 ? $"-{FormatCurrency(item.CreditedAmount)}" : FormatCurrency(0))
+                                            </td>
                                         }
-                                        <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("NetQty")'>
-                                            Qty @SortIndicator("NetQty")
-                                        </th>
-                                        <th class="text-end" style="cursor:pointer" @onclick='() => SetSort("NetAmt")'>
-                                            Amount @SortIndicator("NetAmt")
-                                        </th>
+                                        <td data-label="Qty" class="cpd-num cpd-strong">@QuantityDisplay.Format(item.NetQuantity)</td>
+                                        <td data-label="Amount" class="cpd-num cpd-strong">@FormatCurrency(item.NetAmount)</td>
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var item in filteredItems)
+                                }
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td data-label="Total">Total</td>
+                                    <td class="cpd-quiet">@shown.Count() @Plural(shown.Count(), "item")</td>
+                                    @if (showBreakdown)
                                     {
-                                        <tr>
-                                            <td><span class="badge bg-dark">@item.ItemCode</span></td>
-                                            <td class="text-truncate" style="max-width: 250px;" title="@item.ItemDescription">
-                                                @(item.ItemDescription ?? "-")</td>
-                                            @if (showBreakdown)
-                                            {
-                                                <td class="text-end">@QuantityDisplay.Format(item.InvoicedQuantity)</td>
-                                                <td class="text-end">@FormatCurrency(item.InvoicedAmount)</td>
-                                                <td class="text-end @(item.CreditedQuantity > 0 ? "text-danger" : "")">
-                                                    @(item.CreditedQuantity > 0 ? $"-{QuantityDisplay.Format(item.CreditedQuantity)}" : "0")
-                                                </td>
-                                                <td class="text-end @(item.CreditedAmount > 0 ? "text-danger" : "")">
-                                                    @(item.CreditedAmount > 0 ? $"-{FormatCurrency(item.CreditedAmount)}" :
-                                                        FormatCurrency(0))
-                                                </td>
-                                            }
-                                            <td class="text-end fw-semibold">@QuantityDisplay.Format(item.NetQuantity)</td>
-                                            <td class="text-end fw-semibold">@FormatCurrency(item.NetAmount)</td>
-                                        </tr>
+                                        <td data-label="Purchased qty" class="cpd-num">
+                                            @QuantityDisplay.Format(shown.Sum(i => i.InvoicedQuantity))
+                                        </td>
+                                        <td data-label="Purchased" class="cpd-num">
+                                            @FormatCurrency(shown.Sum(i => i.InvoicedAmount))
+                                        </td>
+                                        <td data-label="Returned qty" class="cpd-num cpd-minus">
+                                            -@QuantityDisplay.Format(shown.Sum(i => i.CreditedQuantity))
+                                        </td>
+                                        <td data-label="Returned" class="cpd-num cpd-minus">
+                                            -@FormatCurrency(shown.Sum(i => i.CreditedAmount))
+                                        </td>
                                     }
-                                    </tbody>
-                                    <tfoot>
-                                        <tr class="fw-bold" style="border-top: 2px solid var(--staff-ink, #333);">
-                                            <td colspan="2">Total</td>
-                                            @if (showBreakdown)
-                                            {
-                                                <td class="text-end">@QuantityDisplay.Format(filteredItems.Sum(i => i.InvoicedQuantity))</td>
-                                                <td class="text-end">@FormatCurrency(filteredItems.Sum(i => i.InvoicedAmount))</td>
-                                                <td class="text-end text-danger">-@QuantityDisplay.Format(filteredItems.Sum(i => i.CreditedQuantity))</td>
-                                                <td class="text-end text-danger">-@FormatCurrency(filteredItems.Sum(i => i.CreditedAmount))</td>
-                                            }
-                                            <td class="text-end">@QuantityDisplay.Format(filteredItems.Sum(i => i.NetQuantity))</td>
-                                            <td class="text-end">@FormatCurrency(filteredItems.Sum(i => i.NetAmount))</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                        }
+                                    <td data-label="Qty" class="cpd-num">@QuantityDisplay.Format(shown.Sum(i => i.NetQuantity))</td>
+                                    <td data-label="Amount" class="cpd-num">@FormatCurrency(shown.Sum(i => i.NetAmount))</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                }
                 else
+                {
+                    <div class="cpd-empty">
+                        @if (!string.IsNullOrEmpty(searchText))
                         {
-                            <div class="text-center py-5 dashboard-empty">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" viewBox="0 0 16 16"
-                                     class="text-muted mb-3">
-                                    <path
-                                    d="M0 2.5A.5.5 0 0 1 .5 2H2a.5.5 0 0 1 .485.379L2.89 4H14.5a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 13 11H4a.5.5 0 0 1-.485-.379L1.61 3H.5a.5.5 0 0 1-.5-.5zM3.14 5l1.25 5h8.22l1.25-5H3.14zM5 13a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0zm9-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm-2 1a2 2 0 1 1 4 0 2 2 0 0 1-4 0z" />
-                                </svg>
-                                <p class="text-muted mb-0">
-                                    @if (!string.IsNullOrEmpty(searchText))
-                                    {
-                                        <span>No items matching "<strong>@searchText</strong>"</span>
-                                    }
-                                    else
-                                    {
-                                        <span>@(hasLoadedData ? "No invoiced items found" : "Select a date range and click Apply to load items")</span>
-                                    }
-                                </p>
-                            </div>
+                            <text>No items matching &ldquo;@searchText&rdquo;.</text>
+                        }
+                        else
+                        {
+                            <text>No invoiced items in the selected period.</text>
                         }
                     </div>
+                }
+            </section>
+        }
+        else
+        {
+            <div class="cpd-panel">
+                <div class="cpd-empty">
+                    <i class="ph ph-package"></i>
+                    <h5>Choose a period</h5>
+                    <p>Set the dates above and load what you bought over that range.</p>
                 </div>
-            }
-        </div>
+            </div>
+        }
+    }
+</div>
 
 @code {
     private CustomerPortalSession? portalSession;
@@ -270,8 +303,8 @@
     private string searchText = string.Empty;
     private string sortColumn = "NetAmt";
     private bool sortAscending = false;
-    private DateTime? fromDate;
-    private DateTime? toDate;
+    private DateTime? fromDate = DateTime.Today.AddMonths(-3);
+    private DateTime? toDate = DateTime.Today;
     private string? selectedCategory;
     private List<string> availableCategories = new();
     private bool isMultiAccount;
@@ -356,12 +389,6 @@
         }
     }
 
-    private async Task RefreshData()
-    {
-        if (!fromDate.HasValue || !toDate.HasValue) return;
-        await LoadData();
-    }
-
     private async Task ApplyFilters()
     {
         if (!fromDate.HasValue || !toDate.HasValue) return;
@@ -382,6 +409,11 @@
         {
             await LoadData();
         }
+    }
+
+    private void ToggleBreakdown()
+    {
+        showBreakdown = !showBreakdown;
     }
 
     private IEnumerable<ItemCodeSummary> ApplyFilter(IEnumerable<ItemCodeSummary> source)
@@ -405,16 +437,11 @@
         return sortColumn switch
         {
             "ItemCode" => sortAscending ? source.OrderBy(i => i.ItemCode) : source.OrderByDescending(i => i.ItemCode),
-            "Description" => sortAscending ? source.OrderBy(i => i.ItemDescription) : source.OrderByDescending(i =>
-i.ItemDescription),
-            "InvoicedQty" => sortAscending ? source.OrderBy(i => i.InvoicedQuantity) : source.OrderByDescending(i =>
-i.InvoicedQuantity),
-            "InvoicedAmt" => sortAscending ? source.OrderBy(i => i.InvoicedAmount) : source.OrderByDescending(i =>
-i.InvoicedAmount),
-            "CreditedQty" => sortAscending ? source.OrderBy(i => i.CreditedQuantity) : source.OrderByDescending(i =>
-i.CreditedQuantity),
-            "CreditedAmt" => sortAscending ? source.OrderBy(i => i.CreditedAmount) : source.OrderByDescending(i =>
-i.CreditedAmount),
+            "Description" => sortAscending ? source.OrderBy(i => i.ItemDescription) : source.OrderByDescending(i => i.ItemDescription),
+            "InvoicedQty" => sortAscending ? source.OrderBy(i => i.InvoicedQuantity) : source.OrderByDescending(i => i.InvoicedQuantity),
+            "InvoicedAmt" => sortAscending ? source.OrderBy(i => i.InvoicedAmount) : source.OrderByDescending(i => i.InvoicedAmount),
+            "CreditedQty" => sortAscending ? source.OrderBy(i => i.CreditedQuantity) : source.OrderByDescending(i => i.CreditedQuantity),
+            "CreditedAmt" => sortAscending ? source.OrderBy(i => i.CreditedAmount) : source.OrderByDescending(i => i.CreditedAmount),
             "NetQty" => sortAscending ? source.OrderBy(i => i.NetQuantity) : source.OrderByDescending(i => i.NetQuantity),
             "NetAmt" => sortAscending ? source.OrderBy(i => i.NetAmount) : source.OrderByDescending(i => i.NetAmount),
             _ => source
@@ -432,15 +459,55 @@ i.CreditedAmount),
         }
     }
 
-    private MarkupString SortIndicator(string column)
+    /// <summary>
+    /// The column heading as the control that sorts it. A `th` with a click
+    /// handler is not reachable from a keyboard and announces nothing, so the
+    /// heading carries a real button that inherits its type.
+    /// </summary>
+    private RenderFragment SortButton(string column, string label) => builder =>
     {
-        if (sortColumn != column)
-            return new MarkupString("");
-        return new MarkupString(sortAscending ? "&#9650;" : "&#9660;");
-    }
+        var isSorted = sortColumn == column;
+
+        builder.OpenElement(0, "button");
+        builder.AddAttribute(1, "type", "button");
+        builder.AddAttribute(2, "class", isSorted ? "cpd-sort is-sorted" : "cpd-sort");
+        builder.AddAttribute(3, "aria-sort", isSorted ? (sortAscending ? "ascending" : "descending") : "none");
+        builder.AddAttribute(4, "onclick", EventCallback.Factory.Create(this, () => SetSort(column)));
+        builder.AddContent(5, label);
+        builder.OpenElement(6, "i");
+        builder.AddAttribute(7, "class", $"ph {(isSorted && sortAscending ? "ph-caret-up" : "ph-caret-down")}");
+        builder.CloseElement();
+        builder.CloseElement();
+    };
 
     private string FormatCurrency(decimal amount)
     {
         return $"${amount:N2}";
+    }
+
+    private static string Plural(int count, string noun) => count == 1 ? noun : noun + "s";
+
+    /// <summary>The period the figures cover, as the filter currently states it.</summary>
+    private string PeriodCaption()
+    {
+        if (fromDate is null && toDate is null) return "All purchases on record";
+        if (fromDate is null) return $"Up to {toDate:MMM dd, yyyy}";
+        if (toDate is null) return $"Since {fromDate:MMM dd, yyyy}";
+        return $"{fromDate:MMM dd, yyyy} – {toDate:MMM dd, yyyy}";
+    }
+
+    /// <summary>
+    /// Which accounts the list is showing, for a customer whose portal login
+    /// reaches more than one.
+    /// </summary>
+    private string AccountScopeCaption()
+    {
+        if (string.IsNullOrEmpty(selectedAccountFilter))
+        {
+            return "All main accounts";
+        }
+
+        return linkedAccounts.FirstOrDefault(a => a.CardCode == selectedAccountFilter)?.CardName
+            ?? selectedAccountFilter;
     }
 }
