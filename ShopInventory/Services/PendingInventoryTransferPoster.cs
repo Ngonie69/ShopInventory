@@ -1,5 +1,6 @@
 using ErrorOr;
 using ShopInventory.Common.Errors;
+using ShopInventory.Common.Idempotency;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.InventoryTransfers;
@@ -22,11 +23,18 @@ public interface IPendingInventoryTransferPoster
     /// The caller is responsible for saving the tracked entity.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Deliberately takes no <see cref="CancellationToken"/>. Every caller reaches here with the
     /// approval already committed, so the post is a durable obligation: handed the request's token
     /// (which ASP.NET binds to <c>HttpContext.RequestAborted</c>), a browser disconnect or a proxy
     /// timeout would abandon the transfer at <see cref="PendingInventoryTransferStatuses.Approved"/>
     /// with no error and no retry offered. The SAP client's own timeout still bounds the call.
+    /// </para>
+    /// <para>
+    /// Only one post per transfer may be in flight. The guard lives here rather than in either
+    /// caller because this is the single point where a SAP document comes into existence, so the
+    /// approval that posts on completion and a manual "Post to SAP" also exclude each other.
+    /// </para>
     /// </remarks>
     Task<ErrorOr<InventoryTransferDto>> PostAsync(
         PendingInventoryTransferEntity pending,
@@ -40,8 +48,16 @@ public sealed class PendingInventoryTransferPoster(
     IInventoryTransferApprovalService approvalService,
     INotificationService notificationService,
     IAuditService auditService,
+    IIdempotencyRequestStore idempotencyRequestStore,
     ILogger<PendingInventoryTransferPoster> logger) : IPendingInventoryTransferPoster
 {
+    /// <summary>
+    /// Keyed on the transfer alone — deliberately not on the caller. Two people pressing Post on
+    /// the same transfer would each create a document in SAP, so they must collide, and a request
+    /// scoped per user would let them straight through.
+    /// </summary>
+    private const string IdempotencyScope = "pending-inventory-transfer-post";
+
     public async Task<ErrorOr<InventoryTransferDto>> PostAsync(
         PendingInventoryTransferEntity pending,
         Guid postedByUserId)
@@ -50,6 +66,67 @@ public sealed class PendingInventoryTransferPoster(
         // interface for why the caller's request token is not threaded through.
         var cancellationToken = CancellationToken.None;
 
+        long? idempotencyRequestId = null;
+        var release = false;
+        try
+        {
+            var acquired = await idempotencyRequestStore.TryAcquireAsync<InventoryTransferDto>(
+                IdempotencyScope,
+                pending.Id.ToString(),
+                new { PendingTransferId = pending.Id },
+                cancellationToken);
+            switch (acquired.Outcome)
+            {
+                // The stored response is the transfer itself, so a caller that lost the original
+                // answer still learns what was created instead of being told only "duplicate".
+                case IdempotencyAcquireOutcome.ReplayAvailable when acquired.Response is not null:
+                    logger.LogInformation(
+                        "Replaying the completed SAP post for pending inventory transfer {PendingId}", pending.Id);
+                    return acquired.Response;
+                case IdempotencyAcquireOutcome.InProgress:
+                    logger.LogWarning(
+                        "A SAP post for pending inventory transfer {PendingId} is already in flight; refusing to start a second",
+                        pending.Id);
+                    return Errors.InventoryTransfer.PostInProgress;
+                case IdempotencyAcquireOutcome.RequestMismatch:
+                    return Errors.Idempotency.RequestMismatch("inventory transfer post");
+                case IdempotencyAcquireOutcome.Acquired:
+                    idempotencyRequestId = acquired.RequestId;
+                    release = true;
+                    break;
+            }
+
+            var result = await PostCoreAsync(pending, postedByUserId, cancellationToken);
+
+            // Only a posted document is worth replaying. Every failure released the key on the way
+            // out, because the record stays retryable and the next attempt must be allowed to run.
+            if (!result.IsError && idempotencyRequestId.HasValue)
+            {
+                await idempotencyRequestStore.CompleteAsync(idempotencyRequestId.Value, result.Value, cancellationToken);
+                release = false;
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (release && idempotencyRequestId.HasValue)
+            {
+                try { await idempotencyRequestStore.ReleaseAsync(idempotencyRequestId.Value, CancellationToken.None); }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(exception,
+                        "Failed to release the post lock for pending inventory transfer {PendingId}", pending.Id);
+                }
+            }
+        }
+    }
+
+    private async Task<ErrorOr<InventoryTransferDto>> PostCoreAsync(
+        PendingInventoryTransferEntity pending,
+        Guid postedByUserId,
+        CancellationToken cancellationToken)
+    {
         CreateInventoryTransferRequest payload;
         try
         {
