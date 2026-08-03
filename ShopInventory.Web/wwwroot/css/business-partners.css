@@ -34,7 +34,8 @@
    customer-portal.css gives its ledger.
    ========================================================================== */
 
-.bp {
+.bp,
+.bp-overlay {
     --bp-bg: #f4f4f8;
     --bp-surface: #ffffff;
     --bp-wash: #ffffff;
@@ -91,7 +92,8 @@
     color-scheme: var(--bp-scheme);
 }
 
-.dark-theme .bp {
+.dark-theme .bp,
+.dark-theme .bp-overlay {
     --bp-bg: #161826;
     --bp-surface: #232532;
     --bp-wash: rgba(35, 37, 50, .6);
@@ -139,16 +141,19 @@
     -webkit-font-smoothing: antialiased;
 }
 
-.bp * {
+.bp *,
+.bp-overlay * {
     box-sizing: border-box;
 }
 
-.bp :focus-visible {
+.bp :focus-visible,
+.bp-overlay :focus-visible {
     outline: 2px solid var(--bp-accent);
     outline-offset: 2px;
 }
 
-.bp ::selection {
+.bp ::selection,
+.bp-overlay ::selection {
     background: rgba(var(--bp-accent-rgb), .3);
 }
 
@@ -156,7 +161,10 @@
    otherwise take them to 600. */
 .bp h1,
 .bp h2,
-.bp h3 {
+.bp h3,
+.bp-overlay h1,
+.bp-overlay h2,
+.bp-overlay h3 {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 500;
     margin: 0;
@@ -219,7 +227,8 @@
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 /* Nocturne outlines its primary action rather than filling it. */
 
-.bp .bp-btn {
+.bp .bp-btn,
+.bp-overlay .bp-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -239,54 +248,65 @@
     transition: background-color .15s, border-color .15s, color .15s;
 }
 
-.bp .bp-btn:disabled {
+.bp .bp-btn:disabled,
+.bp-overlay .bp-btn:disabled {
     opacity: .45;
     cursor: not-allowed;
 }
 
-.bp .bp-btn svg {
+.bp .bp-btn svg,
+.bp-overlay .bp-btn svg {
     display: block;
     flex: none;
 }
 
-.bp .bp-btn-primary {
+.bp .bp-btn-primary,
+.bp-overlay .bp-btn-primary {
     color: var(--bp-accent);
     border-color: var(--bp-accent);
     letter-spacing: .02em;
 }
 
-.bp .bp-btn-primary:hover:not(:disabled) {
+.bp .bp-btn-primary:hover:not(:disabled),
+.bp-overlay .bp-btn-primary:hover:not(:disabled) {
     background: rgba(var(--bp-accent-rgb), .12);
 }
 
-.bp .bp-btn-primary:active:not(:disabled) {
+.bp .bp-btn-primary:active:not(:disabled),
+.bp-overlay .bp-btn-primary:active:not(:disabled) {
     background: rgba(var(--bp-accent-rgb), .22);
 }
 
-.bp .bp-btn-ghost {
+.bp .bp-btn-ghost,
+.bp-overlay .bp-btn-ghost {
     color: var(--bp-accent);
 }
 
-.bp .bp-btn-ghost:hover:not(:disabled) {
+.bp .bp-btn-ghost:hover:not(:disabled),
+.bp-overlay .bp-btn-ghost:hover:not(:disabled) {
     background: rgba(var(--bp-accent-rgb), .1);
 }
 
-.bp .bp-btn-ghost:active:not(:disabled) {
+.bp .bp-btn-ghost:active:not(:disabled),
+.bp-overlay .bp-btn-ghost:active:not(:disabled) {
     background: rgba(var(--bp-accent-rgb), .18);
 }
 
-.bp .bp-btn-quiet {
+.bp .bp-btn-quiet,
+.bp-overlay .bp-btn-quiet {
     color: var(--bp-mute-2);
     border-color: var(--bp-divider);
 }
 
-.bp .bp-btn-quiet:hover:not(:disabled) {
+.bp .bp-btn-quiet:hover:not(:disabled),
+.bp-overlay .bp-btn-quiet:hover:not(:disabled) {
     color: var(--bp-ink);
     border-color: var(--bp-field-edge-hi);
     background: var(--bp-hover);
 }
 
-.bp .bp-btn-lg {
+.bp .bp-btn-lg,
+.bp-overlay .bp-btn-lg {
     height: 36px;
     font-size: 13px;
     padding-inline: var(--bp-s6);
@@ -538,7 +558,8 @@
 
 /* ── Controls ──────────────────────────────────────────────────────────── */
 
-.bp .bp-input {
+.bp .bp-input,
+.bp-overlay .bp-input {
     width: 100%;
     min-height: 34px;
     padding: 8px 12px;
@@ -556,27 +577,32 @@
     transition: border-color .15s, background-color .15s;
 }
 
-.bp .bp-input-search {
+.bp .bp-input-search,
+.bp-overlay .bp-input-search {
     padding-left: 33px;
     border-radius: 999px;
 }
 
-.bp .bp-input:hover {
+.bp .bp-input:hover,
+.bp-overlay .bp-input:hover {
     border-color: var(--bp-field-edge);
 }
 
-.bp .bp-input:focus-visible {
+.bp .bp-input:focus-visible,
+.bp-overlay .bp-input:focus-visible {
     border-color: rgba(var(--bp-accent-rgb), .55);
     outline-offset: 0;
 }
 
-.bp .bp-input::placeholder {
+.bp .bp-input::placeholder,
+.bp-overlay .bp-input::placeholder {
     color: var(--bp-placeholder);
     opacity: 1;
     -webkit-text-fill-color: var(--bp-placeholder);
 }
 
-.bp .bp-input[type="search"]::-webkit-search-cancel-button {
+.bp .bp-input[type="search"]::-webkit-search-cancel-button,
+.bp-overlay .bp-input[type="search"]::-webkit-search-cancel-button {
     -webkit-appearance: none;
     appearance: none;
     width: 11px;
@@ -587,7 +613,8 @@
     cursor: pointer;
 }
 
-.bp .bp-input[type="search"]::-webkit-search-cancel-button:hover {
+.bp .bp-input[type="search"]::-webkit-search-cancel-button:hover,
+.bp-overlay .bp-input[type="search"]::-webkit-search-cancel-button:hover {
     opacity: 1;
 }
 
@@ -791,7 +818,8 @@
     gap: 2px;
 }
 
-.bp .bp-icon-btn {
+.bp .bp-icon-btn,
+.bp-overlay .bp-icon-btn {
     display: grid;
     place-items: center;
     width: 27px;
@@ -806,7 +834,8 @@
     transition: background-color .13s, color .13s;
 }
 
-.bp .bp-icon-btn:hover {
+.bp .bp-icon-btn:hover,
+.bp-overlay .bp-icon-btn:hover {
     background: var(--bp-press);
     color: var(--bp-ink);
 }
@@ -903,11 +932,18 @@
 
 /* ── Detail drawer ─────────────────────────────────────────────────────── */
 /* Offset below the app bar: the page is a stacking context, so a drawer
-   cannot paint over the topbar however high its z-index.
-   Both live inside the .bp root so the palette and its descendant rules reach
-   them; keep them there, and keep .bp itself off these two elements — its
-   min-height: 100vh would beat the height set here and push them, and the
-   drawer's footer, a topbar's worth past the fold. */
+   cannot paint over the topbar however high its z-index. */
+
+/* The overlay renders outside the .bp root, so it carries the palette itself —
+   .bp-overlay is paired with .bp on the token block and on every scoped rule
+   above, the same arrangement credit-notes.css uses for .cnx-overlay. Scoping
+   it this way rather than putting .bp on the scrim and drawer matters: .bp also
+   carries min-height: 100vh, which beats the drawer's height below and would
+   push it, and its footer, a topbar's worth past the fold. */
+.bp-overlay {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--bp-ink);
+}
 
 .bp-scrim {
     position: fixed;
@@ -1030,13 +1066,15 @@
     overflow-wrap: anywhere;
 }
 
-.bp .bp-dd a {
+.bp .bp-dd a,
+.bp-overlay .bp-dd a {
     color: var(--bp-accent-text);
     text-decoration: none;
     text-underline-offset: 3px;
 }
 
-.bp .bp-dd a:hover {
+.bp .bp-dd a:hover,
+.bp-overlay .bp-dd a:hover {
     text-decoration: underline;
 }
 
