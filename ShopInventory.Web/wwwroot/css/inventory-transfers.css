@@ -1029,19 +1029,22 @@
 }
 
 /* ── Detail drawer ──────────────────────────────────────────────────────── */
+/* Both start below the app bar: the page container is a stacking context, so the
+   drawer cannot paint over the topbar however high its z-index — anchored at 0 its
+   own heading is what the topbar covers. */
 .itx-scrim {
     position: fixed;
-    inset: 0;
+    inset: var(--kf-topbar-h, 74px) 0 0;
     background: var(--itx-scrim-ink);
     z-index: 9998;
 }
 
 .itx-drawer {
     position: fixed;
-    top: 0;
+    top: var(--kf-topbar-h, 74px);
     right: 0;
     width: min(560px, 92vw);
-    height: 100vh;
+    height: calc(100vh - var(--kf-topbar-h, 74px));
     background: var(--itx-surface);
     color: var(--itx-ink);
     font-family: 'Inter', system-ui, sans-serif;

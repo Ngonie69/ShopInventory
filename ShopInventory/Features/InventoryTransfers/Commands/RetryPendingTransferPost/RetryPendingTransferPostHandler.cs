@@ -50,7 +50,7 @@ public sealed class RetryPendingTransferPostHandler(
         if (scopeCheck.IsError)
             return scopeCheck.Errors;
 
-        var posted = await poster.PostAsync(pending, command.UserId, cancellationToken);
+        var posted = await poster.PostAsync(pending, command.UserId);
         if (posted.IsError)
             return posted.Errors;
 
