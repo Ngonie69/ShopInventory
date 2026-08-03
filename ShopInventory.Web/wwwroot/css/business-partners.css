@@ -903,12 +903,23 @@
 
 /* ── Detail drawer ─────────────────────────────────────────────────────── */
 /* Offset below the app bar: the page is a stacking context, so a drawer
-   cannot paint over the topbar however high its z-index. */
+   cannot paint over the topbar however high its z-index. Both overlays sit
+   outside .bp for that reason and carry the class themselves to reach the
+   tokens — which is why both need the min-height reset below.
 
+   (credit-notes.css and pods.css avoid this by declaring the token block on
+   `.cnx, .cnx-overlay` instead, so their overlays never take the root class.
+   Either arrangement works; this one just has to undo what it inherits.) */
+
+/* min-height: 0 undoes the 100vh .bp sets. min-height beats height, so without
+   it the used height is a full 100vh starting at the topbar, and the overlay
+   hangs one topbar below the fold — taking the drawer's footer and its
+   Generate PDF / Close buttons out of reach. */
 .bp-scrim {
     position: fixed;
     inset: var(--kf-topbar-h, 74px) 0 0;
     z-index: 9998;
+    min-height: 0;
     background: var(--bp-scrim);
     backdrop-filter: blur(2px);
     -webkit-backdrop-filter: blur(2px);
@@ -922,6 +933,7 @@
     z-index: 9999;
     width: min(640px, 100vw);
     height: calc(100vh - var(--kf-topbar-h, 74px));
+    min-height: 0;
     display: flex;
     flex-direction: column;
     background: var(--bp-bg);
