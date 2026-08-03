@@ -369,16 +369,18 @@
             </section>
         }
     </div>
-</div>
 
+@* The drawer stays inside the .bp root: it needs the palette and the sheet's
+   .bp-scoped rules. It must not carry .bp itself — that would apply the root's
+   min-height: 100vh and push the drawer's footer below the fold. *@
 @if (selectedCustomer is not null)
 {
     var partner = selectedCustomer;
     var cardCode = partner.CardCode ?? string.Empty;
     var balance = partner.Balance ?? 0m;
 
-    <div class="bp bp-scrim" @onclick="CloseDrawer"></div>
-    <aside class="bp bp-drawer" role="dialog" aria-modal="true" aria-label="@partner.CardName">
+    <div class="bp-scrim" @onclick="CloseDrawer"></div>
+    <aside class="bp-drawer" role="dialog" aria-modal="true" aria-label="@partner.CardName">
         <div class="bp-drawer-head">
             <div>
                 <h2>@partner.CardName</h2>
@@ -521,3 +523,4 @@
         </div>
     </aside>
 }
+</div>
