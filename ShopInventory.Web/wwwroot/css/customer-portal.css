@@ -148,9 +148,29 @@
 
 /* ==========================================================================
    Shell
+
+   The sidebar and top bar drawn by `Customer Portal Dashboard.dc.html` — the
+   same design the dashboard came from, whose chrome was left unbuilt at the
+   time. The brand heads a full-height sidebar; the bar beside it opens with the
+   current section's name and closes with the account, the theme toggle and
+   sign-out. Chrome and page share one ground (--cpx-bg) so the panels are the
+   only surfaces that lift off it.
+
+   MudLayout still owns the frame. Two custom properties are the whole
+   negotiation with it: --mud-drawer-width-left, which it uses for the drawer's
+   width *and* the app bar's offset, and the main content's top padding, which
+   it derives from an --mud-appbar-height this file does not use. Everything
+   inside the frame is markup CustomerPortalLayout hand-builds, so these rules
+   name classes no other stylesheet has an opinion about.
    ========================================================================== */
 
 .cpx.customer-shell {
+    --cpx-nav-w: 236px;
+    --cpx-topbar-h: 58px;
+    /* MudBlazor reads this for the docked drawer's width and for the app bar's
+       margin-left, so one value keeps the bar's left edge on the sidebar's
+       border. */
+    --mud-drawer-width-left: var(--cpx-nav-w);
     background: var(--cpx-bg);
     min-height: 100dvh;
 }
@@ -162,210 +182,388 @@
     padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* app.css sets this to the dense app bar's 48px and MudBlazor derives its own
+   from --mud-appbar-height; the bar is 58px here, so out-specify both. */
+.cpx.customer-shell .mud-main-content {
+    padding-top: var(--cpx-topbar-h);
+}
+
+/* `width: 100%` is load-bearing, not belt-and-braces: .customer-main is a column
+   flex container, and an auto inline margin on a flex child suppresses the
+   cross-axis stretch it would otherwise get — without a width the box collapses
+   to its content and the page renders as a narrow centred column. */
 .cpx .customer-content {
-    padding-inline: var(--cpx-gutter) !important;
-    padding-block: clamp(14px, 2.6vw, 28px) !important;
+    width: 100%;
     max-width: 1400px;
+    margin-inline: auto;
+    padding-inline: var(--cpx-gutter);
+    padding-block: clamp(14px, 2.6vw, 28px);
 }
 
 /* Top bar --------------------------------------------------------------- */
 
 .cpx .customer-appbar {
-    background: var(--cpx-surface) !important;
+    background: var(--cpx-bg) !important;
     color: var(--cpx-ink);
     border-bottom: 1px solid var(--cpx-divider);
     box-shadow: none;
-    padding-inline: var(--cpx-gutter);
+    height: auto;
+    min-height: 0;
     padding-top: env(safe-area-inset-top);
 }
 
-.cpx .customer-appbar .mud-icon-button,
-.cpx .customer-appbar .mud-button-root {
-    color: var(--cpx-ink-2);
+/* (0,3,0): MudBlazor sizes .mud-appbar .mud-toolbar-appbar at (0,2,0) from a
+   media query, and its stylesheet is the last one in <head>. */
+.cpx .customer-appbar .mud-toolbar {
+    height: var(--cpx-topbar-h);
+    min-height: var(--cpx-topbar-h);
+    padding: 0;
 }
 
-.cpx .customer-brand-logo {
-    /* The mark is a dark-on-light JPEG. On the light shell it needs no help;
-       inverting it only makes sense once the ground goes dark. */
-    filter: none !important;
-    border-radius: var(--cpx-r-sm);
+.cpx .cpx-topbar {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s4);
+    width: 100%;
+    height: 100%;
+    padding-inline: var(--cpx-gutter);
+    min-width: 0;
 }
 
-.dark-theme .cpx .customer-brand-logo {
-    filter: invert(1) !important;
-}
-
-.cpx .customer-brand-title.mud-typography {
+.cpx .cpx-screen-title {
     font-family: "Space Grotesk", "Inter", sans-serif;
-    font-size: clamp(.82rem, .76rem + .28vw, 1rem);
+    font-size: clamp(.88rem, .84rem + .18vw, .97rem);
     font-weight: 600;
-    letter-spacing: .06em;
-    text-transform: uppercase;
+    letter-spacing: .01em;
     color: var(--cpx-ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.cpx .customer-account-chip {
-    color: var(--cpx-ink-2) !important;
-    background: var(--cpx-tag-bg);
+.cpx .cpx-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    margin-left: auto;
+    min-width: 0;
+}
+
+/* The account reads as a statement of who is signed in, not a control — it has
+   no menu behind it, so it takes a rule rather than a fill. */
+.cpx .cpx-account {
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s2);
+    padding: 4px 12px 4px 5px;
+    border: 1px solid var(--cpx-edge);
     border-radius: 999px;
-    font-weight: 500;
-    max-width: min(42vw, 260px);
+    font-size: var(--cpx-text-sm);
+    color: var(--cpx-ink-2);
+    max-width: min(38vw, 280px);
+    min-width: 0;
 }
 
-.cpx .customer-account-chip .mud-chip-content {
+.cpx .cpx-account-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--cpx-accent-soft);
+    color: var(--cpx-accent-text);
+    font-size: .69rem;
+    font-weight: 600;
+}
+
+.cpx .cpx-account-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.cpx .customer-auth-button {
-    border-color: var(--cpx-edge);
-    color: var(--cpx-ink-2);
+/* Buttons ---------------------------------------------------------------- */
+
+.cpx .cpx-btn,
+.cpx .cpx-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s2);
+    border: 1px solid var(--cpx-edge);
     border-radius: var(--cpx-r-md);
-    min-height: 36px;
+    background: transparent;
+    color: var(--cpx-ink-2);
+    font-family: inherit;
+    font-size: var(--cpx-text-sm);
+    font-weight: 500;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
 
-/* Below the drawer breakpoint the bar has to hold a menu button, the brand,
-   the theme toggle and auth without wrapping, so the two widest optional
-   pieces stand down. */
+.cpx .cpx-btn {
+    height: 34px;
+    padding-inline: var(--cpx-s4);
+}
+
+.cpx .cpx-icon-btn {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+}
+
+.cpx .cpx-btn:hover,
+.cpx .cpx-icon-btn:hover {
+    background: var(--cpx-hover);
+    border-color: var(--cpx-edge-hi);
+    color: var(--cpx-ink);
+}
+
+.cpx .cpx-btn .ph,
+.cpx .cpx-icon-btn .ph {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.cpx .cpx-icon-btn .ph {
+    font-size: 17px;
+}
+
+/* The menu button only has a job while the drawer is an overlay; above the
+   breakpoint the sidebar is always there and the button would be inert. The
+   sidebar's own close button is the same story in reverse. */
+.cpx .cpx-menu-toggle,
+.cpx .cpx-sidebar-close {
+    display: none;
+}
+
+@media (max-width: 959.98px) {
+
+    .cpx .cpx-menu-toggle,
+    .cpx .cpx-sidebar-close {
+        display: inline-flex;
+    }
+}
+
+/* Below the drawer breakpoint the bar has to hold a menu button, the section
+   name, the theme toggle and sign-out without wrapping, so the two widest
+   optional pieces stand down. */
 @media (max-width: 599.98px) {
 
-    .cpx .customer-account-chip,
-    .cpx .customer-auth-label {
+    .cpx .cpx-account,
+    .cpx .cpx-btn-label {
         display: none;
     }
 
-    .cpx .customer-auth-button {
-        min-width: 40px;
-        padding-inline: 10px;
-    }
-
-    .cpx .customer-auth-button .mud-button-icon-start {
-        margin: 0;
+    .cpx .cpx-btn {
+        width: 34px;
+        padding-inline: 0;
     }
 }
 
-/* Drawer ----------------------------------------------------------------- */
+/* Sidebar ---------------------------------------------------------------- */
 
 .cpx .customer-drawer {
-    background: var(--cpx-surface);
+    background: var(--cpx-bg);
     color: var(--cpx-ink);
     border-right: 1px solid var(--cpx-divider);
 }
 
-.cpx .customer-drawer-header {
-    background: var(--cpx-surface) !important;
-    border-bottom: 1px solid var(--cpx-divider);
+/* app.css widens the drawer to min(88vw, 320px) below 992px, which overlaps the
+   960px breakpoint where it is still docked at --cpx-nav-w — the app bar would
+   start 84px inside it. Same !important, higher specificity. */
+@media (min-width: 960px) {
+
+    .cpx .customer-drawer {
+        width: var(--cpx-nav-w) !important;
+        max-width: none;
+    }
 }
 
-.cpx .customer-drawer-brand,
-.cpx .customer-drawer-brand .mud-icon-root {
-    color: var(--cpx-ink) !important;
+.cpx .customer-drawer .mud-drawer-content {
+    background: var(--cpx-bg);
 }
 
-.cpx .customer-drawer-title {
-    font-family: "Space Grotesk", "Inter", sans-serif;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.cpx .cpx-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cpx-s6);
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--cpx-s4) var(--cpx-s4) 0;
+    padding-top: max(var(--cpx-s4), env(safe-area-inset-top));
 }
 
-.cpx .customer-nav .mud-nav-link {
-    margin: 2px var(--cpx-s2);
-    padding: var(--cpx-s3) var(--cpx-s4);
+.cpx .cpx-sidebar-brand {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px var(--cpx-s2);
+    padding: var(--cpx-s2) var(--cpx-s3) 0;
+}
+
+/* BrandLogo is the app's own lockup — an inline SVG that takes its colour from
+   the surrounding text, which is why the portal can use it in both schemes
+   where the old <img> needed a filter: invert(1) in dark. The mark keeps its
+   gold; only the wordmark rebinds to the portal's ink. */
+.cpx .cpx-sidebar-brand .kf-brand {
+    flex: 1 1 auto;
+    gap: var(--cpx-s3);
+}
+
+.cpx .cpx-sidebar-brand .kf-brand__copy strong {
+    color: var(--cpx-ink);
+}
+
+.cpx .cpx-sidebar-brand .kf-brand__copy small {
+    color: var(--cpx-mute-2);
+}
+
+.cpx .cpx-sidebar-kicker {
+    flex: 1 0 100%;
+    font-size: .655rem;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--cpx-faint);
+}
+
+.cpx .cpx-sidebar-close {
+    margin-left: auto;
+    align-self: flex-start;
+}
+
+.cpx .cpx-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cpx .cpx-navlink {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--cpx-s3);
+    padding: var(--cpx-s2) var(--cpx-s3);
     border-radius: var(--cpx-r-md);
     color: var(--cpx-mute);
     font-size: var(--cpx-text);
     font-weight: 500;
-    /* Comfortably past the 44px touch target on a phone. */
-    min-height: 46px;
+    text-decoration: none;
+    /* Past the 44px touch target on a phone, where this is an overlay menu. */
+    min-height: 40px;
     transition: background-color .15s ease, color .15s ease;
 }
 
-.cpx .customer-nav .mud-nav-link .mud-icon-root {
+.cpx .cpx-navlink .ph {
+    flex: none;
+    font-size: 17px;
+    line-height: 1;
     color: var(--cpx-faint);
     transition: color .15s ease;
 }
 
-.cpx .customer-nav .mud-nav-link:hover {
+.cpx .cpx-navlink:hover {
     background: var(--cpx-hover);
     color: var(--cpx-ink);
 }
 
-.cpx .customer-nav .mud-nav-link.active {
+.cpx .cpx-navlink:hover .ph {
+    color: var(--cpx-mute);
+}
+
+.cpx .cpx-navlink.active {
     background: var(--cpx-accent-soft);
     color: var(--cpx-accent-text);
     font-weight: 600;
 }
 
-.cpx .customer-nav .mud-nav-link.active .mud-icon-root {
+.cpx .cpx-navlink.active .ph {
     color: var(--cpx-accent);
 }
 
-.cpx .customer-drawer .mud-divider {
-    background-color: var(--cpx-divider);
+/* The 2px rail sits inside the pill, at the row's own left edge. */
+.cpx .cpx-navlink.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--cpx-accent);
 }
 
-.cpx .customer-drawer-footer {
-    padding: var(--cpx-s4);
-    padding-bottom: max(var(--cpx-s4), env(safe-area-inset-bottom));
+.cpx .cpx-nav-rule {
+    height: 1px;
+    margin-inline: var(--cpx-s3);
+    background: var(--cpx-divider);
 }
 
-.cpx .customer-code-card {
-    display: flex;
-    align-items: center;
-    gap: var(--cpx-s3);
-    padding: var(--cpx-s3) var(--cpx-s4);
-    border: 1px solid var(--cpx-edge);
-    border-radius: var(--cpx-r-md);
-    background: var(--cpx-surface-2);
-}
-
-.cpx .customer-code-icon {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--cpx-r-sm);
-    background: var(--cpx-accent-soft);
-    color: var(--cpx-accent);
-    flex: none;
-}
-
-.cpx .customer-code-info {
+.cpx .cpx-code {
     display: flex;
     flex-direction: column;
-    min-width: 0;
+    gap: 2px;
+    margin-top: auto;
+    /* Its own bottom gutter: .cpx-sidebar's padding stops at the sides so the
+       nav can scroll clear of it. */
+    margin-bottom: max(var(--cpx-s4), env(safe-area-inset-bottom));
+    padding: var(--cpx-s3) var(--cpx-s4);
+    border-radius: var(--cpx-r-md);
+    background: var(--cpx-surface-2);
+    box-shadow: inset 0 0 0 1px var(--cpx-edge);
 }
 
-.cpx .customer-code-label {
-    font-size: .66rem;
+.cpx .cpx-code-label {
+    font-size: .625rem;
     font-weight: 600;
-    letter-spacing: .09em;
+    letter-spacing: .1em;
     text-transform: uppercase;
-    color: var(--cpx-faint);
+    color: var(--cpx-mute-2);
 }
 
-.cpx .customer-code-value {
+.cpx .cpx-code-value {
+    font-family: "Space Grotesk", "Inter", sans-serif;
+    font-size: .95rem;
     font-weight: 600;
+    letter-spacing: .04em;
     color: var(--cpx-ink);
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Focus ------------------------------------------------------------------ */
+
+.cpx .cpx-navlink:focus-visible,
+.cpx .cpx-btn:focus-visible,
+.cpx .cpx-icon-btn:focus-visible {
+    outline: 2px solid var(--cpx-accent);
+    outline-offset: 2px;
 }
 
 /* Footer ------------------------------------------------------------------ */
 
 .cpx .customer-footer {
     border-top: 1px solid var(--cpx-divider);
-    background: var(--cpx-surface);
+    background: var(--cpx-bg);
     margin-top: var(--cpx-s8);
     padding-bottom: env(safe-area-inset-bottom);
 }
 
 .cpx .customer-footer-content {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: var(--cpx-s6);
+    padding: var(--cpx-s4) var(--cpx-gutter);
     color: var(--cpx-mute-2);
     font-size: var(--cpx-text-sm);
-    padding-inline: var(--cpx-gutter);
 }
 
 .cpx .customer-footer-content a {
