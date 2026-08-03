@@ -6997,6 +6997,33 @@ ORDER BY T0.""ItemCode""";
         => await ExecuteRawSqlQueryAsync(queryCode, queryName, sqlText, parameters, cancellationToken);
 
     /// <summary>
+    /// Binds <paramref name="parameters"/> like
+    /// <see cref="ExecuteParameterisedSqlQueryAsync"/>, but under a code derived from the SQL text
+    /// rather than a fixed one — for statements whose shape varies as well as their values.
+    /// </summary>
+    /// <remarks>
+    /// The two axes are separate problems. A value that moves every request (a date range) belongs
+    /// in a parameter, or the text changes and OUQR grows without bound. A shape that varies across
+    /// a small fixed set (a <c>TOP n</c>, an optional filter clause) cannot go in a parameter, but
+    /// it cannot share a fixed code either: the shapes would overwrite each other's SqlText through
+    /// <see cref="EnsureSqlQueryAsync"/> and every call would PATCH. Content-addressing the varying
+    /// shape gives each one its own object, and binding the varying values keeps the count of them
+    /// equal to the number of shapes rather than the number of requests.
+    /// </remarks>
+    public async Task<List<Dictionary<string, object?>>> ExecuteScopedParameterisedSqlQueryAsync(
+        string queryCodePrefix,
+        string queryNamePrefix,
+        string sqlText,
+        IReadOnlyDictionary<string, string> parameters,
+        CancellationToken cancellationToken = default)
+        => await ExecuteRawSqlQueryAsync(
+            BuildContentAddressedQueryCode(queryCodePrefix, sqlText),
+            queryNamePrefix,
+            sqlText,
+            parameters,
+            cancellationToken);
+
+    /// <summary>
     /// Lists the SqlCodes SAP currently holds.
     /// </summary>
     /// <remarks>
