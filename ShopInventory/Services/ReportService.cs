@@ -113,12 +113,18 @@ public class ReportService : IReportService
     internal const string OrderFulfillmentLineQueryCode = "ORD_FULF_LINE";
     internal const string OrderDirectInvoiceQueryCode = "ORDINV_DIR";
 
-    // Top products is the one report whose statement shape moves as well as its values: neither the
-    // TOP count nor an optional warehouse filter can be a bound parameter. Its code stays
-    // content-addressed so those shapes get an object each, while the dates bind like everywhere
-    // else — leaving the object count tied to the handful of offered shapes rather than to the
-    // date range.
-    internal const string TopProductsQueryCodePrefix = "RPT_TOP_PROD";
+    // Unique customers used to be a COUNT(DISTINCT) column on the sales summary statement. That
+    // statement now groups by currency, which changes what the count means — a customer trading in
+    // both currencies falls in both groups, so adding the groups up reports them twice. It stays one
+    // ungrouped count, in its own query object.
+    internal const string SalesCustomerCountQueryCode = "RPT_SALES_CUST";
+
+    // Top products gets two fixed codes rather than a content-addressed one. Neither of the two
+    // shapes that used to move is still in the text: the TOP count is gone (see the statement), and
+    // the warehouse filter binds as :warehouseCode, which only needs a second constant statement
+    // because the text behind a code has to be constant for the object to be reused.
+    internal const string TopProductsQueryCode = "RPT_TOP_PROD";
+    internal const string TopProductsByWarehouseQueryCode = "RPT_TOP_PROD_WHS";
 
     // SAP B1 on HANA matches DATE literals in 'yyyy-MM-dd' form, and accepts the same form for a
     // bound date parameter. A bare 'yyyyMMdd' string is accepted as a valid literal but never
@@ -136,27 +142,40 @@ public class ReportService : IReportService
             ["toDate"] = ToSapSqlDate(toDate)
         };
 
-    private static string SanitizeSqlValue(string value) =>
-        value.Replace("'", "''");
+    // The currency split that used to be SUM(CASE WHEN "DocCur" = 'USD' ...) in five statements.
+    // SAP's SQLQueries validator rejects a CASE expression at create time — 701 "Cannot support the
+    // case expression", confirmed 2026-08-03 against the live Service Layer for a bare
+    // SUM(CASE WHEN ... END) with no parameters in sight — so not one of those five query objects
+    // could ever be provisioned, and every one of the reports answered HTTP 400 before reading a row.
+    //
+    // The statements now SELECT the raw DocCur and GROUP BY it, and these two decide which side of a
+    // report's USD/ZiG split each row lands on. They carry exactly the membership the SQL predicates
+    // did: an unset DocCur counted as USD there and still does here.
+    private static bool IsUsdRow(Dictionary<string, object?> row) =>
+        IsUsdCurrency(GetRowString(row, "DocCur"));
+
+    private static bool IsZigRow(Dictionary<string, object?> row) =>
+        IsZigCurrency(GetRowString(row, "DocCur"));
+
+    private enum AgingBucket
+    {
+        Current,
+        Days31To60,
+        Days61To90,
+        Over90
+    }
 
     /// <summary>
-    /// Currency predicates for the reports that split USD from ZiG inside a <c>SUM(CASE WHEN …)</c>.
+    /// Places an invoice in an aging bucket by age at <paramref name="asOfDate"/>, on the same
+    /// 30/60/90-day boundaries and the same inclusive comparison the dropped SQL CASE used.
     /// </summary>
-    /// <remarks>
-    /// Every statement built on these is currently rejected by SAP and cannot be created at all:
-    /// the SQLQueries validator refuses <c>CASE</c> outright with
-    /// <c>701 "Cannot support the case expression"</c>, confirmed 2026-08-03 against the live
-    /// Service Layer for a bare <c>SUM(CASE WHEN … END)</c> with no parameters involved. That takes
-    /// sales summary, daily sales, customer invoices, receivables aging and top products down at
-    /// create, before a row is read. Their date ranges are bound like every other report's, so they
-    /// cost no OUQR rows meanwhile and stop leaking the moment the blocker is lifted — but lifting
-    /// it means doing the currency split in C# off a <c>GROUP BY T0."DocCur"</c>, not in SQL.
-    /// </remarks>
-    private static string BuildUsdCurrencyPredicate(string columnName) =>
-        $"({columnName} = 'USD' OR {columnName} = '$' OR {columnName} IS NULL OR {columnName} = '')";
-
-    private static string BuildZigCurrencyPredicate(string columnName) =>
-        $"({columnName} = 'ZIG' OR {columnName} = 'ZiG')";
+    private static AgingBucket ClassifyAging(DateTime docDate, DateTime asOfDate)
+    {
+        if (docDate >= asOfDate.AddDays(-30)) return AgingBucket.Current;
+        if (docDate >= asOfDate.AddDays(-60)) return AgingBucket.Days31To60;
+        if (docDate >= asOfDate.AddDays(-90)) return AgingBucket.Days61To90;
+        return AgingBucket.Over90;
+    }
 
     private static object? GetRowValue(Dictionary<string, object?> row, string key) =>
         row.TryGetValue(key, out var value) ? value : null;
@@ -374,103 +393,141 @@ public class ReportService : IReportService
             cancellationToken);
     }
 
-    private Task<List<Dictionary<string, object?>>> GetCachedSalesSummaryRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
-    {
-        var currencyColumn = @"T0.""DocCur""";
-        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
-        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+    internal const string SalesSummarySql = """
+SELECT
+    T0."DocCur" AS "DocCur",
+    COUNT(T0."DocEntry") AS "InvoiceCount",
+    SUM(T0."DocTotal") AS "TotalSales",
+    SUM(T0."VatSum") AS "TotalVat"
+FROM OINV T0
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T0."DocCur"
+""";
 
-        var sqlText = $@"SELECT
-            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
-            SUM(CASE WHEN {usdPredicate} THEN 1 ELSE 0 END) AS ""InvoiceCountUSD"",
-            SUM(CASE WHEN {zigPredicate} THEN 1 ELSE 0 END) AS ""InvoiceCountZIG"",
-            SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesUSD"",
-            SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesZIG"",
-            SUM(CASE WHEN {usdPredicate} THEN T0.""VatSum"" ELSE 0 END) AS ""TotalVatUSD"",
-            SUM(CASE WHEN {zigPredicate} THEN T0.""VatSum"" ELSE 0 END) AS ""TotalVatZIG"",
-            COUNT(DISTINCT T0.""CardCode"") AS ""UniqueCustomers""
-        FROM OINV T0
-        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate";
+    internal const string SalesCustomerCountSql = """
+SELECT COUNT(DISTINCT T0."CardCode") AS "UniqueCustomers"
+FROM OINV T0
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+""";
 
-        return GetCachedReportSqlRowsAsync(
+    internal const string DailySalesSql = """
+SELECT
+    T0."DocDate" AS "DocDate",
+    T0."DocCur" AS "DocCur",
+    COUNT(T0."DocEntry") AS "InvoiceCount",
+    SUM(T0."DocTotal") AS "TotalSales"
+FROM OINV T0
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T0."DocDate", T0."DocCur"
+ORDER BY T0."DocDate"
+""";
+
+    // No TOP, unlike the statement this replaces. With "DocCur" in the GROUP BY the rows are
+    // item-currency pairs, so a server-side TOP n would rank those pairs and could return one item
+    // twice while dropping the nth item entirely. The limit is applied after the pivot instead.
+    //
+    // Nor is this ordered by quantity any more, which is the other half of the same point: the
+    // validator refuses to order by an aggregate. ORDER BY SUM(T1."Quantity") DESC is rejected with
+    // 701 "Incorrect syntax near 'ORDER'" — confirmed 2026-08-03, and only at create, so it is as
+    // invisible as the CASE was. The ranking has to happen after the pivot regardless; ordering by
+    // the group key here is purely so that paging the result with $skip is stable.
+    internal const string TopProductsSql = """
+SELECT
+    T1."ItemCode" AS "ItemCode",
+    T2."ItemName" AS "ItemName",
+    T0."DocCur" AS "DocCur",
+    SUM(T1."Quantity") AS "TotalQuantitySold",
+    SUM(T1."LineTotal") AS "TotalRevenue",
+    COUNT(T1."LineNum") AS "TimesOrdered"
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+LEFT JOIN OITM T2 ON T1."ItemCode" = T2."ItemCode"
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T1."ItemCode", T2."ItemName", T0."DocCur"
+ORDER BY T1."ItemCode", T0."DocCur"
+""";
+
+    internal const string TopProductsByWarehouseSql = """
+SELECT
+    T1."ItemCode" AS "ItemCode",
+    T2."ItemName" AS "ItemName",
+    T0."DocCur" AS "DocCur",
+    SUM(T1."Quantity") AS "TotalQuantitySold",
+    SUM(T1."LineTotal") AS "TotalRevenue",
+    COUNT(T1."LineNum") AS "TimesOrdered"
+FROM OINV T0
+INNER JOIN INV1 T1 ON T0."DocEntry" = T1."DocEntry"
+LEFT JOIN OITM T2 ON T1."ItemCode" = T2."ItemCode"
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+  AND T1."WhsCode" = :warehouseCode
+GROUP BY T1."ItemCode", T2."ItemName", T0."DocCur"
+ORDER BY T1."ItemCode", T0."DocCur"
+""";
+
+    private Task<List<Dictionary<string, object?>>> GetCachedSalesSummaryRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
             "report-data:sales-summary",
             BuildReportCacheKey("report-data:sales-summary", fromDate, toDate),
             SalesSummaryQueryCode,
             "Report Sales Summary",
-            sqlText,
+            SalesSummarySql,
             BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
-    }
 
-    private Task<List<Dictionary<string, object?>>> GetCachedDailySalesRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
-    {
-        var currencyColumn = @"T0.""DocCur""";
-        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
-        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+    private Task<List<Dictionary<string, object?>>> GetCachedUniqueCustomerRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
+            "report-data:sales-customers",
+            BuildReportCacheKey("report-data:sales-customers", fromDate, toDate),
+            SalesCustomerCountQueryCode,
+            "Report Sales Unique Customers",
+            SalesCustomerCountSql,
+            BuildDateRangeParameters(fromDate, toDate),
+            cancellationToken);
 
-        var sqlText = $@"SELECT
-            T0.""DocDate"",
-            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
-            SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesUSD"",
-            SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalSalesZIG""
-        FROM OINV T0
-        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
-        GROUP BY T0.""DocDate""
-        ORDER BY T0.""DocDate""";
-
-        return GetCachedReportSqlRowsAsync(
+    private Task<List<Dictionary<string, object?>>> GetCachedDailySalesRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
             "report-data:sales-daily",
             BuildReportCacheKey("report-data:sales-daily", fromDate, toDate),
             DailySalesQueryCode,
             "Report Daily Sales",
-            sqlText,
+            DailySalesSql,
             BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
-    }
 
+    /// <summary>
+    /// The item rows for the whole range, unlimited: the top-N cut happens after the currency pivot.
+    /// </summary>
+    /// <remarks>
+    /// The requested limit deliberately reaches neither the statement nor the cache key, which is why
+    /// it is not a parameter here at all: the rows no longer depend on it, so one cached set answers
+    /// every limit asked for over the same range.
+    /// </remarks>
     private Task<List<Dictionary<string, object?>>> GetCachedTopProductsRowsAsync(
         DateTime fromDate,
         DateTime toDate,
-        int topCount,
         string? warehouseCode,
         CancellationToken cancellationToken)
     {
-        var clampedTopCount = Math.Clamp(topCount, 1, 1000);
-        var warehouseFilter = string.IsNullOrWhiteSpace(warehouseCode)
-            ? string.Empty
-            : $@" AND T1.""WhsCode"" = '{SanitizeSqlValue(warehouseCode)}'";
-        var currencyColumn = @"T0.""DocCur""";
-        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
-        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+        var parameters = BuildDateRangeParameters(fromDate, toDate);
+        var filterByWarehouse = !string.IsNullOrWhiteSpace(warehouseCode);
 
-        var sqlText = $@"SELECT TOP {clampedTopCount}
-            T1.""ItemCode"",
-            T2.""ItemName"",
-            SUM(T1.""Quantity"") AS ""TotalQuantitySold"",
-            SUM(CASE WHEN {usdPredicate} THEN T1.""LineTotal"" ELSE 0 END) AS ""TotalRevenueUSD"",
-            SUM(CASE WHEN {zigPredicate} THEN T1.""LineTotal"" ELSE 0 END) AS ""TotalRevenueZIG"",
-            COUNT(T1.""LineNum"") AS ""TimesOrdered""
-        FROM OINV T0
-        INNER JOIN INV1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
-        LEFT JOIN OITM T2 ON T1.""ItemCode"" = T2.""ItemCode""
-        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate{warehouseFilter}
-        GROUP BY T1.""ItemCode"", T2.""ItemName""
-        ORDER BY SUM(T1.""Quantity"") DESC";
+        if (filterByWarehouse)
+        {
+            parameters["warehouseCode"] = warehouseCode!.Trim();
+        }
 
-        // Scoped rather than fixed: TOP and the warehouse clause are still part of the text, so a
-        // fixed code would have the shapes overwriting each other's SqlText on every call. The UI
-        // offers three counts and no warehouse, so this is a handful of objects, and the date range
-        // — the part that used to move on every request — no longer contributes to it.
-        return GetOrCreateCachedAsync(
+        return GetCachedReportSqlRowsAsync(
             "report-data:top-products",
-            BuildReportCacheKey("report-data:top-products", fromDate, toDate, clampedTopCount, warehouseCode),
-            ReportDataCacheDuration,
-            token => _sapClient.ExecuteScopedParameterisedSqlQueryAsync(
-                TopProductsQueryCodePrefix,
-                "Report Top Products",
-                sqlText,
-                BuildDateRangeParameters(fromDate, toDate),
-                token),
+            BuildReportCacheKey("report-data:top-products", fromDate, toDate, warehouseCode),
+            filterByWarehouse ? TopProductsByWarehouseQueryCode : TopProductsQueryCode,
+            "Report Top Products",
+            filterByWarehouse ? TopProductsByWarehouseSql : TopProductsSql,
+            parameters,
             cancellationToken);
     }
 
@@ -515,74 +572,71 @@ public class ReportService : IReportService
             cancellationToken);
     }
 
-    private Task<List<Dictionary<string, object?>>> GetCachedCustomerInvoiceRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
-    {
-        var currencyColumn = @"T0.""DocCur""";
-        var usdPredicate = BuildUsdCurrencyPredicate(currencyColumn);
-        var zigPredicate = BuildZigCurrencyPredicate(currencyColumn);
+    internal const string CustomerInvoiceSql = """
+SELECT
+    T0."CardCode" AS "CardCode",
+    T0."CardName" AS "CardName",
+    T0."DocCur" AS "DocCur",
+    COUNT(T0."DocEntry") AS "InvoiceCount",
+    SUM(T0."DocTotal") AS "TotalPurchases"
+FROM OINV T0
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+GROUP BY T0."CardCode", T0."CardName", T0."DocCur"
+""";
 
-        var sqlText = $@"SELECT
-            T0.""CardCode"",
-            T0.""CardName"",
-            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
-            SUM(CASE WHEN {usdPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalPurchasesUSD"",
-            SUM(CASE WHEN {zigPredicate} THEN T0.""DocTotal"" ELSE 0 END) AS ""TotalPurchasesZIG""
-        FROM OINV T0
-        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
-        GROUP BY T0.""CardCode"", T0.""CardName""";
+    // The buckets were a second CASE. Selecting the raw "DocDate" and bucketing on read costs a wider
+    // result — one row per customer, date and currency rather than per customer, bucket and currency
+    // — but the extra rows are bounded by the number of invoices still carrying a balance, not by the
+    // number of invoices. It also takes the rolling boundary out of the parameters entirely, so the
+    // rows stay cacheable across a midnight shift rather than being invalidated by it.
+    //
+    // The outstanding balance is two sums subtracted on read, rather than the natural
+    // SUM("DocTotal" - "PaidToDate"), because the validator rejects arithmetic between two columns
+    // wherever it appears — probed 2026-08-03: SUM(a - b) and SUM(a) - SUM(b) are both refused with
+    // 701 "mismatched input '.' expecting FROM", and so is (a - b) > 0.01 in the WHERE. Two plain
+    // sums are accepted, and so is comparing one column against another, which is what the open-item
+    // filter is now written as. That filter is marginally wider than the old one — it keeps balances
+    // under a cent, which the > 0.01 test dropped — so the threshold is re-applied on read.
+    internal const string ReceivablesAgingSql = """
+SELECT
+    T0."CardCode" AS "CardCode",
+    T0."CardName" AS "CardName",
+    T0."DocDate" AS "DocDate",
+    T0."DocCur" AS "DocCur",
+    COUNT(T0."DocEntry") AS "InvoiceCount",
+    SUM(T0."DocTotal") AS "DocTotal",
+    SUM(T0."PaidToDate") AS "PaidToDate"
+FROM OINV T0
+WHERE T0."DocDate" >= :fromDate
+  AND T0."DocDate" <= :toDate
+  AND T0."DocTotal" > T0."PaidToDate"
+GROUP BY T0."CardCode", T0."CardName", T0."DocDate", T0."DocCur"
+ORDER BY T0."CardName"
+""";
 
-        return GetCachedReportSqlRowsAsync(
+    private Task<List<Dictionary<string, object?>>> GetCachedCustomerInvoiceRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
             "report-data:customer-invoices",
             BuildReportCacheKey("report-data:customer-invoices", fromDate, toDate),
             CustomerInvoiceQueryCode,
             "Report Customer Invoices",
-            sqlText,
+            CustomerInvoiceSql,
             BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
-    }
 
-    private Task<List<Dictionary<string, object?>>> GetCachedReceivablesAgingRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
-    {
-        // The bucket boundaries roll with today's date, so interpolating them gave this statement a
-        // fresh text — and so a fresh SAP query object — every single day, on top of the one per
-        // date range. Bound like the range, the text is constant and the boundaries still move.
-        var currentBoundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-30));
-        var days31Boundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-60));
-        var days61Boundary = ToSapSqlDate(DateTime.UtcNow.Date.AddDays(-90));
-        var bucketSql = @"CASE
-            WHEN T0.""DocDate"" >= :currentBoundary THEN 'Current'
-            WHEN T0.""DocDate"" >= :days31Boundary THEN '31-60'
-            WHEN T0.""DocDate"" >= :days61Boundary THEN '61-90'
-            ELSE '90+'
-        END";
-
-        var sqlText = $@"SELECT
-            T0.""CardCode"",
-            T0.""CardName"",
-            {bucketSql} AS ""AgingBucket"",
-            T0.""DocCur"",
-            COUNT(T0.""DocEntry"") AS ""InvoiceCount"",
-            SUM(T0.""DocTotal"" - T0.""PaidToDate"") AS ""OutstandingAmount""
-        FROM OINV T0
-        WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
-            AND (T0.""DocTotal"" - T0.""PaidToDate"") > 0.01
-        GROUP BY T0.""CardCode"", T0.""CardName"", {bucketSql}, T0.""DocCur""
-        ORDER BY T0.""CardName""";
-
-        var parameters = BuildDateRangeParameters(fromDate, toDate);
-        parameters["currentBoundary"] = currentBoundary;
-        parameters["days31Boundary"] = days31Boundary;
-        parameters["days61Boundary"] = days61Boundary;
-
-        return GetCachedReportSqlRowsAsync(
+    // Keyed on the dates as the statement sees them, not as the caller passed them: aging is asked
+    // for over DateTime.UtcNow, so a key built from the raw values differs in its time component on
+    // every call and the three-minute cache would never once hit.
+    private Task<List<Dictionary<string, object?>>> GetCachedReceivablesAgingRowsAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken) =>
+        GetCachedReportSqlRowsAsync(
             "report-data:receivables-aging",
-            BuildReportCacheKey("report-data:receivables-aging", fromDate, toDate, currentBoundary),
+            BuildReportCacheKey("report-data:receivables-aging", ToSapSqlDate(fromDate), ToSapSqlDate(toDate)),
             ReceivablesAgingQueryCode,
             "Report Receivables Aging",
-            sqlText,
-            parameters,
+            ReceivablesAgingSql,
+            BuildDateRangeParameters(fromDate, toDate),
             cancellationToken);
-    }
 
     private Task<List<WarehouseDto>> GetCachedWarehousesAsync(CancellationToken cancellationToken)
     {
@@ -659,29 +713,37 @@ public class ReportService : IReportService
                 _logger.LogInformation("Generating sales summary from SAP aggregates: {FromDate} to {ToDate}", fromDate, toDate);
 
                 var summaryRowsTask = GetCachedSalesSummaryRowsAsync(fromDate, toDate, token);
+                var uniqueCustomerRowsTask = GetCachedUniqueCustomerRowsAsync(fromDate, toDate, token);
                 var dailyRowsTask = GetCachedDailySalesRowsAsync(fromDate, toDate, token);
-                await Task.WhenAll(summaryRowsTask, dailyRowsTask);
+                await Task.WhenAll(summaryRowsTask, uniqueCustomerRowsTask, dailyRowsTask);
 
                 var summaryRows = await summaryRowsTask;
                 var dailyRows = await dailyRowsTask;
-                var summary = summaryRows.FirstOrDefault() ?? new Dictionary<string, object?>();
+                var uniqueCustomerRow = (await uniqueCustomerRowsTask).FirstOrDefault() ?? new Dictionary<string, object?>();
 
-                var totalUSD = GetRowDecimal(summary, "TotalSalesUSD");
-                var totalZIG = GetRowDecimal(summary, "TotalSalesZIG");
-                var vatUSD = GetRowDecimal(summary, "TotalVatUSD");
-                var vatZIG = GetRowDecimal(summary, "TotalVatZIG");
-                var countUSD = GetRowInt(summary, "InvoiceCountUSD");
-                var countZIG = GetRowInt(summary, "InvoiceCountZIG");
+                // One row per currency now, so the split is a filter rather than a column. The
+                // invoice total stays a count over every row: a currency that is neither USD nor ZiG
+                // belongs in it, exactly as it did when the old COUNT ran over the whole range.
+                var usdRows = summaryRows.Where(IsUsdRow).ToList();
+                var zigRows = summaryRows.Where(IsZigRow).ToList();
+
+                var totalUSD = usdRows.Sum(row => GetRowDecimal(row, "TotalSales"));
+                var totalZIG = zigRows.Sum(row => GetRowDecimal(row, "TotalSales"));
+                var vatUSD = usdRows.Sum(row => GetRowDecimal(row, "TotalVat"));
+                var vatZIG = zigRows.Sum(row => GetRowDecimal(row, "TotalVat"));
+                var countUSD = usdRows.Sum(row => GetRowInt(row, "InvoiceCount"));
+                var countZIG = zigRows.Sum(row => GetRowInt(row, "InvoiceCount"));
 
                 var dailySales = dailyRows
-                    .Select(row => new DailySalesDto
+                    .GroupBy(row => GetRowDate(row, "DocDate").Date)
+                    .Where(day => day.Key != DateTime.MinValue.Date)
+                    .Select(day => new DailySalesDto
                     {
-                        Date = GetRowDate(row, "DocDate").Date,
-                        InvoiceCount = GetRowInt(row, "InvoiceCount"),
-                        TotalSalesUSD = GetRowDecimal(row, "TotalSalesUSD"),
-                        TotalSalesZIG = GetRowDecimal(row, "TotalSalesZIG")
+                        Date = day.Key,
+                        InvoiceCount = day.Sum(row => GetRowInt(row, "InvoiceCount")),
+                        TotalSalesUSD = day.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalSales")),
+                        TotalSalesZIG = day.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalSales"))
                     })
-                    .Where(d => d.Date != DateTime.MinValue.Date)
                     .OrderBy(d => d.Date)
                     .ToList();
 
@@ -689,14 +751,14 @@ public class ReportService : IReportService
                 {
                     FromDate = fromDate,
                     ToDate = toDate,
-                    TotalInvoices = GetRowInt(summary, "InvoiceCount"),
+                    TotalInvoices = summaryRows.Sum(row => GetRowInt(row, "InvoiceCount")),
                     TotalSalesUSD = totalUSD,
                     TotalSalesZIG = totalZIG,
                     TotalVatUSD = vatUSD,
                     TotalVatZIG = vatZIG,
                     AverageInvoiceValueUSD = countUSD > 0 ? totalUSD / countUSD : 0,
                     AverageInvoiceValueZIG = countZIG > 0 ? totalZIG / countZIG : 0,
-                    UniqueCustomers = GetRowInt(summary, "UniqueCustomers"),
+                    UniqueCustomers = GetRowInt(uniqueCustomerRow, "UniqueCustomers"),
                     DailySales = dailySales,
                     SalesByCurrency = new List<SalesByCurrencyDto>
                     {
@@ -715,17 +777,33 @@ public class ReportService : IReportService
     {
         _logger.LogInformation("Generating top products from SAP aggregates: {FromDate} to {ToDate}, top {Count}", fromDate, toDate, topCount);
 
-        var rows = await GetCachedTopProductsRowsAsync(fromDate, toDate, topCount, warehouseCode, cancellationToken);
+        var rows = await GetCachedTopProductsRowsAsync(fromDate, toDate, warehouseCode, cancellationToken);
+
+        // Fold the currency rows back into one row per item first, then rank. Ranking the rows as
+        // they arrive would rank item-currency pairs, which is why the statement no longer carries
+        // the TOP the limit used to be applied by.
         var topProducts = rows
+            .GroupBy(row => GetRowStringOrDefault(row, "ItemCode"), StringComparer.Ordinal)
+            .Select(item => new
+            {
+                ItemCode = item.Key,
+                ItemName = GetRowStringOrDefault(item.First(), "ItemName", item.Key),
+                TotalQuantitySold = item.Sum(row => GetRowDecimal(row, "TotalQuantitySold")),
+                TotalRevenueUSD = item.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalRevenue")),
+                TotalRevenueZIG = item.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalRevenue")),
+                TimesOrdered = item.Sum(row => GetRowInt(row, "TimesOrdered"))
+            })
+            .OrderByDescending(p => p.TotalQuantitySold)
+            .Take(Math.Clamp(topCount, 1, 1000))
             .Select((p, index) => new TopProductDto
             {
                 Rank = index + 1,
-                ItemCode = GetRowStringOrDefault(p, "ItemCode"),
-                ItemName = GetRowStringOrDefault(p, "ItemName", GetRowStringOrDefault(p, "ItemCode")),
-                TotalQuantitySold = GetRowDecimal(p, "TotalQuantitySold"),
-                TotalRevenueUSD = GetRowDecimal(p, "TotalRevenueUSD"),
-                TotalRevenueZIG = GetRowDecimal(p, "TotalRevenueZIG"),
-                TimesOrdered = GetRowInt(p, "TimesOrdered")
+                ItemCode = p.ItemCode,
+                ItemName = p.ItemName,
+                TotalQuantitySold = p.TotalQuantitySold,
+                TotalRevenueUSD = p.TotalRevenueUSD,
+                TotalRevenueZIG = p.TotalRevenueZIG,
+                TimesOrdered = p.TimesOrdered
             })
             .ToList();
 
@@ -1135,13 +1213,14 @@ public class ReportService : IReportService
         var payments = await paymentsTask;
 
         var customerInvoices = customerInvoiceRows
-            .Select(row => new
+            .GroupBy(row => GetRowStringOrDefault(row, "CardCode"), StringComparer.Ordinal)
+            .Select(customer => new
             {
-                CardCode = GetRowStringOrDefault(row, "CardCode"),
-                CardName = GetRowStringOrDefault(row, "CardName", GetRowStringOrDefault(row, "CardCode")),
-                InvoiceCount = GetRowInt(row, "InvoiceCount"),
-                TotalPurchasesUSD = GetRowDecimal(row, "TotalPurchasesUSD"),
-                TotalPurchasesZIG = GetRowDecimal(row, "TotalPurchasesZIG")
+                CardCode = customer.Key,
+                CardName = GetRowStringOrDefault(customer.First(), "CardName", customer.Key),
+                InvoiceCount = customer.Sum(row => GetRowInt(row, "InvoiceCount")),
+                TotalPurchasesUSD = customer.Where(IsUsdRow).Sum(row => GetRowDecimal(row, "TotalPurchases")),
+                TotalPurchasesZIG = customer.Where(IsZigRow).Sum(row => GetRowDecimal(row, "TotalPurchases"))
             })
             .ToList();
 
@@ -1868,6 +1947,7 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
         var fromDate = DateTime.UtcNow.AddDays(-365);
         var toDate = DateTime.UtcNow;
+        var asOfDate = DateTime.UtcNow.Date;
         var rows = await GetCachedReceivablesAgingRowsAsync(fromDate, toDate, cancellationToken);
         var totalUSD = 0m;
         var totalZIG = 0m;
@@ -1882,17 +1962,24 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             var currency = GetRowString(row, "DocCur");
             var isUSD = IsUsdCurrency(currency);
             var isZIG = IsZigCurrency(currency);
-            var amount = GetRowDecimal(row, "OutstandingAmount");
+            // The subtraction the statement is not allowed to do, and the sub-cent threshold its
+            // open-item filter can no longer express.
+            var amount = GetRowDecimal(row, "DocTotal") - GetRowDecimal(row, "PaidToDate");
+            if (amount <= 0.01m)
+            {
+                continue;
+            }
+
             var count = GetRowInt(row, "InvoiceCount");
-            var bucket = GetRowString(row, "AgingBucket");
+            var bucket = ClassifyAging(GetRowDate(row, "DocDate").Date, asOfDate);
             var cardCode = GetRowStringOrDefault(row, "CardCode");
             var cardName = GetRowStringOrDefault(row, "CardName", cardCode);
 
             var bucketDto = bucket switch
             {
-                "31-60" => days31,
-                "61-90" => days61,
-                "90+" => over90,
+                AgingBucket.Days31To60 => days31,
+                AgingBucket.Days61To90 => days61,
+                AgingBucket.Over90 => over90,
                 _ => current
             };
 
@@ -1920,9 +2007,9 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
             if (isUSD)
             {
-                if (bucket == "31-60") customer.Days31To60USD += amount;
-                else if (bucket == "61-90") customer.Days61To90USD += amount;
-                else if (bucket == "90+") customer.Over90DaysUSD += amount;
+                if (bucket == AgingBucket.Days31To60) customer.Days31To60USD += amount;
+                else if (bucket == AgingBucket.Days61To90) customer.Days61To90USD += amount;
+                else if (bucket == AgingBucket.Over90) customer.Over90DaysUSD += amount;
                 else customer.CurrentUSD += amount;
 
                 customer.TotalOutstandingUSD += amount;

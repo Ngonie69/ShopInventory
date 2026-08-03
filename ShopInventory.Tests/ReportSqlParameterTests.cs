@@ -95,7 +95,7 @@ public class ReportSqlParameterTests
 
         foreach (var call in calls)
         {
-            foreach (var rejected in new[] { "COALESCE", "TO_DATE", "||" })
+            foreach (var rejected in new[] { "CASE", "COALESCE", "TO_DATE", "||" })
             {
                 Assert.DoesNotContain(rejected, call.SqlText, StringComparison.OrdinalIgnoreCase);
             }
@@ -103,46 +103,43 @@ public class ReportSqlParameterTests
     }
 
     /// <summary>
-    /// The aging buckets roll with today's date, so interpolating them minted a fresh object every
-    /// midnight on top of one per range. They have to be bound like the range itself.
+    /// The aging buckets used to be a CASE over boundaries that roll with today's date, bound as
+    /// three more parameters. SAP rejects CASE at create, so the bucketing moved into C# and the
+    /// boundaries left the statement altogether — which is what keeps the rows cacheable across a
+    /// midnight shift rather than invalidated by it.
     /// </summary>
     [Fact]
-    public async Task Receivables_aging_binds_its_rolling_bucket_boundaries()
+    public async Task Receivables_aging_binds_only_its_range_and_buckets_on_read()
     {
         var call = Assert.Single(await RunReportAsync(reports => reports.GetReceivablesAgingAsync()));
 
         Assert.Equal(ReportService.ReceivablesAgingQueryCode, call.QueryCode);
-        Assert.Contains(":currentBoundary", call.SqlText, StringComparison.Ordinal);
-        Assert.Contains(":days31Boundary", call.SqlText, StringComparison.Ordinal);
-        Assert.Contains(":days61Boundary", call.SqlText, StringComparison.Ordinal);
-
-        Assert.Equal(
-            DateTime.UtcNow.Date.AddDays(-30).ToString("yyyy-MM-dd"),
-            call.Parameters["currentBoundary"]);
-        Assert.Equal(
-            DateTime.UtcNow.Date.AddDays(-60).ToString("yyyy-MM-dd"),
-            call.Parameters["days31Boundary"]);
-        Assert.Equal(
-            DateTime.UtcNow.Date.AddDays(-90).ToString("yyyy-MM-dd"),
-            call.Parameters["days61Boundary"]);
+        Assert.Equal(["fromDate", "toDate"], call.Parameters.Keys.OrderBy(key => key, StringComparer.Ordinal));
+        Assert.DoesNotContain("Boundary", call.SqlText, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Top products is the one report whose shape varies — neither the TOP count nor the optional
-    /// warehouse filter can be a bound parameter — so it keeps a content-addressed code. What must
-    /// not vary is the text across date ranges.
+    /// Top products used to be the one report whose statement shape varied, so it carried a
+    /// content-addressed code. Neither varying part survives: the TOP count is gone, because the
+    /// limit can only be applied after the currency pivot, and the warehouse filter binds. Two
+    /// constant statements, two fixed codes.
     /// </summary>
     [Fact]
-    public async Task Top_products_varies_by_shape_but_not_by_date_range()
+    public async Task Top_products_runs_fixed_statements_that_vary_by_neither_count_nor_range()
     {
         var ten = await RunReportAsync(reports => reports.GetTopProductsAsync(From, To, 10));
         var tenElsewhere = await RunReportAsync(reports =>
             reports.GetTopProductsAsync(new DateTime(2024, 2, 2), new DateTime(2024, 4, 4), 10));
         var fifty = await RunReportAsync(reports => reports.GetTopProductsAsync(From, To, 50));
+        var byWarehouse = await RunReportAsync(reports => reports.GetTopProductsAsync(From, To, 10, "WH01"));
 
         Assert.Equal(ten.Single().SqlText, tenElsewhere.Single().SqlText);
-        Assert.NotEqual(ten.Single().SqlText, fifty.Single().SqlText);
-        Assert.Equal(ReportService.TopProductsQueryCodePrefix, ten.Single().QueryCode);
+        Assert.Equal(ten.Single().SqlText, fifty.Single().SqlText);
+        Assert.Equal(ReportService.TopProductsQueryCode, ten.Single().QueryCode);
+
+        Assert.Equal(ReportService.TopProductsByWarehouseQueryCode, byWarehouse.Single().QueryCode);
+        Assert.Equal("WH01", byWarehouse.Single().Parameters["warehouseCode"]);
+        Assert.DoesNotContain("WH01", byWarehouse.Single().SqlText, StringComparison.Ordinal);
     }
 
     private sealed record SqlCall(string QueryCode, string SqlText, IReadOnlyDictionary<string, string> Parameters);
