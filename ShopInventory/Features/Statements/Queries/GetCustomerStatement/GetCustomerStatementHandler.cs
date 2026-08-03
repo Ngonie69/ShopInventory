@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using ErrorOr;
 using MediatR;
@@ -10,6 +11,7 @@ namespace ShopInventory.Features.Statements.Queries.GetCustomerStatement;
 public sealed class GetCustomerStatementHandler(
     IBusinessPartnerService businessPartnerService,
     ISAPServiceLayerClient sapClient,
+    IStatementBuildCache statementCache,
     ILogger<GetCustomerStatementHandler> logger
 ) : IRequestHandler<GetCustomerStatementQuery, ErrorOr<CustomerStatementResponseDto>>
 {
@@ -64,78 +66,38 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
         GetCustomerStatementQuery request,
         CancellationToken cancellationToken)
     {
+        var fromDate = (request.FromDate ?? DateTime.UtcNow.AddMonths(-3)).Date;
+        var toDate = (request.ToDate ?? DateTime.UtcNow).Date;
+        if (fromDate > toDate)
+        {
+            return Errors.Statement.RetrievalFailed("The statement start date cannot be after the end date.");
+        }
+
+        var statementCardCodes = BuildStatementCardCodes(request.CardCode, request.CardCodes);
+
         try
         {
-            var fromDate = (request.FromDate ?? DateTime.UtcNow.AddMonths(-3)).Date;
-            var toDate = (request.ToDate ?? DateTime.UtcNow).Date;
-            if (fromDate > toDate)
-            {
-                return Errors.Statement.RetrievalFailed("The statement start date cannot be after the end date.");
-            }
-
-            var customer = await businessPartnerService.GetBusinessPartnerByCodeAsync(request.CardCode, cancellationToken);
-            if (customer is null)
-            {
-                return Errors.Statement.CustomerNotFound(request.CardCode);
-            }
-
-            var statementCardCodes = BuildStatementCardCodes(request.CardCode, request.CardCodes);
-            var paymentTermsTask = customer.PayTermGrpCode.HasValue
-                ? sapClient.GetPaymentTermsByCodeAsync(customer.PayTermGrpCode.Value, cancellationToken)
-                : Task.FromResult<PaymentTermsDto?>(null);
-            var openingBalanceTask = GetOpeningBalanceAsync(statementCardCodes, fromDate, cancellationToken);
-            var ledgerRowsTask = GetLedgerRowsAsync(statementCardCodes, fromDate, toDate, cancellationToken);
-
-            await Task.WhenAll(paymentTermsTask, openingBalanceTask, ledgerRowsTask);
-
-            var paymentTerms = paymentTermsTask.Result;
-            var openingBalance = openingBalanceTask.Result;
-            var ledgerRows = ledgerRowsTask.Result;
-
-            var response = new CustomerStatementResponseDto
-            {
-                Customer = new StatementCustomerDto
-                {
-                    CardCode = customer.CardCode ?? request.CardCode,
-                    CardName = customer.CardName ?? string.Empty,
-                    Email = customer.Email,
-                    Phone = customer.Phone1,
-                    Currency = customer.Currency,
-                    AccountStructure = statementCardCodes.Count > 1 ? "Multi" : "Single",
-                    PaymentTermsName = paymentTerms?.PaymentTermsGroupName,
-                    PaymentTermsDays = ToPaymentTermsDays(paymentTerms)
-                },
-                FromDate = fromDate,
-                ToDate = toDate,
-                GeneratedAt = DateTime.UtcNow,
-                OpeningBalance = openingBalance
-            };
-
-            decimal runningBalance = openingBalance;
-            foreach (var ledgerRow in ledgerRows)
-            {
-                var line = MapLedgerLine(ledgerRow);
-                runningBalance += line.Debit - line.Credit;
-                line.Balance = runningBalance;
-                response.Lines.Add(line);
-            }
-
-            response.TotalDebits = response.Lines.Sum(line => line.Debit);
-            response.TotalCredits = response.Lines.Sum(line => line.Credit);
-            response.TotalInvoices = response.Lines
-                .Where(line => string.Equals(line.OriginCode, "IN", StringComparison.OrdinalIgnoreCase))
-                .Sum(line => line.Debit);
-            response.TotalPayments = response.Lines
-                .Where(line => string.Equals(line.OriginCode, "RC", StringComparison.OrdinalIgnoreCase))
-                .Sum(line => line.Credit);
-            response.TotalCreditNotes = response.Lines
-                .Where(line => string.Equals(line.OriginCode, "CN", StringComparison.OrdinalIgnoreCase))
-                .Sum(line => line.Credit);
-            response.ClosingBalance = runningBalance;
-            response.Customer.Balance = runningBalance;
-            response.Aging = await BuildAgingSummaryAsync(statementCardCodes, paymentTerms, cancellationToken);
-
-            return response;
+            // The build runs behind the cache rather than inline, so it survives this request. See
+            // StatementBuildCache for why a statement slower than the portal's HTTP timeout was
+            // otherwise impossible to produce at all.
+            return await statementCache.GetOrBuildAsync(
+                BuildCacheKey(request.CardCode, statementCardCodes, fromDate, toDate),
+                token => BuildStatementAsync(request.CardCode, statementCardCodes, fromDate, toDate, token),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The client gave up. The build is still running and will still be cached, so there is
+            // nothing to report as a failure and nothing here worth logging as one.
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Customer statement for {CardCode} exceeded its {BuildMinutes}-minute budget",
+                request.CardCode,
+                StatementBuildCache.BuildTimeout.TotalMinutes);
+            return Errors.Statement.Timeout;
         }
         catch (Exception ex)
         {
@@ -144,48 +106,193 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
         }
     }
 
+    /// <summary>
+    /// Identifies a statement by everything that changes its contents, so two customers or two date
+    /// ranges can never share a cached result.
+    /// </summary>
+    private static string BuildCacheKey(
+        string cardCode,
+        IReadOnlyList<string> statementCardCodes,
+        DateTime fromDate,
+        DateTime toDate) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"statement:{cardCode}:{string.Join(',', statementCardCodes.OrderBy(code => code, StringComparer.OrdinalIgnoreCase))}:{fromDate:yyyy-MM-dd}:{toDate:yyyy-MM-dd}");
+
+    private async Task<ErrorOr<CustomerStatementResponseDto>> BuildStatementAsync(
+        string requestedCardCode,
+        IReadOnlyList<string> statementCardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken)
+    {
+        var buildStarted = Stopwatch.GetTimestamp();
+
+        var customer = await TimeLegAsync(
+            "business partner",
+            requestedCardCode,
+            () => businessPartnerService.GetBusinessPartnerByCodeAsync(requestedCardCode, cancellationToken));
+
+        if (customer is null)
+        {
+            return Errors.Statement.CustomerNotFound(requestedCardCode);
+        }
+
+        var paymentTermsTask = customer.PayTermGrpCode.HasValue
+            ? TimeLegAsync(
+                "payment terms",
+                requestedCardCode,
+                () => sapClient.GetPaymentTermsByCodeAsync(customer.PayTermGrpCode.Value, cancellationToken))
+            : Task.FromResult<PaymentTermsDto?>(null);
+        var openingBalanceTask = TimeLegAsync(
+            "opening balance",
+            requestedCardCode,
+            () => GetOpeningBalanceAsync(statementCardCodes, fromDate, cancellationToken));
+        var ledgerRowsTask = TimeLegAsync(
+            "ledger rows",
+            requestedCardCode,
+            () => GetLedgerRowsAsync(statementCardCodes, fromDate, toDate, cancellationToken));
+
+        // Aging needs the payment terms only to label its buckets, so the open-invoice read it is
+        // built from belongs in this batch rather than after it. It used to run once everything
+        // else had finished, which put a whole paged open-invoice walk on the end of every
+        // statement, in series with the part the customer actually came for.
+        var openInvoicesTask = TimeLegAsync(
+            "open invoices",
+            requestedCardCode,
+            () => sapClient.GetOpenInvoicesByCustomersAsync(statementCardCodes, cancellationToken));
+
+        await Task.WhenAll(paymentTermsTask, openingBalanceTask, ledgerRowsTask, openInvoicesTask);
+
+        var paymentTerms = paymentTermsTask.Result;
+        var openingBalance = openingBalanceTask.Result;
+        var ledgerRows = ledgerRowsTask.Result;
+
+        var response = new CustomerStatementResponseDto
+        {
+            Customer = new StatementCustomerDto
+            {
+                CardCode = customer.CardCode ?? requestedCardCode,
+                CardName = customer.CardName ?? string.Empty,
+                Email = customer.Email,
+                Phone = customer.Phone1,
+                Currency = customer.Currency,
+                AccountStructure = statementCardCodes.Count > 1 ? "Multi" : "Single",
+                PaymentTermsName = paymentTerms?.PaymentTermsGroupName,
+                PaymentTermsDays = ToPaymentTermsDays(paymentTerms)
+            },
+            FromDate = fromDate,
+            ToDate = toDate,
+            GeneratedAt = DateTime.UtcNow,
+            OpeningBalance = openingBalance
+        };
+
+        decimal runningBalance = openingBalance;
+        foreach (var ledgerRow in ledgerRows)
+        {
+            var line = MapLedgerLine(ledgerRow);
+            runningBalance += line.Debit - line.Credit;
+            line.Balance = runningBalance;
+            response.Lines.Add(line);
+        }
+
+        response.TotalDebits = response.Lines.Sum(line => line.Debit);
+        response.TotalCredits = response.Lines.Sum(line => line.Credit);
+        response.TotalInvoices = response.Lines
+            .Where(line => string.Equals(line.OriginCode, "IN", StringComparison.OrdinalIgnoreCase))
+            .Sum(line => line.Debit);
+        response.TotalPayments = response.Lines
+            .Where(line => string.Equals(line.OriginCode, "RC", StringComparison.OrdinalIgnoreCase))
+            .Sum(line => line.Credit);
+        response.TotalCreditNotes = response.Lines
+            .Where(line => string.Equals(line.OriginCode, "CN", StringComparison.OrdinalIgnoreCase))
+            .Sum(line => line.Credit);
+        response.ClosingBalance = runningBalance;
+        response.Customer.Balance = runningBalance;
+        response.Aging = BuildAgingSummary(openInvoicesTask.Result, paymentTerms);
+
+        logger.LogInformation(
+            "Customer statement for {CardCode} built in {ElapsedMs:F0}ms across {AccountCount} account(s) with {LineCount} line(s)",
+            requestedCardCode,
+            Stopwatch.GetElapsedTime(buildStarted).TotalMilliseconds,
+            statementCardCodes.Count,
+            response.Lines.Count);
+
+        return response;
+    }
+
+    /// <summary>
+    /// Times one leg of the build so a statement that runs long says which SAP read it spent the
+    /// time in, rather than only that it did.
+    /// </summary>
+    private async Task<T> TimeLegAsync<T>(string leg, string cardCode, Func<Task<T>> work)
+    {
+        var started = Stopwatch.GetTimestamp();
+
+        try
+        {
+            return await work();
+        }
+        finally
+        {
+            logger.LogInformation(
+                "Statement leg {StatementLeg} for {CardCode} finished in {ElapsedMs:F0}ms",
+                leg,
+                cardCode,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+        }
+    }
+
+    /// <remarks>
+    /// One execution per card code, because a bound parameter cannot carry an <c>IN</c> list — but
+    /// they do not have to wait for each other. In series a customer with five linked accounts paid
+    /// five SAP latencies for what is ultimately one addition.
+    /// </remarks>
     private async Task<decimal> GetOpeningBalanceAsync(
         IReadOnlyList<string> cardCodes,
         DateTime fromDate,
         CancellationToken cancellationToken)
     {
-        var balance = 0m;
+        var balances = await Task.WhenAll(
+            cardCodes.Select(cardCode => GetOpeningBalanceForCardCodeAsync(cardCode, fromDate, cancellationToken)));
 
-        foreach (var cardCode in cardCodes)
-        {
-            var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
-                OpeningBalanceQueryCode,
-                "Statement Opening Balance",
-                OpeningBalanceSql,
-                new Dictionary<string, string>
-                {
-                    ["cardCode"] = cardCode,
-                    ["fromDate"] = FormatSqlDate(fromDate)
-                },
-                cancellationToken);
-
-            if (rows.Count == 0)
-            {
-                continue;
-            }
-
-            balance += GetDecimal(rows[0], "TotalDebit") - GetDecimal(rows[0], "TotalCredit");
-        }
-
-        return balance;
+        return balances.Sum();
     }
 
+    private async Task<decimal> GetOpeningBalanceForCardCodeAsync(
+        string cardCode,
+        DateTime fromDate,
+        CancellationToken cancellationToken)
+    {
+        var rows = await sapClient.ExecuteParameterisedSqlQueryAsync(
+            OpeningBalanceQueryCode,
+            "Statement Opening Balance",
+            OpeningBalanceSql,
+            new Dictionary<string, string>
+            {
+                ["cardCode"] = cardCode,
+                ["fromDate"] = FormatSqlDate(fromDate)
+            },
+            cancellationToken);
+
+        return rows.Count == 0
+            ? 0m
+            : GetDecimal(rows[0], "TotalDebit") - GetDecimal(rows[0], "TotalCredit");
+    }
+
+    /// <remarks>
+    /// Concurrent per card code for the same reason as the opening balance. Task.WhenAll keeps the
+    /// results in the order the codes were given, so the concatenation below stays deterministic
+    /// even though the reads no longer are.
+    /// </remarks>
     private async Task<List<StatementLedgerRow>> GetLedgerRowsAsync(
         IReadOnlyList<string> cardCodes,
         DateTime fromDate,
         DateTime toDate,
         CancellationToken cancellationToken)
     {
-        var rows = new List<Dictionary<string, object?>>();
-
-        foreach (var cardCode in cardCodes)
-        {
-            rows.AddRange(await sapClient.ExecuteParameterisedSqlQueryAsync(
+        var rowsPerCardCode = await Task.WhenAll(cardCodes.Select(cardCode =>
+            sapClient.ExecuteParameterisedSqlQueryAsync(
                 LedgerQueryCode,
                 "Statement Ledger Rows",
                 LedgerSql,
@@ -195,8 +302,9 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
                     ["fromDate"] = FormatSqlDate(fromDate),
                     ["toDate"] = FormatSqlDate(toDate)
                 },
-                cancellationToken));
-        }
+                cancellationToken)));
+
+        var rows = rowsPerCardCode.SelectMany(cardCodeRows => cardCodeRows);
 
         return rows.Select(row => new StatementLedgerRow(
                 PostingDate: GetDateTime(row, "PostingDate"),
@@ -217,19 +325,23 @@ ORDER BY T0."RefDate", T0."Number", T1."Line_ID"
             .ToList();
     }
 
-    private async Task<StatementAgingSummaryDto> BuildAgingSummaryAsync(
-        IReadOnlyList<string> cardCodes,
-        PaymentTermsDto? paymentTerms,
-        CancellationToken cancellationToken)
+    /// <param name="invoices">
+    /// Open invoices already read for the whole account set. Passed in rather than fetched here so
+    /// the read runs alongside the ledger instead of after it.
+    /// </param>
+    /// <param name="paymentTerms">Sizes the buckets; 30-day buckets when the customer has none.</param>
+    /// <remarks>
+    /// Aging only ever uses invoices that are still open, so SAP filters them rather than this
+    /// handler. It used to fan out per customer into the unbounded "every invoice ever" overload
+    /// and discard almost all of it: an old account's whole trading history, paged 500 at a time,
+    /// to age the handful of documents still carrying a balance.
+    /// </remarks>
+    private static StatementAgingSummaryDto BuildAgingSummary(
+        IReadOnlyList<Models.Invoice> invoices,
+        PaymentTermsDto? paymentTerms)
     {
         var paymentTermsDays = ToPaymentTermsDays(paymentTerms);
         var bucketSize = paymentTermsDays > 0 ? paymentTermsDays : 30;
-
-        // Aging only ever uses invoices that are still open, so SAP filters them rather than this
-        // handler. It used to fan out per customer into the unbounded "every invoice ever" overload
-        // and discard almost all of it: an old account's whole trading history, paged 500 at a time,
-        // to age the handful of documents still carrying a balance.
-        var invoices = await sapClient.GetOpenInvoicesByCustomersAsync(cardCodes, cancellationToken);
 
         var openInvoices = invoices
             .Select(invoice => new OpenInvoiceRow(

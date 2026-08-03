@@ -152,6 +152,7 @@ public class CustomerStatementSqlTests
         var handler = new GetCustomerStatementHandler(
             partners,
             sap,
+            StatementBuildCaches.Fresh(),
             NullLogger<GetCustomerStatementHandler>.Instance);
 
         var result = await handler.Handle(

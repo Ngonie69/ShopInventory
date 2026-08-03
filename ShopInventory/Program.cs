@@ -542,6 +542,11 @@ try
 
     // Register statement service for PDF generation
     builder.Services.AddScoped<IStatementService, StatementService>();
+    // Singleton: the in-flight map and the cached results have to outlive the request that started
+    // the build, which is the whole point of it.
+    builder.Services.AddSingleton<
+        ShopInventory.Features.Statements.IStatementBuildCache,
+        ShopInventory.Features.Statements.StatementBuildCache>();
     builder.Services.AddScoped<IInvoicePdfService, InvoicePdfService>();
     builder.Services.AddScoped<IQuotationPdfService, QuotationPdfService>();
     builder.Services.AddScoped<ISalesOrderPdfService, SalesOrderPdfService>();
