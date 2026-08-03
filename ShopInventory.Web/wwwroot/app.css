@@ -6542,13 +6542,12 @@ html.dark-theme {
 .dark-theme .cpinv-breadcrumb,
 .dark-theme .ccn-breadcrumb,
 .dark-theme .cso-breadcrumb {
-.dark-theme .rxcn-step-title,
-.dark-theme .rxcn-callout-value,
     color: #94a3b8 !important;
 }
 .dark-theme .cq-breadcrumb a,
 .dark-theme .cpinv-breadcrumb a,
-
+.dark-theme .ccn-breadcrumb a,
+.dark-theme .cso-breadcrumb a {
     color: #60a5fa !important;
 }
 .dark-theme .cq-breadcrumb .sep,
