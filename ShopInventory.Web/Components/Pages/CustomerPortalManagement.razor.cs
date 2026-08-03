@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Components;
 using Microsoft.EntityFrameworkCore;
@@ -675,6 +676,14 @@ public partial class CustomerPortalManagement : ComponentBase
         showNewPassword = true;
     }
 
+    // What this returns becomes a customer's actual portal credential, so every
+    // draw is cryptographic — including the shuffle. `Random`/`Random.Shared` is
+    // seeded predictably enough that two passwords issued close together are
+    // related, which is what CodeQL's insecure-randomness rule is about; the
+    // page this replaced used `new Random()` throughout and had the same flaw.
+    // RandomNumberGenerator.GetInt32 is also rejection-sampled, so it does not
+    // carry the modulo bias a `% length` would.
+    //
     // Ambiguous glyphs are left out on purpose: these are read off a screen and
     // typed into a phone by whoever the admin passes them to.
     private static string GenerateStrongPassword()
@@ -684,20 +693,32 @@ public partial class CustomerPortalManagement : ComponentBase
         const string digits = "23456789";
         const string symbols = "!@#$%^&*";
 
-        var random = Random.Shared;
         var chars = new char[12];
 
-        chars[0] = upper[random.Next(upper.Length)];
-        chars[1] = lower[random.Next(lower.Length)];
-        chars[2] = digits[random.Next(digits.Length)];
-        chars[3] = symbols[random.Next(symbols.Length)];
+        // One of each class up front, so the result always clears
+        // IsPasswordStrong; the shuffle below is what stops those four sitting
+        // in a known order.
+        chars[0] = Pick(upper);
+        chars[1] = Pick(lower);
+        chars[2] = Pick(digits);
+        chars[3] = Pick(symbols);
 
         var all = upper + lower + digits + symbols;
         for (var i = 4; i < chars.Length; i++)
-            chars[i] = all[random.Next(all.Length)];
+            chars[i] = Pick(all);
 
-        return new string(chars.OrderBy(_ => random.Next()).ToArray());
+        // Fisher-Yates, drawing from the same source: an OrderBy on a random key
+        // would put the choice of permutation back on a weaker generator.
+        for (var i = chars.Length - 1; i > 0; i--)
+        {
+            var j = RandomNumberGenerator.GetInt32(i + 1);
+            (chars[i], chars[j]) = (chars[j], chars[i]);
+        }
+
+        return new string(chars);
     }
+
+    private static char Pick(string alphabet) => alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)];
 
     private static bool IsPasswordStrong(string? password) =>
         !string.IsNullOrEmpty(password)
