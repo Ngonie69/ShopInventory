@@ -15,124 +15,173 @@
    portal — chrome, and every page rendered into @Body — resolves the Nocturne
    tokens, which is what lets that stylesheet restyle the shared class
    vocabulary (dashboard-panel, stat-card, dashboard-table …) for the portal
-   without touching how the same classes render on the staff pages. *@
+   without touching how the same classes render on the staff pages.
+
+   The chrome itself is the sidebar and top bar drawn by
+   `Customer Portal Dashboard.dc.html`, the same design the dashboard was built
+   from: the brand sits at the head of a full-height sidebar, and the bar to its
+   right opens with the current section's name. MudLayout still supplies the
+   frame — the drawer's responsive collapse and the content offset are real
+   behaviour — but everything inside it is hand-built markup on Phosphor glyphs,
+   as the staff shell's Topbar/NavMenu are. MudNavMenu was the previous
+   arrangement and could not be re-skinned: MudBlazor's
+   `.mud-nav-link.active:not(.mud-nav-link-disabled)` is (0,3,0) and its
+   stylesheet is the last one in <head>, so an equally specific portal rule tied
+   and lost, and the active row rendered in MudBlazor's blurple rather than the
+   portal's teal. Plain NavLinks carry classes this file owns outright. *@
 <MudLayout Class="customer-shell cpx">
     <MudAppBar Elevation="0" Dense="true" Class="customer-appbar">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
-                       OnClick="@ToggleDrawer" Class="customer-menu-button" aria-label="Toggle navigation" />
-        <img src="images/kefalos-logo.jpg" alt="Kefalos" class="customer-brand-logo"
-             style="height: 32px; margin-left: 12px;" onerror="this.style.display='none'" />
-        <MudText Typo="Typo.h6" Class="ml-4 customer-brand-title">Customer Portal</MudText>
-        <MudSpacer />
+        <div class="cpx-topbar">
+            @* Only shown below the drawer breakpoint, where the sidebar is an overlay. *@
+            <button type="button" class="cpx-icon-btn cpx-menu-toggle" @onclick="ToggleDrawer"
+                    aria-label="Toggle navigation">
+                <i class="ph ph-list" aria-hidden="true"></i>
+            </button>
 
-        @if (!string.IsNullOrEmpty(customerName))
-        {
-            <MudChip T="string" Color="Color.Default" Variant="Variant.Text" Class="customer-account-chip">
-                <MudAvatar Color="Color.Secondary" Size="Size.Small" Class="mr-2">
-                    @(customerName.Length > 0 ? customerName[0].ToString().ToUpper() : "C")
-                </MudAvatar>
-                @customerName
-            </MudChip>
-        }
+            <div class="cpx-screen-title">@ScreenTitle</div>
 
-            <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                           Color="Color.Inherit" OnClick="@ToggleTheme" aria-label="@(_isDarkMode ? "Light Mode" : "Dark Mode")"
-                           Class="customer-theme-button" />
+            <div class="cpx-topbar-actions">
+                @if (!string.IsNullOrEmpty(customerName))
+                {
+                    <div class="cpx-account" title="@customerName">
+                        <span class="cpx-account-mark" aria-hidden="true">@AccountInitial</span>
+                        <span class="cpx-account-name">@customerName</span>
+                    </div>
+                }
+
+                <button type="button" class="cpx-icon-btn" @onclick="ToggleTheme"
+                        aria-label="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")">
+                    <i class="ph @(_isDarkMode ? "ph-sun" : "ph-moon")" aria-hidden="true"></i>
+                </button>
+
+                @if (!string.IsNullOrEmpty(customerCode))
+                {
+                    <button type="button" class="cpx-btn" @onclick="Logout">
+                        <i class="ph ph-sign-out" aria-hidden="true"></i>
+                        <span class="cpx-btn-label">Logout</span>
+                    </button>
+                }
+                else
+                {
+                    <a class="cpx-btn" href="/customer-portal/login">
+                        <i class="ph ph-sign-in" aria-hidden="true"></i>
+                        <span class="cpx-btn-label">Login</span>
+                    </a>
+                }
+            </div>
+        </div>
+    </MudAppBar>
+
+    @* ClipMode.Never, so the sidebar runs the full height with the brand at its
+       head and the bar starts at the sidebar's edge — the design's arrangement.
+       MudBlazor offsets the app bar by --mud-drawer-width-left for us. *@
+    <MudDrawer @bind-Open="@_drawerOpen" Elevation="0" Variant="@DrawerVariant.Responsive"
+               ClipMode="DrawerClipMode.Never" Breakpoint="Breakpoint.Md" Class="customer-drawer">
+        <div class="cpx-sidebar">
+            @* The close button is before the kicker so it shares the brand's row —
+               the kicker is a full-width flex line, and anything after it wraps
+               onto a third row of its own. *@
+            <div class="cpx-sidebar-brand">
+                <BrandLogo />
+                @* The overlay drawer has no other way back; hidden once it docks. *@
+                <button type="button" class="cpx-icon-btn cpx-sidebar-close" @onclick="ToggleDrawer"
+                        aria-label="Close navigation">
+                    <i class="ph ph-x" aria-hidden="true"></i>
+                </button>
+                <span class="cpx-sidebar-kicker">Customer portal</span>
+            </div>
+
+            <nav class="cpx-nav" aria-label="Account">
+                <NavLink class="cpx-navlink" href="/customer-portal/dashboard" Match="NavLinkMatch.All">
+                    <i class="ph ph-squares-four" aria-hidden="true"></i><span>Dashboard</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/statements" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-file-text" aria-hidden="true"></i><span>Statements</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/invoices" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-receipt" aria-hidden="true"></i><span>Invoices</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/payments" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-credit-card" aria-hidden="true"></i><span>Payments</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/pods" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-truck" aria-hidden="true"></i><span>Proof of delivery</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/item-summary" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-package" aria-hidden="true"></i><span>Item summary</span>
+                </NavLink>
+            </nav>
+
+            <div class="cpx-nav-rule" role="presentation"></div>
+
+            <nav class="cpx-nav" aria-label="Account settings">
+                <NavLink class="cpx-navlink" href="/customer-portal/activity-log" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-clock-counter-clockwise" aria-hidden="true"></i><span>Activity log</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/support" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-lifebuoy" aria-hidden="true"></i><span>Support</span>
+                </NavLink>
+                <NavLink class="cpx-navlink" href="/customer-portal/profile" Match="NavLinkMatch.Prefix">
+                    <i class="ph ph-user-circle" aria-hidden="true"></i><span>Profile</span>
+                </NavLink>
+            </nav>
 
             @if (!string.IsNullOrEmpty(customerCode))
             {
-                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout"
-                           OnClick="@Logout" Size="Size.Small" Class="customer-auth-button">
-                    <span class="customer-auth-label">Logout</span>
-                </MudButton>
-            }
-            else
-            {
-                <MudButton Variant="Variant.Outlined" Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Login"
-                           Href="/customer-portal/login" Size="Size.Small" Class="customer-auth-button">
-                    <span class="customer-auth-label">Login</span>
-                </MudButton>
-            }
-        </MudAppBar>
-
-        <MudDrawer @bind-Open="@_drawerOpen" Elevation="2" Variant="@DrawerVariant.Responsive"
-                   ClipMode="DrawerClipMode.Always" Breakpoint="Breakpoint.Md" Class="customer-drawer">
-            <MudDrawerHeader Dense="true" Class="customer-drawer-header">
-                <div class="d-flex align-center gap-2 customer-drawer-brand">
-                    <MudIcon Icon="@Icons.Material.Filled.Person" />
-                    @if (_drawerOpen)
-                    {
-                        <MudText Typo="Typo.subtitle2" Class="customer-drawer-title">
-                            @(customerName ?? "Customer Portal")
-                        </MudText>
-                    }
-                </div>
-            </MudDrawerHeader>
-
-            <MudNavMenu Dense="true" Bordered="true" Class="customer-nav">
-                <MudNavLink Href="/customer-portal/dashboard" Match="NavLinkMatch.All"
-                            Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-                <MudNavLink Href="/customer-portal/statements" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Description">Statements</MudNavLink>
-                <MudNavLink Href="/customer-portal/invoices" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Receipt">Invoices</MudNavLink>
-                <MudNavLink Href="/customer-portal/payments" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Payment">Payments</MudNavLink>
-                <MudNavLink Href="/customer-portal/pods" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.FactCheck">Proof of Delivery</MudNavLink>
-                <MudNavLink Href="/customer-portal/item-summary" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Inventory">Item Summary</MudNavLink>
-
-                <MudDivider Class="my-2" />
-
-                <MudNavLink Href="/customer-portal/activity-log" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.History">Activity Log</MudNavLink>
-                <MudNavLink Href="/customer-portal/support" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.Support">Support</MudNavLink>
-                <MudNavLink Href="/customer-portal/profile" Match="NavLinkMatch.Prefix"
-                            Icon="@Icons.Material.Filled.AccountCircle">Profile</MudNavLink>
-            </MudNavMenu>
-
-            @if (!string.IsNullOrEmpty(customerCode))
-            {
-                <MudSpacer />
-                <div class="customer-drawer-footer">
-                    <div class="customer-code-card">
-                        <div class="customer-code-icon">
-                            <MudIcon Icon="@Icons.Material.Filled.Badge" Size="Size.Small" />
-                        </div>
-                        <div class="customer-code-info">
-                            <span class="customer-code-label">Customer Code</span>
-                            <span class="customer-code-value">@customerCode</span>
-                        </div>
-                    </div>
+                <div class="cpx-code">
+                    <span class="cpx-code-label">Customer code</span>
+                    <span class="cpx-code-value">@customerCode</span>
                 </div>
             }
-        </MudDrawer>
+        </div>
+    </MudDrawer>
 
-        <MudMainContent Class="customer-main">
-            <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-4 customer-content">
-                @Body
-            </MudContainer>
+    <MudMainContent Class="customer-main">
+        <div class="customer-content">
+            @Body
+        </div>
 
-            <footer class="customer-footer">
-                <MudContainer MaxWidth="MaxWidth.ExtraLarge">
-                    <div class="d-flex justify-center align-center flex-wrap gap-4 py-3 customer-footer-content">
-                        <span>© 2026 Shop Inventory System</span>
-                        <MudLink Href="/customer-portal/support" Color="Color.Primary">Contact Support</MudLink>
-                        <MudLink Href="/customer-portal/privacy" Color="Color.Primary">Privacy Policy</MudLink>
-                        <MudLink Href="/customer-portal/terms" Color="Color.Primary">Terms of Service</MudLink>
-                    </div>
-                </MudContainer>
-            </footer>
-        </MudMainContent>
-    </MudLayout>
+        <footer class="customer-footer">
+            <div class="customer-footer-content">
+                <span>© 2026 Shop Inventory System</span>
+                <a href="/customer-portal/support">Contact Support</a>
+                <a href="/customer-portal/privacy">Privacy Policy</a>
+                <a href="/customer-portal/terms">Terms of Service</a>
+            </div>
+        </footer>
+    </MudMainContent>
+</MudLayout>
 
 @code {
     private string? customerName;
     private string? customerCode;
     private bool _drawerOpen = true;
     private bool _isDarkMode = false;
+
+    private string AccountInitial =>
+        string.IsNullOrWhiteSpace(customerName) ? "C" : customerName.Trim()[..1].ToUpperInvariant();
+
+    /// <summary>
+    /// The bar's lead cell. The design gives it the current section's name — the brand
+    /// moved into the sidebar, so this is what tells you where you are. It is the nav
+    /// label, not the page's own heading: pages open with their subject (the account
+    /// name, the statement period), and repeating that here would say nothing.
+    /// </summary>
+    private string ScreenTitle => new Uri(NavigationManager.Uri).AbsolutePath.TrimEnd('/') switch
+    {
+        "/customer-portal/dashboard" => "Dashboard",
+        "/customer-portal/statements" => "Statements",
+        "/customer-portal/invoices" => "Invoices",
+        "/customer-portal/payments" => "Payments",
+        "/customer-portal/pods" => "Proof of delivery",
+        "/customer-portal/item-summary" => "Item summary",
+        "/customer-portal/activity-log" => "Activity log",
+        "/customer-portal/support" => "Support",
+        "/customer-portal/profile" => "Profile",
+        "/customer-portal/privacy" => "Privacy policy",
+        "/customer-portal/terms" => "Terms of service",
+        _ => "Customer portal"
+    };
 
     /// <remarks>
     /// The portal's whole first-load story lives here, because every page repeats the shape.
