@@ -912,10 +912,21 @@
    above, the same arrangement credit-notes.css uses for .cnx-overlay. Scoping
    it this way rather than putting .bp on the scrim and drawer matters: .bp also
    carries min-height: 100vh, which beats the drawer's height below and would
-   push it, and its footer, a topbar's worth past the fold. */
+   push it, and its footer, a topbar's worth past the fold.
+
+   The type context has to come with the palette, not just the family: .bp sets
+   the size, leading and smoothing for everything inside it, and the drawer
+   inherits none of them out here. Without these three it fell through to
+   Bootstrap's 16px/1.6 body type — 219 computed properties adrift across the
+   drawer, every block a fraction to a full pixel out, and every glyph dropped
+   from antialiased to auto. So this is the .bp page rule minus min-height and
+   background, the two that caused the overflow. */
 .bp-overlay {
-    font-family: 'Inter', system-ui, sans-serif;
     color: var(--bp-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
 }
 
 .bp-scrim {
