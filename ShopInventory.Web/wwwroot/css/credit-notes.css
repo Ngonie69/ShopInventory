@@ -847,9 +847,20 @@
    stacking context, so an overlay centred on the full viewport is painted
    over by the topbar however high its z-index. */
 
+/* The type context has to come with the palette, not just the family: the page
+   root sets the size, leading and smoothing for everything inside it, and an
+   overlay that renders outside it inherits none of them. Without these three the
+   drawer and both dialogs fall through to Bootstrap's 16px/1.6 body type, which
+   is not a subtle drift — it grew the cancel dialog 37px taller and its textarea
+   34px, and dropped every glyph from antialiased to auto. This is the .cnx page
+   rule minus min-height: 100vh and background, the two declarations that would
+   draw an empty page-tall block below the page. */
 .cnx-overlay {
-    font-family: 'Inter', system-ui, sans-serif;
     color: var(--cnx-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
 }
 
 .cnx-scrim {
