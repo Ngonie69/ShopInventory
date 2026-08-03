@@ -220,6 +220,22 @@ public class AgingSummary
     public string Bucket2Label { get; set; } = "31-60 Days";
     public string Bucket3Label { get; set; } = "61-90 Days";
     public string Bucket4Label { get; set; } = "Over 90 Days";
+
+    /// <summary>
+    /// How many invoices sit in each bucket, in the same order as the amounts above.
+    /// </summary>
+    /// <remarks>
+    /// Only the dashboard fills these: it derives its own aging from invoices it already
+    /// holds (see CustomerStatementService.CalculateAgingFromInvoices), so it can count as
+    /// it sums. The statement page reads aging from the API, whose DTO has no counts, and
+    /// leaves them at zero — which is why the dashboard renders a count line only when the
+    /// count is above zero, and nothing else reads them at all.
+    /// </remarks>
+    public int CurrentCount { get; set; }
+    public int Bucket1Count { get; set; }
+    public int Bucket2Count { get; set; }
+    public int Bucket3Count { get; set; }
+    public int Bucket4Count { get; set; }
 }
 
 /// <summary>
@@ -364,6 +380,18 @@ public class CustomerDashboardSummary
     public int OverdueInvoicesCount { get; set; }
     public DateTime? LastPaymentDate { get; set; }
     public decimal LastPaymentAmount { get; set; }
+
+    /// <summary>
+    /// Everything received across the dashboard's window, not just the payments listed
+    /// in <see cref="RecentPayments"/> — that list is capped at five.
+    /// </summary>
+    public decimal PaymentsReceived { get; set; }
+
+    /// <summary>
+    /// Days past terms on the oldest open invoice, or 0 when nothing is overdue.
+    /// </summary>
+    public int OldestOverdueDays { get; set; }
+
     public List<CustomerInvoiceSummary> RecentInvoices { get; set; } = new();
     public List<CustomerPaymentSummary> RecentPayments { get; set; } = new();
     public AgingSummary Aging { get; set; } = new();
