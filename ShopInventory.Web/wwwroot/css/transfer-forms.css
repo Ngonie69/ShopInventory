@@ -780,29 +780,6 @@
     position: relative;
 }
 
-.tfm-combo-clear {
-    position: absolute;
-    top: 50%;
-    right: 7px;
-    transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--tfm-muted-2);
-    cursor: pointer;
-    font-size: 12px;
-    line-height: 1;
-}
-
-.tfm-combo-clear:hover {
-    color: var(--tfm-bad);
-}
-
 .tfm-drop {
     position: absolute;
     z-index: 40;

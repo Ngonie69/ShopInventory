@@ -91,7 +91,6 @@
     --pdx-warn-ink: var(--noct-warn-ink);
     --pdx-shadow-lg: var(--noct-shadow-lg);
     --pdx-shadow-pop: var(--noct-shadow-pop);
-    --pdx-caret: var(--noct-caret);
     --pdx-clear: var(--noct-clear);
     --pdx-scheme: var(--noct-scheme);
 
@@ -593,27 +592,6 @@
 
 .pdx .pdx-input[type="search"]::-webkit-search-cancel-button:hover {
     opacity: 1;
-}
-
-.pdx-select {
-    position: relative;
-    display: flex;
-}
-
-.pdx .pdx-select select.pdx-input {
-    padding: 8px 28px 8px 11px;
-    cursor: pointer;
-}
-
-.pdx-select .pdx-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--pdx-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 /* ── Supplier typeahead ────────────────────────────────────────────────── */

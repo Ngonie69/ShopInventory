@@ -67,7 +67,6 @@
     --aud-warn-edge: var(--noct-warn-edge);
     --aud-warn-ink: var(--noct-warn-ink);
     --aud-shadow-lg: var(--noct-shadow-lg);
-    --aud-caret: var(--noct-caret);
     --aud-clear: var(--noct-clear);
     --aud-scheme: var(--noct-scheme);
 
@@ -584,27 +583,6 @@
 
 .aud .aud-input[type="search"]::-webkit-search-cancel-button:hover {
     opacity: 1;
-}
-
-.aud-select {
-    position: relative;
-    display: flex;
-}
-
-.aud .aud-select select.aud-input {
-    padding: 8px 28px 8px 11px;
-    cursor: pointer;
-}
-
-.aud-select .aud-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--aud-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 /* ── The grid ──────────────────────────────────────────────────────────── */

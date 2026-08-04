@@ -72,7 +72,6 @@
     --pr-warn-edge: var(--noct-warn-edge);
     --pr-warn-ink: var(--noct-warn-ink);
     --pr-shadow-lg: var(--noct-shadow-lg);
-    --pr-caret: var(--noct-caret);
     --pr-clear: var(--noct-clear);
     --pr-scheme: var(--noct-scheme);
 
@@ -591,28 +590,6 @@
 
 .pr-req {
     color: var(--pr-accent-text);
-}
-
-.pr-select {
-    position: relative;
-    display: flex;
-}
-
-.pr .pr-select select.pr-input,
-.pr-overlay .pr-select select.pr-input {
-    padding: 8px 28px 8px 11px;
-    cursor: pointer;
-}
-
-.pr-select .pr-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--pr-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 /* ── The grid ──────────────────────────────────────────────────────────── */

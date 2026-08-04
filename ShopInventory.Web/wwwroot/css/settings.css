@@ -697,30 +697,6 @@
     padding-left: 27px;
 }
 
-.stg-combo-clear {
-    position: absolute;
-    right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: 0;
-    border-radius: var(--stg-radius-sm);
-    background: transparent;
-    color: var(--stg-t-52);
-    font-size: 12px;
-    cursor: pointer;
-}
-
-.stg-combo-clear:hover {
-    color: var(--stg-text);
-    background: rgba(var(--stg-text-rgb), .08);
-}
-
 .stg-combo-menu {
     position: absolute;
     z-index: 40;

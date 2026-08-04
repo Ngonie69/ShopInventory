@@ -327,11 +327,6 @@
     color: var(--cst-t70);
 }
 
-.cst .cst-select {
-    position: relative;
-    display: flex;
-}
-
 /* The dropdowns on this page are NocturneSelect, not native <select>s — a
    native popup takes its background from the field and is drawn outside the
    page, where no stylesheet can reach it. Only the closed trigger is fitted to
@@ -362,13 +357,6 @@
     font-variant-numeric: tabular-nums;
 }
 
-.cst .cst-select .cst-input {
-    padding-right: 30px;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-}
-
 .cst .cst-input:hover {
     border-color: var(--cst-edge-hi);
 }
@@ -376,19 +364,6 @@
 .cst .cst-input:focus-visible {
     border-color: var(--cst-accent);
     outline: none;
-}
-
-.cst .cst-caret {
-    position: absolute;
-    top: 50%;
-    right: 11px;
-    width: 10px;
-    height: 7px;
-    margin-top: -3px;
-    pointer-events: none;
-    background: currentColor;
-    color: var(--cst-t50);
-    clip-path: polygon(0 0, 1.4px 0, 5px 4.2px, 8.6px 0, 10px 0, 5px 7px);
 }
 
 .cst .cst-quick {

@@ -58,7 +58,6 @@
     --lst-accent-rgb: var(--noct-accent-rgb);
     --lst-accent-text: var(--noct-accent-text);
     --lst-thumb: var(--noct-thumb);
-    --lst-caret: var(--noct-caret);
     --lst-clear: var(--noct-clear);
     --lst-scheme: var(--noct-scheme);
 
@@ -652,27 +651,6 @@
     background: var(--lst-clear) no-repeat center / contain;
     opacity: .7;
     cursor: pointer;
-}
-
-.lst-select {
-    position: relative;
-    display: flex;
-}
-
-.lst .lst-select select.lst-input {
-    padding: 8px 28px 8px 11px;
-    cursor: pointer;
-}
-
-.lst-select .lst-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--lst-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 /* ── The grid ──────────────────────────────────────────────────────────── */

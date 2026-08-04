@@ -65,7 +65,6 @@
     --uac-thumb: var(--noct-thumb);
     --uac-scrim: var(--noct-scrim);
     --uac-shadow-lg: var(--noct-shadow-lg);
-    --uac-caret: var(--noct-caret);
     --uac-clear: var(--noct-clear);
     --uac-scheme: var(--noct-scheme);
 
@@ -771,27 +770,6 @@
     left: 11px;
     pointer-events: none;
     color: var(--uac-mute-3);
-}
-
-.uac-select {
-    position: relative;
-    display: flex;
-}
-
-.uac .uac-select select.uac-input {
-    padding: 8px 28px 8px 11px;
-    cursor: pointer;
-}
-
-.uac-select .uac-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--uac-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 /* ── The grid ──────────────────────────────────────────────────────────── */
