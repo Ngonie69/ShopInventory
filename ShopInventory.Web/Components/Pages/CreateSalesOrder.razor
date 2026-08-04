@@ -54,6 +54,14 @@
                     <div class="sfm-stat-v">@newOrder.Lines.Count</div>
                 </div>
                 <div class="sfm-stat">
+                    <div class="sfm-stat-k">Subtotal</div>
+                    <div class="sfm-stat-v">@CalculateSubTotal().ToString("N2")</div>
+                </div>
+                <div class="sfm-stat">
+                    <div class="sfm-stat-k">VAT</div>
+                    <div class="sfm-stat-v is-vat">@CalculateVatAmount().ToString("N2")</div>
+                </div>
+                <div class="sfm-stat">
                     <div class="sfm-stat-k">Order total</div>
                     <div class="sfm-stat-v is-total">@CalculateOrderTotal().ToString("N2")</div>
                 </div>
@@ -244,6 +252,7 @@
                                         <div class="sfm-r">Qty</div>
                                         <div class="sfm-r">Unit price</div>
                                         <div class="sfm-r">Disc %</div>
+                                        <div class="sfm-r">VAT %</div>
                                         <div>Warehouse</div>
                                         <div class="sfm-r">Total</div>
                                         <div></div>
@@ -305,6 +314,11 @@
                                             @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                             <input type="number" min="0" max="100" step="0.000001"
                                                    class="sfm-input sfm-num" @bind="line.DiscountPercent" />
+                                            @* Editable per line: a zero-rated or exempt item carries its own
+                                               rate in SAP, and a line left at the default would overstate the
+                                               order against the document SAP actually produces. *@
+                                            <input type="number" min="0" max="100" step="0.1"
+                                                   class="sfm-input sfm-num" @bind="line.TaxPercent" />
                                             <select class="sfm-select sfm-cell" @bind="line.WarehouseCode">
                                                 <option value="">Default</option>
                                                 @foreach (var wh in cachedWarehouses)
@@ -350,10 +364,15 @@
                     <div class="sfm-card sfm-total-card">
                         <div class="sfm-total-hd">
                             <span class="sfm-total-k">Order total</span>
-                            <span class="sfm-total-cur">@newOrder.Currency</span>
+                            <span class="sfm-total-cur">
+                                @(string.IsNullOrWhiteSpace(newOrder.Currency) ? "No currency" : newOrder.Currency)
+                            </span>
                         </div>
                         <div class="sfm-total-v">@CalculateOrderTotal().ToString("N2")</div>
-                        <div class="sfm-total-sub">@newOrder.Lines.Count line(s)</div>
+                        <div class="sfm-total-sub">
+                            @newOrder.Lines.Count line(s) &middot; subtotal @CalculateSubTotal().ToString("N2")
+                        </div>
+                        <div class="sfm-total-sub">VAT @CalculateVatAmount().ToString("N2")</div>
 
                         @if (createValidationErrors.Any() || lineValidationErrors.Any())
                         {
@@ -439,6 +458,12 @@
         Currency = string.Empty
     };
     private bool isCreating = false;
+
+    // Matches Revmax:VatRate in the API's appsettings, which is what the server stores the
+    // order's tax at. A line left at this rate totals to the same document SAP produces from
+    // the item's tax code; the form previously sent no rate at all, so a web order was stored
+    // and credit-checked at its pre-tax subtotal.
+    private const decimal DefaultVatPercent = 15.5m;
     // Stable idempotency key for this order-entry session. Generated once and reused across
     // retries so a lost-response retry (or proxy/double-click resubmit) is deduplicated by the
     // server instead of creating a second order that auto-posts a duplicate SAP document.
@@ -575,7 +600,12 @@
         bpSearchTerm = bp.DisplayName;
         showBPDropdown = false;
 
-        if (!string.IsNullOrWhiteSpace(bp.Currency))
+        // "##" is SAP's marker for a business partner that may be billed in any currency, not a
+        // currency code. Assigning it left the picker showing nothing (no option matches) while
+        // the form held a value validation accepted, so the operator saw a blank required field
+        // with no error. Leave the choice to them instead. Same guard as the purchase forms.
+        if (!string.IsNullOrWhiteSpace(bp.Currency)
+            && !string.Equals(bp.Currency.Trim(), "##", StringComparison.OrdinalIgnoreCase))
         {
             newOrder.Currency = bp.Currency.Trim().ToUpperInvariant();
         }
@@ -675,6 +705,7 @@
         newOrder.Lines.Add(new CreateSalesOrderLineRequest
         {
             Quantity = 1,
+            TaxPercent = DefaultVatPercent,
             WarehouseCode = newOrder.WarehouseCode ?? ""
         });
     }
@@ -884,9 +915,24 @@ state.FilteredProducts.Count;
         return line.DiscountPercent > 0 ? subtotal * (1 - line.DiscountPercent / 100) : subtotal;
     }
 
+    private decimal CalculateSubTotal()
+    {
+        return newOrder.Lines.Sum(CalculateLineTotal);
+    }
+
+    private decimal CalculateVatAmount()
+    {
+        return newOrder.Lines.Sum(line => CalculateLineTotal(line) * line.TaxPercent / 100);
+    }
+
+    /// <summary>
+    /// The document total, tax included — the figure SAP will show on the posted order.
+    /// This deliberately mirrors SalesOrderService.CalculateSalesOrderTotals on the API so the
+    /// operator is not shown one number and credit-checked on another.
+    /// </summary>
     private decimal CalculateOrderTotal()
     {
-        return newOrder.Lines.Sum(l => CalculateLineTotal(l));
+        return CalculateSubTotal() + CalculateVatAmount();
     }
 
     private string TruncateName(string? name, int maxLength)
