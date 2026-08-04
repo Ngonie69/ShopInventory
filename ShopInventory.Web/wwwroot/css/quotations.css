@@ -630,6 +630,21 @@
     transition: border-color .15s, background-color .15s;
 }
 
+/* A native <select> popup takes its background from the field, and the field
+   above is a 5%-white wash — which the browser composites onto white and then
+   ignores `color-scheme: dark` for. Left alone the options render in the field's
+   near-white ink on a near-white sheet, i.e. invisible in dark theme only. The
+   fill has to be opaque, so it is --qtn-surface rather than --qtn-field-bg. The
+   overlay is repeated because the dialogs are siblings of the page root, not
+   children — exactly as for the field rule above. */
+.qtn .qtn-input option,
+.qtn .qtn-input optgroup,
+.qtn-overlay .qtn-input option,
+.qtn-overlay .qtn-input optgroup {
+    color: var(--qtn-ink);
+    background-color: var(--qtn-surface);
+}
+
 .qtn .qtn-input:hover:not(:disabled),
 .qtn-overlay .qtn-input:hover:not(:disabled) {
     border-color: var(--qtn-field-edge);

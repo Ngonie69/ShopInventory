@@ -82,20 +82,69 @@
                 </div>
                 @if (!isPodOperatorView)
                 {
-                    <select class="um-select" @bind="roleFilter" @bind:after="LoadUsers">
-                        <option value="">All Roles</option>
-                        @foreach (var role in availableRoles)
+                    <div class="um-dd @(openFilterMenu == "role" ? "open" : "")" @onkeydown="OnFilterMenuKeyDown">
+                        <button type="button" class="um-dd-btn @(string.IsNullOrEmpty(roleFilter) ? "" : "set")"
+                                @onclick="@(() => ToggleFilterMenu("role"))"
+                                aria-haspopup="listbox" aria-expanded="@(openFilterMenu == "role")">
+                            <i class="bi bi-person-badge um-dd-icon"></i>
+                            <span class="um-dd-value">@RoleFilterLabel</span>
+                            <i class="bi bi-chevron-down um-dd-caret"></i>
+                        </button>
+                        @if (openFilterMenu == "role")
                         {
-                            <option value="@role">@role</option>
+                            <div class="um-dd-catch" @onclick="CloseFilterMenu"></div>
+                            <div class="um-dd-menu" role="listbox" aria-label="Filter by role">
+                                <div class="um-dd-caption">Filter by role</div>
+                                <button type="button" class="um-dd-item um-badge-user @(string.IsNullOrEmpty(roleFilter) ? "selected" : "")"
+                                        role="option" aria-selected="@string.IsNullOrEmpty(roleFilter)"
+                                        @onclick="@(() => SelectRoleFilter(string.Empty))">
+                                    <span class="um-dd-dot"></span>
+                                    <span class="um-dd-label">All Roles</span>
+                                    <i class="bi bi-check2 um-dd-tick"></i>
+                                </button>
+                                <div class="um-dd-rule"></div>
+                                @foreach (var role in availableRoles)
+                                {
+                                    var r = role;
+                                    <button type="button" class="um-dd-item @GetRoleBadgeClass(r) @(roleFilter == r ? "selected" : "")"
+                                            role="option" aria-selected="@(roleFilter == r)"
+                                            @onclick="@(() => SelectRoleFilter(r))">
+                                        <span class="um-dd-dot"></span>
+                                        <span class="um-dd-label">@r</span>
+                                        <i class="bi bi-check2 um-dd-tick"></i>
+                                    </button>
+                                }
+                            </div>
                         }
-                    </select>
+                    </div>
                 }
-                <select class="um-select" @bind="statusFilter" @bind:after="LoadUsers">
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="locked">Locked</option>
-                </select>
+                <div class="um-dd @(openFilterMenu == "status" ? "open" : "")" @onkeydown="OnFilterMenuKeyDown">
+                    <button type="button" class="um-dd-btn @(string.IsNullOrEmpty(statusFilter) ? "" : "set")"
+                            @onclick="@(() => ToggleFilterMenu("status"))"
+                            aria-haspopup="listbox" aria-expanded="@(openFilterMenu == "status")">
+                        <i class="bi bi-broadcast-pin um-dd-icon"></i>
+                        <span class="um-dd-value">@StatusFilterLabel</span>
+                        <i class="bi bi-chevron-down um-dd-caret"></i>
+                    </button>
+                    @if (openFilterMenu == "status")
+                    {
+                        <div class="um-dd-catch" @onclick="CloseFilterMenu"></div>
+                        <div class="um-dd-menu" role="listbox" aria-label="Filter by status">
+                            <div class="um-dd-caption">Filter by status</div>
+                            @foreach (var (value, label, family) in StatusFilterOptions)
+                            {
+                                var v = value;
+                                <button type="button" class="um-dd-item @family @(statusFilter == v ? "selected" : "")"
+                                        role="option" aria-selected="@(statusFilter == v)"
+                                        @onclick="@(() => SelectStatusFilter(v))">
+                                    <span class="um-dd-dot"></span>
+                                    <span class="um-dd-label">@label</span>
+                                    <i class="bi bi-check2 um-dd-tick"></i>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
                 @if (HasActiveFilters)
                 {
                     <button class="um-btn um-btn-ghost" @onclick="ResetFilters">
@@ -846,6 +895,20 @@
     // Action menu state
     private Guid? openMenuUserId = null;
 
+    // Filter dropdown state. These two filters are custom listboxes rather than
+    // <select>s: a native popup takes its background from the field, and this
+    // page's fields are a 5%-white wash, which the browser composites onto white
+    // — so the dark-theme options rendered near-white on near-white.
+    private string? openFilterMenu = null;
+
+    private static readonly (string Value, string Label, string Family)[] StatusFilterOptions =
+    {
+        (string.Empty, "All Status", "um-badge-user"),
+        ("active", "Active", "um-badge-active"),
+        ("inactive", "Inactive", "um-badge-inactive"),
+        ("locked", "Locked", "um-badge-locked")
+    };
+
     // Reset password modal
     private bool showResetPasswordModal = false;
     private UserDisplayModel? resetPasswordUser;
@@ -869,6 +932,54 @@ StringComparison.OrdinalIgnoreCase);
     }
 
     private void CloseActionMenu() => openMenuUserId = null;
+
+    private string RoleFilterLabel => string.IsNullOrEmpty(roleFilter) ? "All Roles" : roleFilter;
+
+    private string StatusFilterLabel =>
+        StatusFilterOptions.FirstOrDefault(o => o.Value == statusFilter).Label ?? "All Status";
+
+    private void ToggleFilterMenu(string menu)
+    {
+        openFilterMenu = openFilterMenu == menu ? null : menu;
+        // Only one popup at a time — the row menus overlap the filter bar.
+        openMenuUserId = null;
+    }
+
+    private void CloseFilterMenu() => openFilterMenu = null;
+
+    private void OnFilterMenuKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            openFilterMenu = null;
+        }
+    }
+
+    private async Task SelectRoleFilter(string role)
+    {
+        openFilterMenu = null;
+        if (roleFilter == role)
+        {
+            return;
+        }
+
+        roleFilter = role;
+        currentPage = 1;
+        await LoadUsers();
+    }
+
+    private async Task SelectStatusFilter(string status)
+    {
+        openFilterMenu = null;
+        if (statusFilter == status)
+        {
+            return;
+        }
+
+        statusFilter = status;
+        currentPage = 1;
+        await LoadUsers();
+    }
 
     private string GetAvatarClass(UserDisplayModel user) => user.Role switch
     {

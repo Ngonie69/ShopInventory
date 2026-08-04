@@ -514,6 +514,20 @@
     font-size: 12.5px;
 }
 
+/* A native popup takes its background from the field's own background-color,
+   and these fields are a 5%-white wash — which the browser composites onto
+   white and then ignores `color-scheme` for. Left alone, dark theme draws the
+   options in near-white ink on a near-white sheet, i.e. invisible. The options
+   are therefore given the opaque surface explicitly. The page's two filters
+   don't rely on this at all; they are `.um-dd` listboxes further down. */
+.um-page .um-select option,
+.um-overlay .um-select option,
+.um-page .um-select optgroup,
+.um-overlay .um-select optgroup {
+    color: var(--um-ink);
+    background-color: var(--um-surface);
+}
+
 .um-page .um-input:hover,
 .um-page .um-select:hover,
 .um-overlay .um-input:hover,
@@ -540,6 +554,228 @@
 .um-page .um-input.invalid,
 .um-overlay .um-input.invalid {
     border-color: rgba(var(--um-fam-bad-rgb), .55);
+}
+
+/* app.css also turns Blazor's two validation classes into a 2px outline
+   (`.invalid` and `.valid.modified:not([type=checkbox])`, both weak enough that
+   the border above sits under the ring rather than replacing it). In light
+   theme it resolves --danger-color and --success-color to the same #333333, so
+   a rejected field and one the user has merely typed in wear identical
+   near-black rings and neither reads as a validation state; in dark it swaps in
+   a green/red pair from outside this page's family. The border is the state
+   channel here, so the ring is dropped — but the outline is also this page's
+   focus ring (`.um-page :focus-visible`, which these out-specify), so it goes
+   back on explicitly at the offset the fields already use. */
+.um-page .um-input.invalid,
+.um-overlay .um-input.invalid,
+.um-page .um-input.valid.modified,
+.um-overlay .um-input.valid.modified {
+    outline: none;
+}
+
+.um-page .um-input.invalid:focus-visible,
+.um-overlay .um-input.invalid:focus-visible,
+.um-page .um-input.valid.modified:focus-visible,
+.um-overlay .um-input.valid.modified:focus-visible {
+    outline: 2px solid var(--um-accent);
+    outline-offset: 0;
+}
+
+/* ── Filter dropdowns ──────────────────────────────────────────────────── */
+/* The role and status filters are listboxes in markup rather than <select>s.
+   A native popup is a platform window: it can't be themed past the option
+   fill above, it can't carry a swatch or a tick, and it ignores this page's
+   radii and shadows entirely — so the two controls the eye lands on first were
+   the two that looked like nothing else on the page.
+
+   Owning the menu also lets a role bring its family colour with it. The item
+   takes the same `um-badge-*` class as the badge in the row, so the dot in the
+   list and the badge it filters to are the same hue by construction, and the
+   list reads as this page's rather than as the browser's.
+
+   The trigger is a pill, not a rounded rect: it sits beside the search field,
+   which is one, and a filter bar of matching pills is one control group. */
+
+.um-dd {
+    position: relative;
+    display: inline-flex;
+}
+
+.um-page .um-dd-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--um-s2);
+    width: 100%;
+    min-width: 156px;
+    min-height: 34px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--um-mute);
+    background: var(--um-field-bg);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.um-page .um-dd-btn:hover {
+    border-color: var(--um-field-edge);
+    color: var(--um-ink);
+}
+
+.um-page .um-dd-btn:focus-visible {
+    border-color: rgba(var(--um-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+/* Open and filtered are different states and read differently: open is the
+   accent ring, filtered is the accent ink that persists after the menu shuts. */
+.um-dd.open .um-dd-btn {
+    color: var(--um-ink);
+    background: var(--um-hover);
+    border-color: rgba(var(--um-accent-rgb), .55);
+}
+
+.um-page .um-dd-btn.set {
+    color: var(--um-accent-text);
+    background: rgba(var(--um-accent-rgb), .12);
+}
+
+.um-dd-icon {
+    flex: none;
+    font-size: 12px;
+    color: var(--um-mute-3);
+    transition: color .15s;
+}
+
+.um-page .um-dd-btn.set .um-dd-icon,
+.um-dd.open .um-dd-icon {
+    color: var(--um-accent);
+}
+
+.um-dd-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.um-dd-caret {
+    flex: none;
+    font-size: 9px;
+    color: var(--um-mute-3);
+    transition: transform .18s ease, color .15s;
+}
+
+.um-dd.open .um-dd-caret {
+    transform: rotate(180deg);
+    color: var(--um-accent);
+}
+
+/* Outside-click target. A transparent sheet under the menu costs nothing and
+   keeps the close entirely in Blazor — no document listener to register per
+   render and unregister on dispose. */
+.um-dd-catch {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+.um-dd-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 61;
+    min-width: 100%;
+    width: max-content;
+    max-width: 272px;
+    max-height: 336px;
+    overflow-y: auto;
+    padding: var(--um-s2);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border: 1px solid var(--um-divider);
+    border-radius: var(--um-r-lg);
+    background: var(--um-surface);
+    box-shadow: var(--um-shadow-pop);
+    animation: um-rise .14s ease-out;
+}
+
+.um-dd-caption {
+    padding: 5px 10px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--um-faint);
+}
+
+.um-page .um-dd-item {
+    display: flex;
+    align-items: center;
+    gap: var(--um-s3);
+    width: 100%;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--um-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--um-r-sm);
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    transition: background-color .12s, color .12s;
+}
+
+.um-page .um-dd-item:hover {
+    background: var(--um-hover);
+    color: var(--um-ink);
+}
+
+/* The family comes from the item's own `um-badge-*` class, so this is the one
+   place the swatch is described and every role is covered by it. */
+.um-dd-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--um-fam, var(--um-mute-3));
+    box-shadow: 0 0 0 3px rgba(var(--um-fam-rgb, 94, 100, 131), .16);
+}
+
+.um-dd-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.um-dd-tick {
+    flex: none;
+    font-size: 11px;
+    opacity: 0;
+    color: var(--um-fam, var(--um-accent));
+}
+
+.um-page .um-dd-item.selected {
+    color: var(--um-ink);
+    background: rgba(var(--um-fam-rgb, 94, 100, 131), .12);
+}
+
+.um-page .um-dd-item.selected .um-dd-tick {
+    opacity: 1;
+}
+
+.um-dd-rule {
+    height: 1px;
+    margin: var(--um-s2) var(--um-s2) calc(var(--um-s2) - 1px);
+    background: var(--um-rule);
 }
 
 /* ── The user list ─────────────────────────────────────────────────────── */
@@ -1734,9 +1970,14 @@
 
     .um-overlay,
     .um-modal,
+    .um-dd-menu,
     .um-spinner,
     .um-spinner-sm {
         animation: none;
+    }
+
+    .um-dd.open .um-dd-caret {
+        transition: none;
     }
 }
 
@@ -1744,20 +1985,23 @@
 
 .um-modal-body::-webkit-scrollbar,
 .um-customer-list::-webkit-scrollbar,
-.um-checklist-wrap::-webkit-scrollbar {
+.um-checklist-wrap::-webkit-scrollbar,
+.um-dd-menu::-webkit-scrollbar {
     width: 8px;
 }
 
 .um-modal-body::-webkit-scrollbar-thumb,
 .um-customer-list::-webkit-scrollbar-thumb,
-.um-checklist-wrap::-webkit-scrollbar-thumb {
+.um-checklist-wrap::-webkit-scrollbar-thumb,
+.um-dd-menu::-webkit-scrollbar-thumb {
     background: var(--um-thumb);
     border-radius: 8px;
 }
 
 .um-modal-body::-webkit-scrollbar-track,
 .um-customer-list::-webkit-scrollbar-track,
-.um-checklist-wrap::-webkit-scrollbar-track {
+.um-checklist-wrap::-webkit-scrollbar-track,
+.um-dd-menu::-webkit-scrollbar-track {
     background: transparent;
 }
 
@@ -1816,9 +2060,20 @@
         max-width: none;
     }
 
-    .um-page .um-select {
+    .um-page .um-select,
+    .um-filter-bar .um-dd {
         flex: 1;
         min-width: 0;
+    }
+
+    .um-page .um-dd-btn {
+        min-width: 0;
+    }
+
+    /* Right-anchor the trailing filter so its menu can't run off the edge. */
+    .um-filter-bar .um-dd:last-of-type .um-dd-menu {
+        left: auto;
+        right: 0;
     }
 
     .um-user-card {
@@ -1836,6 +2091,7 @@
     .um-page .um-input,
     .um-page .um-select,
     .um-page .um-search-box input,
+    .um-page .um-dd-btn,
     .um-overlay .um-input,
     .um-overlay .um-select {
         font-size: 16px;

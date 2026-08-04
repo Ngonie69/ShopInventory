@@ -256,6 +256,8 @@
         --nsi-accent: #9184d9;
         --nsi-accent-200: #e7e5fe;
         --nsi-accent-300: #d2cefd;
+        /* Nocturne's dark family red, for a rejected field's edge. */
+        --nsi-bad: #e8697d;
         --nsi-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
         --nsi-section: #262a60;
         --nsi-section-glow: #353b80;
@@ -543,6 +545,34 @@
 
     .nsi .nsi-input:focus-visible {
         border-color: var(--nsi-accent);
+        outline-offset: 0;
+    }
+
+    /* app.css turns Blazor's two validation classes into a 2px outline
+       (`.invalid` and `.valid.modified:not([type=checkbox])`). In the light app
+       theme it resolves --danger-color and --success-color to the same #333333,
+       so a rejected field and one the user has merely typed in wear identical
+       near-black rings and neither reads as a validation state; in dark it
+       swaps in a green/red pair from outside this page's family. This page is
+       dark in both app themes, so both are wrong on it either way.
+
+       The border is the state channel here, so the ring is dropped — but the
+       outline is also this page's focus ring, and `.valid.modified` is (0,3,0)
+       against `.nsi :focus-visible`'s (0,2,0), so it had been stealing the
+       accent ring from every field the user had typed into. It goes back on
+       explicitly at the offset these fields already use. */
+    .nsi .nsi-input.invalid,
+    .nsi .nsi-input.valid.modified {
+        outline: none;
+    }
+
+    .nsi .nsi-input.invalid {
+        border-color: var(--nsi-bad);
+    }
+
+    .nsi .nsi-input.invalid:focus-visible,
+    .nsi .nsi-input.valid.modified:focus-visible {
+        outline: 2px solid var(--nsi-accent);
         outline-offset: 0;
     }
 

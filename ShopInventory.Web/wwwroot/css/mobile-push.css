@@ -427,6 +427,17 @@
     transition: border-color .15s, background-color .15s;
 }
 
+/* A native <select> popup takes its background from the field, and the field
+   above is a 5%-white wash — which the browser composites onto white and then
+   ignores `color-scheme: dark` for. Left alone the options render in the field's
+   near-white ink on a near-white sheet, i.e. invisible in dark theme only. The
+   fill has to be opaque, so it is --mpu-surface rather than --mpu-field-bg. */
+.mpu .mpu-input option,
+.mpu .mpu-input optgroup {
+    color: var(--mpu-ink);
+    background-color: var(--mpu-surface);
+}
+
 .mpu .mpu-textarea {
     min-height: 132px;
     line-height: 1.5;
@@ -477,6 +488,31 @@
 .mpu .mpu-input.invalid,
 .mpu .mpu-textarea.invalid {
     border-color: rgba(var(--mpu-bad-rgb), .55);
+}
+
+/* app.css also turns Blazor's two validation classes into a 2px outline
+   (`.invalid` and `.valid.modified:not([type=checkbox])`, both weak enough that
+   the border above sits under the ring rather than replacing it). In light
+   theme it resolves --danger-color and --success-color to the same #333333, so
+   a rejected field and one the user has merely typed in wear identical
+   near-black rings and neither reads as a validation state; in dark it swaps in
+   a green/red pair from outside this page's family. The border is the state
+   channel here, so the ring is dropped — but the outline is also this page's
+   focus ring (`.mpu :focus-visible`, which these out-specify), so it goes back
+   on explicitly at the offset the fields already use. */
+.mpu .mpu-input.invalid,
+.mpu .mpu-textarea.invalid,
+.mpu .mpu-input.valid.modified,
+.mpu .mpu-textarea.valid.modified {
+    outline: none;
+}
+
+.mpu .mpu-input.invalid:focus-visible,
+.mpu .mpu-textarea.invalid:focus-visible,
+.mpu .mpu-input.valid.modified:focus-visible,
+.mpu .mpu-textarea.valid.modified:focus-visible {
+    outline: 2px solid var(--mpu-accent);
+    outline-offset: 0;
 }
 
 .mpu-validation {

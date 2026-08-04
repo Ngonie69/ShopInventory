@@ -508,6 +508,17 @@
     transition: border-color .15s, background-color .15s;
 }
 
+/* A native <select> popup takes its background from the field, and the field
+   above is a 5%-white wash — which the browser composites onto white and then
+   ignores `color-scheme: dark` for. Left alone the options render in the field's
+   near-white ink on a near-white sheet, i.e. invisible in dark theme only. The
+   fill has to be opaque, so it is --ntf-surface rather than --ntf-field-bg. */
+.ntf .ntf-input option,
+.ntf .ntf-input optgroup {
+    color: var(--ntf-ink);
+    background-color: var(--ntf-surface);
+}
+
 .ntf .ntf-input:hover {
     border-color: var(--ntf-field-edge);
 }

@@ -623,6 +623,25 @@
     cursor: pointer;
 }
 
+/* The popup is a platform window, so no rule here reaches inside it — but it
+   takes its fill from the *field*, and the field above is a translucent wash
+   (`--noct-field-bg` is rgba(243,245,254,.05) in dark). The browser composites
+   that 5%-white onto white and then ignores `color-scheme: dark` for the
+   popup, while the options inherit the field's light ink: near-white on
+   near-white, present and focusable and invisible.
+
+   `--ops-surface` rather than `--ops-field-bg` on purpose — the popup needs an
+   opaque fill, and surface is the token that is opaque in both themes. It
+   never reproduces in light, so a light-mode screenshot proves nothing here.
+   See .claude/skills/nocturne-dropdowns-and-dates. */
+.ops select.ops-input option,
+.ops select.ops-input optgroup,
+.ops-overlay select.ops-input option,
+.ops-overlay select.ops-input optgroup {
+    color: var(--ops-ink);
+    background-color: var(--ops-surface);
+}
+
 .ops .ops-input:hover,
 .ops-overlay .ops-input:hover {
     border-color: var(--ops-field-edge);
