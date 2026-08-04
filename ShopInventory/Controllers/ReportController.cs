@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.OutputCaching;
 using ShopInventory.Middleware;
 using ShopInventory.Features.Reports.Queries.GetCreditNoteSummary;
 using ShopInventory.Features.Reports.Queries.GetAccountSalesPaymentReport;
+using ShopInventory.Features.Reports.Queries.GetItemVolumeSalesReport;
 using ShopInventory.Features.Reports.Queries.GetLowStockAlerts;
 using ShopInventory.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
 using ShopInventory.Features.Reports.Queries.GetOrderFulfillment;
@@ -117,6 +118,31 @@ public class ReportController(IMediator mediator) : ApiControllerBase
                 toDate,
                 grouping,
                 accountCodes ?? new List<string>()),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Invoiced-less-credited quantity, converted volume, and net revenue for chosen business
+    /// partners and items. Backs both the item volume report and the customer revenue report.
+    /// </summary>
+    [HttpGet("item-volume-sales")]
+    public async Task<IActionResult> GetItemVolumeSales(
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate,
+        [FromQuery] ItemVolumeSalesGrouping grouping = ItemVolumeSalesGrouping.Monthly,
+        [FromQuery] List<string>? accountCodes = null,
+        [FromQuery] List<string>? itemCodes = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new GetItemVolumeSalesReportQuery(
+                fromDate,
+                toDate,
+                grouping,
+                accountCodes ?? new List<string>(),
+                itemCodes ?? new List<string>()),
             cancellationToken);
 
         return result.Match(value => Ok(value), errors => Problem(errors));

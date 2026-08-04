@@ -1,0 +1,213 @@
+@* A searchable multi-select listbox, drawn in markup rather than as a native
+   <select multiple>.
+
+   Two reasons for the listbox. A native popup takes its background from the
+   field, and a Nocturne field is a translucent wash that the browser composites
+   onto white and then refuses to darken — in dark theme the options render
+   near-white on near-white. And a native multi-select has no search, which is
+   unusable over the several hundred item codes this picker carries.
+
+   Anything typed into the search that matches nothing can still be added. That
+   is what lets a business partner missing from the local cache, or a range like
+   VAN008-019 that the report expands server-side, be entered here rather than
+   needing a second free-text field beside the picker.
+
+   Styles live under the `ivx-ms-` prefix in wwwroot/css/item-volume.css, so
+   this component only renders correctly inside a `.ivx` page root. *@
+
+<div class="ivx-ms @(isOpen ? "is-open" : "")" @onkeydown="OnKeyDown">
+    <button type="button"
+            class="ivx-ms-btn @(Selected.Count > 0 ? "is-set" : "")"
+            @onclick="Toggle"
+            disabled="@Disabled"
+            aria-haspopup="listbox"
+            aria-expanded="@isOpen"
+            aria-label="@AriaLabel">
+        <i class="ph @Icon ivx-ms-icon" aria-hidden="true"></i>
+        <span class="ivx-ms-value">@TriggerLabel</span>
+        <i class="ph ph-caret-down ivx-ms-caret" aria-hidden="true"></i>
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="ivx-ms-catch" @onclick="Close"></div>
+        <div class="ivx-ms-menu" role="listbox" aria-multiselectable="true" aria-label="@AriaLabel">
+            <div class="ivx-ms-search">
+                <input class="ivx-input" type="search" placeholder="@SearchPlaceholder"
+                       @bind="searchText" @bind:event="oninput" />
+            </div>
+
+            <div class="ivx-ms-list">
+                @if (CanAddTypedValue)
+                {
+                    var typed = TypedValue;
+                    <button type="button" class="ivx-ms-item" role="option" aria-selected="false"
+                            @onclick="@(() => ToggleValue(typed))">
+                        <span class="ivx-ms-box" aria-hidden="true"><i class="ph ph-plus"></i></span>
+                        <span class="ivx-ms-labels">
+                            <span class="ivx-ms-label">Add “@typed”</span>
+                            <span class="ivx-ms-sub">Not in the list — used as typed</span>
+                        </span>
+                    </button>
+                }
+
+                @foreach (var option in VisibleOptions)
+                {
+                    var value = option.Value;
+                    var isSelected = IsSelected(value);
+                    <button type="button"
+                            class="ivx-ms-item @(isSelected ? "is-selected" : "")"
+                            role="option" aria-selected="@isSelected"
+                            @onclick="@(() => ToggleValue(value))">
+                        <span class="ivx-ms-box" aria-hidden="true"><i class="ph ph-check"></i></span>
+                        <span class="ivx-ms-labels">
+                            <span class="ivx-ms-label">@option.Label</span>
+                            @if (!string.IsNullOrWhiteSpace(option.Sub))
+                            {
+                                <span class="ivx-ms-sub">@option.Sub</span>
+                            }
+                        </span>
+                        @if (!string.IsNullOrWhiteSpace(option.Flag))
+                        {
+                            <span class="ivx-ms-flag">@option.Flag</span>
+                        }
+                    </button>
+                }
+
+                @if (!VisibleOptions.Any() && !CanAddTypedValue)
+                {
+                    <div class="ivx-ms-empty">@(Options.Count == 0 ? EmptyText : "No matches")</div>
+                }
+            </div>
+
+            <div class="ivx-ms-foot">
+                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm"
+                        @onclick="SelectVisible" disabled="@(!VisibleOptions.Any())">
+                    Select shown
+                </button>
+                <button type="button" class="ivx-btn ivx-btn-ghost ivx-btn-sm"
+                        @onclick="ClearAll" disabled="@(Selected.Count == 0)">
+                    Clear
+                </button>
+                <span class="ivx-ms-count">@Selected.Count selected</span>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>One selectable row. <c>Flag</c> is an optional trailing note, e.g. "no factor".</summary>
+    public sealed record Option(string Value, string Label, string? Sub = null, string? Flag = null);
+
+    [Parameter] public IReadOnlyList<Option> Options { get; set; } = Array.Empty<Option>();
+    [Parameter] public IReadOnlyList<string> Selected { get; set; } = Array.Empty<string>();
+    [Parameter] public EventCallback<IReadOnlyList<string>> SelectedChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Select";
+    [Parameter] public string SearchPlaceholder { get; set; } = "Search or type a code";
+    [Parameter] public string Icon { get; set; } = "ph-list-checks";
+    [Parameter] public string? AriaLabel { get; set; }
+    [Parameter] public string EmptyText { get; set; } = "Nothing to choose from";
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Cap on the rows drawn at once; the search is how you reach the rest.</summary>
+    [Parameter] public int MaxVisible { get; set; } = 200;
+
+    private bool isOpen;
+    private string searchText = string.Empty;
+
+    private string TriggerLabel => Selected.Count switch
+    {
+        0 => Placeholder,
+        1 => LabelFor(Selected[0]),
+        _ => $"{LabelFor(Selected[0])} +{Selected.Count - 1}"
+    };
+
+    private List<Option> VisibleOptions
+    {
+        get
+        {
+            var search = searchText.Trim();
+            var matches = string.IsNullOrEmpty(search)
+                ? Options
+                : Options.Where(option =>
+                    option.Value.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    option.Label.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    (option.Sub?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false));
+
+            // Selected rows are pinned to the top so a long list never hides what
+            // is already chosen behind two hundred unselected codes.
+            return matches
+                .OrderByDescending(option => IsSelected(option.Value))
+                .ThenBy(option => option.Value, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxVisible)
+                .ToList();
+        }
+    }
+
+    private string TypedValue => searchText.Trim().ToUpperInvariant();
+
+    private bool CanAddTypedValue =>
+        !string.IsNullOrWhiteSpace(searchText) &&
+        !Options.Any(option => string.Equals(option.Value, TypedValue, StringComparison.OrdinalIgnoreCase)) &&
+        !IsSelected(TypedValue);
+
+    private bool IsSelected(string value) =>
+        Selected.Any(selected => string.Equals(selected, value, StringComparison.OrdinalIgnoreCase));
+
+    private string LabelFor(string value) =>
+        Options.FirstOrDefault(option => string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase))?.Value
+        ?? value;
+
+    private void Toggle()
+    {
+        isOpen = !isOpen;
+        if (isOpen)
+        {
+            searchText = string.Empty;
+        }
+    }
+
+    private void Close() => isOpen = false;
+
+    private void OnKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            isOpen = false;
+        }
+    }
+
+    private async Task ToggleValue(string value)
+    {
+        var next = Selected.ToList();
+        var existing = next.FindIndex(selected => string.Equals(selected, value, StringComparison.OrdinalIgnoreCase));
+
+        if (existing >= 0)
+        {
+            next.RemoveAt(existing);
+        }
+        else
+        {
+            next.Add(value);
+            // Typing a code and adding it should leave the box ready for the next
+            // one rather than still filtered to the one just taken.
+            searchText = string.Empty;
+        }
+
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task SelectVisible()
+    {
+        var next = Selected.ToList();
+
+        foreach (var option in VisibleOptions.Where(option => !IsSelected(option.Value)))
+        {
+            next.Add(option.Value);
+        }
+
+        await SelectedChanged.InvokeAsync(next);
+    }
+
+    private async Task ClearAll() => await SelectedChanged.InvokeAsync(new List<string>());
+}

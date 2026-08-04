@@ -3,6 +3,7 @@ using ClosedXML.Excel.Drawings;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using ShopInventory.Web.Features.Reports.Queries.GetAccountSalesPaymentReport;
+using ShopInventory.Web.Features.Reports.Queries.GetItemVolumeSalesReport;
 using ShopInventory.Web.Features.Reports.Queries.GetMerchandiserPurchaseOrderReport;
 using ShopInventory.Web.Models;
 using System.Globalization;
@@ -35,6 +36,7 @@ public interface IReportExportService
     byte[] ExportDesktopSalesToExcel(List<DesktopSaleDto> sales, EndOfDayReportDto? report, DateTime? fromDate = null, DateTime? toDate = null);
     byte[] ExportLocalStockToExcel(LocalStockResultDto stock);
     byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report);
+    byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title);
     byte[] ExportMerchandiserPurchaseOrderReportToExcel(GetMerchandiserPurchaseOrderReportResult report);
     byte[] ExportMobileOrdersToExcel(IReadOnlyCollection<SalesOrderDto> orders, string title);
     string GeneratePrintableHtml(string title, string content, DateTime? fromDate = null, DateTime? toDate = null);
@@ -3231,6 +3233,269 @@ public class ReportExportService : IReportExportService
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    /// <summary>
+    /// The item volume and customer revenue reports, which share one result, share
+    /// one workbook: four sheets covering items, partners, periods and the document
+    /// lines the totals were built from.
+    /// </summary>
+    /// <remarks>
+    /// Every money column is a USD/ZiG pair rather than one figure. There is no rate
+    /// on the document that would make a combined total honest, and a workbook is
+    /// exactly where somebody would go on to sum a column.
+    ///
+    /// The volume columns are left empty — not zero — for an item with no conversion
+    /// factor, so a SUM over the column is the same floor the page reports rather
+    /// than a total that silently counted the unconvertible items as nothing.
+    /// </remarks>
+    public byte[] ExportItemVolumeSalesReportToExcel(GetItemVolumeSalesReportResult report, string title)
+    {
+        using var workbook = new XLWorkbook();
+
+        var itemsSheet = workbook.Worksheets.Add("Items");
+        const int itemCols = 12;
+        var row = WriteReportHeader(
+            itemsSheet,
+            $"{title} — by item",
+            itemCols,
+            report.FromDateUtc,
+            report.ToDateUtc);
+
+        WriteKpiCard(itemsSheet, row, 1, "Net Volume", report.Summary.NetVolume.ToString("N3"));
+        WriteKpiCard(itemsSheet, row, 3, "Net Quantity", report.Summary.NetQuantity.ToString("N2"));
+        WriteKpiCard(itemsSheet, row, 5, "Net Revenue USD", report.Summary.NetRevenueUsd.ToString("N2"));
+        WriteKpiCard(itemsSheet, row, 7, "Net Revenue ZiG", report.Summary.NetRevenueZig.ToString("N2"));
+        WriteKpiCard(itemsSheet, row, 9, "Invoices", report.Summary.InvoiceCount.ToString("N0"));
+        WriteKpiCard(itemsSheet, row, 11, "Credit Notes", report.Summary.CreditNoteCount.ToString("N0"), WarningOrange);
+        row += 3;
+
+        if (report.Summary.ItemsWithoutFactorCount > 0)
+        {
+            itemsSheet.Range(row, 1, row, itemCols).Merge();
+            itemsSheet.Cell(row, 1).Value =
+                $"{report.Summary.ItemsWithoutFactorCount:N0} item(s) have no volume conversion factor, so " +
+                $"{report.Summary.QuantityWithoutFactor:N2} units are excluded from every volume figure below: " +
+                string.Join(", ", report.ItemCodesWithoutFactor);
+            itemsSheet.Cell(row, 1).Style.Font.FontColor = WarningOrange;
+            itemsSheet.Cell(row, 1).Style.Alignment.WrapText = true;
+            itemsSheet.Row(row).Height = 30;
+            row += 2;
+        }
+
+        row = WriteItemVolumeTable(
+            itemsSheet,
+            row,
+            [
+                "Item Code", "Item Name", "Factor", "Invoiced Qty", "Credited Qty", "Net Qty",
+                "Net Volume", "Invoiced USD", "Invoiced ZiG", "Credited USD", "Credited ZiG", "Net Revenue USD"
+            ]);
+
+        var isAlt = false;
+        foreach (var item in report.ItemTotals)
+        {
+            itemsSheet.Cell(row, 1).Value = item.ItemCode;
+            itemsSheet.Cell(row, 2).Value = item.ItemName;
+
+            if (item.HasVolumeFactor)
+            {
+                itemsSheet.Cell(row, 3).Value = item.VolumeFactor!.Value;
+                itemsSheet.Cell(row, 3).Style.NumberFormat.Format = "#,##0.######";
+                itemsSheet.Cell(row, 7).Value = item.NetVolume;
+                itemsSheet.Cell(row, 7).Style.NumberFormat.Format = "#,##0.000";
+            }
+            else
+            {
+                itemsSheet.Cell(row, 3).Value = "no factor";
+                itemsSheet.Cell(row, 3).Style.Font.FontColor = WarningOrange;
+            }
+
+            itemsSheet.Cell(row, 4).Value = item.InvoicedQuantity;
+            itemsSheet.Cell(row, 5).Value = item.CreditedQuantity;
+            itemsSheet.Cell(row, 6).Value = item.NetQuantity;
+            itemsSheet.Cell(row, 8).Value = item.InvoicedSalesUsd;
+            itemsSheet.Cell(row, 9).Value = item.InvoicedSalesZig;
+            itemsSheet.Cell(row, 10).Value = item.CreditedSalesUsd;
+            itemsSheet.Cell(row, 11).Value = item.CreditedSalesZig;
+            itemsSheet.Cell(row, 12).Value = item.NetRevenueUsd;
+
+            itemsSheet.Range(row, 4, row, 6).Style.NumberFormat.Format = "#,##0.00";
+            itemsSheet.Range(row, 8, row, 12).Style.NumberFormat.Format = "#,##0.00";
+
+            FinishItemVolumeRow(itemsSheet, row, itemCols, isAlt);
+            isAlt = !isAlt;
+            row++;
+        }
+
+        var partnersSheet = workbook.Worksheets.Add("Business Partners");
+        const int partnerCols = 11;
+        row = WriteReportHeader(
+            partnersSheet,
+            $"{title} — by business partner",
+            partnerCols,
+            report.FromDateUtc,
+            report.ToDateUtc);
+
+        row = WriteItemVolumeTable(
+            partnersSheet,
+            row,
+            [
+                "Card Code", "Card Name", "Invoices", "Credit Notes", "Invoiced Qty", "Credited Qty",
+                "Net Qty", "Net Volume", "Net Revenue USD", "Net Revenue ZiG", "Items Without Factor"
+            ]);
+
+        isAlt = false;
+        foreach (var account in report.AccountTotals
+            .OrderByDescending(account => account.NetRevenueUsd + account.NetRevenueZig)
+            .ThenBy(account => account.CardCode, StringComparer.OrdinalIgnoreCase))
+        {
+            partnersSheet.Cell(row, 1).Value = account.CardCode;
+            partnersSheet.Cell(row, 2).Value = account.CardName;
+            partnersSheet.Cell(row, 3).Value = account.InvoiceCount;
+            partnersSheet.Cell(row, 4).Value = account.CreditNoteCount;
+            partnersSheet.Cell(row, 5).Value = account.InvoicedQuantity;
+            partnersSheet.Cell(row, 6).Value = account.CreditedQuantity;
+            partnersSheet.Cell(row, 7).Value = account.NetQuantity;
+            partnersSheet.Cell(row, 8).Value = account.NetVolume;
+            partnersSheet.Cell(row, 9).Value = account.NetRevenueUsd;
+            partnersSheet.Cell(row, 10).Value = account.NetRevenueZig;
+            partnersSheet.Cell(row, 11).Value = account.ItemsWithoutFactorCount;
+
+            partnersSheet.Range(row, 5, row, 7).Style.NumberFormat.Format = "#,##0.00";
+            partnersSheet.Cell(row, 8).Style.NumberFormat.Format = "#,##0.000";
+            partnersSheet.Range(row, 9, row, 10).Style.NumberFormat.Format = "#,##0.00";
+
+            if (account.ItemsWithoutFactorCount > 0)
+            {
+                partnersSheet.Cell(row, 11).Style.Font.FontColor = WarningOrange;
+            }
+
+            FinishItemVolumeRow(partnersSheet, row, partnerCols, isAlt);
+            isAlt = !isAlt;
+            row++;
+        }
+
+        var periodsSheet = workbook.Worksheets.Add("Periods");
+        const int periodCols = 7;
+        row = WriteReportHeader(
+            periodsSheet,
+            $"{title} — by {report.Grouping.ToString().ToLowerInvariant()} period",
+            periodCols,
+            report.FromDateUtc,
+            report.ToDateUtc);
+
+        row = WriteItemVolumeTable(
+            periodsSheet,
+            row,
+            ["Period", "Starts", "Invoices", "Credit Notes", "Net Qty", "Net Volume", "Net Revenue USD"]);
+
+        isAlt = false;
+        foreach (var period in report.Periods.OrderBy(period => period.PeriodStartUtc))
+        {
+            periodsSheet.Cell(row, 1).Value = period.Label;
+            periodsSheet.Cell(row, 2).Value = period.PeriodStartUtc;
+            periodsSheet.Cell(row, 2).Style.NumberFormat.Format = "dd MMM yyyy";
+            periodsSheet.Cell(row, 3).Value = period.InvoiceCount;
+            periodsSheet.Cell(row, 4).Value = period.CreditNoteCount;
+            periodsSheet.Cell(row, 5).Value = period.NetQuantity;
+            periodsSheet.Cell(row, 6).Value = period.NetVolume;
+            periodsSheet.Cell(row, 7).Value = period.NetRevenueUsd;
+
+            periodsSheet.Cell(row, 5).Style.NumberFormat.Format = "#,##0.00";
+            periodsSheet.Cell(row, 6).Style.NumberFormat.Format = "#,##0.000";
+            periodsSheet.Cell(row, 7).Style.NumberFormat.Format = "#,##0.00";
+
+            FinishItemVolumeRow(periodsSheet, row, periodCols, isAlt);
+            isAlt = !isAlt;
+            row++;
+        }
+
+        var linesSheet = workbook.Worksheets.Add("Document Lines");
+        const int lineCols = 11;
+        row = WriteReportHeader(
+            linesSheet,
+            $"{title} — document lines",
+            lineCols,
+            report.FromDateUtc,
+            report.ToDateUtc);
+
+        row = WriteItemVolumeTable(
+            linesSheet,
+            row,
+            [
+                "Date", "Type", "Document", "Card Code", "Card Name", "Item Code", "Item Name",
+                "Quantity", "Factor", "Volume", "Line Amount"
+            ]);
+
+        isAlt = false;
+        foreach (var line in report.DocumentLines)
+        {
+            linesSheet.Cell(row, 1).Value = line.DocumentDateUtc;
+            linesSheet.Cell(row, 1).Style.NumberFormat.Format = "dd MMM yyyy";
+            linesSheet.Cell(row, 2).Value = line.DocumentType;
+            linesSheet.Cell(row, 3).Value = line.DocumentNumber;
+            linesSheet.Cell(row, 4).Value = line.CardCode;
+            linesSheet.Cell(row, 5).Value = line.CardName;
+            linesSheet.Cell(row, 6).Value = line.ItemCode;
+            linesSheet.Cell(row, 7).Value = line.ItemName;
+            linesSheet.Cell(row, 8).Value = line.Quantity;
+            linesSheet.Cell(row, 8).Style.NumberFormat.Format = "#,##0.00";
+
+            if (line.VolumeFactor.HasValue)
+            {
+                linesSheet.Cell(row, 9).Value = line.VolumeFactor.Value;
+                linesSheet.Cell(row, 9).Style.NumberFormat.Format = "#,##0.######";
+                linesSheet.Cell(row, 10).Value = line.Volume;
+                linesSheet.Cell(row, 10).Style.NumberFormat.Format = "#,##0.000";
+            }
+
+            linesSheet.Cell(row, 11).Value = line.LineAmount;
+            linesSheet.Cell(row, 11).Style.NumberFormat.Format = $"\"{line.Currency}\" #,##0.00";
+
+            if (string.Equals(line.DocumentType, "Credit Note", StringComparison.OrdinalIgnoreCase))
+            {
+                linesSheet.Cell(row, 2).Style.Font.FontColor = DangerRed;
+            }
+
+            FinishItemVolumeRow(linesSheet, row, lineCols, isAlt);
+            isAlt = !isAlt;
+            row++;
+        }
+
+        foreach (var sheet in workbook.Worksheets)
+        {
+            sheet.Columns().AdjustToContents();
+        }
+
+        return WorkbookToBytes(workbook);
+    }
+
+    private static int WriteItemVolumeTable(IXLWorksheet ws, int row, string[] headers)
+    {
+        for (var i = 0; i < headers.Length; i++)
+        {
+            ws.Cell(row, i + 1).Value = headers[i];
+            ws.Cell(row, i + 1).Style.Font.Bold = true;
+            ws.Cell(row, i + 1).Style.Font.FontColor = XLColor.White;
+            ws.Cell(row, i + 1).Style.Fill.BackgroundColor = NavyBlue;
+            ws.Cell(row, i + 1).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            ws.Cell(row, i + 1).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+
+        return row + 1;
+    }
+
+    private static void FinishItemVolumeRow(IXLWorksheet ws, int row, int cols, bool isAlt)
+    {
+        if (isAlt)
+        {
+            ws.Range(row, 1, row, cols).Style.Fill.BackgroundColor = LightGray;
+        }
+
+        for (var col = 1; col <= cols; col++)
+        {
+            ws.Cell(row, col).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
     }
 
     public byte[] ExportAccountSalesPaymentReportToExcel(GetAccountSalesPaymentReportResult report)

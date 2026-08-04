@@ -196,6 +196,9 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
   public DbSet<SapItemUomMappingEntity> SapItemUomMappings { get; set; }
   public DbSet<PodReportCacheEntryEntity> PodReportCacheEntries { get; set; }
 
+  // Item volume reporting
+  public DbSet<ItemVolumeConversionEntity> ItemVolumeConversions { get; set; }
+
   protected override void OnModelCreating(ModelBuilder modelBuilder)
   {
     base.OnModelCreating(modelBuilder);
@@ -1576,6 +1579,21 @@ public class ApplicationDbContext : DbContext, IDataProtectionKeyContext
             .WithMany()
             .HasForeignKey(e => e.MerchandiserUserId)
             .OnDelete(DeleteBehavior.Cascade);
+    });
+
+    // Item volume conversion configuration
+    modelBuilder.Entity<ItemVolumeConversionEntity>(entity =>
+    {
+      entity.ToTable("ItemVolumeConversions");
+      entity.HasKey(e => e.ItemCode);
+
+      entity.Property(e => e.ItemCode).HasMaxLength(50);
+      entity.Property(e => e.ItemName).HasMaxLength(200);
+      entity.Property(e => e.Notes).HasMaxLength(500);
+      entity.Property(e => e.UpdatedBy).HasMaxLength(100);
+      entity.Property(e => e.VolumeFactor).HasPrecision(18, 6);
+
+      entity.HasIndex(e => e.IsActive);
     });
 
     // Timesheet Entry configuration

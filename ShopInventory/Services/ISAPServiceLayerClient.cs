@@ -439,6 +439,21 @@ public interface ISAPServiceLayerClient
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByCustomerAsync(string cardCode, DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByDateRangeAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Credit notes for several customers over one date range, in a single set of requests rather
+    /// than one walk per customer.
+    /// </summary>
+    /// <remarks>
+    /// The counterpart to <see cref="GetInvoicesByCustomersAsync"/>, for reports that have to net
+    /// credits off what was invoiced. Document lines come back with the headers, since the netting
+    /// is per item.
+    /// </remarks>
+    Task<List<SAPCreditNote>> GetCreditNotesByCustomersAsync(
+        IEnumerable<string> cardCodes,
+        DateTime fromDate,
+        DateTime toDate,
+        CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesUpdatedSinceAsync(DateTime fromUpdateDate, DateTime toUpdateDate, CancellationToken cancellationToken = default);
     Task<DateTime?> GetEarliestCreditNoteDateAsync(CancellationToken cancellationToken = default);
     Task<List<SAPCreditNote>> GetCreditNotesByInvoiceAsync(int invoiceDocEntry, CancellationToken cancellationToken = default);

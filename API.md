@@ -60,6 +60,7 @@ Examples:
   - [Cost Centres](#21-cost-centres)
   - [Documents](#22-documents)
   - [Reports](#23-reports)
+  - [Item Volume Conversions](#23a-item-volume-conversions)
   - [Statements](#24-statements)
   - [Notifications](#25-notifications)
   - [Webhooks](#26-webhooks)
@@ -1477,8 +1478,104 @@ warehouse leaves their account (the held change goes to `ApplyFailed` with `last
 | GET | `/api/Report/low-stock` | Low stock alert items |
 | GET | `/api/Report/aging-analysis` | Customer aging analysis |
 | GET | `/api/Report/inventory-value` | Inventory valuation report |
+| GET | `/api/Report/item-volume-sales` | Net quantity, converted volume and net revenue per item and business partner |
 
 **Common query parameters:** `fromDate`, `toDate`, `warehouseCode`, `top` (for top N)
+
+**Item Volume & Revenue**
+
+Backs both the item volume report and the customer revenue report — they read the
+same invoice and credit-note lines, so one call serves both.
+
+| Parameter | Notes |
+|-----------|-------|
+| `fromDate`, `toDate` | Default to the last 30 days. Both invoices and credit notes are selected on their own `DocDate`. |
+| `grouping` | `Daily`, `Weekly` or `Monthly`. Default `Monthly`. |
+| `accountCodes` | Repeatable. Required. A `PREFIX001-019` token is expanded into its members. |
+| `itemCodes` | Repeatable. Empty means every item the selected accounts traded. |
+
+Quantities and amounts are **net**: a credit note dated in the window is deducted
+from it. Volume is net quantity multiplied by the item's active factor from
+`/api/ItemVolumeConversion`; an item with no active factor contributes **no**
+volume and is listed in `itemCodesWithoutFactor`, so `summary.netVolume` is a
+floor whenever `summary.itemsWithoutFactorCount` is non-zero.
+
+```json
+{
+  "generatedAtUtc": "2026-08-05T06:14:22Z",
+  "fromDateUtc": "2026-07-01T00:00:00Z",
+  "toDateUtc": "2026-07-31T00:00:00Z",
+  "grouping": "Monthly",
+  "requestedAccountCodes": ["CIS006", "MAC006"],
+  "requestedItemCodes": [],
+  "itemCodesWithoutFactor": ["NEW001"],
+  "summary": {
+    "requestedAccountCount": 2,
+    "activeAccountCount": 2,
+    "itemCount": 34,
+    "invoiceCount": 412,
+    "creditNoteCount": 37,
+    "invoicedQuantity": 29300.00,
+    "creditedQuantity": 1156.00,
+    "netQuantity": 28144.00,
+    "netVolume": 12480.500,
+    "itemsWithoutFactorCount": 1,
+    "quantityWithoutFactor": 1204.00,
+    "netRevenueUsd": 32180.00,
+    "netRevenueZig": 41200.00
+  },
+  "itemTotals": [
+    {
+      "itemCode": "YOG143",
+      "itemName": "Greek Yoghurt 500ml",
+      "invoicedQuantity": 4120.00,
+      "creditedQuantity": 86.00,
+      "netQuantity": 4034.00,
+      "volumeFactor": 0.6,
+      "hasVolumeFactor": true,
+      "netVolume": 2420.400,
+      "netRevenueUsd": 10085.00,
+      "netRevenueZig": 0
+    }
+  ],
+  "accountTotals": [],
+  "periods": [],
+  "documentLines": []
+}
+```
+
+---
+
+### 23a. Item Volume Conversions
+
+**Base route:** `/api/ItemVolumeConversion`  
+**Auth:** Bearer + API access
+
+The volume one sold unit of an item represents, used by
+`/api/Report/item-volume-sales`. Seeded from the business' catalogue on start,
+insert-only, so a factor edited here is never overwritten.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/ItemVolumeConversion` | List factors. `search` matches code and name; `includeInactive` defaults to true |
+| PUT | `/api/ItemVolumeConversion/{itemCode}` | Create or replace a factor |
+| DELETE | `/api/ItemVolumeConversion/{itemCode}` | Remove a factor |
+
+Item codes are stored upper-cased, so `PUT /api/ItemVolumeConversion/yog143`
+updates the same row as `YOG143`.
+
+```json
+{
+  "itemName": "Greek Yoghurt 500ml",
+  "volumeFactor": 0.6,
+  "notes": "500ml tub",
+  "isActive": true,
+  "updatedBy": "ngoni"
+}
+```
+
+Clearing `isActive` retires the factor: the item is still reported, but as
+unconverted rather than at a stale factor.
 
 **Sales Summary Response:**
 
