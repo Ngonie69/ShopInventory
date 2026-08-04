@@ -75,7 +75,8 @@
                 <h1>Notifications</h1>
                 <p>
                     What the system noticed while you were elsewhere — stock that ran low, a payment that
-                    landed, a sync that failed. Opening one marks it read and takes you to what it is about.
+                    landed, a sync that failed. Opening one marks it read and takes you to what it is about;
+                    Details reads it out in full without leaving the page.
                 </p>
             </div>
         </section>
@@ -175,22 +176,56 @@
                     @foreach (var notification in notifications)
                     {
                         var n = notification;
+                        var isOpen = expandedIds.Contains(n.Id);
+                        var detailId = $"ntf-detail-{n.Id}";
                         <div class="ntf-item @TypeFamily(n.Type) @(n.IsRead ? "" : "ntf-item-unread")"
-                             role="button" tabindex="0" @onclick="() => HandleNotificationClick(n)">
+                             role="button" tabindex="0" @onclick="() => HandleNotificationClick(n)"
+                             @onkeydown="args => HandleNotificationKey(args, n)">
                             <span class="ntf-mark" aria-hidden="true"></span>
                             <div class="ntf-content">
                                 <div class="ntf-title-row">
                                     <p class="ntf-title">@n.Title</p>
                                     <span class="ntf-badge @CategoryFamily(n.Category)">@n.Category</span>
                                 </div>
-                                <p class="ntf-msg">@n.Message</p>
+                                <p class="ntf-msg @(isOpen ? "ntf-msg-open" : "")"
+                                   @onclick:stopPropagation="isOpen">@n.Message</p>
                                 @if (!string.IsNullOrEmpty(n.EntityType) && !string.IsNullOrEmpty(n.EntityId))
                                 {
                                     <span class="ntf-entity">@n.EntityType @n.EntityId</span>
                                 }
+                                <button type="button" class="ntf-more" aria-expanded="@isOpen" aria-controls="@detailId"
+                                        @onclick="() => ToggleDetails(n)" @onclick:stopPropagation="true">
+                                    <svg class="ntf-more-caret" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="1.9" stroke-linecap="round"
+                                         stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M6 9l6 6 6-6"></path>
+                                    </svg>
+                                    <span>@(isOpen ? "Hide details" : "Details")</span>
+                                </button>
+                                @if (isOpen)
+                                {
+                                    <div class="ntf-detail" id="@detailId" @onclick:stopPropagation="true">
+                                        <dl class="ntf-facts">
+                                            @foreach (var fact in n.DetailFacts())
+                                            {
+                                                <div class="ntf-fact">
+                                                    <dt>@fact.Label</dt>
+                                                    <dd>@fact.Value</dd>
+                                                </div>
+                                            }
+                                        </dl>
+                                        @if (!string.IsNullOrEmpty(n.EffectiveActionUrl))
+                                        {
+                                            <button type="button" class="ntf-open" @onclick="() => OpenNotification(n)">
+                                                <span>Open</span>
+                                                <span class="ntf-open-path">@n.EffectiveActionUrl</span>
+                                            </button>
+                                        }
+                                    </div>
+                                }
                             </div>
                             <div class="ntf-meta">
-                                <span class="ntf-time">@n.TimeAgo</span>
+                                <span class="ntf-time" title="@NotificationModel.FormatTimestamp(n.CreatedAt)">@n.TimeAgo</span>
                                 <button type="button" class="ntf-icon-btn" title="Delete" aria-label="Delete notification"
                                         @onclick="() => DeleteNotification(n.Id)" @onclick:stopPropagation="true">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -250,6 +285,11 @@
     private int pageSize = 20;
     private int totalCount = 0;
     private int unreadCount = 0;
+
+    // Rows whose detail is open. Ids rather than models so it survives the list
+    // being replaced by a reload, and cleared on load because a row that scrolls
+    // in on the next page has nothing to do with the one that was open on this.
+    private readonly HashSet<int> expandedIds = new();
     private int totalPages => totalCount == 0 ? 1 : (int)Math.Ceiling((double)totalCount / pageSize);
 
     protected override async Task OnInitializedAsync()
@@ -262,6 +302,7 @@
     {
         isLoading = true;
         errorMessage = null;
+        expandedIds.Clear();
         StateHasChanged();
 
         try
@@ -315,17 +356,79 @@
 
     private async Task HandleNotificationClick(NotificationModel notification)
     {
-        if (!notification.IsRead)
-        {
-            await NotificationService.MarkAsReadAsync(new List<int> { notification.Id });
-            notification.IsRead = true;
-            unreadCount = Math.Max(0, unreadCount - 1);
-        }
+        await MarkRead(notification);
 
         if (!string.IsNullOrEmpty(notification.EffectiveActionUrl))
         {
             Navigation.NavigateTo(notification.EffectiveActionUrl);
+            return;
         }
+
+        // Nothing to open, so the click shows what the row says instead of doing
+        // nothing at all — which is what it did before.
+        ToggleExpanded(notification.Id);
+    }
+
+    // The row carries role="button" but had no key handler, so it could be focused
+    // and not activated. Enter only, not Space: Blazor's :preventDefault is fixed
+    // per render and would have to swallow Tab with it, so Space would scroll the
+    // page as well as open the row. The Details button inside the row is a real
+    // button and takes both keys natively.
+    private async Task HandleNotificationKey(KeyboardEventArgs args, NotificationModel notification)
+    {
+        if (args.Key == "Enter")
+        {
+            await HandleNotificationClick(notification);
+        }
+    }
+
+    /// <summary>
+    /// Opens or closes a row's detail. Separate from the row click on purpose: a
+    /// notification that carries an ActionUrl navigates away on click, so the
+    /// message the row clamped to two lines could never be read in full — the
+    /// evening credit limit sweep names several accounts in one message and links
+    /// to /sales-orders, and both halves of that were unreachable at once.
+    /// </summary>
+    private async Task ToggleDetails(NotificationModel notification)
+    {
+        var opened = ToggleExpanded(notification.Id);
+
+        // Reading it is reading it, whichever way the row was opened.
+        if (opened)
+        {
+            await MarkRead(notification);
+        }
+    }
+
+    private bool ToggleExpanded(int id)
+    {
+        if (expandedIds.Remove(id))
+        {
+            return false;
+        }
+
+        expandedIds.Add(id);
+        return true;
+    }
+
+    private void OpenNotification(NotificationModel notification)
+    {
+        if (!string.IsNullOrEmpty(notification.EffectiveActionUrl))
+        {
+            Navigation.NavigateTo(notification.EffectiveActionUrl);
+        }
+    }
+
+    private async Task MarkRead(NotificationModel notification)
+    {
+        if (notification.IsRead)
+        {
+            return;
+        }
+
+        await NotificationService.MarkAsReadAsync(new List<int> { notification.Id });
+        notification.IsRead = true;
+        unreadCount = Math.Max(0, unreadCount - 1);
     }
 
     private async Task MarkAllAsRead()
@@ -361,6 +464,7 @@
                         unreadCount = Math.Max(0, unreadCount - 1);
                     }
                     notifications.Remove(notification);
+                    expandedIds.Remove(id);
                     totalCount--;
                 }
             }
