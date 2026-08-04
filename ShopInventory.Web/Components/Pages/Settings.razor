@@ -1142,7 +1142,7 @@
                                     <span>@FormatLastSync(productsLastSync)</span>
                                 </div>
                                 <button type="button" class="stg-btn stg-btn-secondary stg-btn-icon" title="Sync products"
-                                        @onclick="RefreshProducts" disabled="@isRefreshingProducts">
+                                        @onclick="RefreshProducts" disabled="@(isRefreshingProducts || isRefreshingAll)">
                                     @if (isRefreshingProducts)
                                     {
                                         <span class="stg-spin"></span>
@@ -1152,6 +1152,10 @@
                                         <i class="ph ph-arrows-clockwise"></i>
                                     }
                                 </button>
+                                @if (isRefreshingProducts)
+                                {
+                                    <span class="stg-sync-bar stg-sync-bar-indeterminate"></span>
+                                }
                             </div>
 
                             <div class="stg-sync-card">
@@ -1161,7 +1165,7 @@
                                     <span>@FormatLastSync(pricesLastSync)</span>
                                 </div>
                                 <button type="button" class="stg-btn stg-btn-secondary stg-btn-icon" title="Sync prices"
-                                        @onclick="RefreshPrices" disabled="@isRefreshingPrices">
+                                        @onclick="RefreshPrices" disabled="@(isRefreshingPrices || isRefreshingAll)">
                                     @if (isRefreshingPrices)
                                     {
                                         <span class="stg-spin"></span>
@@ -1171,6 +1175,10 @@
                                         <i class="ph ph-arrows-clockwise"></i>
                                     }
                                 </button>
+                                @if (isRefreshingPrices)
+                                {
+                                    <span class="stg-sync-bar stg-sync-bar-indeterminate"></span>
+                                }
                             </div>
 
                             <div class="stg-sync-card">
@@ -1180,7 +1188,7 @@
                                     <span>@FormatLastSync(bpLastSync)</span>
                                 </div>
                                 <button type="button" class="stg-btn stg-btn-secondary stg-btn-icon" title="Sync business partners"
-                                        @onclick="RefreshBusinessPartners" disabled="@isRefreshingBP">
+                                        @onclick="RefreshBusinessPartners" disabled="@(isRefreshingBP || isRefreshingAll)">
                                     @if (isRefreshingBP)
                                     {
                                         <span class="stg-spin"></span>
@@ -1190,6 +1198,10 @@
                                         <i class="ph ph-arrows-clockwise"></i>
                                     }
                                 </button>
+                                @if (isRefreshingBP)
+                                {
+                                    <span class="stg-sync-bar stg-sync-bar-indeterminate"></span>
+                                }
                             </div>
 
                             <div class="stg-sync-card">
@@ -1199,7 +1211,7 @@
                                     <span>@FormatLastSync(warehousesLastSync)</span>
                                 </div>
                                 <button type="button" class="stg-btn stg-btn-secondary stg-btn-icon" title="Sync warehouses"
-                                        @onclick="RefreshWarehouses" disabled="@isRefreshingWarehouses">
+                                        @onclick="RefreshWarehouses" disabled="@(isRefreshingWarehouses || isRefreshingAll)">
                                     @if (isRefreshingWarehouses)
                                     {
                                         <span class="stg-spin"></span>
@@ -1209,6 +1221,10 @@
                                         <i class="ph ph-arrows-clockwise"></i>
                                     }
                                 </button>
+                                @if (isRefreshingWarehouses)
+                                {
+                                    <span class="stg-sync-bar stg-sync-bar-indeterminate"></span>
+                                }
                             </div>
 
                             <div class="stg-sync-card">
@@ -1218,7 +1234,7 @@
                                     <span>@FormatLastSync(costCentresLastSync)</span>
                                 </div>
                                 <button type="button" class="stg-btn stg-btn-secondary stg-btn-icon" title="Sync cost centres"
-                                        @onclick="RefreshCostCentres" disabled="@isRefreshingCostCentres">
+                                        @onclick="RefreshCostCentres" disabled="@(isRefreshingCostCentres || isRefreshingAll)">
                                     @if (isRefreshingCostCentres)
                                     {
                                         <span class="stg-spin"></span>
@@ -1228,13 +1244,24 @@
                                         <i class="ph ph-arrows-clockwise"></i>
                                     }
                                 </button>
+                                @if (isRefreshingCostCentres)
+                                {
+                                    <span class="stg-sync-bar stg-sync-bar-indeterminate"></span>
+                                }
                             </div>
 
                             <div class="stg-sync-card stg-sync-card-all">
                                 <span class="stg-sync-icon"><i class="ph ph-arrows-clockwise"></i></span>
                                 <div class="stg-sync-body">
                                     <h3>Sync everything</h3>
-                                    <span>All master data in one pass</span>
+                                    @if (isRefreshingAll)
+                                    {
+                                        <span>@syncAllStepLabel — @SyncAllStepNumber of @syncAllTotal</span>
+                                    }
+                                    else
+                                    {
+                                        <span>All master data in one pass</span>
+                                    }
                                 </div>
                                 <button type="button" class="stg-btn stg-btn-primary stg-btn-icon" title="Sync everything"
                                         @onclick="RefreshAllData" disabled="@isRefreshingAll">
@@ -1247,6 +1274,13 @@
                                         <i class="ph ph-arrows-clockwise"></i>
                                     }
                                 </button>
+                                @if (isRefreshingAll)
+                                {
+                                    <span class="stg-sync-bar" role="progressbar" aria-label="Sync everything progress"
+                                          aria-valuemin="0" aria-valuemax="100" aria-valuenow="@SyncAllPercent">
+                                        <span class="stg-sync-bar-fill" style="width: @SyncAllPercent%"></span>
+                                    </span>
+                                }
                             </div>
                         </div>
 
@@ -1563,6 +1597,15 @@
     private bool isRefreshingWarehouses = false;
     private bool isRefreshingCostCentres = false;
     private bool isRefreshingAll = false;
+    // "Sync everything" walks its entities one at a time, so it can report real
+    // progress: how many steps have finished and which one is in flight.
+    private string? syncAllStepLabel;
+    private int syncAllDone;
+    private int syncAllTotal;
+    private int SyncAllPercent => syncAllTotal == 0 ? 0 : syncAllDone * 100 / syncAllTotal;
+    // Clamped because the last step finishes a render or two before the card stops
+    // showing the read-out, and "6 of 5" is not a thing.
+    private int SyncAllStepNumber => Math.Min(syncAllDone + 1, syncAllTotal);
     private string? refreshMessage;
     private bool refreshSuccess = false;
     private DateTime? productsLastSync;
@@ -2432,72 +2475,58 @@
 
     private async Task RefreshAllData()
     {
+        // One entity per step. A step that throws is recorded and the pass carries
+        // on, so a single failing entity never costs the other four.
+        var steps = new (string Label, Func<Task<int>> Sync, Action<bool> SetBusy, Action Stamp)[]
+        {
+            ("Products", CacheService.SyncProductsFromApiAsync,
+                busy => isRefreshingProducts = busy, () => productsLastSync = DateTime.Now),
+            ("Prices", CacheService.SyncPricesFromApiAsync,
+                busy => isRefreshingPrices = busy, () => pricesLastSync = DateTime.Now),
+            ("Business Partners", CacheService.SyncBusinessPartnersFromApiAsync,
+                busy => isRefreshingBP = busy, () => bpLastSync = DateTime.Now),
+            ("Warehouses", CacheService.SyncWarehousesFromApiAsync,
+                busy => isRefreshingWarehouses = busy, () => warehousesLastSync = DateTime.Now),
+            ("Cost Centres", CacheService.SyncCostCentresFromApiAsync,
+                busy => isRefreshingCostCentres = busy, () => costCentresLastSync = DateTime.Now)
+        };
+
         isRefreshingAll = true;
         refreshMessage = null;
+        syncAllDone = 0;
+        syncAllTotal = steps.Length;
+        syncAllStepLabel = steps[0].Label;
         StateHasChanged();
 
         try
         {
             var results = new List<string>();
 
-            try
+            foreach (var step in steps)
             {
-                var productsCount = await CacheService.SyncProductsFromApiAsync();
-                results.Add($"Products: {productsCount}");
-                productsLastSync = DateTime.Now;
-            }
-            catch (Exception ex)
-            {
-                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                results.Add($"Products: FAILED - {inner}");
-            }
+                syncAllStepLabel = step.Label;
+                step.SetBusy(true);
+                StateHasChanged();
+                // Let the tile light up before the call blocks on SAP.
+                await Task.Yield();
 
-            try
-            {
-                var pricesCount = await CacheService.SyncPricesFromApiAsync();
-                results.Add($"Prices: {pricesCount}");
-                pricesLastSync = DateTime.Now;
-            }
-            catch (Exception ex)
-            {
-                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                results.Add($"Prices: FAILED - {inner}");
-            }
-
-            try
-            {
-                var bpCount = await CacheService.SyncBusinessPartnersFromApiAsync();
-                results.Add($"Business Partners: {bpCount}");
-                bpLastSync = DateTime.Now;
-            }
-            catch (Exception ex)
-            {
-                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                results.Add($"Business Partners: FAILED - {inner}");
-            }
-
-            try
-            {
-                var warehousesCount = await CacheService.SyncWarehousesFromApiAsync();
-                results.Add($"Warehouses: {warehousesCount}");
-                warehousesLastSync = DateTime.Now;
-            }
-            catch (Exception ex)
-            {
-                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                results.Add($"Warehouses: FAILED - {inner}");
-            }
-
-            try
-            {
-                var costCentresCount = await CacheService.SyncCostCentresFromApiAsync();
-                results.Add($"Cost Centres: {costCentresCount}");
-                costCentresLastSync = DateTime.Now;
-            }
-            catch (Exception ex)
-            {
-                var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
-                results.Add($"Cost Centres: FAILED - {inner}");
+                try
+                {
+                    var count = await step.Sync();
+                    results.Add($"{step.Label}: {count}");
+                    step.Stamp();
+                }
+                catch (Exception ex)
+                {
+                    var inner = ex.InnerException?.InnerException?.Message ?? ex.InnerException?.Message ?? ex.Message;
+                    results.Add($"{step.Label}: FAILED - {inner}");
+                }
+                finally
+                {
+                    step.SetBusy(false);
+                    syncAllDone++;
+                    StateHasChanged();
+                }
             }
 
             var failures = results.Where(r => r.Contains("FAILED")).ToList();
@@ -2522,6 +2551,13 @@
         finally
         {
             isRefreshingAll = false;
+            syncAllStepLabel = null;
+            // An exception out of the loop leaves whichever tile was mid-step stuck
+            // on its spinner, so clear every one of them.
+            foreach (var step in steps)
+            {
+                step.SetBusy(false);
+            }
             StateHasChanged();
         }
     }
