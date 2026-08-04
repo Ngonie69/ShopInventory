@@ -1263,6 +1263,7 @@
 }
 
 .stg-sync-card {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--stg-space-3);
@@ -1270,6 +1271,8 @@
     border-radius: var(--stg-radius-md);
     background: var(--stg-neutral-900);
     box-shadow: inset 0 0 0 1px var(--stg-divider);
+    /* Lets the progress rail sit flush on the bottom edge and follow the radius. */
+    overflow: hidden;
 }
 
 .stg-sync-card-all {
@@ -1308,6 +1311,68 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
+}
+
+/* The phase read-out stands in for the last-synced caption while a tile syncs.
+   It must not wrap: a second line makes the tile taller than the rest of its
+   row, and the labels vary in length as the counts come in. */
+.stg-sync-body .stg-sync-phase {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* A rail pinned to the bottom edge of a tile while it is syncing. A single
+   entity is one opaque call to the API, so its rail is indeterminate; "Sync
+   everything" knows how many of its steps have finished, so its rail fills. */
+.stg-sync-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    overflow: hidden;
+    background: rgba(var(--stg-accent-rgb), .16);
+}
+
+.stg-sync-bar-indeterminate::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 40%;
+    background: var(--stg-accent);
+    animation: stg-sync-slide 1.15s ease-in-out infinite;
+}
+
+.stg-sync-bar-fill {
+    display: block;
+    height: 100%;
+    background: var(--stg-accent);
+    transition: width .3s ease;
+}
+
+@keyframes stg-sync-slide {
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(250%);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .stg-sync-bar-indeterminate::after {
+        width: 100%;
+        background: rgba(var(--stg-accent-rgb), .5);
+        animation: none;
+    }
+
+    .stg-sync-bar-fill {
+        transition: none;
+    }
 }
 
 /* ── Schedule cards ─────────────────────────────────────────────────────── */
