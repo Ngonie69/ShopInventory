@@ -1741,7 +1741,7 @@ new("fulfillment", "Fulfillment", "bi-truck")
             cancellationToken);
 
     private async Task LoadFulfillmentReportAsync(CancellationToken cancellationToken) =>
-        fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate, cancellationToken);
+        fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate, cancellationToken: cancellationToken);
 
     private void OnQuickSelectChanged(int days)
     {

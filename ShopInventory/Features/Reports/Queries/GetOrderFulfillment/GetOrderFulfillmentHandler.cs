@@ -23,7 +23,7 @@ public sealed class GetOrderFulfillmentHandler(
             var to = ToUtc(request.ToDate ?? DateTime.UtcNow);
 
             using var cts = new CancellationTokenSource(ReportTimeout);
-            var result = await reportService.GetOrderFulfillmentAsync(from, to, cts.Token);
+            var result = await reportService.GetOrderFulfillmentAsync(from, to, request.CardCode, cts.Token);
             return result;
         }
         catch (OperationCanceledException)

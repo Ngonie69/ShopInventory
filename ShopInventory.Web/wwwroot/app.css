@@ -10700,7 +10700,17 @@ html body .staff-container.kf-container {
     width: 100% !important;
 }
 
-@media (max-width: 959.98px) {
+/* 1279.98px, not 959.98px: the staff shell picks its drawer variant from
+   MudBlazor's MdAndDown, which runs to 1279.98px, so every width up to there
+   ends on a temporary drawer and no indent. Held at 960px this rule left the
+   960-1280px band indented by the drawer for the first paint only — the
+   viewport subscription then flipped the variant and pulled .mud-main-content
+   272px to the left, moving the entire page with it. That single shift was
+   most of the layout's CLS. The `margin-left` is what carries the fix, so it
+   is the one that has to track MainLayout's Breakpoint; nocturne-shell.css
+   mirrors only the variable and deliberately stays at 960px, because there it
+   also sizes the topbar's lead cell. */
+@media (max-width: 1279.98px) {
     html body .staff-shell.kf-shell {
         --mud-drawer-width-left: 0px;
     }

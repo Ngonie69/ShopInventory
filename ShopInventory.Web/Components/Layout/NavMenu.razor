@@ -91,6 +91,14 @@
                         </span>
                         <span class="snav-text">Mobile Orders</span>
                     </NavLink>
+                    @* A rep's copy of the report is scoped to one business partner they pick;
+                       the page requires the choice before it will load. *@
+                    <NavLink class="snav-link" href="/reports/order-fulfillment" Match="NavLinkMatch.Prefix">
+                        <span class="snav-icon">
+                            <i class="ph ph-truck" aria-hidden="true"></i>
+                        </span>
+                        <span class="snav-text">Sales Order vs Invoice</span>
+                    </NavLink>
                     <NavLink class="snav-link" href="/timesheets" Match="NavLinkMatch.Prefix">
                         <span class="snav-icon">
                             <i class="ph ph-clock" aria-hidden="true"></i>

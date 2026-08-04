@@ -22,7 +22,7 @@ public interface IReportService
     Task<LowStockAlertReportDto> GetLowStockAlertsAsync(string? warehouseCode = null, decimal? reorderThreshold = null, CancellationToken cancellationToken = default);
     Task<PaymentSummaryReportDto> GetPaymentSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<TopCustomersReportDto> GetTopCustomersAsync(DateTime fromDate, DateTime toDate, int topCount = 10, CancellationToken cancellationToken = default);
-    Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
+    Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, string? cardCode = null, CancellationToken cancellationToken = default);
     Task<CreditNoteSummaryReportDto> GetCreditNoteSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<PurchaseOrderSummaryReportDto> GetPurchaseOrderSummaryAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default);
     Task<ReceivablesAgingReportDto> GetReceivablesAgingAsync(CancellationToken cancellationToken = default);
@@ -113,6 +113,16 @@ public class ReportService : IReportService
     internal const string OrderFulfillmentDailyQueryCode = "ORD_FULF_DAILY";
     internal const string OrderFulfillmentLineQueryCode = "ORD_FULF_LINE";
     internal const string OrderDirectInvoiceQueryCode = "ORDINV_DIR";
+
+    // The same four statements with one more predicate, for the report a sales rep runs against a
+    // single business partner. The partner binds as :cardCode, so the scoped text is as constant as
+    // the company-wide text is — four more SAP query objects in total, not four per customer. They
+    // need their own codes rather than sharing the ones above because the text behind a code has to
+    // be constant, or the two shapes would overwrite each other's SqlText on every call.
+    internal const string OrderFulfillmentCustomerByPartnerQueryCode = "ORD_FULF_CUST_BP";
+    internal const string OrderFulfillmentDailyByPartnerQueryCode = "ORD_FULF_DAILY_BP";
+    internal const string OrderFulfillmentLineByPartnerQueryCode = "ORD_FULF_LINE_BP";
+    internal const string OrderDirectInvoiceByPartnerQueryCode = "ORDINV_DIR_BP";
 
     // Unique customers used to be a COUNT(DISTINCT) column on the sales summary statement. That
     // statement now groups by currency, which changes what the count means — a customer trading in
@@ -1274,28 +1284,44 @@ ORDER BY T0."CardName"
     /// <summary>
     /// Get sales order vs invoice report from SAP sales orders and invoice lines
     /// </summary>
-    public async Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken = default)
+    public async Task<OrderFulfillmentReportDto> GetOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, string? cardCode = null, CancellationToken cancellationToken = default)
     {
-        var cacheKey = BuildReportCacheKey("report-result:order-fulfillment", fromDate, toDate);
+        var customer = string.IsNullOrWhiteSpace(cardCode) ? null : cardCode.Trim();
+        var cacheKey = BuildReportCacheKey("report-result:order-fulfillment", fromDate, toDate, customer);
         return await GetOrCreateCachedAsync(
             "report-result:order-fulfillment",
             cacheKey,
             ReportResultCacheDuration,
-            token => GenerateOrderFulfillmentAsync(fromDate, toDate, token),
+            token => GenerateOrderFulfillmentAsync(fromDate, toDate, customer, token),
             cancellationToken);
     }
 
-    private async Task<OrderFulfillmentReportDto> GenerateOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, CancellationToken cancellationToken)
+    private async Task<OrderFulfillmentReportDto> GenerateOrderFulfillmentAsync(DateTime fromDate, DateTime toDate, string? cardCode, CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Generating sales order vs invoice report via SQL from SAP: {FromDate} to {ToDate}", fromDate, toDate);
+        _logger.LogInformation(
+            "Generating sales order vs invoice report via SQL from SAP: {FromDate} to {ToDate} for {CardCode}",
+            fromDate,
+            toDate,
+            cardCode ?? "all customers");
+
+        // Scoping to one partner adds a predicate to each statement and swaps in that statement's
+        // own code. The partner itself never reaches the text — it binds — so each shape stays a
+        // single SAP query object however many partners are ever reported on.
+        var scoped = cardCode is not null;
+        var orderFilter = scoped ? @" AND T0.""CardCode"" = :cardCode" : string.Empty;
+        var invoiceFilter = scoped ? @" AND O0.""CardCode"" = :cardCode" : string.Empty;
 
         var dateRange = BuildDateRangeParameters(fromDate, toDate);
+        if (scoped)
+        {
+            dateRange["cardCode"] = cardCode!;
+        }
 
         // 1) Summary by customer + status + currency — aggregated, far fewer rows than individual orders
-        var customerSql = @"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N' GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
+        var customerSql = @"SELECT T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N'" + orderFilter + @" GROUP BY T0.""CardCode"", T0.""CardName"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""CardName""";
 
         // 2) Daily summary — one row per date+status+currency
-        var dailySql = @"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N' GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
+        var dailySql = @"SELECT T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"", COUNT(T0.""DocEntry"") AS ""OrderCount"", SUM(T0.""DocTotal"") AS ""TotalValue"" FROM ORDR T0 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate AND T0.""CANCELED"" = 'N'" + orderFilter + @" GROUP BY T0.""DocDate"", T0.""DocCur"", T0.""DocStatus"", T0.""CANCELED"" ORDER BY T0.""DocDate""";
 
         // 3) Order line detail used by the dedicated order-vs-invoice page and exports.
         // The quantity and value columns are selected bare. SAP's SQLQueries validator rejects
@@ -1326,7 +1352,7 @@ ORDER BY T0."CardName"
 FROM ORDR T0
 INNER JOIN RDR1 T1 ON T0.""DocEntry"" = T1.""DocEntry""
 WHERE T0.""DocDate"" >= :fromDate AND T0.""DocDate"" <= :toDate
-  AND T0.""CANCELED"" = 'N'
+  AND T0.""CANCELED"" = 'N'" + orderFilter + @"
 ORDER BY T0.""DocDate"" DESC, T0.""DocNum"" DESC, T1.""LineNum""";
 
         // Match invoices raised directly from the sales order (INV1.BaseType = 17),
@@ -1343,13 +1369,25 @@ INNER JOIN ORDR O0 ON O0.""DocEntry"" = T1.""BaseEntry""
 WHERE T1.""BaseType"" = 17
   AND T0.""CANCELED"" = 'N'
   AND O0.""CANCELED"" = 'N'
-  AND O0.""DocDate"" >= :fromDate AND O0.""DocDate"" <= :toDate
+  AND O0.""DocDate"" >= :fromDate AND O0.""DocDate"" <= :toDate" + invoiceFilter + @"
 GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
 
-        var customerRows = await ExecuteReportSqlAsync(OrderFulfillmentCustomerQueryCode, "Sales Order Vs Invoice By Customer", customerSql, dateRange, cancellationToken);
-        var dailyRows = await ExecuteReportSqlAsync(OrderFulfillmentDailyQueryCode, "Sales Order Vs Invoice Daily", dailySql, dateRange, cancellationToken);
-        var detailRows = await ExecuteReportSqlAsync(OrderFulfillmentLineQueryCode, "Order Vs Invoice Lines", detailSql, dateRange, cancellationToken);
-        var directInvoiceRows = await ExecuteReportSqlAsync(OrderDirectInvoiceQueryCode, "Sales Order Direct Invoice Lines", directInvoiceSql, dateRange, cancellationToken);
+        var customerRows = await ExecuteReportSqlAsync(
+            scoped ? OrderFulfillmentCustomerByPartnerQueryCode : OrderFulfillmentCustomerQueryCode,
+            scoped ? "Sales Order Vs Invoice By Customer (One Partner)" : "Sales Order Vs Invoice By Customer",
+            customerSql, dateRange, cancellationToken);
+        var dailyRows = await ExecuteReportSqlAsync(
+            scoped ? OrderFulfillmentDailyByPartnerQueryCode : OrderFulfillmentDailyQueryCode,
+            scoped ? "Sales Order Vs Invoice Daily (One Partner)" : "Sales Order Vs Invoice Daily",
+            dailySql, dateRange, cancellationToken);
+        var detailRows = await ExecuteReportSqlAsync(
+            scoped ? OrderFulfillmentLineByPartnerQueryCode : OrderFulfillmentLineQueryCode,
+            scoped ? "Order Vs Invoice Lines (One Partner)" : "Order Vs Invoice Lines",
+            detailSql, dateRange, cancellationToken);
+        var directInvoiceRows = await ExecuteReportSqlAsync(
+            scoped ? OrderDirectInvoiceByPartnerQueryCode : OrderDirectInvoiceQueryCode,
+            scoped ? "Sales Order Direct Invoice Lines (One Partner)" : "Sales Order Direct Invoice Lines",
+            directInvoiceSql, dateRange, cancellationToken);
         ApplyOrderInvoiceMetrics(detailRows, directInvoiceRows);
 
         // Process customer aggregation into totals and by-customer breakdown
@@ -1383,13 +1421,13 @@ GROUP BY T1.""BaseEntry"", T1.""BaseLine"", T0.""DocNum""";
             // Aggregate by customer (skip cancelled)
             if (!isCancelled)
             {
-                var cardCode = row.GetValueOrDefault("CardCode")?.ToString() ?? "Unknown";
-                var cardName = row.GetValueOrDefault("CardName")?.ToString() ?? cardCode;
+                var rowCardCode = row.GetValueOrDefault("CardCode")?.ToString() ?? "Unknown";
+                var cardName = row.GetValueOrDefault("CardName")?.ToString() ?? rowCardCode;
 
-                if (!customerAgg.TryGetValue(cardCode, out var existing))
+                if (!customerAgg.TryGetValue(rowCardCode, out var existing))
                     existing = (cardName, 0, 0, 0, 0, 0);
 
-                customerAgg[cardCode] = (
+                customerAgg[rowCardCode] = (
                     cardName,
                     existing.Total + count,
                     existing.Open + (isClosed ? 0 : count),
