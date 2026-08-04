@@ -466,10 +466,21 @@ public class SalesOrderService : ISalesOrderService
         // Refuse an over-limit order before anything is written. Posting is also gated, but a web
         // order that fails there is only left as a Draft with a sync error, which the rep never
         // sees — the refusal has to reach them here, while they are still holding the order.
-        await EnsureWithinCreditLimitAsync(
-            request.CardCode,
-            CalculateSalesOrderTotals(request.Lines, request.DiscountPercent).DocTotal,
-            cancellationToken);
+        //
+        // A mobile order is exempt. Its lines arrive unpriced, so this check can only ever measure
+        // the customer's existing balance, and refusing on that destroys the capture: the order
+        // never reaches the web platform, and the rep in the field is left with a failed draft and
+        // advice ("reduce the order") that cannot change the number it was refused on. Mobile
+        // orders are captured instead and held on the web, where the gate in
+        // PostApprovedOrderToSapCoreAsync — the one that runs against the real DocTotal — stops
+        // them reaching SAP while the account is over.
+        if (request.Source != SalesOrderSource.Mobile)
+        {
+            await EnsureWithinCreditLimitAsync(
+                request.CardCode,
+                CalculateSalesOrderTotals(request.Lines, request.DiscountPercent).DocTotal,
+                cancellationToken);
+        }
 
         // If no warehouse specified, fall back to the user's assigned warehouse
         if (string.IsNullOrEmpty(request.WarehouseCode))
@@ -748,6 +759,7 @@ public class SalesOrderService : ISalesOrderService
             if (queueEntry.PricesResolvedAt == null)
             {
                 await ResolveMobileOrderPricesAsync(order, cancellationToken);
+                await RecordMobileOrderCreditPositionAsync(order, cancellationToken);
 
                 queueEntry.PricesResolvedAt = DateTime.UtcNow;
                 queueEntry.LastError = null;
@@ -840,6 +852,66 @@ public class SalesOrderService : ISalesOrderService
 
         _logger.LogInformation("Resolved prices for mobile order {OrderNumber}: {UpdatedLines}/{TotalLines} lines updated for customer {CardCode}",
             order.OrderNumber, updatedLines, order.Lines.Count, order.CardCode);
+    }
+
+    /// <summary>
+    /// Notes on a freshly priced mobile order whether the customer is over its credit limit, so the
+    /// web platform can say why the order will not post before anyone tries to approve it.
+    /// </summary>
+    /// <remarks>
+    /// Advisory only — the refusal itself belongs to the gate in
+    /// <c>PostApprovedOrderToSapCoreAsync</c>, which re-reads SAP at the moment of posting. This
+    /// note is a snapshot taken at pricing time and goes stale the moment a payment lands, which is
+    /// why it is worded as one and why it never blocks anything on its own. Never throws: a mobile
+    /// order that could not be measured is still a captured order.
+    /// </remarks>
+    private async Task RecordMobileOrderCreditPositionAsync(SalesOrderEntity order, CancellationToken cancellationToken)
+    {
+        if (order.IsSynced || HasSapDocNum(order))
+        {
+            return;
+        }
+
+        CreditLimitCheckResult result;
+        try
+        {
+            result = await _creditLimitService.CheckSalesOrderAsync(order.CardCode, order.DocTotal, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not measure the credit position for mobile sales order {OrderNumber}; it was captured without a credit note",
+                order.OrderNumber);
+            return;
+        }
+
+        if (result.IsWithinLimit)
+        {
+            return;
+        }
+
+        // The hold leads, because a long group message plus a long account name can run past the
+        // 500-character column: what gets cut then is the tail of the credit detail (the advice to
+        // take a payment), not the statement of why the order is sitting there.
+        order.SyncError = TruncateSyncError(
+            "Held on credit — this order cannot be posted to SAP until the account is inside its limit. " +
+            (result.Message ?? "It would take the customer over its credit limit."));
+        order.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogWarning(
+            "Mobile sales order {OrderNumber} for {CardCode} was captured over the credit limit: exposure {Exposure} against a {CreditLimit} limit on {CreditAccount}. It will not post until the account is inside its limit.",
+            order.OrderNumber,
+            order.CardCode,
+            result.Exposure,
+            result.CreditLimit,
+            result.CreditAccountCardCode);
     }
 
     private async Task SendSalesOrderNotificationAsync(SalesOrderEntity order, CancellationToken cancellationToken, bool suppressErrors = true)
