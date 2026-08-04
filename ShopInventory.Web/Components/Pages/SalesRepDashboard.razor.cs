@@ -311,14 +311,18 @@ public partial class SalesRepDashboard
         // DocTotal is summed as it stands, the same reading Home gives the
         // cashier dashboard's invoice and payment totals.
         var daily = new decimal[rangeDays];
+        var dailyCount = new int[rangeDays];
         foreach (var order in orders)
         {
             var day = (order.OrderDate.Date - from).Days;
-            if (day >= 0 && day < rangeDays) daily[day] += order.DocTotal;
+            if (day < 0 || day >= rangeDays) continue;
+
+            daily[day] += order.DocTotal;
+            dailyCount[day]++;
         }
 
         rangeValue = daily.Sum();
-        BuildBars(daily, from);
+        BuildBars(daily, dailyCount, from);
         BuildTopCustomers(orders);
     }
 
@@ -338,7 +342,7 @@ public partial class SalesRepDashboard
             : Math.Round((rangeValue - previousValue) / previousValue * 100m, 1);
     }
 
-    private void BuildBars(decimal[] daily, DateTime from)
+    private void BuildBars(decimal[] daily, int[] dailyCount, DateTime from)
     {
         var peak = daily.Length == 0 ? 0m : daily.Max();
         axisMax = NiceCeiling(peak);
@@ -364,10 +368,30 @@ public partial class SalesRepDashboard
                 : string.Empty;
 
             var date = from.AddDays(i);
+            var count = dailyCount[i];
+            var note = count switch
+            {
+                0 => "No orders",
+                1 => "1 order",
+                _ => $"{count} orders"
+            };
+
+            // The tooltip sits above the bar, so a tall one would carry it off
+            // the top of the plot; those flip it inside the bar instead. The
+            // columns at either end pin it to their own edge for the same
+            // reason, since a centred card would hang past the card's side.
+            var tip = height >= 62m ? "is-inside" : string.Empty;
+            if (i <= 1) tip = $"{tip} is-start".Trim();
+            else if (i >= last - 1) tip = $"{tip} is-end".Trim();
+
             built.Add(new ChartBar(
                 height.ToString("0.#", CultureInfo.InvariantCulture) + "%",
                 band,
-                $"{date:ddd dd MMM} · {Money(value)}"));
+                tip,
+                date.ToString("ddd dd MMM", CultureInfo.CurrentCulture),
+                Money(value),
+                note,
+                $"{date:ddd dd MMM}: {Money(value)}, {note}"));
         }
 
         bars = built;
@@ -680,7 +704,14 @@ public partial class SalesRepDashboard
             ? parsed
             : null;
 
-    private sealed record ChartBar(string Height, string BandClass, string Label);
+    private sealed record ChartBar(
+        string Height,
+        string BandClass,
+        string TipClass,
+        string Day,
+        string Value,
+        string Note,
+        string Label);
 
     private sealed record TopCustomer(string Name, decimal Value, string Width);
 

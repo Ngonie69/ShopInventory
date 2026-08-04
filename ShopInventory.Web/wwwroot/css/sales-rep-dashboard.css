@@ -604,10 +604,44 @@
     top: calc(66.66% - 6px);
 }
 
-.srd-bar {
+/* The column is the hit area rather than the bar itself: a day that barely
+   traded is a 2px stub, and nobody can hover that. It stretches the plot's
+   full height and lights a band behind the bar on hover, which doubles as the
+   focus affordance for the keyboard. */
+.srd-barcol {
     position: relative;
     flex: 1;
     min-width: 2px;
+    align-self: stretch;
+    display: flex;
+    align-items: flex-end;
+    outline: none;
+}
+
+.srd-barcol::before {
+    content: "";
+    position: absolute;
+    inset: -4px -3px 0;
+    border-radius: var(--srd-r-sm);
+    background: transparent;
+    transition: background .12s ease;
+}
+
+.srd-barcol:hover::before,
+.srd-barcol:focus::before {
+    background: var(--srd-hover);
+}
+
+/* Hovered columns rise above their neighbours so the card cannot be clipped
+   by the bar that follows it. */
+.srd-barcol:hover,
+.srd-barcol:focus {
+    z-index: 2;
+}
+
+.srd-bar {
+    position: relative;
+    width: 100%;
     border-radius: 3px 3px 0 0;
     background: var(--srd-bar-1);
 }
@@ -628,6 +662,79 @@
    quiet days read as quiet rather than as merely older. */
 .srd-bar.is-quiet {
     background: var(--srd-bar-low);
+}
+
+/* The read-out: day, its total and how many orders made it. It sits above the
+   bar's top edge; the flip and edge-pinning variants below are chosen in
+   BuildBars, since only the code knows how tall the bar is and where in the
+   window it falls. */
+.srd-tip {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translate(-50%, -7px);
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: var(--srd-s2) var(--srd-s3);
+    border: 1px solid var(--srd-edge);
+    border-radius: var(--srd-r-md);
+    background: var(--srd-surface);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, .18);
+    white-space: nowrap;
+    text-align: left;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity .12s ease, visibility .12s ease;
+}
+
+.srd-barcol:hover .srd-tip,
+.srd-barcol:focus .srd-tip {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* A tall bar would carry the card off the top of the plot, so it drops inside
+   the bar instead. */
+.srd-tip.is-inside {
+    bottom: auto;
+    top: 7px;
+    transform: translate(-50%, 0);
+}
+
+.srd-tip.is-start {
+    left: -3px;
+    transform: translate(0, -7px);
+}
+
+.srd-tip.is-end {
+    left: auto;
+    right: -3px;
+    transform: translate(0, -7px);
+}
+
+.srd-tip.is-inside.is-start,
+.srd-tip.is-inside.is-end {
+    transform: none;
+}
+
+.srd-tip-day {
+    font-size: 10.5px;
+    color: var(--srd-mute-2);
+}
+
+.srd-tip-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--srd-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.srd-tip-note {
+    font-size: 10.5px;
+    color: var(--srd-mute-3);
 }
 
 .srd-xaxis {
