@@ -676,13 +676,9 @@
             }
             <div class="filter-field">
                 <label>Warehouse</label>
-                <select @bind="filterWarehouse">
-                    <option value="">-- All --</option>
-                    @foreach (var wh in warehouses)
-                    {
-                        <option value="@wh.WarehouseCode">@wh.WarehouseCode</option>
-                    }
-                </select>
+                <NocturneSelect Class="nsel-block" Options="WarehouseFilterOptions"
+                                @bind-Value="filterWarehouse" Caption="Filter by warehouse"
+                                AriaLabel="Filter by warehouse" Placeholder="All warehouses" />
             </div>
             <div class="filter-field">
                 <label>Customer Code</label>
@@ -690,11 +686,9 @@
             </div>
             <div class="filter-field">
                 <label>Consolidation</label>
-                <select @bind="filterConsolidation">
-                    <option value="">-- All --</option>
-                    <option value="true">Consolidated</option>
-                    <option value="false">Awaiting</option>
-                </select>
+                <NocturneSelect TValue="string" Class="nsel-block" Options="ConsolidationFilterOptions"
+                                @bind-Value="filterConsolidation" Caption="Filter by consolidation"
+                                AriaLabel="Filter by consolidation" Placeholder="All" />
             </div>
             <div class="filter-actions-row">
                 <button class="btn-search" @onclick="ApplyFilter" disabled="@isLoading">Search</button>
@@ -963,6 +957,20 @@
 @code {
     private FiscalizedSalesReportResult? reportResult;
     private List<WarehouseDto> warehouses = new();
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseFilterOptions =>
+        warehouses
+            .Select(wh => new NocturneSelectOption<string>(wh.WarehouseCode, wh.WarehouseCode, "info"))
+            .Prepend(NocturneSelectOption.All("All warehouses"));
+
+    // The values are the strings "true" and "false" because the filter is bound
+    // as text and parsed downstream, not as a bool.
+    private static readonly NocturneSelectOption<string>[] ConsolidationFilterOptions =
+    [
+        NocturneSelectOption.All(),
+        new("true", "Consolidated", "good"),
+        new("false", "Awaiting", "warn")
+    ];
     private FiscalizedSaleDto? selectedSale;
 
     private bool isLoading = false;

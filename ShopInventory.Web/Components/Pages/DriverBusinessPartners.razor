@@ -128,30 +128,12 @@
                         </label>
 
                         <div class="dsa-filters">
-                            <div class="dsa-select">
-                                <label class="visually-hidden" for="dsa-status">Status</label>
-                                <select id="dsa-status" class="dsa-input" @bind="customerStatusFilter">
-                                    <option value="@StatusFilterAll">All</option>
-                                    <option value="@StatusFilterActive">Active</option>
-                                    <option value="@StatusFilterInactive">Inactive</option>
-                                </select>
-                                <span class="dsa-caret" aria-hidden="true"></span>
-                            </div>
-                            <div class="dsa-select">
-                                <label class="visually-hidden" for="dsa-channel">Channel</label>
-                                <select id="dsa-channel" class="dsa-input" @bind="customerChannelFilter">
-                                    <option value="@ChannelFilterAll">All channels</option>
-                                    @if (HasCustomersWithoutChannel)
-                                    {
-                                        <option value="@ChannelFilterNone">No channel</option>
-                                    }
-                                    @foreach (var channel in AvailableChannels)
-                                    {
-                                        <option value="@channel">@channel</option>
-                                    }
-                                </select>
-                                <span class="dsa-caret" aria-hidden="true"></span>
-                            </div>
+                            <NocturneSelect Id="dsa-status" Options="StatusFilterOptions"
+                                            @bind-Value="customerStatusFilter" Caption="Filter by status"
+                                            AriaLabel="Filter by status" />
+                            <NocturneSelect Id="dsa-channel" Options="ChannelFilterOptions"
+                                            @bind-Value="customerChannelFilter" Caption="Filter by channel"
+                                            AriaLabel="Filter by channel" />
                         </div>
                     </div>
 

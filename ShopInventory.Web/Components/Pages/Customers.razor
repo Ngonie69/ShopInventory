@@ -169,33 +169,15 @@
                     <div class="bp-filters">
                         <label class="bp-field">
                             <span class="bp-label">Channel</span>
-                            <span class="bp-select">
-                                <select class="bp-input" @bind="channelFilter" @bind:after="ResetPage">
-                                    <option value="@FilterAll">All channels</option>
-                                    @if (HasPartnersWithoutChannel)
-                                    {
-                                        <option value="@FilterNone">No channel</option>
-                                    }
-                                    @foreach (var channel in AvailableChannels)
-                                    {
-                                        <option value="@channel">@channel</option>
-                                    }
-                                </select>
-                                <span class="bp-caret" aria-hidden="true"></span>
-                            </span>
+                            <NocturneSelect Class="nsel-block" Options="ChannelFilterOptions"
+                                            @bind-Value="channelFilter" OnChanged="ResetPage"
+                                            Caption="Filter by channel" AriaLabel="Filter by channel" />
                         </label>
                         <label class="bp-field">
                             <span class="bp-label">Currency</span>
-                            <span class="bp-select">
-                                <select class="bp-input" @bind="currencyFilter" @bind:after="ResetPage">
-                                    <option value="@FilterAll">All currencies</option>
-                                    @foreach (var currency in AvailableCurrencies)
-                                    {
-                                        <option value="@currency">@currency</option>
-                                    }
-                                </select>
-                                <span class="bp-caret" aria-hidden="true"></span>
-                            </span>
+                            <NocturneSelect Class="nsel-block" Options="CurrencyFilterOptions"
+                                            @bind-Value="currencyFilter" OnChanged="ResetPage"
+                                            Caption="Filter by currency" AriaLabel="Filter by currency" />
                         </label>
                         @if (ActiveFilterCount > 0)
                         {
@@ -327,15 +309,9 @@
                     <div class="bp-foot">
                         <label class="bp-per">
                             <span>Show</span>
-                            <span class="bp-select">
-                                <select class="bp-input" @bind="pageSize" @bind:after="ResetPage">
-                                    @foreach (var size in PageSizes)
-                                    {
-                                        <option value="@size">@size</option>
-                                    }
-                                </select>
-                                <span class="bp-caret" aria-hidden="true"></span>
-                            </span>
+                            <NocturneSelect Class="nsel-sm" Options="PageSizeSelectOptions"
+                                            @bind-Value="pageSize" OnChanged="ResetPage"
+                                            AriaLabel="Rows per page" />
                             <span>per page</span>
                         </label>
                         <div class="bp-pages">

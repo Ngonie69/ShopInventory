@@ -30,20 +30,11 @@
         <div class="pr-head-inner">
             <label class="pr-head-field pr-head-warehouse">
                 <span class="pr-label">Warehouse <span class="pr-req">*</span></span>
-                <span class="pr-select">
-                    <select class="pr-input" disabled="@isLoadingWarehouses"
-                            value="@selectedWarehouse?.WarehouseCode"
-                            @onchange="OnWarehouseChanged">
-                        <option value="">
-                            @(isLoadingWarehouses ? "Loading warehouses…" : "Select a warehouse…")
-                        </option>
-                        @foreach (var warehouse in warehouses)
-                        {
-                            <option value="@warehouse.WarehouseCode">@warehouse.DisplayName</option>
-                        }
-                    </select>
-                    <span class="pr-caret" aria-hidden="true"></span>
-                </span>
+                <NocturneSelect TValue="string" Class="nsel-block" Options="WarehouseSelectOptions"
+                                Value="@selectedWarehouse?.WarehouseCode"
+                                ValueChanged="@(code => OnWarehouseChanged(code))"
+                                Disabled="isLoadingWarehouses" Caption="Warehouse" AriaLabel="Warehouse"
+                                Placeholder="@(isLoadingWarehouses ? "Loading warehouses…" : "Select a warehouse…")" />
             </label>
 
             <label class="pr-head-field pr-head-scan">
@@ -376,15 +367,9 @@
                     <div class="pr-foot">
                         <label class="pr-per">
                             <span>Show</span>
-                            <span class="pr-select">
-                                <select class="pr-input" value="@pageSize" @onchange="OnPageSizeChanged">
-                                    @foreach (var size in PageSizes)
-                                    {
-                                        <option value="@size">@size</option>
-                                    }
-                                </select>
-                                <span class="pr-caret" aria-hidden="true"></span>
-                            </span>
+                            <NocturneSelect TValue="int" Class="nsel-sm" Options="PageSizeSelectOptions"
+                                            Value="pageSize" ValueChanged="@(size => OnPageSizeChanged(size))"
+                                            AriaLabel="Rows per page" />
                             <span>per page</span>
                         </label>
                         <div class="pr-pages">

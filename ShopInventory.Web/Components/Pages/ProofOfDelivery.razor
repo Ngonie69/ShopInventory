@@ -519,16 +519,10 @@
                     </div>
                     <div class="podx-field">
                         <label for="podx-f-loc">Upload location</label>
-                        <div class="podx-select">
-                            <select id="podx-f-loc" class="podx-input" @bind="filterUploadedFromLocation">
-                                <option value="">All locations</option>
-                                @foreach (var location in AssignedSectionOptions.All)
-                                {
-                                    <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
-                                }
-                            </select>
-                            <span class="podx-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="podx-f-loc" Class="nsel-block" Options="LocationFilterOptions"
+                                        @bind-Value="filterUploadedFromLocation"
+                                        Caption="Filter by upload location" AriaLabel="Filter by upload location"
+                                        Placeholder="All locations" />
                     </div>
                     <div class="podx-field">
                         <label for="podx-f-from">From date</label>
@@ -672,16 +666,9 @@
                 <span class="podx-foot-range">@RangeLabel</span>
                 <span class="podx-pagesize">
                     <span>Rows</span>
-                    <span class="podx-select">
-                        <select class="podx-input" aria-label="Rows per page" @bind="podPageSize"
-                                @bind:after="OnPodPageSizeChanged">
-                            @foreach (var size in PodPageSizeOptions)
-                            {
-                                <option value="@size">@size</option>
-                            }
-                        </select>
-                        <span class="podx-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-sm nsel-end" Options="PodPageSizeSelectOptions"
+                                    @bind-Value="podPageSize" OnChanged="OnPodPageSizeChanged"
+                                    AriaLabel="Rows per page" />
                 </span>
                 <div class="podx-pager">
                     <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="Previous page"
@@ -778,6 +765,17 @@
     private bool isLoading = true;
     private const int DefaultPodPageSize = 20;
     private static readonly int[] PodPageSizeOptions = [20, 50, 100];
+
+    private static readonly NocturneSelectOption<int>[] PodPageSizeSelectOptions =
+        PodPageSizeOptions.Select(size => new NocturneSelectOption<int>(size, size.ToString())).ToArray();
+
+    // GetLabel is the same helper the table labels a row with.
+    private static readonly NocturneSelectOption<string>[] LocationFilterOptions =
+        AssignedSectionOptions.All
+            .Select(location => new NocturneSelectOption<string>(
+                location, AssignedSectionOptions.GetLabel(location), "info"))
+            .Prepend(NocturneSelectOption.All("All locations"))
+            .ToArray();
 
     // The list is paged by the server: a page change is a refetch, not a slice
     // of something already in hand.

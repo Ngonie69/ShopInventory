@@ -475,32 +475,12 @@
                             <input type="text" class="exc-input" @bind="searchText" @bind:event="oninput"
                                    placeholder="Reference, customer, error…" />
                         </div>
-                        <div class="exc-select-wrap">
-                            <select class="exc-input exc-select" @bind="selectedSource">
-                                @foreach (var option in SourceOptions)
-                                {
-                                    <option value="@option">@(option == "All" ? "All pipelines" : DescribeSource(option))</option>
-                                }
-                            </select>
-                            <i class="ph ph-caret-down exc-select-caret"></i>
-                        </div>
-                        <div class="exc-select-wrap">
-                            <select class="exc-input exc-select" @bind="selectedFamily">
-                                @foreach (var option in FamilyOptions)
-                                {
-                                    <option value="@option">@(option == "All" ? "All cause types" : option)</option>
-                                }
-                            </select>
-                            <i class="ph ph-caret-down exc-select-caret"></i>
-                        </div>
-                        <div class="exc-select-wrap">
-                            <select class="exc-input exc-select" @bind="sortOrder">
-                                <option value="@SortOldest">Oldest first</option>
-                                <option value="@SortNewest">Newest first</option>
-                                <option value="@SortValue">Highest value first</option>
-                            </select>
-                            <i class="ph ph-caret-down exc-select-caret"></i>
-                        </div>
+                        <NocturneSelect Options="SourceFilterOptions" @bind-Value="selectedSource"
+                                        Caption="Filter by pipeline" AriaLabel="Filter by pipeline" />
+                        <NocturneSelect Options="FamilyFilterOptions" @bind-Value="selectedFamily"
+                                        Caption="Filter by cause type" AriaLabel="Filter by cause type" />
+                        <NocturneSelect Options="SortSelectOptions" @bind-Value="sortOrder"
+                                        Icon="ph ph-sort-ascending" Caption="Sort by" AriaLabel="Sort order" />
                     </div>
 
                     @if (!string.IsNullOrWhiteSpace(focusedCluster))

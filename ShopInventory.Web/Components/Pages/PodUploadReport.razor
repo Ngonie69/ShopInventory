@@ -169,56 +169,28 @@
                 <div class="podr-more">
                     <label class="podr-field">
                         <span class="podr-label">Currency</span>
-                        <span class="podr-select">
-                            <select class="podr-input" @bind="currencyFilter" @bind:after="OnAdvancedFiltersChanged">
-                                <option value="all">All currencies</option>
-                                @foreach (var currency in AvailableCurrencies)
-                                {
-                                    <option value="@currency">@currency</option>
-                                }
-                            </select>
-                            <span class="podr-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-block" Options="CurrencyFilterOptions"
+                                        @bind-Value="currencyFilter" OnChanged="OnAdvancedFiltersChanged"
+                                        Caption="Filter by currency" AriaLabel="Filter by currency" />
                     </label>
                     <label class="podr-field">
                         <span class="podr-label">Uploaded by</span>
-                        <span class="podr-select">
-                            <select class="podr-input" @bind="uploadedByFilter" @bind:after="OnAdvancedFiltersChanged">
-                                <option value="all">Any uploader</option>
-                                @foreach (var uploader in AvailableUploaders)
-                                {
-                                    <option value="@uploader">@uploader</option>
-                                }
-                            </select>
-                            <span class="podr-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-block" Options="UploaderFilterOptions"
+                                        @bind-Value="uploadedByFilter" OnChanged="OnAdvancedFiltersChanged"
+                                        Caption="Filter by uploader" AriaLabel="Filter by uploader" />
                     </label>
                     <label class="podr-field">
                         <span class="podr-label">Uploader role</span>
-                        <span class="podr-select">
-                            <select class="podr-input" @bind="uploaderRoleFilter" @bind:after="OnAdvancedFiltersChanged">
-                                <option value="all">Any role</option>
-                                @foreach (var role in AvailableUploaderRoles)
-                                {
-                                    <option value="@role">@role</option>
-                                }
-                            </select>
-                            <span class="podr-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-block" Options="UploaderRoleFilterOptions"
+                                        @bind-Value="uploaderRoleFilter" OnChanged="OnAdvancedFiltersChanged"
+                                        Caption="Filter by uploader role" AriaLabel="Filter by uploader role" />
                     </label>
                     <label class="podr-field">
                         <span class="podr-label">Generated location</span>
-                        <span class="podr-select">
-                            <select class="podr-input" @bind="generatedLocationFilter"
-                                    @bind:after="OnAdvancedFiltersChanged">
-                                <option value="all">Any location</option>
-                                @foreach (var location in AvailableGeneratedLocations)
-                                {
-                                    <option value="@location">@AssignedSectionOptions.GetLabel(location)</option>
-                                }
-                            </select>
-                            <span class="podr-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-block" Options="GeneratedLocationFilterOptions"
+                                        @bind-Value="generatedLocationFilter" OnChanged="OnAdvancedFiltersChanged"
+                                        Caption="Filter by generated location"
+                                        AriaLabel="Filter by generated location" />
                     </label>
                     <div class="podr-field">
                         <span class="podr-label">Amount range</span>
@@ -641,6 +613,34 @@
         ("90", "90d"),
         ("180", "6m")
     ];
+
+    // The dropdowns are NocturneSelect. "all" rather than an empty string is
+    // this page's no-filter sentinel, so those rows carry IsUnset.
+    private static NocturneSelectOption<string> AnyRow(string label) =>
+        new("all", label, "neutral") { IsUnset = true, RuleAfter = true };
+
+    private IEnumerable<NocturneSelectOption<string>> CurrencyFilterOptions =>
+        AvailableCurrencies
+            .Select(currency => new NocturneSelectOption<string>(currency, currency, "accent"))
+            .Prepend(AnyRow("All currencies"));
+
+    private IEnumerable<NocturneSelectOption<string>> UploaderFilterOptions =>
+        AvailableUploaders
+            .Select(uploader => new NocturneSelectOption<string>(uploader, uploader, "info"))
+            .Prepend(AnyRow("Any uploader"));
+
+    private IEnumerable<NocturneSelectOption<string>> UploaderRoleFilterOptions =>
+        AvailableUploaderRoles
+            .Select(role => new NocturneSelectOption<string>(role, role, "warn"))
+            .Prepend(AnyRow("Any role"));
+
+    // AssignedSectionOptions.GetLabel is the same helper the table labels a row
+    // with, so the menu and the results cannot disagree about a location's name.
+    private IEnumerable<NocturneSelectOption<string>> GeneratedLocationFilterOptions =>
+        AvailableGeneratedLocations
+            .Select(location => new NocturneSelectOption<string>(
+                location, AssignedSectionOptions.GetLabel(location), "good"))
+            .Prepend(AnyRow("Any location"));
 
     private IEnumerable<string> AvailableCurrencies => report?.Items?
         .Select(i => i.DocCurrency?.Trim())

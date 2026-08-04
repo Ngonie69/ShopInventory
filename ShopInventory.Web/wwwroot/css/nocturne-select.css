@@ -1,0 +1,453 @@
+/* ==========================================================================
+   Nocturne select — Components/NocturneSelect.razor
+
+   Shared rather than page-scoped, for the reason nocturne-date-field.css is:
+   this dresses one control that any Nocturne page can drop in, and a component
+   cannot see a page's own `--<page>-*` tokens from inside itself. So it carries
+   its own `nsel-` prefix and takes its values from nocturne-tokens.css, the
+   same place the page sheets take theirs.
+
+   ── Why the native element was left behind ──
+   A `<select>`'s popup is a platform window. Its background comes from the
+   field, and a Nocturne field is `rgba(243, 245, 254, .05)` — which the browser
+   composites onto white rather than onto the page, and having done so it stops
+   honouring `color-scheme: dark` for the popup. The options inherit the field's
+   pale ink, so the dark-theme list renders near-white on near-white. Opaque
+   `option` fills fix the readability but not the shape: the popup still arrives
+   in the OS's metrics beside twenty controls drawn in the design's. The menu
+   here is page DOM, which is also what allows the swatch, the hint and the tick.
+
+   ── Fitting the host page ──
+   The menu is meant to be the same object everywhere; the closed trigger is
+   not. Each page sheet sets its own height, type size and edge for the controls
+   in a filter row, and a dropdown two pixels taller than the field beside it
+   reads as a mistake rather than a design. So the values that actually differ
+   between sheets are read through `var()` fallbacks, and a page tunes them from
+   its root:
+
+       .sox { --nsel-h: 32px; --nsel-fs: 13px; }
+
+   They are fallbacks rather than declarations on `.nsel` on purpose: a value
+   set on `.nsel` itself would beat one inherited from the page root, and the
+   page could never win. Nothing below the trigger is reachable this way — the
+   menu is the design being standardised, so it is not up for negotiation.
+
+   Tunable: --nsel-h, --nsel-pad-y, --nsel-pad-x, --nsel-fs, --nsel-radius,
+   --nsel-fill, --nsel-edge, --nsel-edge-hi, --nsel-min-w, --nsel-max-w.
+
+   The defaults are audit-trail.css's `.aud-input`, the same control the date
+   field was drawn against, so the pages on that palette need no block at all.
+
+   Every control selector is two classes deep (`.nsel .nsel-btn`) to out-specify
+   app.css's global `.dark-theme input, .dark-theme select, .dark-theme button`
+   block, which would otherwise repaint the trigger #1e293b regardless of load
+   order — MudBlazor's sheet lands after this one, so specificity is what
+   decides, not source order.
+   ========================================================================== */
+
+.nsel {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values. */
+    --nsel-surface: var(--noct-surface);
+    --nsel-ink: var(--noct-ink);
+    --nsel-mute: var(--noct-mute);
+    --nsel-mute-2: var(--noct-mute-2);
+    --nsel-mute-3: var(--noct-mute-3);
+    --nsel-faint: var(--noct-faint);
+    --nsel-divider: var(--noct-divider);
+    --nsel-rule: var(--noct-rule);
+    --nsel-hover: var(--noct-hover);
+    --nsel-field-bg: var(--noct-field-bg);
+    --nsel-field-edge: var(--noct-field-edge);
+    --nsel-accent: var(--noct-accent);
+    --nsel-accent-rgb: var(--noct-accent-rgb);
+    --nsel-accent-text: var(--noct-accent-text);
+    --nsel-shadow: var(--noct-shadow-pop);
+
+    --nsel-r-sm: var(--noct-r-sm);
+    --nsel-r-md: var(--noct-r-md);
+    --nsel-r-lg: var(--noct-r-lg);
+
+    /* The neutral swatch, and the fallback for a row with no family. */
+    --nsel-fam: var(--noct-fam-neutral);
+    --nsel-fam-rgb: var(--noct-fam-neutral-rgb);
+
+    position: relative;
+    display: inline-flex;
+    /* A filter row usually lays these out with the fields, so the wrapper has to
+       be able to stretch and shrink like one. */
+    max-width: 100%;
+    /* Page roots are min-height: 100vh; a wrapper that inherited it would hang a
+       viewport tall. Stated here so no call site has to remember. */
+    min-height: 0;
+    vertical-align: middle;
+}
+
+.nsel * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix, which would flatten the accent ink on the chosen row in WebKit. */
+.nsel,
+.nsel * {
+    -webkit-text-fill-color: currentColor;
+}
+
+/* With the menu up the control has to out-stack the rows beneath it. */
+.nsel-open {
+    z-index: 40;
+}
+
+/* ── Families ────────────────────────────────────────────────────────────────
+   One rule per family sets the pair, and everything below reads `--nsel-fam`.
+   That is the whole reason the swatch, the tick and the chosen row's wash can
+   never drift apart: there is only one place each colour is named. */
+
+.nsel-fam-neutral { --nsel-fam: var(--noct-fam-neutral); --nsel-fam-rgb: var(--noct-fam-neutral-rgb); }
+.nsel-fam-accent  { --nsel-fam: var(--noct-fam-accent);  --nsel-fam-rgb: var(--noct-fam-accent-rgb); }
+.nsel-fam-info    { --nsel-fam: var(--noct-fam-info);    --nsel-fam-rgb: var(--noct-fam-info-rgb); }
+.nsel-fam-good    { --nsel-fam: var(--noct-fam-good);    --nsel-fam-rgb: var(--noct-fam-good-rgb); }
+.nsel-fam-warn    { --nsel-fam: var(--noct-fam-warn);    --nsel-fam-rgb: var(--noct-fam-warn-rgb); }
+.nsel-fam-bad     { --nsel-fam: var(--noct-fam-bad);     --nsel-fam-rgb: var(--noct-fam-bad-rgb); }
+
+/* ── The trigger ─────────────────────────────────────────────────────────── */
+
+.nsel .nsel-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--noct-s2);
+    width: 100%;
+    min-width: var(--nsel-min-w, 150px);
+    max-width: 100%;
+    min-height: var(--nsel-h, 34px);
+    padding: var(--nsel-pad-y, 7px) var(--nsel-pad-x, 12px);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: var(--nsel-fs, 13px);
+    font-weight: 500;
+    line-height: 1.3;
+    text-align: left;
+    color: var(--nsel-mute);
+    background: var(--nsel-fill, var(--nsel-field-bg));
+    background-image: none;
+    border: 1px solid var(--nsel-edge, transparent);
+    border-radius: var(--nsel-radius, var(--nsel-r-md));
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s, color .15s;
+}
+
+.nsel .nsel-btn:hover:not(:disabled) {
+    color: var(--nsel-ink);
+    border-color: var(--nsel-edge-hi, var(--nsel-field-edge));
+}
+
+.nsel .nsel-btn:focus-visible {
+    border-color: rgba(var(--nsel-accent-rgb), .55);
+    outline: 2px solid var(--nsel-accent);
+    outline-offset: 0;
+}
+
+.nsel .nsel-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* Open and chosen are separate states and have to read differently. Open is
+   transient — an accent ring while the menu is up. Chosen persists after the
+   menu shuts, which is what lets someone see which filters are set without
+   opening any of them. */
+.nsel-open .nsel-btn {
+    color: var(--nsel-ink);
+    background: var(--nsel-hover);
+    border-color: rgba(var(--nsel-accent-rgb), .55);
+}
+
+.nsel .nsel-btn.nsel-set {
+    color: var(--nsel-accent-text);
+    background: rgba(var(--nsel-accent-rgb), .12);
+}
+
+.nsel-icon {
+    flex: none;
+    font-size: .92em;
+    line-height: 1;
+    color: var(--nsel-mute-3);
+    transition: color .15s;
+}
+
+.nsel .nsel-btn.nsel-set .nsel-icon,
+.nsel-open .nsel-btn .nsel-icon {
+    color: var(--nsel-accent);
+}
+
+.nsel-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.nsel-caret {
+    flex: none;
+    color: var(--nsel-mute-3);
+    transition: transform .18s ease, color .15s;
+}
+
+.nsel-open .nsel-caret {
+    transform: rotate(180deg);
+    color: var(--nsel-accent);
+}
+
+/* ── The menu ────────────────────────────────────────────────────────────── */
+
+/* Outside-click target. A transparent sheet under the menu costs one element
+   and keeps the close entirely in Blazor — no document listener to register per
+   render and unregister on dispose. */
+.nsel-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+.nsel-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 61;                          /* above the veil */
+    min-width: 100%;                      /* never narrower than its trigger */
+    width: max-content;                   /* but as wide as its longest row */
+    max-width: var(--nsel-max-w, 288px);
+    max-height: 340px;
+    overflow-y: auto;
+    padding: var(--noct-s2);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border: 1px solid var(--nsel-divider);
+    border-radius: var(--nsel-r-lg);
+    background: var(--nsel-surface);       /* opaque: the whole point */
+    box-shadow: var(--nsel-shadow);
+    animation: nsel-rise .14s ease-out;
+}
+
+/* On the last control in a filter row a left-anchored menu runs off the edge. */
+.nsel-end .nsel-menu {
+    left: auto;
+    right: 0;
+}
+
+@keyframes nsel-rise {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.nsel-caption {
+    padding: 5px 10px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--nsel-faint);
+}
+
+.nsel-empty {
+    padding: 10px;
+    font-size: 12.5px;
+    color: var(--nsel-faint);
+}
+
+.nsel .nsel-item {
+    display: flex;
+    align-items: center;
+    gap: var(--noct-s3);
+    width: 100%;
+    padding: 7px 10px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: left;
+    white-space: nowrap;
+    color: var(--nsel-mute);
+    background: transparent;
+    border: 0;
+    border-radius: var(--nsel-r-sm);
+    cursor: pointer;
+    transition: background-color .12s, color .12s;
+}
+
+.nsel .nsel-item:hover:not(:disabled) {
+    color: var(--nsel-ink);
+    background: var(--nsel-hover);
+}
+
+.nsel .nsel-item:focus-visible {
+    outline: 2px solid var(--nsel-accent);
+    outline-offset: -2px;
+}
+
+.nsel .nsel-item:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.nsel .nsel-item.nsel-on {
+    color: var(--nsel-ink);
+    background: rgba(var(--nsel-fam-rgb), .13);
+}
+
+/* The family comes from the row's own class, so this is the one place the
+   swatch is described and every family is covered by it. */
+.nsel-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--nsel-fam);
+    box-shadow: 0 0 0 3px rgba(var(--nsel-fam-rgb), .16);
+}
+
+.nsel-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nsel-hint {
+    flex: none;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--nsel-faint);
+}
+
+.nsel-tick {
+    flex: none;
+    opacity: 0;
+    color: var(--nsel-fam, var(--nsel-accent));
+}
+
+.nsel .nsel-item.nsel-on .nsel-tick {
+    opacity: 1;
+}
+
+.nsel-rule {
+    height: 1px;
+    margin: var(--noct-s2) var(--noct-s2) calc(var(--noct-s2) - 1px);
+    background: var(--nsel-rule);
+}
+
+/* ── Size and layout variants ────────────────────────────────────────────── */
+
+/* Rows-per-page and other in-toolbar pickers, where the label is a number. */
+.nsel-sm {
+    --nsel-h: 30px;
+    --nsel-pad-y: 5px;
+    --nsel-pad-x: 10px;
+    --nsel-fs: 12px;
+    --nsel-min-w: 0;
+}
+
+.nsel-lg {
+    --nsel-h: 40px;
+    --nsel-pad-y: 10px;
+    --nsel-pad-x: 14px;
+    --nsel-fs: 14px;
+}
+
+/* Shrink to the content instead of holding a minimum. */
+.nsel-auto {
+    --nsel-min-w: 0;
+}
+
+/* Fill the cell it is laid into — a filter grid, a form row. */
+.nsel-block {
+    display: flex;
+    width: 100%;
+}
+
+/* ── The Bootstrap fit ───────────────────────────────────────────────────────
+   Several pages are still built out of Bootstrap rows, where the control beside
+   this one is a `.form-select` or `.form-control`. Those pages have no sheet of
+   their own to hold a tuning block, and there are enough of them that a copy of
+   the same seven declarations per page is worse than one variant here.
+
+   The values are app.css's own `.form-control, .form-select` rule — not stock
+   Bootstrap, which that rule overrides on padding, type size, radius and edge —
+   plus the dark fill app.css gives it. This is nocturne-date-field.css's
+   `.ndf-bs` block, matched value for value, so a date and a dropdown on the
+   same Bootstrap row line up. Pass `Class="nsel-bs"`. */
+.nsel-bs {
+    --nsel-h: 44px;
+    --nsel-pad-y: .625rem;
+    --nsel-pad-x: .875rem;
+    --nsel-fs: .9375rem;
+    --nsel-radius: var(--radius, .5rem);
+    --nsel-fill: #fff;
+    --nsel-edge: var(--border-color, #e0e0e0);
+
+    display: flex;
+    width: 100%;
+}
+
+.dark-theme .nsel-bs {
+    --nsel-fill: #1e293b;
+    --nsel-edge: var(--border-color);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+
+.nsel-menu::-webkit-scrollbar {
+    width: 8px;
+}
+
+.nsel-menu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.nsel-menu::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background: var(--noct-thumb);
+}
+
+.nsel-menu {
+    scrollbar-width: thin;
+    scrollbar-color: var(--noct-thumb) transparent;
+}
+
+/* ── Narrow screens ──────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+    .nsel {
+        flex: 1 1 auto;
+    }
+
+    .nsel .nsel-btn {
+        min-width: 0;
+        /* 16px is the smallest size iOS renders a focused control at without
+           zooming the page to meet it. */
+        font-size: 16px;
+    }
+
+    /* A menu hung off the trailing control in a filter row would otherwise run
+       off the right edge. */
+    .nsel:last-child .nsel-menu {
+        left: auto;
+        right: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nsel-menu {
+        animation: none;
+    }
+
+    .nsel-caret,
+    .nsel .nsel-btn,
+    .nsel .nsel-item {
+        transition: none;
+    }
+}

@@ -117,18 +117,11 @@
             {
                 <label class="cst-field cst-field-wide">
                     <span class="cst-label">Account</span>
-                    <span class="cst-select">
-                        <select class="cst-input" value="@selectedAccountFilter" @onchange="OnAccountFilterChanged">
-                            <option value="">All accounts</option>
-                            @foreach (var account in linkedAccounts)
-                            {
-                                <option value="@account.CardCode">
-                                    @account.CardName@(string.IsNullOrEmpty(account.Currency) ? "" : $" ({account.Currency})") &#8212; @account.CardCode
-                                </option>
-                            }
-                        </select>
-                        <span class="cst-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect TValue="string" Class="nsel-block" Options="AccountFilterOptions"
+                                    Value="@selectedAccountFilter"
+                                    ValueChanged="@(code => OnAccountFilterChanged(code))"
+                                    Caption="Filter by account" AriaLabel="Filter by account"
+                                    Placeholder="All accounts" />
                 </label>
             }
             <button type="button" class="cst-btn cst-btn-primary" @onclick="GenerateStatement" disabled="@isLoading">
@@ -428,9 +421,22 @@
         }
     }
 
-    private async Task OnAccountFilterChanged(ChangeEventArgs e)
+    private IEnumerable<NocturneSelectOption<string>> AccountFilterOptions =>
+        linkedAccounts
+            .Select(account => new NocturneSelectOption<string>(
+                account.CardCode,
+                string.IsNullOrEmpty(account.Currency)
+                    ? account.CardName
+                    : $"{account.CardName} ({account.Currency})",
+                "info")
+            {
+                Hint = account.CardCode
+            })
+            .Prepend(NocturneSelectOption.All("All accounts"));
+
+    private async Task OnAccountFilterChanged(string? code)
     {
-        var value = e.Value?.ToString() ?? string.Empty;
+        var value = code ?? string.Empty;
 
         if (!CustomerSession.CanAccessCardCode(portalSession, value))
         {

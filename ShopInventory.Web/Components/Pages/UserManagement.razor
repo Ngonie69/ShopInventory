@@ -284,11 +284,9 @@
                                     <i class="bi bi-chevron-right"></i>
                                 </button>
                             </div>
-                            <select class="um-select um-select-sm" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                                <option value="10">10 / page</option>
-                                <option value="20">20 / page</option>
-                                <option value="50">50 / page</option>
-                            </select>
+                            <NocturneSelect Class="nsel-sm nsel-end" Options="PageSizeSelectOptions"
+                                            @bind-Value="pageSize" OnChanged="OnPageSizeChanged"
+                                            AriaLabel="Rows per page" />
                         </div>
                     }
                 }
@@ -856,6 +854,9 @@
     private bool isSaving = false;
     private int currentPage = 1;
     private int pageSize = 10;
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        [new(10, "10 / page"), new(20, "20 / page"), new(50, "50 / page")];
     private int totalPages = 1;
     private string activeTab = "users";
     private string currentUserRole = string.Empty;

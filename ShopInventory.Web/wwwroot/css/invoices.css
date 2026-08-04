@@ -434,6 +434,23 @@
     color: var(--ivx-mute);
 }
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.ivx,
+.ivx-overlay {
+    --nsel-h: 32px;
+    --nsel-pad-y: 5px;
+    --nsel-pad-x: 10px;
+    --nsel-fs: 14px;
+    --nsel-fill: var(--ivx-field);
+    --nsel-edge: var(--ivx-field-edge);
+    --nsel-edge-hi: var(--ivx-field-edge-hi);
+    --nsel-radius: var(--ivx-r-md);
+}
+
 .ivx .ivx-input,
 .ivx-overlay .ivx-input {
     width: 100%;

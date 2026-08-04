@@ -40,13 +40,9 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label">From</label>
-                    <select class="form-select" @bind="convertFrom">
-                        <option value="USD">USD</option>
-                        <option value="ZIG">ZIG</option>
-                        <option value="EUR">EUR</option>
-                        <option value="GBP">GBP</option>
-                        <option value="ZAR">ZAR</option>
-                    </select>
+                    <NocturneSelect TValue="string" Class="nsel-bs" Options="ConvertFromOptions"
+                                    @bind-Value="convertFrom" Caption="Convert from"
+                                    AriaLabel="Convert from currency" />
                 </div>
                 <div class="col-md-1 text-center">
                     <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="SwapCurrencies">
@@ -55,13 +51,9 @@
                 </div>
                 <div class="col-md-2">
                     <label class="form-label">To</label>
-                    <select class="form-select" @bind="convertTo">
-                        <option value="ZIG">ZIG</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="GBP">GBP</option>
-                        <option value="ZAR">ZAR</option>
-                    </select>
+                    <NocturneSelect TValue="string" Class="nsel-bs" Options="ConvertToOptions"
+                                    @bind-Value="convertTo" Caption="Convert to"
+                                    AriaLabel="Convert to currency" />
                 </div>
                 <div class="col-md-2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="ConvertCurrency"
@@ -334,6 +326,14 @@
         }
 
 @code {
+    // The two converter pickers list the same currencies; only the resting
+    // choice differs, which is why the order does.
+    private static readonly NocturneSelectOption<string>[] ConvertFromOptions =
+        NocturneSelectOption.FromLabels("USD", "ZIG", "EUR", "GBP", "ZAR");
+
+    private static readonly NocturneSelectOption<string>[] ConvertToOptions =
+        NocturneSelectOption.FromLabels("ZIG", "USD", "EUR", "GBP", "ZAR");
+
     private List<ExchangeRateDto>? rates;
     private ExchangeRateDto? editingRate;
     private ExchangeRateHistoryResponse? historyData;

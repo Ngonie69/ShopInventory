@@ -239,16 +239,9 @@
             <div class="lst-filters">
                 <label class="lst-field">
                     <span class="lst-label">Warehouse</span>
-                    <span class="lst-select">
-                        <select class="lst-input" @bind="selectedWarehouse" @bind:event="onchange">
-                            <option value="">Select a warehouse</option>
-                            @foreach (var wh in warehouses)
-                            {
-                                <option value="@wh.WarehouseCode">@wh.WarehouseCode — @wh.WarehouseName</option>
-                            }
-                        </select>
-                        <span class="lst-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-block" Options="WarehouseSelectOptions"
+                                    @bind-Value="selectedWarehouse" Caption="Warehouse"
+                                    AriaLabel="Warehouse" Placeholder="Select a warehouse" />
                 </label>
                 @* Not a <label>: the field carries a button and a popup, which a
                    label would swallow the clicks of. *@
@@ -402,6 +395,10 @@
 
 @code {
     private List<WarehouseDto> warehouses = new();
+
+    private IEnumerable<NocturneSelectOption<string>> WarehouseSelectOptions =>
+        warehouses.Select(wh => new NocturneSelectOption<string>(
+            wh.WarehouseCode, wh.WarehouseName ?? wh.WarehouseCode) { Hint = wh.WarehouseCode });
     private LocalStockResultDto? stockResult;
     private HashSet<string> expandedItems = new();
     private StockFetchProgressModel? fetchProgress;

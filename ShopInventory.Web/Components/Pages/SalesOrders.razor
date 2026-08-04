@@ -113,16 +113,10 @@
             </div>
             <div class="sox-field" style="width:160px">
                 <label for="sox-f-status">Status</label>
-                <div class="sox-select">
-                    <select id="sox-f-status" class="sox-input" @bind="statusFilter">
-                        <option value="">All statuses</option>
-                        @foreach (SalesOrderStatus status in Enum.GetValues<SalesOrderStatus>())
-                        {
-                            <option value="@(((int)status).ToString())">@status</option>
-                        }
-                    </select>
-                    <span class="sox-caret" aria-hidden="true"></span>
-                </div>
+                <NocturneSelect Id="sox-f-status" Class="nsel-block" TValue="string"
+                                Options="StatusFilterOptions" @bind-Value="statusFilter"
+                                Caption="Filter by status" AriaLabel="Filter by status"
+                                Placeholder="All statuses" />
             </div>
             <div class="sox-field" style="width:140px">
                 <label for="sox-f-from">From date</label>
@@ -367,15 +361,9 @@
                 <span class="sox-foot-range">@RangeLabel</span>
                 <span class="sox-pagesize">
                     <span>Rows</span>
-                    <span class="sox-select">
-                        <select class="sox-input" aria-label="Rows per page" @bind="pageSize" @bind:after="OnPageSizeChanged">
-                            @foreach (var size in PageSizeOptions)
-                            {
-                                <option value="@size">@size</option>
-                            }
-                        </select>
-                        <span class="sox-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-sm nsel-end" Options="PageSizeSelectOptions"
+                                    @bind-Value="pageSize" OnChanged="OnPageSizeChanged"
+                                    AriaLabel="Rows per page" />
                 </span>
                 <div class="sox-pager">
                     <button type="button" class="sox-btn sox-btn-secondary sox-btn-icon" title="Previous page"
@@ -775,6 +763,27 @@
 
 @code {
     private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        PageSizeOptions.Select(s => new NocturneSelectOption<int>(s, s.ToString())).ToArray();
+
+    // Written out rather than walked off the enum. Enum.GetValues yields one
+    // entry per *name*, and Invoiced is an alias for Fulfilled — so the native
+    // list this replaced offered "Fulfilled" twice, one of which filtered on a
+    // status no order is ever stored under. The families are the ones
+    // GetStatusDotClass gives the same status in the results table.
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new(string.Empty, "All statuses", "neutral") { RuleAfter = true },
+        new(((int)SalesOrderStatus.Draft).ToString(), "Draft", "neutral"),
+        new(((int)SalesOrderStatus.Pending).ToString(), "Pending", "warn"),
+        new(((int)SalesOrderStatus.Approved).ToString(), "Approved", "good"),
+        new(((int)SalesOrderStatus.PartiallyFulfilled).ToString(), "Partially fulfilled", "info"),
+        new(((int)SalesOrderStatus.Fulfilled).ToString(), "Fulfilled", "good"),
+        new(((int)SalesOrderStatus.OnHold).ToString(), "On hold", "warn"),
+        new(((int)SalesOrderStatus.Cancelled).ToString(), "Cancelled", "neutral"),
+        new(((int)SalesOrderStatus.Rejected).ToString(), "Rejected", "bad")
+    ];
 
     private List<SalesOrderDto>? orders;
     private SalesOrderDto? selectedOrder;

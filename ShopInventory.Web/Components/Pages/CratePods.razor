@@ -113,30 +113,22 @@
                         <div class="podx-fields">
                             <div class="podx-field is-wide">
                                 <label for="crx-tx">Invoice crate transaction</label>
-                                <div class="podx-select">
-                                    <select id="crx-tx" class="podx-input" @onchange="OnSelectedPodTransactionChanged">
-                                        <option value="">Select a crate transaction</option>
-                                        @foreach (var transaction in PodEligibleTransactions)
-                                        {
-                                            <option value="@transaction.Id" selected="@(selectedPodTransactionId == transaction.Id)">
-                                                @GetTransactionLabel(transaction)
-                                            </option>
-                                        }
-                                    </select>
-                                    <span class="podx-caret" aria-hidden="true"></span>
-                                </div>
+                                <NocturneSelect TValue="int" Id="crx-tx" Class="nsel-block"
+                                                Options="PodTransactionSelectOptions"
+                                                Value="@(selectedPodTransactionId ?? 0)"
+                                                ValueChanged="@(id => OnSelectedPodTransactionChanged(id))"
+                                                Caption="Invoice crate transaction"
+                                                AriaLabel="Invoice crate transaction"
+                                                Placeholder="Select a crate transaction" />
                             </div>
                             @if (canChoosePodRole)
                             {
                                 <div class="podx-field">
                                     <label for="crx-role">Submission role</label>
-                                    <div class="podx-select">
-                                        <select id="crx-role" class="podx-input" @onchange="OnSelectedPodRoleChanged">
-                                            <option value="Driver" selected="@string.Equals(selectedPodRole, "Driver", StringComparison.OrdinalIgnoreCase)">Driver</option>
-                                            <option value="Merchandiser" selected="@string.Equals(selectedPodRole, "Merchandiser", StringComparison.OrdinalIgnoreCase)">Merchandiser</option>
-                                        </select>
-                                        <span class="podx-caret" aria-hidden="true"></span>
-                                    </div>
+                                    <NocturneSelect TValue="string" Id="crx-role" Class="nsel-block"
+                                                    Options="PodRoleSelectOptions" Value="@selectedPodRole"
+                                                    ValueChanged="@(role => OnSelectedPodRoleChanged(role))"
+                                                    Caption="Submission role" AriaLabel="Submission role" />
                                 </div>
                             }
                         </div>
@@ -516,17 +508,10 @@
                     </div>
                     <div class="podx-field">
                         <label for="crx-f-status">Status</label>
-                        <div class="podx-select">
-                            <select id="crx-f-status" class="podx-input" @bind="TransactionFilterStatus">
-                                <option value="all">All statuses</option>
-                                <option value="PendingDriverPod">Pending Driver POD</option>
-                                <option value="PendingMerchandiserPod">Pending Merch POD</option>
-                                <option value="Matched">Matched</option>
-                                <option value="VariancePendingGrv">Variance Pending GRV</option>
-                                <option value="GrvRaised">GRV Raised</option>
-                            </select>
-                            <span class="podx-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="crx-f-status" Class="nsel-block"
+                                        Options="TransactionStatusFilterOptions"
+                                        @bind-Value="TransactionFilterStatus"
+                                        Caption="Filter by status" AriaLabel="Filter by status" />
                     </div>
                     <div class="podx-field">
                         <label for="crx-f-from">From date</label>
@@ -646,15 +631,8 @@
                     </span>
                     <span class="podx-pagesize">
                         <span>Rows</span>
-                        <span class="podx-select">
-                            <select class="podx-input" aria-label="Rows per page" @bind="TransactionPageSize">
-                                @foreach (var size in CratePageSizeOptions)
-                                {
-                                    <option value="@size">@size</option>
-                                }
-                            </select>
-                            <span class="podx-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-sm nsel-end" Options="CratePageSizeSelectOptions"
+                                        @bind-Value="TransactionPageSize" AriaLabel="Rows per page" />
                     </span>
                     <div class="podx-pager">
                         <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="First page"

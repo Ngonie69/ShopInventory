@@ -68,31 +68,21 @@
             </label>
             <label>
                 <span><i class="ph ph-file-text" aria-hidden="true"></i>Document type</span>
-                <select class="form-select" @bind="selectedDocumentType">
-                    <option value="All">All</option>
-                    <option value="Invoice">Invoice</option>
-                    <option value="CreditNote">Credit Note</option>
-                    <option value="DebitNote">Debit Note</option>
-                </select>
+                <NocturneSelect TValue="string" Class="nsel-bs" Options="DocumentTypeFilterOptions"
+                                @bind-Value="selectedDocumentType" Caption="Filter by document type"
+                                AriaLabel="Filter by document type" />
             </label>
             <label>
                 <span><i class="ph ph-seal-check" aria-hidden="true"></i>Status</span>
-                <select class="form-select" @bind="selectedStatus">
-                    <option value="All">All</option>
-                    <option value="Success">Success</option>
-                    <option value="Fiscalised">Fiscalised</option>
-                    <option value="Not Fiscalised">Not Fiscalised</option>
-                    <option value="Failed">Failed</option>
-                </select>
+                <NocturneSelect TValue="string" Class="nsel-bs" Options="StatusFilterOptions"
+                                @bind-Value="selectedStatus" Caption="Filter by status"
+                                AriaLabel="Filter by status" />
             </label>
             <label>
                 <span><i class="ph ph-plugs-connected" aria-hidden="true"></i>Source</span>
-                <select class="form-select" @bind="selectedSourceSystem">
-                    <option value="All">All</option>
-                    <option value="InvoiceFiscalisation">API Queue</option>
-                    <option value="RevmaxEndpoint">REVMax Endpoint</option>
-                    <option value="InvoiceFiscalisationBackfill">Backfill</option>
-                </select>
+                <NocturneSelect TValue="string" Class="nsel-bs" Options="SourceFilterOptions"
+                                @bind-Value="selectedSourceSystem" Caption="Filter by source"
+                                AriaLabel="Filter by source" />
             </label>
             <label>
                 <span><i class="ph ph-calendar-blank" aria-hidden="true"></i>From</span>

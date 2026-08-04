@@ -66,18 +66,10 @@
         <div class="ops-filters">
             <div class="ops-field">
                 <label class="ops-label" for="prc-list">Price list</label>
-                <select id="prc-list" class="ops-input" @bind="selectedPriceListNum" @bind:after="OnPriceListChanged">
-                    <option value="0">Select a price list</option>
-                    @if (priceLists != null)
-                    {
-                        @foreach (var priceList in priceLists.Where(p => p.IsActive))
-                        {
-                            <option value="@priceList.ListNum">
-                                @priceList.ListName@(string.IsNullOrEmpty(priceList.Currency) ? "" : $" ({priceList.Currency})")
-                            </option>
-                        }
-                    }
-                </select>
+                <NocturneSelect Id="prc-list" Class="nsel-block" Options="PriceListSelectOptions"
+                                @bind-Value="selectedPriceListNum" OnChanged="OnPriceListChanged"
+                                Caption="Price list" AriaLabel="Price list"
+                                Placeholder="Select a price list" />
             </div>
             <div class="ops-field">
                 <label class="ops-label" for="prc-search">Search items</label>
@@ -239,6 +231,20 @@
 
 @code {
     private List<PriceListDto>? priceLists;
+
+    // 0 is this page's "nothing chosen" value, so that row carries IsUnset.
+    private IEnumerable<NocturneSelectOption<int>> PriceListSelectOptions =>
+        (priceLists ?? [])
+            .Where(list => list.IsActive)
+            .Select(list => new NocturneSelectOption<int>(list.ListNum, list.ListName ?? $"List {list.ListNum}")
+            {
+                Hint = string.IsNullOrEmpty(list.Currency) ? null : list.Currency
+            })
+            .Prepend(new NocturneSelectOption<int>(0, "Select a price list", "neutral")
+            {
+                IsUnset = true,
+                RuleAfter = true
+            });
     private List<ItemPriceByListDto>? allPricesForList;
     private List<ItemPriceByListDto>? filteredPrices;
     private ItemPriceByListDto? searchedPrice;

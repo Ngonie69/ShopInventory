@@ -95,6 +95,41 @@ public partial class LabBatchStatus : ComponentBase, IDisposable
     private static bool IsSelectableStatus(string? status)
         => StatusOptions.Any(option => string.Equals(option.Value, status, StringComparison.Ordinal));
 
+    /// <summary>
+    /// The three settable statuses, plus — where the batch currently carries one
+    /// SAP will not let us set back, typically Unknown — that status as a
+    /// disabled first row. Without it the control would show a blank trigger for
+    /// a batch that does have a status, which reads as "no status" rather than
+    /// "a status you cannot choose".
+    /// </summary>
+    /// <remarks>
+    /// The families are the ones GetStatusToneClass gives the same status in the
+    /// row beside this control.
+    /// </remarks>
+    private static IEnumerable<NocturneSelectOption<string>> StatusSelectOptionsFor(BatchSearchItem item)
+    {
+        var settable = StatusOptions.Select(option =>
+            new NocturneSelectOption<string>(option.Value, option.Label, StatusFamily(option.Value)));
+
+        return IsSelectableStatus(item.Status)
+            ? settable
+            : settable.Prepend(new NocturneSelectOption<string>(
+                item.Status ?? string.Empty, GetStatusLabel(item.Status), StatusFamily(item.Status))
+            {
+                Disabled = true,
+                RuleAfter = true
+            });
+    }
+
+    private static string StatusFamily(string? status)
+        => status switch
+        {
+            "Released" => "good",
+            "Locked" => "warn",
+            "NotAccessible" or "Not Accessible" => "bad",
+            _ => "neutral"
+        };
+
     // ── Search ──────────────────────────────────────────────────────────────
 
     private async Task SearchAsync()

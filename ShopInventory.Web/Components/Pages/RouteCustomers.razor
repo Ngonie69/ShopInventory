@@ -47,13 +47,9 @@
         <div class="ops-filters">
             <div class="ops-field">
                 <label class="ops-label" for="rc-route">Route</label>
-                <select id="rc-route" class="ops-input" @bind="selectedRouteCode">
-                    <option value="">All routes</option>
-                    @foreach (var routeCode in AvailableRouteCodes)
-                    {
-                        <option value="@routeCode">@GetRouteDisplayName(routeCode)</option>
-                    }
-                </select>
+                <NocturneSelect Id="rc-route" Class="nsel-block" Options="RouteFilterOptions"
+                                @bind-Value="selectedRouteCode" Caption="Filter by route"
+                                AriaLabel="Filter by route" Placeholder="All routes" />
             </div>
             <div class="ops-field">
                 <label class="ops-label" for="rc-search">Search</label>
@@ -342,6 +338,11 @@
         .Where(code => !string.IsNullOrWhiteSpace(code))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(code => GetRouteDisplayName(code), StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<NocturneSelectOption<string>> RouteFilterOptions =>
+        AvailableRouteCodes
+            .Select(code => new NocturneSelectOption<string>(code, GetRouteDisplayName(code), "info"))
+            .Prepend(NocturneSelectOption.All("All routes"));
 
     private IEnumerable<string> AvailableRouteCodes => routeCustomers
         .Select(customer => customer.AssignedBusinessPartnerCode)

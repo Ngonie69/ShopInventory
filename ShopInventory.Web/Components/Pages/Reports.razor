@@ -111,13 +111,10 @@
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label small fw-semibold text-uppercase text-muted">Quick Select</label>
-                                                <select class="form-select" @onchange="OnQuickSelectChanged" style="border-radius: 8px;">
-                                                    <option value="7">Last 7 Days</option>
-                                                    <option value="30" selected>Last 30 Days</option>
-                                                    <option value="90">Last 90 Days</option>
-                                                    <option value="180">Last 6 Months</option>
-                                                    <option value="365">Last Year</option>
-                                                </select>
+                                                <NocturneSelect TValue="int" Class="nsel-bs" Options="QuickSelectOptions"
+                                                                Value="quickSelectDays"
+                                                                ValueChanged="@(days => OnQuickSelectChanged(days))"
+                                                                Caption="Quick select" AriaLabel="Quick select range" />
                                             </div>
                                             <div class="col-md-3">
                                                 <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="w-100 fw-semibold" OnClick="() => LoadTab(activeTab, forceReload: true)" Disabled="@IsTabLoading(activeTab)"
@@ -325,12 +322,10 @@
                                                         </h6>
                                                         <div class="d-flex align-items-center gap-2">
                                                             <label class="text-muted small">Show:</label>
-                                                            <select class="form-select form-select-sm" style="width: 80px; border-radius: 8px;"
-                                                                    @bind="topProductsCount" @bind:after="LoadTopProducts">
-                                                                <option value="10">10</option>
-                                                                <option value="20">20</option>
-                                                                <option value="50">50</option>
-                                                            </select>
+                                                            <NocturneSelect Class="nsel-sm nsel-end" Options="TopProductsOptions"
+                                                                            @bind-Value="topProductsCount"
+                                                                            OnChanged="LoadTopProducts"
+                                                                            AriaLabel="Number of top products to show" />
                                                         </div>
                                                     </div>
                                                     <div class="table-responsive">
@@ -1482,12 +1477,10 @@ else if (activeTab == "slowmoving")
         </div>
         <div class="d-flex align-items-center gap-3 mb-3">
             <label class="form-label mb-0 small fw-semibold">Days threshold:</label>
-            <select class="form-select form-select-sm" style="width: 120px;" @onchange="OnSlowMovingDaysChanged">
-                <option value="14" selected="@(slowMovingDays == 14)">14 days</option>
-                <option value="30" selected="@(slowMovingDays == 30)">30 days</option>
-                <option value="60" selected="@(slowMovingDays == 60)">60 days</option>
-                <option value="90" selected="@(slowMovingDays == 90)">90 days</option>
-            </select>
+            <NocturneSelect TValue="int" Class="nsel-sm" Options="SlowMovingDayOptions"
+                            Value="slowMovingDays"
+                            ValueChanged="@(days => OnSlowMovingDaysChanged(days))"
+                            Caption="Days threshold" AriaLabel="Days threshold" />
         </div>
         @if (slowMovingReport.Products.Any())
         {
@@ -1581,6 +1574,25 @@ new("fulfillment", "Fulfillment", "bi-truck")
     }
     private int topProductsCount = 10;
     private int slowMovingDays = 30;
+
+    // 30 matches the option the old <select> marked `selected`, which was the
+    // only place the resting range was recorded.
+    private int quickSelectDays = 30;
+
+    private static readonly NocturneSelectOption<int>[] QuickSelectOptions =
+    [
+        new(7, "Last 7 Days"),
+        new(30, "Last 30 Days"),
+        new(90, "Last 90 Days"),
+        new(180, "Last 6 Months"),
+        new(365, "Last Year")
+    ];
+
+    private static readonly NocturneSelectOption<int>[] TopProductsOptions =
+        [new(10, "10"), new(20, "20"), new(50, "50")];
+
+    private static readonly NocturneSelectOption<int>[] SlowMovingDayOptions =
+        [new(14, "14 days"), new(30, "30 days"), new(60, "60 days"), new(90, "90 days")];
     private string currentUsername = "Unknown";
     private string currentUserRole = "User";
     private HashSet<string> loadingTabs = new();
@@ -1731,13 +1743,18 @@ new("fulfillment", "Fulfillment", "bi-truck")
     private async Task LoadFulfillmentReportAsync(CancellationToken cancellationToken) =>
         fulfillmentReport = await ReportService.GetOrderFulfillmentAsync(fromDate, toDate, cancellationToken);
 
-    private void OnQuickSelectChanged(ChangeEventArgs e)
+    private void OnQuickSelectChanged(int days)
     {
-        if (int.TryParse(e.Value?.ToString(), out int days))
+        if (days <= 0)
         {
-            fromDate = DateTime.UtcNow.AddDays(-days);
-            toDate = DateTime.UtcNow;
+            return;
         }
+
+        // The control now holds the choice rather than relying on a `selected`
+        // attribute, so reopening the menu shows which range is in force.
+        quickSelectDays = days;
+        fromDate = DateTime.UtcNow.AddDays(-days);
+        toDate = DateTime.UtcNow;
     }
 
     private async Task RetryTab(string tab)
@@ -1923,16 +1940,18 @@ new("fulfillment", "Fulfillment", "bi-truck")
         return ExportService.GeneratePrintableHtml("Order Fulfillment Report", sb.ToString(), fromDate, toDate);
     }
 
-    private async Task OnSlowMovingDaysChanged(ChangeEventArgs e)
+    private async Task OnSlowMovingDaysChanged(int days)
     {
-        if (int.TryParse(e.Value?.ToString(), out int days))
+        if (days <= 0)
         {
-            slowMovingDays = days;
-            loadingTabs.Add("slowmoving");
-            StateHasChanged();
-            try { slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays); }
-            finally { loadingTabs.Remove("slowmoving"); StateHasChanged(); }
+            return;
         }
+
+        slowMovingDays = days;
+        loadingTabs.Add("slowmoving");
+        StateHasChanged();
+        try { slowMovingReport = await ReportService.GetSlowMovingProductsAsync(fromDate, toDate, slowMovingDays); }
+        finally { loadingTabs.Remove("slowmoving"); StateHasChanged(); }
     }
 
     private string BuildProfitPdfHtml()

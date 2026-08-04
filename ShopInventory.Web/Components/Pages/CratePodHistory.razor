@@ -120,14 +120,10 @@
                     </div>
                     <div class="podx-field">
                         <label for="crh-f-role">Role</label>
-                        <div class="podx-select">
-                            <select id="crh-f-role" class="podx-input" @bind="PodHistoryRoleFilter">
-                                <option value="all">All roles</option>
-                                <option value="Driver">Driver</option>
-                                <option value="Merchandiser">Merchandiser</option>
-                            </select>
-                            <span class="podx-caret" aria-hidden="true"></span>
-                        </div>
+                        <NocturneSelect Id="crh-f-role" Class="nsel-block"
+                                        Options="PodHistoryRoleFilterOptions"
+                                        @bind-Value="PodHistoryRoleFilter"
+                                        Caption="Filter by role" AriaLabel="Filter by role" />
                     </div>
                     <div class="podx-field">
                         <label for="crh-f-from">From date</label>
@@ -263,15 +259,8 @@
                     </span>
                     <span class="podx-pagesize">
                         <span>Rows</span>
-                        <span class="podx-select">
-                            <select class="podx-input" aria-label="Rows per page" @bind="PodHistoryPageSize">
-                                @foreach (var size in CratePageSizeOptions)
-                                {
-                                    <option value="@size">@size</option>
-                                }
-                            </select>
-                            <span class="podx-caret" aria-hidden="true"></span>
-                        </span>
+                        <NocturneSelect Class="nsel-sm nsel-end" Options="CratePageSizeSelectOptions"
+                                        @bind-Value="PodHistoryPageSize" AriaLabel="Rows per page" />
                     </span>
                     <div class="podx-pager">
                         <button type="button" class="podx-btn podx-btn-secondary podx-btn-icon" title="First page"

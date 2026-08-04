@@ -75,28 +75,17 @@
             </div>
             <div class="cnx-field" style="width:150px">
                 <label for="cnx-f-status">Status</label>
-                <div class="cnx-select">
-                    <select id="cnx-f-status" class="cnx-input" @bind="statusFilter" @bind:after="ApplyFilters">
-                        <option value="">All statuses</option>
-                        @foreach (CreditNoteStatus status in Enum.GetValues<CreditNoteStatus>())
-                        {
-                            <option value="@(((int)status).ToString())">@status</option>
-                        }
-                    </select>
-                    <span class="cnx-caret" aria-hidden="true"></span>
-                </div>
+                <NocturneSelect Id="cnx-f-status" Class="nsel-block" TValue="string"
+                                Options="StatusFilterOptions" @bind-Value="statusFilter"
+                                OnChanged="ApplyFilters" Caption="Filter by status"
+                                AriaLabel="Filter by status" Placeholder="All statuses" />
             </div>
             <div class="cnx-field" style="width:150px">
                 <label for="cnx-f-fiscal">Fiscal state</label>
-                <div class="cnx-select">
-                    <select id="cnx-f-fiscal" class="cnx-input" @bind="fiscalStatusFilter" @bind:after="ApplyFilters">
-                        <option value="">All fiscal states</option>
-                        <option value="Fiscalised">Fiscalised</option>
-                        <option value="Not Fiscalised">Not Fiscalised</option>
-                        <option value="Unknown">Unknown</option>
-                    </select>
-                    <span class="cnx-caret" aria-hidden="true"></span>
-                </div>
+                <NocturneSelect Id="cnx-f-fiscal" Class="nsel-block" TValue="string"
+                                Options="FiscalFilterOptions" @bind-Value="fiscalStatusFilter"
+                                OnChanged="ApplyFilters" Caption="Filter by fiscal state"
+                                AriaLabel="Filter by fiscal state" Placeholder="All fiscal states" />
             </div>
             <div class="cnx-field" style="width:134px">
                 <label for="cnx-f-from">From date</label>
@@ -603,6 +592,30 @@
     private bool isDuplicatingCancelled;
     private string? bulkCancelReason;
     private string? duplicateCancelledReason;
+
+    // The families are the ones GetStatusDotClass gives the same status in the
+    // results table, so the swatch in the menu and the dot in the row cannot
+    // drift apart. Written out rather than walked off the enum: the order here
+    // is the lifecycle, which is not the order the values were declared in.
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new(string.Empty, "All statuses", "neutral") { RuleAfter = true },
+        new(((int)CreditNoteStatus.Draft).ToString(), "Draft", "neutral"),
+        new(((int)CreditNoteStatus.Pending).ToString(), "Pending", "warn"),
+        new(((int)CreditNoteStatus.Approved).ToString(), "Approved", "good"),
+        new(((int)CreditNoteStatus.PartiallyApplied).ToString(), "Partially applied", "info"),
+        new(((int)CreditNoteStatus.Applied).ToString(), "Applied", "good"),
+        new(((int)CreditNoteStatus.Cancelled).ToString(), "Cancelled", "neutral"),
+        new(((int)CreditNoteStatus.Voided).ToString(), "Voided", "bad")
+    ];
+
+    private static readonly NocturneSelectOption<string>[] FiscalFilterOptions =
+    [
+        new(string.Empty, "All fiscal states", "neutral") { RuleAfter = true },
+        new("Fiscalised", "Fiscalised", "good"),
+        new("Not Fiscalised", "Not fiscalised", "warn"),
+        new("Unknown", "Unknown", "neutral")
+    ];
 
     // Filters — the pending values the fields bind to, and the applied values the list reflects.
     private string? creditNoteNumberFilter;

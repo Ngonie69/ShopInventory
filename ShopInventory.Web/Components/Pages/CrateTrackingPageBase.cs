@@ -87,6 +87,39 @@ public abstract class CrateTrackingPageBase : ComponentBase
         .OrderByDescending(t => t.EffectiveDate)
         .ThenByDescending(t => t.InvoiceDocNum);
 
+    // The dropdowns on the crate pages are NocturneSelect, so the option lists
+    // live here rather than as <option>s. GetTransactionLabel is the same helper
+    // the tables label a row with. 0 stands for "nothing chosen", because the
+    // bound field is an int?.
+    protected static readonly NocturneSelectOption<string>[] TransactionStatusSelectOptions =
+    [
+        new(string.Empty, "All statuses", "neutral") { IsUnset = true, RuleAfter = true },
+        new("PendingDriverPod", "Pending Driver POD", "warn"),
+        new("PendingMerchandiserPod", "Pending Merchandiser POD", "warn"),
+        new("VariancePendingGrv", "Variance Pending GRV", "bad"),
+        new("GrvRaised", "GRV Raised", "info"),
+        new("Matched", "Matched", "good")
+    ];
+
+    protected IEnumerable<NocturneSelectOption<int>> GrvTransactionSelectOptions =>
+        GrvEligibleTransactions
+            .Select(t => new NocturneSelectOption<int>(t.Id, GetTransactionLabel(t)))
+            .Prepend(new NocturneSelectOption<int>(0, "Select a variance transaction", "neutral")
+            {
+                IsUnset = true,
+                RuleAfter = true
+            });
+
+    // The reasons are full sentences, so the menu is given room to show them.
+    protected IEnumerable<NocturneSelectOption<string>> GrvReasonSelectOptions =>
+        grvReasonOptions
+            .Select(reason => new NocturneSelectOption<string>(reason, reason))
+            .Prepend(new NocturneSelectOption<string>(string.Empty, "Select a suggested reason", "neutral")
+            {
+                IsUnset = true,
+                RuleAfter = true
+            });
+
     protected IEnumerable<CrateTransactionDto> GrvEligibleTransactions => transactions
         .Where(CanRaiseGrv)
         .OrderByDescending(t => t.EffectiveDate)
@@ -536,9 +569,9 @@ public abstract class CrateTrackingPageBase : ComponentBase
         }
     }
 
-    protected void ApplyGrvReasonOption(ChangeEventArgs e)
+    protected void ApplyGrvReasonOption(string? reason)
     {
-        selectedGrvReasonOption = e.Value?.ToString() ?? string.Empty;
+        selectedGrvReasonOption = reason ?? string.Empty;
 
         if (!string.IsNullOrWhiteSpace(selectedGrvReasonOption))
         {

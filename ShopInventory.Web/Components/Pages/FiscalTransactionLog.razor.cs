@@ -43,6 +43,34 @@ public partial class FiscalTransactionLog : IDisposable
     private string selectedStatus = "All";
     private string selectedDocumentType = "All";
     private string selectedSourceSystem = "All";
+
+    // "All" rather than an empty string is this page's no-filter sentinel — see
+    // NormalizeFilter — so those rows carry IsUnset and the trigger stays in its
+    // resting state until a filter is actually chosen.
+    private static readonly NocturneSelectOption<string>[] DocumentTypeFilterOptions =
+    [
+        new("All", "All", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Invoice", "Invoice", "info"),
+        new("CreditNote", "Credit Note", "warn"),
+        new("DebitNote", "Debit Note", "accent")
+    ];
+
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new("All", "All", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Success", "Success", "good"),
+        new("Fiscalised", "Fiscalised", "good"),
+        new("Not Fiscalised", "Not Fiscalised", "warn"),
+        new("Failed", "Failed", "bad")
+    ];
+
+    private static readonly NocturneSelectOption<string>[] SourceFilterOptions =
+    [
+        new("All", "All", "neutral") { IsUnset = true, RuleAfter = true },
+        new("InvoiceFiscalisation", "API Queue", "info"),
+        new("RevmaxEndpoint", "REVMax Endpoint", "accent"),
+        new("InvoiceFiscalisationBackfill", "Backfill", "neutral")
+    ];
     private DateTime? fromDate = DateTime.Today.AddDays(-30);
     private DateTime? toDate = DateTime.Today;
     private int currentPage = 1;

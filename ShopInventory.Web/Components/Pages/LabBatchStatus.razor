@@ -155,22 +155,12 @@
                                         <span class="bsc-status @GetStatusToneClass(item.Status)">@GetStatusLabel(item.Status)</span>
                                     </td>
                                     <td>
-                                        <div class="bsc-select-wrap">
-                                            <select class="bsc-input bsc-select" @bind="item.PendingStatus"
-                                                    aria-label="@($"New status for batch {item.BatchNumber} in {item.WarehouseCode}")">
-                                                @if (!IsSelectableStatus(item.Status))
-                                                {
-                                                    @* The batch carries a status SAP does not let us set back
-                                                       (typically Unknown), so it is shown but not offered. *@
-                                                    <option value="@item.Status" disabled>@GetStatusLabel(item.Status)</option>
-                                                }
-                                                @foreach (var option in StatusOptions)
-                                                {
-                                                    <option value="@option.Value">@option.Label</option>
-                                                }
-                                            </select>
-                                            <i class="ph ph-caret-down"></i>
-                                        </div>
+                                        @* The unselectable current status is carried in the list
+                                           by StatusSelectOptionsFor, disabled — see that helper. *@
+                                        <NocturneSelect Class="nsel-block" Options="StatusSelectOptionsFor(item)"
+                                                        @bind-Value="item.PendingStatus"
+                                                        Caption="Set batch status"
+                                                        AriaLabel="@($"New status for batch {item.BatchNumber} in {item.WarehouseCode}")" />
                                     </td>
                                     <td class="bsc-col-action bsc-col-last">
                                         @if (IsUpdating(item.BatchEntryId))

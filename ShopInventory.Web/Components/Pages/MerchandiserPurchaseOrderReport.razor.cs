@@ -35,6 +35,20 @@ public partial class MerchandiserPurchaseOrderReport : IAsyncDisposable
     private string searchTerm = string.Empty;
     private string selectedMerchandiserValue = string.Empty;
     private string attachmentFilter = "all";
+
+    private IEnumerable<NocturneSelectOption<string>> MerchandiserFilterOptions =>
+        (reportResult?.Merchandisers ?? [])
+            .Select(m => new NocturneSelectOption<string>(
+                m.MerchandiserUserId.ToString(), m.FullName, "accent") { Hint = m.Username })
+            .Prepend(NocturneSelectOption.All("All merchandisers"));
+
+    // "all" rather than an empty string is this filter's no-filter sentinel.
+    private static readonly NocturneSelectOption<string>[] AttachmentFilterOptions =
+    [
+        new("all", "All orders", "neutral") { IsUnset = true, RuleAfter = true },
+        new("with", "Only orders with uploaded POs", "good"),
+        new("without", "Only orders without uploaded POs", "warn")
+    ];
     private DateTime? fromDate = DateTime.Today.AddDays(-30);
     private DateTime? toDate = DateTime.Today;
     private int currentPage = 1;

@@ -430,6 +430,22 @@
     color: var(--ofx-mute);
 }
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.ofx {
+    --nsel-h: 32px;
+    --nsel-pad-y: 5px;
+    --nsel-pad-x: 10px;
+    --nsel-fs: 14px;
+    --nsel-fill: var(--ofx-field);
+    --nsel-edge: var(--ofx-field-edge);
+    --nsel-edge-hi: var(--ofx-field-edge-hi);
+    --nsel-radius: var(--ofx-r-md);
+}
+
 .ofx .ofx-input {
     width: 100%;
     min-height: 32px;

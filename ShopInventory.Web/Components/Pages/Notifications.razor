@@ -139,17 +139,10 @@
                             }
                         </button>
                     </div>
-                    <div class="ntf-select">
-                        <label class="visually-hidden" for="ntfCategory">Category</label>
-                        <select id="ntfCategory" class="ntf-input" @bind="selectedCategory" @bind:after="OnCategoryChanged">
-                            <option value="">All categories</option>
-                            <option value="System">System</option>
-                            <option value="LowStock">Low stock</option>
-                            <option value="Payment">Payment</option>
-                            <option value="Invoice">Invoice</option>
-                        </select>
-                        <span class="ntf-caret" aria-hidden="true"></span>
-                    </div>
+                    <NocturneSelect Id="ntfCategory" TValue="string" Options="CategoryFilterOptions"
+                                    @bind-Value="selectedCategory" OnChanged="OnCategoryChanged"
+                                    Caption="Filter by category" AriaLabel="Filter by category"
+                                    Placeholder="All categories" />
                 </div>
             </div>
 
@@ -238,6 +231,15 @@
 </div>
 
 @code {
+    private static readonly NocturneSelectOption<string>[] CategoryFilterOptions =
+    [
+        new(string.Empty, "All categories", "neutral") { IsUnset = true, RuleAfter = true },
+        new("System", "System", "neutral"),
+        new("LowStock", "Low stock", "warn"),
+        new("Payment", "Payment", "good"),
+        new("Invoice", "Invoice", "info")
+    ];
+
     private List<NotificationModel> notifications = new();
     private bool isLoading = true;
     private bool isProcessing = false;

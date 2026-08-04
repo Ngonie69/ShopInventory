@@ -611,6 +611,23 @@
 
 /* ── Controls ──────────────────────────────────────────────────────────── */
 
+/* The dropdowns on this page are NocturneSelect, not native <select>s — a
+   native popup takes its background from the field and is drawn outside the
+   page, where no stylesheet can reach it. Only the closed trigger is fitted to
+   this sheet; the menu is the shared one. See nocturne-select.css for why these
+   are set from here rather than there. */
+.qtn,
+.qtn-overlay {
+    --nsel-h: 32px;
+    --nsel-pad-y: 6px;
+    --nsel-pad-x: 11px;
+    --nsel-fs: 12.5px;
+    --nsel-fill: var(--qtn-field-bg);
+    --nsel-edge: transparent;
+    --nsel-edge-hi: var(--qtn-field-edge);
+    --nsel-radius: var(--qtn-r-md);
+}
+
 .qtn .qtn-input,
 .qtn-overlay .qtn-input {
     width: 100%;

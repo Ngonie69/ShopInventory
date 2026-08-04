@@ -153,18 +153,13 @@
             </div>
             <div class="ivx-field" style="width:170px">
                 <label for="ivx-f-fiscal">Fiscal status</label>
-                <div class="ivx-select">
-                    @* Refetches rather than filtering in place: the fiscal status is part of what
-                       LoadInvoices counts as "filtered", and that widens the fetch from 100 rows to
-                       5000. Narrowing the loaded 100 instead would quietly hide the rest. *@
-                    <select id="ivx-f-fiscal" class="ivx-input" @bind="fiscalStatusFilter" @bind:after="ApplyFilter">
-                        <option value="">All fiscal states</option>
-                        <option value="Fiscalised">Fiscalised</option>
-                        <option value="Not Fiscalised">Not Fiscalised</option>
-                        <option value="Unknown">Unknown</option>
-                    </select>
-                    <span class="ivx-caret" aria-hidden="true"></span>
-                </div>
+                @* Refetches rather than filtering in place: the fiscal status is part of what
+                   LoadInvoices counts as "filtered", and that widens the fetch from 100 rows to
+                   5000. Narrowing the loaded 100 instead would quietly hide the rest. *@
+                <NocturneSelect Id="ivx-f-fiscal" Class="nsel-block" TValue="string"
+                                Options="FiscalFilterOptions" @bind-Value="fiscalStatusFilter"
+                                OnChanged="ApplyFilter" Caption="Filter by fiscal status"
+                                AriaLabel="Filter by fiscal status" Placeholder="All fiscal states" />
             </div>
             <div class="ivx-field" style="width:140px">
                 <label for="ivx-f-from">From date</label>
@@ -303,15 +298,9 @@
                 <span class="ivx-foot-range">@RangeLabel</span>
                 <span class="ivx-pagesize">
                     <span>Rows</span>
-                    <span class="ivx-select">
-                        <select class="ivx-input" aria-label="Rows per page" @bind="_pageSize" @bind:after="ResetToFirstPage">
-                            @foreach (var size in PageSizeOptions)
-                            {
-                                <option value="@size">@size</option>
-                            }
-                        </select>
-                        <span class="ivx-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-sm nsel-end" Options="PageSizeSelectOptions"
+                                    @bind-Value="_pageSize" OnChanged="ResetToFirstPage"
+                                    AriaLabel="Rows per page" />
                 </span>
                 <div class="ivx-pager">
                     <button type="button" class="ivx-btn ivx-btn-secondary ivx-btn-icon" title="Previous page"
@@ -731,6 +720,17 @@
 
 @code {
     private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        PageSizeOptions.Select(s => new NocturneSelectOption<int>(s, s.ToString())).ToArray();
+
+    private static readonly NocturneSelectOption<string>[] FiscalFilterOptions =
+    [
+        new(string.Empty, "All fiscal states", "neutral") { RuleAfter = true },
+        new("Fiscalised", "Fiscalised", "good"),
+        new("Not Fiscalised", "Not fiscalised", "warn"),
+        new("Unknown", "Unknown", "neutral")
+    ];
 
     private bool IsVanSalesView => NavigationManager.ToBaseRelativePath(NavigationManager.Uri)
         .StartsWith("van-sales-invoices", StringComparison.OrdinalIgnoreCase);

@@ -47,6 +47,16 @@ public partial class RevmaxCrossDeviceCreditNoteHistory : ComponentBase
     private string? errorMessage;
     private string searchTerm = string.Empty;
     private string selectedStatus = "All";
+
+    // "All" rather than an empty string is this page's no-filter sentinel — see
+    // NormalizeFilter — so that row carries IsUnset.
+    private static readonly NocturneSelectOption<string>[] StatusFilterOptions =
+    [
+        new("All", "All", "neutral") { IsUnset = true, RuleAfter = true },
+        new("Success", "Success", "good"),
+        new("Fiscalised", "Fiscalised", "good"),
+        new("Failed", "Failed", "bad")
+    ];
     private DateTime? toDate = IAuditService.ToCAT(DateTime.UtcNow).Date;
     private DateTime? fromDate = IAuditService.ToCAT(DateTime.UtcNow).Date.AddDays(-30);
     private int currentPage = 1;

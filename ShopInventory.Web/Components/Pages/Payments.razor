@@ -244,15 +244,9 @@
                 <span class="pyx-foot-range">@RangeLabel</span>
                 <span class="pyx-pagesize">
                     <span>Rows</span>
-                    <span class="pyx-select">
-                        <select class="pyx-input" aria-label="Rows per page" @bind="_pageSize" @bind:after="ResetToFirstPage">
-                            @foreach (var size in PageSizeOptions)
-                            {
-                                <option value="@size">@size</option>
-                            }
-                        </select>
-                        <span class="pyx-caret" aria-hidden="true"></span>
-                    </span>
+                    <NocturneSelect Class="nsel-sm nsel-end" Options="PageSizeSelectOptions"
+                                    @bind-Value="_pageSize" OnChanged="ResetToFirstPage"
+                                    AriaLabel="Rows per page" />
                 </span>
                 <div class="pyx-pager">
                     <button type="button" class="pyx-btn pyx-btn-secondary pyx-btn-icon" title="Previous page"
@@ -409,6 +403,9 @@
 
 @code {
     private static readonly int[] PageSizeOptions = [10, 25, 50, 100, 200];
+
+    private static readonly NocturneSelectOption<int>[] PageSizeSelectOptions =
+        PageSizeOptions.Select(s => new NocturneSelectOption<int>(s, s.ToString())).ToArray();
 
     private List<IncomingPaymentDto>? payments;
     private int _pageSize = 10;
