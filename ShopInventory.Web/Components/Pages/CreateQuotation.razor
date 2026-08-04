@@ -122,7 +122,8 @@
                                                             <span class="sfm-drop-code">@bp.CardCode</span>
                                                             <span class="sfm-drop-sub">@bp.CardName</span>
                                                         </span>
-                                                        @if (!string.IsNullOrEmpty(bp.Currency))
+                                                        @if (!string.IsNullOrWhiteSpace(bp.Currency)
+                                                             && !string.Equals(bp.Currency.Trim(), "##", StringComparison.OrdinalIgnoreCase))
                                                         {
                                                             <span class="sfm-note">@bp.Currency</span>
                                                         }
@@ -155,7 +156,8 @@
                                         {
                                             <span> &middot; @selectedBusinessPartner.Phone1</span>
                                         }
-                                        @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Currency))
+                                        @if (!string.IsNullOrWhiteSpace(selectedBusinessPartner.Currency)
+                                             && !string.Equals(selectedBusinessPartner.Currency.Trim(), "##", StringComparison.OrdinalIgnoreCase))
                                         {
                                             <span> &middot; @selectedBusinessPartner.Currency</span>
                                         }
@@ -557,7 +559,8 @@
 
         createValidationErrors.Remove("Customer");
 
-        if (!string.IsNullOrWhiteSpace(bp.Currency))
+        if (!string.IsNullOrWhiteSpace(bp.Currency)
+            && !string.Equals(bp.Currency.Trim(), "##", StringComparison.OrdinalIgnoreCase))
         {
             newQuotation.Currency = bp.Currency.Trim().ToUpperInvariant();
             createValidationErrors.Remove("Currency");
