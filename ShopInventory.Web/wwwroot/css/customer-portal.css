@@ -2368,6 +2368,25 @@
     box-shadow: 0 0 0 3px rgba(var(--cpx-accent-rgb), .16);
 }
 
+/* The change-password form is the one EditForm in the portal, so its fields are
+   the only ones Blazor stamps `invalid` / `valid modified` on. app.css turns
+   each of those into a 2px outline, and in light theme it resolves both
+   --danger-color and --success-color to the same #333333: a rejected field and
+   one the user has merely typed in wear identical near-black rings, and neither
+   reads as a validation state. Dark swaps in a green/red pair from outside the
+   portal family. The ring is dropped and the border carries the state instead —
+   the same channel `:focus` above uses, so a field only ever changes its edge.
+   No focus ring is restored here: these fields signal focus with the box-shadow
+   above, not with an outline, so putting one back would double-ring them. */
+.cpx .cpd-input.invalid,
+.cpx .cpd-input.valid.modified {
+    outline: none;
+}
+
+.cpx .cpd-input.invalid {
+    border-color: var(--cpx-bad);
+}
+
 .cpx .cpd-help {
     font-size: var(--cpx-text-sm);
     color: var(--cpx-mute-2);
