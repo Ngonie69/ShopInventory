@@ -17,6 +17,14 @@ updates:
       dotnet-dependencies:
         patterns:
           - "*"
+    ignore:
+      # ImageSharp 4.x requires a paid Six Labors licence key at build time and
+      # fails the build without one ("No Six Labors license found"). 3.1.x stays
+      # under the Apache-2.0 option. Patch and minor 3.x updates still come
+      # through, so security fixes are not blocked.
+      - dependency-name: "SixLabors.ImageSharp"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
