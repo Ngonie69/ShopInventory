@@ -96,7 +96,7 @@
                                     <input class="sfm-input @(createValidationErrors.ContainsKey("Customer") ? "is-bad" : "")"
                                            @bind="bpSearchTerm" @bind:event="oninput"
                                            @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
-                                           placeholder="Search by code or name&hellip;" autocomplete="off" />
+                                           placeholder="Search by code or name…" autocomplete="off" />
                                     @if (selectedBusinessPartner != null)
                                     {
                                         <button type="button" class="sfm-combo-clear" @onclick="ClearSelectedBP"
@@ -227,7 +227,7 @@
                             <label class="sfm-lab sfm-span2">
                                 <span class="sfm-lab-t">Terms &amp; conditions</span>
                                 <input class="sfm-input" @bind="newQuotation.TermsAndConditions"
-                                       placeholder="Payment terms, delivery terms&hellip;" />
+                                       placeholder="Payment terms, delivery terms…" />
                             </label>
                         </div>
                     </section>
@@ -278,7 +278,7 @@
                                                        @onkeydown="e => OnItemCodeKeyDown(index, e)"
                                                        @onfocus="() => OnItemCodeFocus(index)"
                                                        @onblur="() => OnItemCodeBlur(index)"
-                                                       placeholder="Search&hellip;" autocomplete="off" />
+                                                       placeholder="Search…" autocomplete="off" />
                                                 @if (lineState.ShowProductDropdown && lineState.FilteredProducts.Any())
                                                 {
                                                     <div class="sfm-drop is-wide">

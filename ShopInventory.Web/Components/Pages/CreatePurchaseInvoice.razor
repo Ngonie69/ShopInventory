@@ -156,7 +156,7 @@
                                     <span class="pfm-combo">
                                         <input class="pfm-input @(HasError("CardCode") ? "is-bad" : "")" type="text"
                                                aria-labelledby="apinv-c-supplier-label" autocomplete="off"
-                                               placeholder="Search a supplier code or name, or type an exact code&#8230;"
+                                               placeholder="Search a supplier code or name, or type an exact code…"
                                                value="@supplierSearchTerm" @oninput="OnSupplierInput"
                                                @onfocus="ShowSupplierResults" @onblur="HandleSupplierBlur" />
                                         @if (showSupplierResults && FilteredSuppliers.Any())

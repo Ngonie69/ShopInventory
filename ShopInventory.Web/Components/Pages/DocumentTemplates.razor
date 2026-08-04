@@ -368,27 +368,27 @@
                 <div class="dtp-field">
                     <label class="dtp-label" for="tplHeader">Header (HTML)</label>
                     <textarea id="tplHeader" class="dtp-textarea" rows="3" @bind="templateHeaderContent"
-                              placeholder="Company logo, address, contact details&#8230;"></textarea>
+                              placeholder="Company logo, address, contact details…"></textarea>
                     <span class="dtp-hint">Appears at the top of every page of the document.</span>
                 </div>
 
                 <div class="dtp-field">
                     <label class="dtp-label" for="tplBody">Main content (HTML)</label>
                     <textarea id="tplBody" class="dtp-textarea" rows="12" @bind="templateHtmlContent"
-                              placeholder="Use &#123;&#123;PlaceholderName&#125;&#125; for values from the document&#8230;"></textarea>
+                              placeholder="Use {{PlaceholderName}} for values from the document…"></textarea>
                     <span class="dtp-hint">&#123;&#123;PlaceholderName&#125;&#125; is substituted when the document is rendered.</span>
                 </div>
 
                 <div class="dtp-field">
                     <label class="dtp-label" for="tplFooter">Footer (HTML)</label>
                     <textarea id="tplFooter" class="dtp-textarea" rows="3" @bind="templateFooterContent"
-                              placeholder="Terms, conditions, signature blocks&#8230;"></textarea>
+                              placeholder="Terms, conditions, signature blocks…"></textarea>
                 </div>
 
                 <div class="dtp-field">
                     <label class="dtp-label" for="tplCss">CSS</label>
                     <textarea id="tplCss" class="dtp-textarea" rows="5" @bind="templateCssStyles"
-                              placeholder=".header &#123; font-size: 24px; &#125;"></textarea>
+                              placeholder=".header { font-size: 24px; }"></textarea>
                 </div>
             </div>
 

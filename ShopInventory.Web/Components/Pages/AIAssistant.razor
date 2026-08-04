@@ -165,7 +165,7 @@
                     <div class="aia-composer">
                         <label class="visually-hidden" for="aiaInput">Message</label>
                         <textarea id="aiaInput" class="aia-textarea" rows="1" disabled="@isLoading"
-                                  placeholder="Ask about stock, sales or a customer&#8230;"
+                                  placeholder="Ask about stock, sales or a customer…"
                                   @bind="userMessage" @bind:event="oninput" @onkeydown="HandleKeyDown"></textarea>
                         <button type="button" class="aia-send" aria-label="Send"
                                 disabled="@(isLoading || string.IsNullOrWhiteSpace(userMessage))" @onclick="SendMessage">
