@@ -664,10 +664,10 @@
     background: var(--srd-bar-low);
 }
 
-/* The read-out: day, its total and how many orders made it. It sits above the
-   bar's top edge; the flip and edge-pinning variants below are chosen in
-   BuildBars, since only the code knows how tall the bar is and where in the
-   window it falls. */
+/* The read-out both charts share: a heading, the exact figure and a note.
+   The value chart puts it above a bar's top edge and the customer ranking
+   above a row; the flip and pinning variants below are chosen in the code,
+   since only it knows how tall a bar is and where in the list a row falls. */
 .srd-tip {
     position: absolute;
     left: 50%;
@@ -691,7 +691,9 @@
 }
 
 .srd-barcol:hover .srd-tip,
-.srd-barcol:focus .srd-tip {
+.srd-barcol:focus .srd-tip,
+.srd-top:hover .srd-tip,
+.srd-top:focus .srd-tip {
     opacity: 1;
     visibility: visible;
 }
@@ -720,7 +722,30 @@
     transform: none;
 }
 
-.srd-tip-day {
+/* Over a ranked row rather than a bar: the row is wide, so the card pins to
+   its left edge and no end-of-axis case arises. Customer names are long and
+   the note carries a clause, so this one wraps rather than running off. */
+.srd-tip.is-row {
+    left: 0;
+    transform: translate(0, -7px);
+    max-width: 260px;
+    white-space: normal;
+}
+
+.srd-tip.is-row.is-below {
+    top: 100%;
+    bottom: auto;
+    transform: translate(0, 7px);
+}
+
+/* The name is the thing being read in full here, not a date, so it carries
+   more weight than the value chart's heading line. */
+.srd-tip.is-row .srd-tip-head {
+    font-size: 11.5px;
+    color: var(--srd-ink-2);
+}
+
+.srd-tip-head {
     font-size: 10.5px;
     color: var(--srd-mute-2);
 }
@@ -1006,13 +1031,39 @@
 
 /* ── Top customers ─────────────────────────────────────────────────────── */
 
+/* The ranked row is a hover target in its own right, lit the same way the
+   value chart's columns are. */
 .srd-top {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 5px;
+    outline: none;
 }
 
+.srd-top::before {
+    content: "";
+    position: absolute;
+    inset: -5px -7px;
+    border-radius: var(--srd-r-sm);
+    background: transparent;
+    transition: background .12s ease;
+}
+
+.srd-top:hover,
+.srd-top:focus {
+    z-index: 2;
+}
+
+.srd-top:hover::before,
+.srd-top:focus::before {
+    background: var(--srd-hover);
+}
+
+/* Positioned so the hover band, itself a positioned ::before, stays behind
+   the name and the meter rather than veiling them. */
 .srd-top-row {
+    position: relative;
     display: flex;
     align-items: baseline;
     gap: 10px;
@@ -1034,6 +1085,7 @@
 }
 
 .srd-top-track {
+    position: relative;
     height: 4px;
     border-radius: 2px;
     background: var(--srd-track);

@@ -401,7 +401,7 @@ public partial class SalesRepDashboard
     {
         var ranked = orders
             .GroupBy(order => CustomerLabel(order), StringComparer.OrdinalIgnoreCase)
-            .Select(group => new { Name = group.Key, Value = group.Sum(order => order.DocTotal) })
+            .Select(group => new { Name = group.Key, Value = group.Sum(order => order.DocTotal), Count = group.Count() })
             .Where(entry => entry.Value > 0)
             .OrderByDescending(entry => entry.Value)
             .Take(5)
@@ -412,10 +412,27 @@ public partial class SalesRepDashboard
         var leader = ranked.Count == 0 ? 0m : ranked[0].Value;
 
         topCustomers = ranked
-            .Select(entry => new TopCustomer(
-                entry.Name,
-                entry.Value,
-                leader == 0 ? "0%" : Math.Round(entry.Value / leader * 100m, 1).ToString("0.#", CultureInfo.InvariantCulture) + "%"))
+            .Select((entry, index) =>
+            {
+                // The row shows an abbreviated total against an ellipsised name,
+                // so the tooltip is where the exact figure, the full name and
+                // the account's share of the window are read.
+                var orderNote = entry.Count == 1 ? "1 order" : $"{entry.Count} orders";
+                var note = rangeValue <= 0
+                    ? orderNote
+                    : $"{orderNote} · {Math.Round(entry.Value / rangeValue * 100m, 1).ToString("0.#", CultureInfo.InvariantCulture)}% of the window";
+
+                return new TopCustomer(
+                    entry.Name,
+                    entry.Value,
+                    leader == 0 ? "0%" : Math.Round(entry.Value / leader * 100m, 1).ToString("0.#", CultureInfo.InvariantCulture) + "%",
+                    // The leader's tooltip would sit over the card's own heading,
+                    // so the top row alone drops its card below the bar.
+                    index == 0 ? "is-row is-below" : "is-row",
+                    Money(entry.Value),
+                    note,
+                    $"{entry.Name}: {Money(entry.Value)}, {note}");
+            })
             .ToList();
     }
 
@@ -713,7 +730,14 @@ public partial class SalesRepDashboard
         string Note,
         string Label);
 
-    private sealed record TopCustomer(string Name, decimal Value, string Width);
+    private sealed record TopCustomer(
+        string Name,
+        decimal Value,
+        string Width,
+        string TipClass,
+        string Exact,
+        string Note,
+        string Label);
 
     private sealed record WorkflowStep(string Number, string Title, string Body, string Href, string Cta);
 

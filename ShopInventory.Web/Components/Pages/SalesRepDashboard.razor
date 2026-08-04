@@ -170,7 +170,7 @@
                             <div class="srd-barcol" tabindex="0" aria-label="@bar.Label">
                                 <div class="srd-bar @bar.BandClass" style="height:@bar.Height">
                                     <div class="srd-tip @bar.TipClass" role="tooltip" aria-hidden="true">
-                                        <span class="srd-tip-day">@bar.Day</span>
+                                        <span class="srd-tip-head">@bar.Day</span>
                                         <span class="srd-tip-value">@bar.Value</span>
                                         <span class="srd-tip-note">@bar.Note</span>
                                     </div>
@@ -323,13 +323,21 @@
                         <div class="srd-tops">
                             @foreach (var customer in topCustomers)
                             {
-                                <div class="srd-top">
+                                @* The whole row is the hit area: the name is
+                                   ellipsised and the total abbreviated, so the
+                                   tooltip is the only place both read in full. *@
+                                <div class="srd-top" tabindex="0" aria-label="@customer.Label">
                                     <div class="srd-top-row">
                                         <span class="srd-top-name">@customer.Name</span>
                                         <span class="srd-top-value">@Compact(customer.Value)</span>
                                     </div>
                                     <div class="srd-top-track">
                                         <div class="srd-top-fill" style="width:@customer.Width"></div>
+                                    </div>
+                                    <div class="srd-tip @customer.TipClass" role="tooltip" aria-hidden="true">
+                                        <span class="srd-tip-head">@customer.Name</span>
+                                        <span class="srd-tip-value">@customer.Exact</span>
+                                        <span class="srd-tip-note">@customer.Note</span>
                                     </div>
                                 </div>
                             }
