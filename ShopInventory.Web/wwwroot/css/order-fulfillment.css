@@ -74,9 +74,6 @@
     --ofx-track: rgba(27, 28, 38, .1);
     --ofx-shadow-sm: 0 0 0 1px #e3e4ee, 0 1px 2px rgba(27, 28, 38, .05);
     --ofx-scheme: light;
-    /* The select caret, whole: a var() inside the data URL's quoted string
-       would not be substituted, so each theme carries the finished image. */
-    --ofx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%23656879' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
     /* Nocturne's compact scale — density 0.70x. */
     --ofx-s1: 2.8px;
@@ -129,7 +126,6 @@
     --ofx-track: rgba(233, 233, 237, .12);
     --ofx-shadow-sm: 0 0 0 1px #3f424d;
     --ofx-scheme: dark;
-    --ofx-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1.5l4 4 4-4' fill='none' stroke='%2387878f' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
@@ -493,26 +489,6 @@
 .ofx .ofx-input:disabled {
     opacity: .55;
     cursor: not-allowed;
-}
-
-.ofx-select {
-    position: relative;
-}
-
-.ofx .ofx-select select.ofx-input {
-    padding-right: 26px;
-    cursor: pointer;
-}
-
-.ofx-select .ofx-caret {
-    position: absolute;
-    right: 9px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--ofx-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 .ofx-filter-actions {
