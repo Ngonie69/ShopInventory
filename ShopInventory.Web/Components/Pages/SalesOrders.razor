@@ -473,6 +473,14 @@
                     </div>
                 }
 
+                @if (!string.IsNullOrWhiteSpace(GetPostingBlockReason(selectedOrder)))
+                {
+                    <div class="sox-note is-bad">
+                        <div class="sox-dt">Not posted to SAP</div>
+                        <div>@GetPostingBlockReason(selectedOrder)</div>
+                    </div>
+                }
+
                 @if (selectedOrder.Lines?.Any() == true)
                 {
                     <div>
@@ -642,6 +650,16 @@
                                 <div class="sox-summary-value">@(approvalOrder.CreatedByUserName ?? "Unknown")</div>
                             </div>
                         </div>
+                        @if (!string.IsNullOrWhiteSpace(GetPostingBlockReason(approvalOrder)))
+                        {
+                            @* Recorded when the order was captured, so it can be out of date — a
+                               payment may have landed since. The refusal itself is SAP-side and is
+                               re-checked on this click, so the button stays live. *@
+                            <div class="sox-note is-bad">
+                                <div class="sox-dt">This order will be refused</div>
+                                <div>@GetPostingBlockReason(approvalOrder)</div>
+                            </div>
+                        }
                         <div class="sox-impact">
                             <i class="ph ph-info" aria-hidden="true"></i>
                             <div>
@@ -1489,6 +1507,15 @@
         => note?.RecordedAtUtc is not null && resolvedRejectedNoteRecordedAtUtc == note.RecordedAtUtc
             ? resolvedRejectedNoteRecordedAtLocalDisplay
             : null;
+
+    /// <summary>
+    /// Why an unposted order is sitting where it is. The API records this on the order itself —
+    /// a credit hold noted when a mobile order was priced, or the message from a posting attempt
+    /// that failed — and until now nothing showed it, so a refused approval left no trace once the
+    /// snackbar cleared. An order that reached SAP has nothing to explain.
+    /// </summary>
+    private static string? GetPostingBlockReason(SalesOrderDto order)
+        => order.IsSynced || order.SAPDocNum.HasValue ? null : order.SyncError;
 
     private static bool CanRejectOrder(SalesOrderDto order)
         => !order.IsSynced && order.Status is SalesOrderStatus.Draft or SalesOrderStatus.Pending or SalesOrderStatus.OnHold;

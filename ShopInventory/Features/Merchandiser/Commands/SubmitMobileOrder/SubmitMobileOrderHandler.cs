@@ -95,9 +95,13 @@ public sealed class SubmitMobileOrderHandler(
         }
         catch (CreditLimitExceededException ex)
         {
-            // Reported as a validation failure rather than through AssignmentFailed: a 500 has its
-            // detail replaced with a generic message, and the rep in the field would be told the
-            // order failed without being told the account is over its limit.
+            // A safety net rather than the normal path: capture no longer refuses a mobile order on
+            // credit, because an unpriced order can only be measured against the customer's
+            // standing balance and losing the capture helps nobody. The order is held on the web
+            // instead and refused at the point of posting. If something upstream does refuse one
+            // here, report it as a validation failure rather than through AssignmentFailed — a 500
+            // has its detail replaced with a generic message, and the rep in the field would be
+            // told the order failed without being told the account is over its limit.
             try
             {
                 await auditService.LogAsync(
