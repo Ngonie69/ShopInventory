@@ -5362,9 +5362,6 @@ html.dark-theme {
 .dark-theme .ci-page,
 .dark-theme .bak-page,
 .dark-theme .transfer-page,
-.dark-theme .cq-page,
-.dark-theme .ccn-page,
-.dark-theme .cso-page,
 .dark-theme .md-page,
 .dark-theme .qt-page {
     background: #0f172a !important;
@@ -5388,9 +5385,6 @@ html.dark-theme {
 .dark-theme .cp-header h2,
 .dark-theme .ci-header h2,
 .dark-theme .bak-header h2,
-.dark-theme .cq-header h2,
-.dark-theme .ccn-header h2,
-.dark-theme .cso-header h2,
 .dark-theme .md-header h2,
 .dark-theme .qt-header h2,
 .dark-theme .header-title,
@@ -5413,9 +5407,6 @@ html.dark-theme {
 .dark-theme .um-header p,
 .dark-theme .notif-header p,
 .dark-theme .it-header p,
-.dark-theme .cq-header p,
-.dark-theme .ccn-header p,
-.dark-theme .cso-header p,
 .dark-theme .md-header p,
 .dark-theme .qt-header p,
 .dark-theme .header-subtitle {
@@ -6472,43 +6463,25 @@ html.dark-theme {
     border-color: #334155 !important;
     box-shadow: none !important;
 }
-.dark-theme .cq-page,
-.dark-theme .cpinv-page,
-.dark-theme .ccn-page,
-.dark-theme .cso-page {
+.dark-theme .cpinv-page {
     background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
 }
-.dark-theme .cq-header h2,
-.dark-theme .cpinv-header h2,
-.dark-theme .ccn-header h2,
-.dark-theme .cso-header h2 {
+.dark-theme .cpinv-header h2 {
     color: #f1f5f9 !important;
 }
-.dark-theme .cq-header p,
-.dark-theme .cpinv-header p,
-.dark-theme .ccn-header p,
-.dark-theme .cso-header p {
+.dark-theme .cpinv-header p {
     color: #94a3b8 !important;
 }
 .dark-theme .form-card-title {
     color: #f1f5f9 !important;
 }
-.dark-theme .cq-breadcrumb,
-.dark-theme .cpinv-breadcrumb,
-.dark-theme .ccn-breadcrumb,
-.dark-theme .cso-breadcrumb {
+.dark-theme .cpinv-breadcrumb {
     color: #94a3b8 !important;
 }
-.dark-theme .cq-breadcrumb a,
-.dark-theme .cpinv-breadcrumb a,
-.dark-theme .ccn-breadcrumb a,
-.dark-theme .cso-breadcrumb a {
+.dark-theme .cpinv-breadcrumb a {
     color: #60a5fa !important;
 }
-.dark-theme .cq-breadcrumb .sep,
-.dark-theme .cpinv-breadcrumb .sep,
-.dark-theme .ccn-breadcrumb .sep,
-.dark-theme .cso-breadcrumb .sep {
+.dark-theme .cpinv-breadcrumb .sep {
     color: #475569 !important;
 }
 .dark-theme .form-field label {
@@ -6530,9 +6503,6 @@ html.dark-theme {
 .dark-theme .form-field input::placeholder,
 .dark-theme .form-field textarea::placeholder {
     color: #64748b !important;
-}
-.dark-theme .ccn-checkbox-row {
-    color: #e2e8f0 !important;
 }
 /* Loading state */
 .dark-theme .loading-state p {
