@@ -311,14 +311,18 @@ public partial class SalesRepDashboard
         // DocTotal is summed as it stands, the same reading Home gives the
         // cashier dashboard's invoice and payment totals.
         var daily = new decimal[rangeDays];
+        var dailyCount = new int[rangeDays];
         foreach (var order in orders)
         {
             var day = (order.OrderDate.Date - from).Days;
-            if (day >= 0 && day < rangeDays) daily[day] += order.DocTotal;
+            if (day < 0 || day >= rangeDays) continue;
+
+            daily[day] += order.DocTotal;
+            dailyCount[day]++;
         }
 
         rangeValue = daily.Sum();
-        BuildBars(daily, from);
+        BuildBars(daily, dailyCount, from);
         BuildTopCustomers(orders);
     }
 
@@ -338,7 +342,7 @@ public partial class SalesRepDashboard
             : Math.Round((rangeValue - previousValue) / previousValue * 100m, 1);
     }
 
-    private void BuildBars(decimal[] daily, DateTime from)
+    private void BuildBars(decimal[] daily, int[] dailyCount, DateTime from)
     {
         var peak = daily.Length == 0 ? 0m : daily.Max();
         axisMax = NiceCeiling(peak);
@@ -364,10 +368,30 @@ public partial class SalesRepDashboard
                 : string.Empty;
 
             var date = from.AddDays(i);
+            var count = dailyCount[i];
+            var note = count switch
+            {
+                0 => "No orders",
+                1 => "1 order",
+                _ => $"{count} orders"
+            };
+
+            // The tooltip sits above the bar, so a tall one would carry it off
+            // the top of the plot; those flip it inside the bar instead. The
+            // columns at either end pin it to their own edge for the same
+            // reason, since a centred card would hang past the card's side.
+            var tip = height >= 62m ? "is-inside" : string.Empty;
+            if (i <= 1) tip = $"{tip} is-start".Trim();
+            else if (i >= last - 1) tip = $"{tip} is-end".Trim();
+
             built.Add(new ChartBar(
                 height.ToString("0.#", CultureInfo.InvariantCulture) + "%",
                 band,
-                $"{date:ddd dd MMM} · {Money(value)}"));
+                tip,
+                date.ToString("ddd dd MMM", CultureInfo.CurrentCulture),
+                Money(value),
+                note,
+                $"{date:ddd dd MMM}: {Money(value)}, {note}"));
         }
 
         bars = built;
@@ -377,7 +401,7 @@ public partial class SalesRepDashboard
     {
         var ranked = orders
             .GroupBy(order => CustomerLabel(order), StringComparer.OrdinalIgnoreCase)
-            .Select(group => new { Name = group.Key, Value = group.Sum(order => order.DocTotal) })
+            .Select(group => new { Name = group.Key, Value = group.Sum(order => order.DocTotal), Count = group.Count() })
             .Where(entry => entry.Value > 0)
             .OrderByDescending(entry => entry.Value)
             .Take(5)
@@ -388,10 +412,27 @@ public partial class SalesRepDashboard
         var leader = ranked.Count == 0 ? 0m : ranked[0].Value;
 
         topCustomers = ranked
-            .Select(entry => new TopCustomer(
-                entry.Name,
-                entry.Value,
-                leader == 0 ? "0%" : Math.Round(entry.Value / leader * 100m, 1).ToString("0.#", CultureInfo.InvariantCulture) + "%"))
+            .Select((entry, index) =>
+            {
+                // The row shows an abbreviated total against an ellipsised name,
+                // so the tooltip is where the exact figure, the full name and
+                // the account's share of the window are read.
+                var orderNote = entry.Count == 1 ? "1 order" : $"{entry.Count} orders";
+                var note = rangeValue <= 0
+                    ? orderNote
+                    : $"{orderNote} · {Math.Round(entry.Value / rangeValue * 100m, 1).ToString("0.#", CultureInfo.InvariantCulture)}% of the window";
+
+                return new TopCustomer(
+                    entry.Name,
+                    entry.Value,
+                    leader == 0 ? "0%" : Math.Round(entry.Value / leader * 100m, 1).ToString("0.#", CultureInfo.InvariantCulture) + "%",
+                    // The leader's tooltip would sit over the card's own heading,
+                    // so the top row alone drops its card below the bar.
+                    index == 0 ? "is-row is-below" : "is-row",
+                    Money(entry.Value),
+                    note,
+                    $"{entry.Name}: {Money(entry.Value)}, {note}");
+            })
             .ToList();
     }
 
@@ -680,9 +721,23 @@ public partial class SalesRepDashboard
             ? parsed
             : null;
 
-    private sealed record ChartBar(string Height, string BandClass, string Label);
+    private sealed record ChartBar(
+        string Height,
+        string BandClass,
+        string TipClass,
+        string Day,
+        string Value,
+        string Note,
+        string Label);
 
-    private sealed record TopCustomer(string Name, decimal Value, string Width);
+    private sealed record TopCustomer(
+        string Name,
+        decimal Value,
+        string Width,
+        string TipClass,
+        string Exact,
+        string Note,
+        string Label);
 
     private sealed record WorkflowStep(string Number, string Title, string Body, string Href, string Cta);
 
