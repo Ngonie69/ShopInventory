@@ -1,0 +1,1305 @@
+/* ==========================================================================
+   Webhooks — Nocturne
+
+   A derivation, not an import: there is no Webhooks.dc.html in any of the
+   design projects, so this follows the documented fallback.
+
+   Two sources, because the page is two things. The chrome, the figures and the
+   card grid come from document-templates.css — a filtered panel of cards, each
+   an independent thing with its own controls. The delivery-log table inside the
+   logs modal is audit-trail.css's grid, because that is exactly what it is: a
+   list of timestamped attempts with an outcome each.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   This page had no sheet of its own. It was Bootstrap's `.card`, `.modal`,
+   `.badge`, `.table` and `.form-control` with MudButtons and MudIconButtons on
+   top, and three `.modal.show.d-block` dialogs positioned against the whole
+   viewport — which put them under the app bar. Every control is native and
+   classed now, each control selector is two classes deep so it out-specifies
+   app.css's global `.dark-theme input/select/textarea` block, and the dialogs
+   are offset below the bar like every other overlay in this system.
+
+   The integration guide is the reason this sheet carries a code block at all.
+   It is documentation living inside an admin page — payload shapes, headers,
+   and two verification snippets — and it was set in `bg-dark text-light`, a
+   fixed near-black that stayed near-black in light mode and stopped being
+   distinguishable from the page in dark. It is on the field ground now, so it
+   is recessed in both schemes rather than dark in both.
+
+   The `<pre>` blocks in the markup are indentation-sensitive: their contents
+   render verbatim, so the Razor indentation *is* the code's indentation. They
+   are written flush against the left margin for that reason and not for tidy
+   nesting.
+   ========================================================================== */
+
+.whk {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --whk-bg: var(--noct-bg);
+    --whk-surface: var(--noct-surface);
+    --whk-wash: var(--noct-wash);
+    --whk-ink: var(--noct-ink);
+    --whk-ink-2: var(--noct-ink-2);
+    --whk-mute: var(--noct-mute);
+    --whk-mute-2: var(--noct-mute-2);
+    --whk-mute-3: var(--noct-mute-3);
+    --whk-faint: var(--noct-faint);
+    --whk-placeholder: var(--noct-placeholder);
+    --whk-divider: var(--noct-divider);
+    --whk-rule: var(--noct-rule);
+    --whk-hover: var(--noct-hover);
+    --whk-press: var(--noct-press);
+    --whk-field-bg: var(--noct-field-bg);
+    --whk-field-edge: var(--noct-field-edge);
+    --whk-field-edge-hi: var(--noct-field-edge-hi);
+    --whk-accent: var(--noct-accent);
+    --whk-accent-rgb: var(--noct-accent-rgb);
+    --whk-accent-text: var(--noct-accent-text);
+    --whk-box: var(--noct-box);
+    --whk-on-box: var(--noct-on-box);
+    --whk-dot-off: var(--noct-dot-off);
+    --whk-thumb: var(--noct-thumb);
+    --whk-scrim: var(--noct-scrim);
+    --whk-shadow-pop: var(--noct-shadow-pop);
+    --whk-scheme: var(--noct-scheme);
+
+    --whk-fam-neutral: var(--noct-fam-neutral);
+    --whk-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --whk-fam-accent: var(--noct-fam-accent);
+    --whk-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --whk-fam-info: var(--noct-fam-info);
+    --whk-fam-info-rgb: var(--noct-fam-info-rgb);
+    --whk-fam-good: var(--noct-fam-good);
+    --whk-fam-good-rgb: var(--noct-fam-good-rgb);
+    --whk-fam-warn: var(--noct-fam-warn);
+    --whk-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --whk-fam-bad: var(--noct-fam-bad);
+    --whk-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --whk-s1: var(--noct-s1);
+    --whk-s2: var(--noct-s2);
+    --whk-s3: var(--noct-s3);
+    --whk-s4: var(--noct-s4);
+    --whk-s6: var(--noct-s6);
+    --whk-s8: var(--noct-s8);
+    --whk-r-sm: var(--noct-r-sm);
+    --whk-r-md: var(--noct-r-md);
+    --whk-r-lg: var(--noct-r-lg);
+
+    /* This page's own: an event name, a URL, a status code and a payload are
+       all identifiers rather than prose. */
+    --whk-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+    /* The delivery log's seven columns. */
+    --whk-log-cols: 128px minmax(0, 1.2fr) 74px 84px 84px 66px minmax(0, 1.4fr);
+
+    color-scheme: var(--whk-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.whk {
+    min-height: 100vh;
+    background: var(--whk-bg);
+    color: var(--whk-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.whk * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.whk,
+.whk * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.whk :focus-visible {
+    outline: 2px solid var(--whk-accent);
+    outline-offset: 2px;
+}
+
+.whk ::selection {
+    background: rgba(var(--whk-accent-rgb), .3);
+}
+
+.whk h1,
+.whk h2,
+.whk h3,
+.whk h4 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.whk-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--whk-bg);
+    border-bottom: 1px solid var(--whk-divider);
+}
+
+.whk-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s6);
+}
+
+.whk-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--whk-mute-3);
+}
+
+.whk-crumb-sep {
+    color: var(--whk-faint);
+}
+
+.whk-crumb-now {
+    color: var(--whk-ink-2);
+    white-space: nowrap;
+}
+
+.whk-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.whk .whk-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--whk-s2) calc(var(--whk-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--whk-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--whk-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.whk .whk-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.whk .whk-btn svg {
+    display: block;
+    flex: none;
+}
+
+.whk .whk-btn-sm {
+    height: 28px;
+    font-size: 12px;
+    padding-inline: var(--whk-s3);
+}
+
+.whk .whk-btn-primary {
+    color: var(--whk-accent);
+    border-color: var(--whk-accent);
+    letter-spacing: .02em;
+}
+
+.whk .whk-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--whk-accent-rgb), .12);
+}
+
+.whk .whk-btn-primary:active:not(:disabled) {
+    background: rgba(var(--whk-accent-rgb), .22);
+}
+
+.whk .whk-btn-ghost {
+    color: var(--whk-accent);
+}
+
+.whk .whk-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--whk-accent-rgb), .1);
+}
+
+.whk .whk-btn-quiet {
+    color: var(--whk-mute-2);
+    border-color: var(--whk-divider);
+}
+
+.whk .whk-btn-quiet:hover:not(:disabled) {
+    color: var(--whk-ink);
+    border-color: var(--whk-field-edge-hi);
+    background: var(--whk-hover);
+}
+
+.whk .whk-btn-danger {
+    color: var(--whk-fam-bad);
+    border-color: rgba(var(--whk-fam-bad-rgb), .55);
+}
+
+.whk .whk-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--whk-fam-bad-rgb), .12);
+    border-color: var(--whk-fam-bad);
+}
+
+.whk .whk-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--whk-r-sm);
+    background: transparent;
+    color: var(--whk-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.whk .whk-icon-btn:hover {
+    background: var(--whk-press);
+    color: var(--whk-ink);
+}
+
+.whk .whk-icon-btn-danger:hover {
+    background: rgba(var(--whk-fam-bad-rgb), .12);
+    color: var(--whk-fam-bad);
+}
+
+/* ── Body and hero ─────────────────────────────────────────────────────── */
+
+.whk-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s8);
+}
+
+.whk-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.whk-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--whk-accent-text);
+    margin-bottom: 9px;
+}
+
+.whk-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.whk-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--whk-mute-2);
+    max-width: 60ch;
+    text-wrap: pretty;
+}
+
+/* ── Panels ────────────────────────────────────────────────────────────── */
+
+.whk-panel {
+    border: 1px solid var(--whk-divider);
+    border-radius: var(--whk-r-lg);
+    background: linear-gradient(to bottom, var(--whk-wash), transparent 240px);
+    min-width: 0;
+}
+
+.whk-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s4);
+    padding: var(--whk-s6) var(--whk-s8) var(--whk-s4);
+    flex-wrap: wrap;
+}
+
+.whk-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.whk-count {
+    font-size: 12.5px;
+    color: var(--whk-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.whk-panel-head-aside {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+}
+
+.whk-panel-body {
+    padding: 0 var(--whk-s8) var(--whk-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s6);
+}
+
+/* ── The webhook cards ─────────────────────────────────────────────────── */
+
+.whk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: var(--whk-s4);
+}
+
+.whk-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--whk-divider);
+    border-radius: var(--whk-r-lg);
+    background: var(--whk-surface);
+    transition: border-color .14s;
+}
+
+.whk-card:hover {
+    border-color: var(--whk-field-edge-hi);
+}
+
+/* An active hook is delivering right now; a paused one is inert. The edge mark
+   says which without a filled badge doing it again. */
+.whk-card-on {
+    box-shadow: inset 3px 0 0 var(--whk-fam-good);
+}
+
+.whk-card-off {
+    box-shadow: inset 3px 0 0 var(--whk-dot-off);
+    opacity: .74;
+}
+
+.whk-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+    padding: var(--whk-s4) 18px var(--whk-s3);
+}
+
+.whk-card-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--whk-ink-2);
+    letter-spacing: -.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.whk-card-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s4);
+    padding: 0 18px var(--whk-s4);
+    min-width: 0;
+}
+
+.whk-card-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+    flex-wrap: wrap;
+    padding: var(--whk-s3) 14px;
+    border-top: 1px solid var(--whk-rule);
+}
+
+.whk-card-foot-gap {
+    flex: 1;
+}
+
+.whk-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.whk-block-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--whk-mute-3);
+}
+
+/* A URL is an identifier that has to be readable character by character, and it
+   is the one thing on a card most likely to be wrong. */
+.whk-url {
+    padding: 6px 9px;
+    border-radius: var(--whk-r-sm);
+    background: var(--whk-field-bg);
+    font-family: var(--whk-mono);
+    font-size: 11.5px;
+    color: var(--whk-ink-2);
+    overflow-wrap: anywhere;
+}
+
+.whk-events {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+/* Four small figures across the card rather than the sibling's four large ones
+   at page level: on a card they are attributes of the hook, not the page. */
+.whk-figures {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--whk-s2);
+}
+
+.whk-figure {
+    padding: var(--whk-s3) var(--whk-s2);
+    border: 1px solid var(--whk-divider);
+    border-radius: var(--whk-r-sm);
+    text-align: center;
+    min-width: 0;
+}
+
+.whk-figure-num {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+    color: var(--whk-fam, var(--whk-ink-2));
+}
+
+.whk-figure-label {
+    font-size: 10px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--whk-mute-3);
+}
+
+.whk-card-when {
+    font-size: 11.5px;
+    color: var(--whk-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── The active switch ─────────────────────────────────────────────────── */
+/* A native checkbox with its own drawn track, so it keeps the keyboard and
+   screen-reader behaviour the control has for free. */
+
+.whk-switch {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    cursor: pointer;
+}
+
+.whk .whk-switch input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.whk-track {
+    position: relative;
+    width: 34px;
+    height: 19px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--whk-dot-off);
+    transition: background-color .15s;
+}
+
+.whk-track::after {
+    content: "";
+    position: absolute;
+    top: 2.5px;
+    left: 2.5px;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--whk-on-box);
+    transition: transform .15s;
+}
+
+.whk-switch input:checked + .whk-track {
+    background: var(--whk-box);
+}
+
+.whk-switch input:checked + .whk-track::after {
+    transform: translateX(15px);
+}
+
+.whk-switch input:focus-visible + .whk-track {
+    outline: 2px solid var(--whk-accent);
+    outline-offset: 2px;
+}
+
+/* ── Badges and code ───────────────────────────────────────────────────── */
+
+.whk-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--whk-fam, var(--whk-mute));
+    background: rgba(var(--whk-fam-rgb, 94, 100, 131), .14);
+}
+
+/* An event name is an identifier, so it keeps the figure face even inside a
+   badge. */
+.whk-badge-event {
+    font-family: var(--whk-mono);
+    font-size: 10.5px;
+    letter-spacing: 0;
+}
+
+.whk-fam-neutral {
+    --whk-fam: var(--whk-fam-neutral);
+    --whk-fam-rgb: var(--whk-fam-neutral-rgb);
+}
+
+.whk-fam-accent {
+    --whk-fam: var(--whk-fam-accent);
+    --whk-fam-rgb: var(--whk-fam-accent-rgb);
+}
+
+.whk-fam-info {
+    --whk-fam: var(--whk-fam-info);
+    --whk-fam-rgb: var(--whk-fam-info-rgb);
+}
+
+.whk-fam-good {
+    --whk-fam: var(--whk-fam-good);
+    --whk-fam-rgb: var(--whk-fam-good-rgb);
+}
+
+.whk-fam-warn {
+    --whk-fam: var(--whk-fam-warn);
+    --whk-fam-rgb: var(--whk-fam-warn-rgb);
+}
+
+.whk-fam-bad {
+    --whk-fam: var(--whk-fam-bad);
+    --whk-fam-rgb: var(--whk-fam-bad-rgb);
+}
+
+.whk-code {
+    font-family: var(--whk-mono);
+    font-size: 12px;
+    padding: 1px 5px;
+    border-radius: var(--whk-r-sm);
+    background: var(--whk-press);
+    color: var(--whk-ink-2);
+    overflow-wrap: anywhere;
+}
+
+/* ── The integration guide ─────────────────────────────────────────────── */
+
+.whk-guide {
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s8);
+}
+
+.whk-guide section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s3);
+    min-width: 0;
+}
+
+.whk-guide h3 {
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--whk-mute-3);
+}
+
+.whk-guide p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--whk-mute);
+    max-width: 78ch;
+    text-wrap: pretty;
+}
+
+.whk-guide ol,
+.whk-guide ul {
+    margin: 0;
+    padding-left: var(--whk-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s2);
+    font-size: 13px;
+    color: var(--whk-mute);
+    max-width: 78ch;
+}
+
+.whk-guide li {
+    text-wrap: pretty;
+}
+
+.whk-guide li::marker {
+    color: var(--whk-accent);
+}
+
+/* Recessed, not near-black. The old `bg-dark text-light` was a fixed colour in
+   both schemes: too dark against paper, and indistinguishable from the page
+   ground in dark. */
+.whk-pre {
+    margin: 0;
+    padding: var(--whk-s4) var(--whk-s6);
+    border: 1px solid var(--whk-divider);
+    border-radius: var(--whk-r-md);
+    background: var(--whk-field-bg);
+    font-family: var(--whk-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--whk-ink-2);
+    overflow-x: auto;
+    tab-size: 2;
+}
+
+.whk-defs {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: var(--whk-s3) var(--whk-s6);
+    align-items: baseline;
+    font-size: 12.5px;
+}
+
+.whk-defs dt {
+    margin: 0;
+}
+
+.whk-defs dd {
+    margin: 0;
+    color: var(--whk-mute-2);
+}
+
+/* ── The event reference ───────────────────────────────────────────────── */
+
+.whk-ref {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--whk-s6);
+}
+
+.whk-ref-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s2);
+    min-width: 0;
+}
+
+.whk-ref-group h3 {
+    padding-bottom: var(--whk-s2);
+    border-bottom: 1px solid var(--whk-rule);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--whk-accent-text);
+}
+
+.whk-ref-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--whk-s4);
+    min-width: 0;
+}
+
+.whk-ref-desc {
+    font-size: 11.5px;
+    color: var(--whk-mute-3);
+    text-align: right;
+    min-width: 0;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.whk .whk-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--whk-ink);
+    caret-color: var(--whk-accent);
+    background: var(--whk-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--whk-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+/* A URL and a secret are identifiers rather than prose, and a mistyped
+   character in either is the usual cause of a hook that never fires. */
+.whk .whk-input-code {
+    font-family: var(--whk-mono);
+    font-size: 12.5px;
+}
+
+.whk .whk-input:hover {
+    border-color: var(--whk-field-edge);
+}
+
+.whk .whk-input:focus-visible {
+    border-color: rgba(var(--whk-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.whk .whk-input::placeholder {
+    color: var(--whk-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--whk-placeholder);
+}
+
+.whk-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.whk-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--whk-mute-3);
+}
+
+.whk-req {
+    color: var(--whk-fam-bad);
+}
+
+.whk-hint {
+    font-size: 11.5px;
+    color: var(--whk-mute-3);
+    text-wrap: pretty;
+}
+
+.whk-form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--whk-s4);
+}
+
+.whk-form-row-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ── The event picker ──────────────────────────────────────────────────── */
+
+.whk-picker-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+    flex-wrap: wrap;
+}
+
+.whk-picker-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--whk-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.whk-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--whk-s3);
+}
+
+.whk-picker-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: var(--whk-s3) var(--whk-s4);
+    border: 1px solid var(--whk-divider);
+    border-radius: var(--whk-r-md);
+    min-width: 0;
+}
+
+.whk-picker-group h4 {
+    margin-bottom: var(--whk-s2);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--whk-accent-text);
+}
+
+.whk-check {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s3);
+    min-width: 0;
+    cursor: pointer;
+}
+
+.whk .whk-check input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    accent-color: var(--whk-box);
+    cursor: pointer;
+}
+
+.whk-check-label {
+    font-family: var(--whk-mono);
+    font-size: 11.5px;
+    color: var(--whk-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── The delivery log ──────────────────────────────────────────────────── */
+
+.whk-scroll {
+    overflow-x: auto;
+}
+
+.whk-log {
+    min-width: 900px;
+}
+
+.whk-log-head,
+.whk-log-row {
+    display: grid;
+    grid-template-columns: var(--whk-log-cols);
+    align-items: center;
+    gap: var(--whk-s4);
+}
+
+.whk-log-head {
+    padding: 0 var(--whk-s4) var(--whk-s3);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--whk-mute-3);
+}
+
+.whk-log-row {
+    padding: 9px var(--whk-s4);
+    border-top: 1px solid var(--whk-rule);
+    font-size: 12px;
+}
+
+.whk-log-row-failed {
+    box-shadow: inset 3px 0 0 var(--whk-fam-bad);
+    background: rgba(var(--whk-fam-bad-rgb), .05);
+}
+
+.whk-log-cell {
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+    color: var(--whk-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.whk-log-err {
+    color: var(--whk-fam-bad);
+}
+
+.whk-none {
+    color: var(--whk-faint);
+}
+
+/* ── Modals ────────────────────────────────────────────────────────────── */
+/* Centred below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window — which is exactly what the three Bootstrap `.modal.show.d-block`
+   dialogs this replaces were doing. Each modal carries `.whk` itself, which is
+   what puts the page's tokens in reach. */
+
+.whk-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* `.whk`'s own min-height would otherwise stretch the scrim 74px past the
+       bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--whk-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--whk-s6);
+    animation: whk-fade .18s ease;
+}
+
+.whk-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(760px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--whk-s8));
+    min-height: 0;
+    border: 1px solid var(--whk-divider);
+    border-radius: var(--whk-r-lg);
+    background: var(--whk-bg);
+    box-shadow: var(--whk-shadow-pop);
+    animation: whk-rise .2s ease;
+}
+
+.whk-modal-sm {
+    width: min(460px, 100%);
+}
+
+.whk-modal-lg {
+    width: min(1120px, 100%);
+}
+
+.whk-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--whk-s4);
+    padding: var(--whk-s6) var(--whk-s8);
+    border-bottom: 1px solid var(--whk-divider);
+    flex: none;
+}
+
+.whk-modal-head h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.whk-modal-x {
+    margin-left: auto;
+}
+
+.whk-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--whk-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--whk-s6);
+}
+
+.whk-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--whk-s3);
+    padding: var(--whk-s4) var(--whk-s8);
+    border-top: 1px solid var(--whk-divider);
+    flex: none;
+}
+
+.whk-modal-text {
+    margin: 0;
+    font-size: 13px;
+    color: var(--whk-mute);
+    text-wrap: pretty;
+}
+
+/* ── Notices, empty, loading and the toast ─────────────────────────────── */
+
+.whk-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--whk-s3);
+    padding: 11px 13px;
+    border-radius: var(--whk-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+    color: var(--whk-fam, var(--whk-mute));
+    background: rgba(var(--whk-fam-rgb, 94, 100, 131), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--whk-fam-rgb, 94, 100, 131), .3);
+}
+
+.whk-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.whk-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.whk-notice-text ul {
+    margin: var(--whk-s2) 0 0;
+    padding-left: var(--whk-s6);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.whk .whk-notice-x {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s;
+}
+
+.whk .whk-notice-x:hover {
+    opacity: 1;
+}
+
+.whk-toast {
+    position: fixed;
+    right: var(--whk-s8);
+    bottom: var(--whk-s8);
+    z-index: 9999;
+    min-height: 0;
+    max-width: min(420px, calc(100vw - var(--whk-s8) * 2));
+    box-shadow: var(--whk-shadow-pop);
+    animation: whk-rise .2s ease;
+}
+
+.whk-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--whk-s3);
+    padding: 64px var(--whk-s8);
+    font-size: 13px;
+    color: var(--whk-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.whk-empty svg {
+    color: var(--whk-accent);
+    opacity: .7;
+}
+
+.whk-empty h3 {
+    font-size: 15px;
+    color: var(--whk-ink-2);
+}
+
+.whk-empty p {
+    margin: 0;
+    max-width: 48ch;
+}
+
+.whk-empty-actions {
+    margin-top: var(--whk-s3);
+    display: flex;
+    gap: var(--whk-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.whk-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--whk-s4);
+    padding: 72px var(--whk-s8);
+    font-size: 13px;
+    color: var(--whk-mute-2);
+}
+
+.whk-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: whk-spin .7s linear infinite;
+}
+
+@keyframes whk-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes whk-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes whk-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .whk-scrim,
+    .whk-modal,
+    .whk-toast,
+    .whk-spin {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.whk-modal-body::-webkit-scrollbar,
+.whk-scroll::-webkit-scrollbar,
+.whk-pre::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.whk-modal-body::-webkit-scrollbar-thumb,
+.whk-scroll::-webkit-scrollbar-thumb,
+.whk-pre::-webkit-scrollbar-thumb {
+    background: var(--whk-thumb);
+    border-radius: 8px;
+}
+
+.whk-modal-body::-webkit-scrollbar-track,
+.whk-scroll::-webkit-scrollbar-track,
+.whk-pre::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .whk-form-row,
+    .whk-form-row-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .whk-head-inner {
+        padding: var(--whk-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--whk-s3);
+    }
+
+    .whk-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .whk-head-actions .whk-btn {
+        flex: 1;
+    }
+
+    .whk-body {
+        padding: var(--whk-s8) 18px 56px;
+    }
+
+    .whk-hero h1 {
+        font-size: 24px;
+    }
+
+    .whk-panel-head,
+    .whk-panel-body {
+        padding-inline: var(--whk-s6);
+    }
+
+    .whk-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .whk-form-row,
+    .whk-form-row-4 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .whk-modal-head,
+    .whk-modal-body,
+    .whk-modal-foot {
+        padding-inline: var(--whk-s6);
+    }
+
+    .whk-toast {
+        right: var(--whk-s4);
+        left: var(--whk-s4);
+        bottom: var(--whk-s4);
+        max-width: none;
+    }
+
+    .whk-ref-row {
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .whk-ref-desc {
+        text-align: left;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .whk .whk-input {
+        font-size: 16px;
+    }
+}

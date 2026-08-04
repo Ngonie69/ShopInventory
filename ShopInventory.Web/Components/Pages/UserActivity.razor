@@ -9,995 +9,173 @@
 
 <PageTitle>User Activity Dashboard - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ────────────────────────────────────────── */
-    .ua-page {
-        background: #f0f2f5;
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ──────────────────────────────────────── */
-    .ua-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .ua-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .ua-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .ua-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .ua-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    .ua-header-actions {
-        display: flex;
-        gap: .5rem;
-        flex-wrap: wrap;
-        align-items: center;
-    }
-
-    /* ── Time Range Buttons ──────────────────────────── */
-    .time-btn {
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        border: 1px solid #d1d5db;
-        background: #fff;
-        color: #6b7280;
-    }
-
-    .time-btn:hover {
-        background: #f3f4f6;
-        transform: translateY(-1px);
-    }
-
-    .time-btn.active {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border-color: transparent;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-    }
-
-    .time-btn.active:hover {
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-    }
-
-    /* ── Stat Cards ──────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: all .2s;
-    }
-
-    .stat-card:hover {
-        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
-        transform: translateY(-2px);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.blue {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-icon.amber {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-icon.rose {
-        background: #ffe4e6;
-        color: #e11d48;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.2;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .stat-info .stat-label {
-        font-size: .78rem;
-        color: #6b7280;
-        font-weight: 500;
-    }
-
-    /* ── Panels Grid ─────────────────────────────────── */
-    .panels-row {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    @@media (max-width: 992px) {
-        .panels-row {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .panel-card {
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-    }
-
-    .panel-header {
-        padding: .85rem 1.15rem;
-        border-bottom: 1px solid #f3f4f6;
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-    }
-
-    .panel-header-icon {
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: .8rem;
-        flex-shrink: 0;
-    }
-
-    .panel-header h6 {
-        margin: 0;
-        font-weight: 650;
-        font-size: .88rem;
-        color: #1a1a2e;
-    }
-
-    .panel-body {
-        padding: 1rem 1.15rem;
-        flex: 1;
-        overflow-y: auto;
-        max-height: 380px;
-    }
-
-    /* ── Most Active Users ───────────────────────────── */
-    .user-item {
-        display: flex;
-        align-items: center;
-        gap: .7rem;
-        padding: .55rem 0;
-        border-bottom: 1px solid #f3f4f6;
-        transition: background .15s;
-    }
-
-    .user-item:last-child {
-        border-bottom: none;
-    }
-
-    .user-item:hover {
-        background: #f8fafc;
-        margin: 0 -.5rem;
-        padding-left: .5rem;
-        padding-right: .5rem;
-        border-radius: 8px;
-    }
-
-    .user-rank {
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: .65rem;
-        font-weight: 700;
-        flex-shrink: 0;
-    }
-
-    .user-rank.gold {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .user-rank.silver {
-        background: #f1f5f9;
-        color: #64748b;
-    }
-
-    .user-rank.bronze {
-        background: #ffe4e6;
-        color: #e11d48;
-    }
-
-    .user-rank.default {
-        background: #f3f4f6;
-        color: #9ca3af;
-    }
-
-    .user-avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        font-weight: 700;
-        font-size: .75rem;
-        flex-shrink: 0;
-    }
-
-    .user-meta {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .user-meta .name {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .user-meta .last-seen {
-        font-size: .72rem;
-        color: #9ca3af;
-    }
-
-    .user-count {
-        font-family: 'Space Grotesk', monospace;
-        font-weight: 700;
-        font-size: .82rem;
-        color: #667eea;
-        background: #eef2ff;
-        padding: .2rem .55rem;
-        border-radius: 6px;
-    }
-
-    /* ── Action Breakdown ────────────────────────────── */
-    .action-item {
-        margin-bottom: .85rem;
-    }
-
-    .action-item:last-child {
-        margin-bottom: 0;
-    }
-
-    .action-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: .35rem;
-    }
-
-    .action-name {
-        font-size: .82rem;
-        font-weight: 600;
-        color: #374151;
-        display: flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .action-name .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        flex-shrink: 0;
-    }
-
-    .action-stats {
-        font-family: 'Space Grotesk', monospace;
-        font-size: .78rem;
-        color: #9ca3af;
-    }
-
-    .action-bar {
-        height: 6px;
-        background: #f3f4f6;
-        border-radius: 3px;
-        overflow: hidden;
-    }
-
-    .action-bar-fill {
-        height: 100%;
-        border-radius: 3px;
-        transition: width .4s ease;
-    }
-
-    /* ── Hourly Activity ─────────────────────────────── */
-    .hourly-chart {
-        display: flex;
-        align-items: flex-end;
-        gap: 3px;
-        height: 180px;
-        padding-top: 1rem;
-    }
-
-    .hourly-col {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: flex-end;
-        height: 100%;
-        position: relative;
-    }
-
-    .hourly-bar {
-        width: 100%;
-        border-radius: 4px 4px 0 0;
-        transition: height .4s ease, background .2s;
-        min-height: 2px;
-        cursor: pointer;
-    }
-
-    .hourly-bar:hover {
-        filter: brightness(1.1);
-    }
-
-    .hourly-bar.peak {
-        background: linear-gradient(180deg, #667eea, #764ba2);
-    }
-
-    .hourly-bar.high {
-        background: linear-gradient(180deg, #818cf8, #a78bfa);
-    }
-
-    .hourly-bar.mid {
-        background: linear-gradient(180deg, #a5b4fc, #c4b5fd);
-    }
-
-    .hourly-bar.low {
-        background: #e0e7ff;
-    }
-
-    .hourly-lbl {
-        font-size: .58rem;
-        color: #9ca3af;
-        margin-top: 4px;
-        font-weight: 600;
-    }
-
-    .hourly-tooltip {
-        position: absolute;
-        bottom: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #1a1a2e;
-        color: #fff;
-        padding: .25rem .5rem;
-        border-radius: 6px;
-        font-size: .7rem;
-        font-weight: 600;
-        white-space: nowrap;
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity .15s;
-        margin-bottom: 4px;
-    }
-
-    .hourly-col:hover .hourly-tooltip {
-        opacity: 1;
-    }
-
-    /* ── Filter Bar ──────────────────────────────────── */
-    .filter-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: .75rem;
-        align-items: flex-end;
-        padding: 1rem 1.25rem;
-        background: #f8fafc;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        margin-bottom: 1.25rem;
-    }
-
-    .filter-field {
-        flex: 1;
-        min-width: 160px;
-    }
-
-    .filter-field label {
-        display: block;
-        font-size: .72rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        margin-bottom: .3rem;
-    }
-
-    .filter-field select,
-    .filter-field input {
-        width: 100%;
-        padding: .45rem .75rem;
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        font-size: .85rem;
-        background: #fff;
-        color: #374151;
-        transition: border-color .15s, box-shadow .15s;
-    }
-
-    .filter-field select:focus,
-    .filter-field input:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .12);
-    }
-
-    .filter-actions {
-        display: flex;
-        gap: .5rem;
-        align-items: flex-end;
-    }
-
-    .btn-filter-apply {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        border: none;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-    }
-
-    .btn-filter-apply:hover {
-        opacity: .92;
-        transform: translateY(-1px);
-    }
-
-    .btn-filter-clear {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .5rem 1.1rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: .85rem;
-        cursor: pointer;
-        transition: all .2s;
-    }
-
-    .btn-filter-clear:hover {
-        background: #f3f4f6;
-    }
-
-    /* ── Table Wrap ──────────────────────────────────── */
-    .ua-table-wrap {
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        background: #fff;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-    }
-
-    .avatar-sm {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        font-weight: 700;
-        font-size: .7rem;
-        flex-shrink: 0;
-    }
-
-    .status-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: .2rem .6rem;
-        border-radius: 6px;
-        font-size: .73rem;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .status-pill.success {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-pill.failed {
-        background: #ffe4e6;
-        color: #9f1239;
-    }
-
-    .entity-cell {
-        display: flex;
-        align-items: center;
-        gap: .3rem;
-    }
-
-    .entity-id {
-        font-size: .75rem;
-        color: #9ca3af;
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    .details-cell {
-        max-width: 220px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-size: .85rem;
-        color: #4b5563;
-    }
-
-    /* ── Detail Drawer ───────────────────────────────── */
-    /* Offset below the app bar: the page container is a stacking context, so a drawer
-       cannot paint over the topbar however high its z-index. */
-    .ua-backdrop {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .45);
-        z-index: 9998;
-        animation: uaFadeIn .2s ease;
-    }
-
-    .ua-drawer {
-        position: fixed;
-        top: var(--kf-topbar-h, 74px);
-        right: 0;
-        width: min(520px, 95vw);
-        height: calc(100vh - var(--kf-topbar-h, 74px));
-        background: #fff;
-        z-index: 9999;
-        box-shadow: -8px 0 30px rgba(0, 0, 0, .12);
-        display: flex;
-        flex-direction: column;
-        animation: uaSlideIn .25s ease;
-    }
-
-    .ua-drawer-header {
-        padding: 1.15rem 1.5rem;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-shrink: 0;
-    }
-
-    .ua-drawer-header h5 {
-        margin: 0;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-
-    .ua-drawer-close {
-        background: rgba(255, 255, 255, .15);
-        border: none;
-        color: #fff;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: background .15s;
-        font-size: 1rem;
-    }
-
-    .ua-drawer-close:hover {
-        background: rgba(255, 255, 255, .25);
-    }
-
-    .ua-drawer-body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 1.5rem;
-    }
-
-    .detail-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .detail-item .detail-label {
-        font-size: .72rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        color: #9ca3af;
-        margin-bottom: .2rem;
-    }
-
-    .detail-item .detail-value {
-        font-size: .92rem;
-        font-weight: 600;
-        color: #1a1a2e;
-    }
-
-    .detail-item.full-width {
-        grid-column: 1 / -1;
-    }
-
-    .detail-item .detail-value.mono {
-        font-family: 'Space Grotesk', monospace;
-    }
-
-    /* ── Empty State ──────────────────────────────────── */
-    .empty-state {
-        text-align: center;
-        padding: 3rem 1.5rem;
-    }
-
-    .empty-icon {
-        width: 72px;
-        height: 72px;
-        border-radius: 50%;
-        background: #f3f4f6;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 1rem;
-        font-size: 1.8rem;
-        color: #9ca3af;
-    }
-
-    .empty-state h6 {
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: .35rem;
-    }
-
-    .empty-state p {
-        color: #9ca3af;
-        font-size: .88rem;
-    }
-
-    /* ── Loading Skeleton ────────────────────────────── */
-    .skeleton {
-        background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
-        background-size: 200% 100%;
-        animation: uaShimmer 1.5s infinite;
-        border-radius: 6px;
-    }
-
-    .skeleton-line {
-        height: 14px;
-        margin-bottom: .6rem;
-    }
-
-    .skeleton-line.w75 {
-        width: 75%;
-    }
-
-    .skeleton-line.w50 {
-        width: 50%;
-    }
-
-    .skeleton-circle {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-    }
-
-    /* ── Animations ──────────────────────────────────── */
-    @@keyframes uaFadeIn {
-        from {
-            opacity: 0;
-        }
-
-        to {
-            opacity: 1;
-        }
-    }
-
-    @@keyframes uaSlideIn {
-        from {
-            transform: translateX(100%);
-        }
-
-        to {
-            transform: translateX(0);
-        }
-    }
-
-    @@keyframes uaShimmer {
-        0% {
-            background-position: 200% 0;
-        }
-
-        100% {
-            background-position: -200% 0;
-        }
-    }
-
-    .ua-page {
-        animation: uaFadeIn .3s ease;
-    }
-</style>
-
-<div class="ua-page">
-    <!-- ── Header ──────────────────────────────────────── -->
-    <div class="ua-header">
-        <div class="ua-header-left">
-            <div class="ua-header-icon">
-                <i class="bi bi-activity"></i>
+@* The Nocturne sheet is wwwroot/css/user-activity.css (linked from App.razor),
+   derived from audit-trail.css — the closest match in the whole admin group,
+   since the two pages show the same table from the same store.
+
+   MudDataGrid is gone and that is a functional change, not only a visual one:
+   multi-column sort, per-column filtering and column hiding go with it. The
+   quick search, the row click and the pagination stay, three columns are
+   sortable, and below 1040px a row becomes a labelled card — which the data
+   grid could not do. The grid also carried eight hard-coded hexes in inline
+   `style=` attributes, none of which changed in dark mode. *@
+
+<div class="uac">
+
+    <header class="uac-head">
+        <div class="uac-head-inner">
+            <nav class="uac-crumbs" aria-label="Breadcrumb">
+                <span>Administration</span>
+                <span class="uac-crumb-sep" aria-hidden="true">/</span>
+                <span class="uac-crumb-now" aria-current="page">User activity</span>
+            </nav>
+            <div class="uac-head-actions">
+                <div class="uac-seg" role="group" aria-label="Time range">
+                    <button type="button" class="uac-seg-btn @(timeRange == "today" ? "uac-seg-on" : "")"
+                            aria-pressed="@(timeRange == "today")" @onclick='() => SetTimeRange("today")'>Today</button>
+                    <button type="button" class="uac-seg-btn @(timeRange == "week" ? "uac-seg-on" : "")"
+                            aria-pressed="@(timeRange == "week")" @onclick='() => SetTimeRange("week")'>Week</button>
+                    <button type="button" class="uac-seg-btn @(timeRange == "month" ? "uac-seg-on" : "")"
+                            aria-pressed="@(timeRange == "month")" @onclick='() => SetTimeRange("month")'>Month</button>
+                </div>
             </div>
+        </div>
+    </header>
+
+    <div class="uac-body">
+
+        <section class="uac-hero">
             <div>
-                <h2>User Activity</h2>
-                <p>Monitor user actions and system activity in real time</p>
+                <div class="uac-kicker">Who did what</div>
+                <h1>User activity</h1>
+                <p>
+                    Every action recorded against a user account in the selected window — what was done,
+                    to which record, and whether it worked. Click a row for the whole entry.
+                </p>
             </div>
-        </div>
-        <div class="ua-header-actions">
-            <MudButton Class="@($"time-btn {(timeRange == "today" ? "active" : "")}")"
-                       OnClick="@(() => SetTimeRange("today"))">Today</MudButton>
-            <MudButton Class="@($"time-btn {(timeRange == "week" ? "active" : "")}")"
-                       OnClick="@(() => SetTimeRange("week"))">
-                This Week</MudButton>
-                <MudButton Class="@($"time-btn {(timeRange == "month" ? "active" : "")}")"
-                           OnClick="@(() => SetTimeRange("month"))">This Month</MudButton>
-            </div>
-        </div>
+        </section>
 
-        <!-- ── Stat Cards ──────────────────────────────────── -->
-        <div class="stat-row">
-            <div class="stat-card">
-                <div class="stat-icon purple"><i class="bi bi-people-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@activeUsersCount</div>
-                    <div class="stat-label">Active Users</div>
-                </div>
+        <section class="uac-stats">
+            <div class="uac-stat uac-stat-lead">
+                <div class="uac-stat-head"><span class="uac-stat-rule"></span>Active users</div>
+                <div class="uac-stat-num">@activeUsersCount</div>
+                <div class="uac-stat-sub">did something in this window</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon green"><i class="bi bi-lightning-charge-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@totalActionsCount</div>
-                    <div class="stat-label">Total Actions</div>
-                </div>
+            <div class="uac-stat">
+                <div class="uac-stat-head"><span class="uac-stat-rule"></span>Actions</div>
+                <div class="uac-stat-num">@totalActionsCount</div>
+                <div class="uac-stat-sub">recorded in total</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon blue"><i class="bi bi-box-arrow-in-right"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@loginCount</div>
-                    <div class="stat-label">Logins</div>
-                </div>
+            <div class="uac-stat">
+                <div class="uac-stat-head"><span class="uac-stat-rule"></span>Logins</div>
+                <div class="uac-stat-num">@loginCount</div>
+                <div class="uac-stat-sub">sign-ins in this window</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon rose"><i class="bi bi-exclamation-triangle-fill"></i></div>
-                <div class="stat-info">
-                    <div class="stat-value">@failedActionsCount</div>
-                    <div class="stat-label">Failed Actions</div>
-                </div>
+            <div class="uac-stat @(failedActionsCount > 0 ? "uac-stat-alert" : "")">
+                <div class="uac-stat-head"><span class="uac-stat-rule"></span>Failed</div>
+                <div class="uac-stat-num">@failedActionsCount</div>
+                <div class="uac-stat-sub">actions that did not complete</div>
             </div>
-        </div>
+        </section>
 
-        <!-- ── Panels Row ──────────────────────────────────── -->
-        <div class="panels-row">
-            <!-- Most Active Users -->
-            <div class="panel-card">
-                <div class="panel-header">
-                    <div class="panel-header-icon" style="background: #fef3c7; color: #d97706;">
-                        <i class="bi bi-trophy-fill"></i>
-                    </div>
-                    <h6>Most Active Users</h6>
-                </div>
-                <div class="panel-body">
+        <section class="uac-summaries">
+
+            <div class="uac-card">
+                <div class="uac-card-head"><h2>Most active</h2></div>
+                <div class="uac-card-body">
                     @if (isLoading)
                     {
-                        @for (int i = 0; i < 5; i++)
-                        {
-                            <div class="d-flex align-items-center gap-2 mb-3">
-                                <div class="skeleton skeleton-circle" style="width:32px;height:32px;border-radius:50%;"></div>
-                                <div style="flex:1;">
-                                    <div class="skeleton skeleton-line w75"></div>
-                                    <div class="skeleton skeleton-line w50" style="height:10px;"></div>
-                                </div>
-                            </div>
-                        }
+                        <div class="uac-loading">
+                            <span class="uac-spin" aria-hidden="true"></span>
+                        </div>
                     }
                     else if (mostActiveUsers.Any())
                     {
-                        int rank = 0;
+                        var rank = 0;
                         @foreach (var user in mostActiveUsers.Take(10))
                         {
                             rank++;
-                            var avatarColors = new[] { "#667eea", "#059669", "#d97706", "#e11d48", "#7c3aed", "#2563eb", "#0891b2",
-                "#c026d3" };
-                            var bgColor = avatarColors[(rank - 1) % avatarColors.Length];
-                            var rankClass = rank == 1 ? "gold" : rank == 2 ? "silver" : rank == 3 ? "bronze" : "default";
-                            <div class="user-item">
-                                <div class="user-rank @rankClass">@rank</div>
-                                <div class="user-avatar" style="background: @bgColor;">
-                                    @user.Username[0].ToString().ToUpper()
-                                </div>
-                                <div class="user-meta">
-                                    <div class="name">@user.Username</div>
+                            <div class="uac-rank-row">
+                                <span class="uac-rank @(rank <= 3 ? "uac-rank-top" : "")">@rank</span>
+                                <span class="uac-avatar" aria-hidden="true">@user.Username[0].ToString().ToUpper()</span>
+                                <span class="uac-rank-text">
+                                    <span class="uac-rank-name">@user.Username</span>
                                     @if (user.LastActivityAt.HasValue)
                                     {
-                                        <div class="last-seen">@GetRelativeTime(user.LastActivityAt.Value)</div>
+                                        <span class="uac-rank-when">@GetRelativeTime(user.LastActivityAt.Value)</span>
                                     }
-                                </div>
-                                <div class="user-count">@user.ActionCount</div>
+                                </span>
+                                <span class="uac-rank-count">@user.ActionCount</span>
                             </div>
                         }
                     }
                     else
                     {
-                        <div class="empty-state">
-                            <div class="empty-icon"><i class="bi bi-people"></i></div>
-                            <h6>No activity yet</h6>
-                            <p>User activity will appear here</p>
-                        </div>
+                        <div class="uac-empty">Nothing recorded in this window.</div>
                     }
                 </div>
             </div>
 
-            <!-- Action Breakdown -->
-            <div class="panel-card">
-                <div class="panel-header">
-                    <div class="panel-header-icon" style="background: #dbeafe; color: #2563eb;">
-                        <i class="bi bi-pie-chart-fill"></i>
-                    </div>
-                    <h6>Action Breakdown</h6>
-                </div>
-                <div class="panel-body">
+            <div class="uac-card">
+                <div class="uac-card-head"><h2>By action</h2></div>
+                <div class="uac-card-body">
                     @if (isLoading)
                     {
-                        @for (int i = 0; i < 6; i++)
-                        {
-                            <div class="mb-3">
-                                <div class="skeleton skeleton-line w75"></div>
-                                <div class="skeleton" style="height:6px; width:@(90 - i * 12)%;"></div>
-                            </div>
-                        }
+                        <div class="uac-loading">
+                            <span class="uac-spin" aria-hidden="true"></span>
+                        </div>
                     }
                     else if (actionBreakdown.Any())
                     {
                         @foreach (var action in actionBreakdown.Take(10))
                         {
                             var percentage = totalActionsCount > 0 ? (action.Count * 100.0 / totalActionsCount) : 0;
-                            var barColor = GetActionBarColor(action.Action);
-                            var dotColor = GetActionDotColor(action.Action);
-                            <div class="action-item">
-                                <div class="action-row">
-                                    <span class="action-name">
-                                        <span class="dot" style="background: @dotColor;"></span>
-                                        @action.Action
+                            <div class="uac-break @ActionFamily(action.Action)">
+                                <div class="uac-break-row">
+                                    <span class="uac-break-name">
+                                        <span class="uac-break-dot" aria-hidden="true"></span>@FormatAction(action.Action)
                                     </span>
-                                    <span class="action-stats">@action.Count (@percentage.ToString("F1")%)</span>
+                                    <span class="uac-break-num">@action.Count &middot; @percentage.ToString("F1")%</span>
                                 </div>
-                                <div class="action-bar">
-                                    <div class="action-bar-fill" style="width: @percentage%; background: @barColor;"></div>
+                                <div class="uac-break-track">
+                                    <div class="uac-break-fill" style="width:@(percentage.ToString("F1"))%"></div>
                                 </div>
                             </div>
                         }
                     }
                     else
                     {
-                        <div class="empty-state">
-                            <div class="empty-icon"><i class="bi bi-pie-chart"></i></div>
-                            <h6>No actions recorded</h6>
-                            <p>Action data will appear here</p>
-                        </div>
+                        <div class="uac-empty">Nothing recorded in this window.</div>
                     }
                 </div>
             </div>
 
-            <!-- Hourly Activity -->
-            <div class="panel-card">
-                <div class="panel-header">
-                    <div class="panel-header-icon" style="background: #d1fae5; color: #059669;">
-                        <i class="bi bi-clock-fill"></i>
-                    </div>
-                    <h6>Activity by Hour</h6>
-                </div>
-                <div class="panel-body">
+            <div class="uac-card">
+                <div class="uac-card-head"><h2>By hour</h2></div>
+                <div class="uac-card-body">
                     @if (isLoading)
                     {
-                        <div class="d-flex align-items-end gap-1" style="height:180px;">
-                            @for (int i = 0; i < 24; i++)
-                            {
-                                var h = 20 + new Random(i).Next(60);
-                                <div class="skeleton" style="flex:1; height:@(h)px;"></div>
-                            }
+                        <div class="uac-loading">
+                            <span class="uac-spin" aria-hidden="true"></span>
                         </div>
                     }
                     else if (hourlyActivity.Any())
                     {
-                        <div class="hourly-chart">
-                            @{
-                                var maxCount = hourlyActivity.Max(h => h.Count);
-                                var peakThreshold = maxCount * 0.75;
-                                var highThreshold = maxCount * 0.5;
-                                var midThreshold = maxCount * 0.25;
-                            }
+                        var maxCount = hourlyActivity.Max(h => h.Count);
+                        <div class="uac-hours">
                             @foreach (var hour in hourlyActivity)
                             {
                                 var height = maxCount > 0 ? (hour.Count * 100.0 / maxCount) : 0;
-                                var level = hour.Count >= peakThreshold ? "peak" : hour.Count >= highThreshold ? "high" : hour.Count
-                                >= midThreshold ? "mid" : "low";
-                                <div class="hourly-col">
-                                    <div class="hourly-tooltip">@hour.Hour:00 &mdash; @hour.Count</div>
-                                    <div class="hourly-bar @level" style="height: @height%"></div>
-                                    @if (hour.Hour % 3 == 0)
+                                var level = maxCount == 0 ? "low"
+                                    : hour.Count >= maxCount * .75 ? "peak"
+                                    : hour.Count >= maxCount * .5 ? "high"
+                                    : hour.Count >= maxCount * .25 ? "mid" : "low";
+                                <div class="uac-hour">
+                                    <span class="uac-hour-tip">@hour.Hour.ToString("D2"):00 &middot; @hour.Count</span>
+                                    <div class="uac-hour-bar uac-hour-@level" style="height:@(height.ToString("F1"))%"></div>
+                                    @if (hour.Hour % 6 == 0)
                                     {
-                                        <span class="hourly-lbl">@hour.Hour.ToString("D2")</span>
+                                        <span class="uac-hour-lbl">@hour.Hour.ToString("D2")</span>
                                     }
                                 </div>
                             }
@@ -1005,243 +183,273 @@
                     }
                     else
                     {
-                        <div class="empty-state">
-                            <div class="empty-icon"><i class="bi bi-clock"></i></div>
-                            <h6>No hourly data</h6>
-                            <p>Hourly patterns will display here</p>
-                        </div>
+                        <div class="uac-empty">Nothing recorded in this window.</div>
                     }
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- ── Filter Bar ──────────────────────────────────── -->
-        <div class="filter-bar">
-            <div class="filter-field">
-                <label>User</label>
-                <select @bind="userFilter">
-                    <option value="">All Users</option>
-                    @foreach (var user in uniqueUsers)
-                    {
-                        <option value="@user">@user</option>
-                    }
-                </select>
+        <section class="uac-panel">
+            <div class="uac-panel-head">
+                <h2>Activity log</h2>
+                <span class="uac-count">@totalActionsCount total</span>
+                <div class="uac-panel-tools">
+                    <label class="uac-search">
+                        <span class="visually-hidden">Search activity</span>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                            <circle cx="11" cy="11" r="6.5"></circle>
+                            <path d="M16 16l4 4"></path>
+                        </svg>
+                        <input type="search" class="uac-input uac-input-search" placeholder="Search this page&#8230;"
+                               @bind="_searchString" @bind:event="oninput" />
+                    </label>
+                </div>
             </div>
-            <div class="filter-field">
-                <label>Action</label>
-                <select @bind="actionFilter">
-                    <option value="">All Actions</option>
-                    @foreach (var action in uniqueActions)
-                    {
-                        <option value="@action">@action</option>
-                    }
-                </select>
-            </div>
-            <div class="filter-field">
-                <label>Per Page</label>
-                <select @bind="pageSize">
-                    <option value="10">10</option>
-                    <option value="25">25</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                    <option value="200">200</option>
-                </select>
-            </div>
-            <div class="filter-actions">
-                <MudButton Class="btn-filter-apply" OnClick="ApplyFilters">
-                    <i class="bi bi-search"></i> Search
-                </MudButton>
-                <MudButton Class="btn-filter-clear" OnClick="ClearFilters">
-                    <i class="bi bi-x-circle"></i> Clear
-                </MudButton>
-            </div>
-        </div>
 
-        <!-- ── Activity Table ──────────────────────────────── -->
-        <div class="ua-table-wrap">
+            <div class="uac-filters">
+                <div class="uac-field">
+                    <label class="uac-label" for="uacUser">User</label>
+                    <div class="uac-select">
+                        <select id="uacUser" class="uac-input" @bind="userFilter">
+                            <option value="">All users</option>
+                            @foreach (var user in uniqueUsers)
+                            {
+                                <option value="@user">@user</option>
+                            }
+                        </select>
+                        <span class="uac-caret" aria-hidden="true"></span>
+                    </div>
+                </div>
+                <div class="uac-field">
+                    <label class="uac-label" for="uacAction">Action</label>
+                    <div class="uac-select">
+                        <select id="uacAction" class="uac-input" @bind="actionFilter">
+                            <option value="">All actions</option>
+                            @foreach (var action in uniqueActions)
+                            {
+                                <option value="@action">@action</option>
+                            }
+                        </select>
+                        <span class="uac-caret" aria-hidden="true"></span>
+                    </div>
+                </div>
+                <div class="uac-field">
+                    <label class="uac-label" for="uacPageSize">Per page</label>
+                    <div class="uac-select">
+                        <select id="uacPageSize" class="uac-input" @bind="pageSize">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="200">200</option>
+                        </select>
+                        <span class="uac-caret" aria-hidden="true"></span>
+                    </div>
+                </div>
+                <div class="uac-filter-actions">
+                    <button type="button" class="uac-btn uac-btn-primary" @onclick="ApplyFilters">Search</button>
+                    <button type="button" class="uac-btn uac-btn-quiet" @onclick="ClearFilters">Clear</button>
+                </div>
+            </div>
+
             @if (isLoading)
             {
-                <div class="text-center" style="padding: 3rem;">
-                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-                    <p style="color: #9ca3af; margin-top: .75rem; font-size: .88rem;">Loading activity data...</p>
+                <div class="uac-loading">
+                    <span class="uac-spin" aria-hidden="true"></span>
+                    <span>Loading activity&#8230;</span>
                 </div>
-            }
-            else if (recentActivities.Any())
-            {
-                <MudDataGrid T="ActivityLog" Items="@recentActivities" SortMode="SortMode.Multiple" Filterable="true"
-                             QuickFilter="@_quickFilter" Hideable="true" Dense="true" Hover="true" Striped="true"
-                             RowClick="@(args => ShowDetail(args.Item))">
-                    <ToolBarContent>
-                        <MudText Typo="Typo.h6" Style="font-weight: 650; color: #1a1a2e;">Activity Log</MudText>
-                        <MudSpacer />
-                        <MudTextField @bind-Value="_searchString" Placeholder="Search activities..." Adornment="Adornment.Start"
-                                      Immediate="true" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0"
-                                      Style="max-width: 300px;"></MudTextField>
-                    </ToolBarContent>
-                    <Columns>
-                        <PropertyColumn Property="x => x.Timestamp" Title="Time">
-                            <CellTemplate>
-                                <MudTooltip Text="@context.Item.Timestamp.ToString("dd MMM yyyy HH:mm:ss")">
-                                    <span
-                                    style="font-size: .85rem; color: #4b5563;">@GetRelativeTime(context.Item.Timestamp)</span>
-                                </MudTooltip>
-                            </CellTemplate>
-                        </PropertyColumn>
-                        <PropertyColumn Property="x => x.Username" Title="User">
-                            <CellTemplate>
-                                <div class="d-flex align-items-center gap-2">
-                                    <div class="avatar-sm" style="background: #667eea;">
-                                        @context.Item.Username[0].ToString().ToUpper()
-                                    </div>
-                                    <span
-                                    style="font-weight: 600; font-size: .88rem; color: #1a1a2e;">@context.Item.Username</span>
-                                </div>
-                            </CellTemplate>
-                        </PropertyColumn>
-                        <PropertyColumn Property="x => x.Action" Title="Action">
-                            <CellTemplate>
-                                <MudChip T="string" Color="@GetActionChipColor(context.Item.Action)" Size="Size.Small"
-                                         Style="font-weight: 600;">
-                                    @FormatAction(context.Item.Action)
-                                </MudChip>
-                            </CellTemplate>
-                        </PropertyColumn>
-                        <PropertyColumn Property="x => x.EntityType" Title="Entity">
-                            <CellTemplate>
-                                @if (!string.IsNullOrEmpty(context.Item.EntityType))
-                                {
-                                    <div class="entity-cell">
-                                        <span style="font-weight: 600; font-size: .85rem;">@context.Item.EntityType</span>
-                                        @if (!string.IsNullOrEmpty(context.Item.EntityId))
-                                        {
-                                            <span class="entity-id">#@context.Item.EntityId</span>
-                                        }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <span style="color: #d1d5db;">&mdash;</span>
-                                }
-                            </CellTemplate>
-                        </PropertyColumn>
-                        <PropertyColumn Property="x => x.Details" Title="Details">
-                            <CellTemplate>
-                                @if (!string.IsNullOrEmpty(context.Item.Details))
-                                {
-                                    <MudTooltip Text="@context.Item.Details">
-                                        <div class="details-cell">@context.Item.Details</div>
-                                    </MudTooltip>
-                                }
-                                else
-                                {
-                                    <span style="color: #d1d5db;">&mdash;</span>
-                                }
-                            </CellTemplate>
-                        </PropertyColumn>
-                        <PropertyColumn Property="x => x.IsSuccess" Title="Status">
-                            <CellTemplate>
-                                @if (context.Item.IsSuccess)
-                                {
-                                    <span class="status-pill success">
-                                        <i class="bi bi-check-circle-fill"></i> Success
-                                    </span>
-                                }
-                                else
-                                {
-                                    <span class="status-pill failed">
-                                        <i class="bi bi-x-circle-fill"></i> Failed
-                                    </span>
-                                }
-                            </CellTemplate>
-                        </PropertyColumn>
-                    </Columns>
-                    <PagerContent>
-                        <div class="d-flex flex-column align-items-center px-4 py-3">
-                            <MudPagination Color="Color.Primary" Count="totalPages" Selected="currentPage"
-                                           SelectedChanged="OnPageChanged" ShowFirstButton="true" ShowLastButton="true" BoundaryCount="1"
-                                           MiddleCount="3" />
-                            <MudText Typo="Typo.caption" Style="color: #9ca3af; margin-top: .5rem;">
-                                Page @currentPage of @totalPages &middot; @totalActionsCount total records
-                            </MudText>
-                        </div>
-                    </PagerContent>
-                </MudDataGrid>
             }
             else
             {
-                <div class="empty-state">
-                    <div class="empty-icon"><i class="bi bi-inbox"></i></div>
-                    <h6>No activity found</h6>
-                    <p>Try adjusting your filters or time range</p>
-                </div>
-            }
-        </div>
-    </div>
+                var rows = VisibleActivities;
 
-    <!-- ── Detail Drawer ──────────────────────────────────── -->
-    @if (selectedActivity != null)
-    {
-        <div class="ua-backdrop" @onclick="CloseDetail"></div>
-        <div class="ua-drawer">
-            <div class="ua-drawer-header">
-                <h5><i class="bi bi-info-circle me-2"></i>Activity Detail</h5>
-                <MudIconButton Class="ua-drawer-close" OnClick="CloseDetail" Icon="@Icons.Material.Filled.Close" />
-            </div>
-            <div class="ua-drawer-body">
-                <div class="detail-grid">
-                    <div class="detail-item">
-                        <div class="detail-label">User</div>
-                        <div class="detail-value">@selectedActivity.Username</div>
+                if (rows.Count == 0)
+                {
+                    <div class="uac-empty">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M3 7h18"></path>
+                            <path d="M3 12h18"></path>
+                            <path d="M3 17h10"></path>
+                        </svg>
+                        <span>Nothing matches this window and these filters.</span>
                     </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Action</div>
-                        <div class="detail-value">@FormatAction(selectedActivity.Action)</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Timestamp</div>
-                        <div class="detail-value mono">@selectedActivity.Timestamp.ToString("dd MMM yyyy HH:mm:ss")</div>
-                    </div>
-                    <div class="detail-item">
-                        <div class="detail-label">Status</div>
-                        <div class="detail-value">
-                            @if (selectedActivity.IsSuccess)
+                }
+                else
+                {
+                    <div class="uac-scroll">
+                        <div class="uac-grid" role="table" aria-label="Activity log">
+                            <div class="uac-thead" role="row">
+                                <span role="columnheader">
+                                    <button type="button" class="uac-th @(sortBy == "time" ? "uac-th-on" : "")"
+                                            @onclick='() => SortByColumn("time")'>
+                                        Time<span class="uac-th-mark">@SortMark("time")</span>
+                                    </button>
+                                </span>
+                                <span role="columnheader">
+                                    <button type="button" class="uac-th @(sortBy == "user" ? "uac-th-on" : "")"
+                                            @onclick='() => SortByColumn("user")'>
+                                        User<span class="uac-th-mark">@SortMark("user")</span>
+                                    </button>
+                                </span>
+                                <span role="columnheader">
+                                    <button type="button" class="uac-th @(sortBy == "action" ? "uac-th-on" : "")"
+                                            @onclick='() => SortByColumn("action")'>
+                                        Action<span class="uac-th-mark">@SortMark("action")</span>
+                                    </button>
+                                </span>
+                                <span role="columnheader">Entity</span>
+                                <span role="columnheader">Details</span>
+                                <span role="columnheader">Outcome</span>
+                            </div>
+
+                            @foreach (var activity in rows)
                             {
-                                <span class="status-pill success"><i class="bi bi-check-circle-fill"></i> Success</span>
-                            }
-                            else
-                            {
-                                <span class="status-pill failed"><i class="bi bi-x-circle-fill"></i> Failed</span>
+                                var log = activity;
+                                <div class="uac-row @(log.IsSuccess ? "" : "uac-row-failed")" role="row"
+                                     tabindex="0" @onclick="() => ShowDetail(log)">
+                                    <span class="uac-when" role="cell" title="@log.Timestamp.ToString("d MMM yyyy HH:mm:ss")">
+                                        <span class="uac-rl">Time</span>@GetRelativeTime(log.Timestamp)
+                                    </span>
+                                    <span class="uac-user" role="cell">
+                                        <span class="uac-rl">User</span>
+                                        <span class="uac-avatar" aria-hidden="true">@log.Username[0].ToString().ToUpper()</span>
+                                        <span class="uac-user-name">@log.Username</span>
+                                    </span>
+                                    <span role="cell">
+                                        <span class="uac-rl">Action</span>
+                                        <span class="uac-badge @ActionFamily(log.Action)">@FormatAction(log.Action)</span>
+                                    </span>
+                                    <span class="uac-entity" role="cell">
+                                        <span class="uac-rl">Entity</span>
+                                        @if (!string.IsNullOrEmpty(log.EntityType))
+                                        {
+                                            <span>@log.EntityType</span>
+                                            @if (!string.IsNullOrEmpty(log.EntityId))
+                                            {
+                                                <span class="uac-entity-id">@log.EntityId</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="uac-none">&#8212;</span>
+                                        }
+                                    </span>
+                                    <span class="uac-details" role="cell" title="@log.Details">
+                                        <span class="uac-rl">Details</span>
+                                        @if (!string.IsNullOrEmpty(log.Details))
+                                        {
+                                            @log.Details
+                                        }
+                                        else
+                                        {
+                                            <span class="uac-none">&#8212;</span>
+                                        }
+                                    </span>
+                                    <span role="cell">
+                                        <span class="uac-rl">Outcome</span>
+                                        <span class="uac-badge @(log.IsSuccess ? "uac-fam-good" : "uac-fam-bad")">
+                                            @(log.IsSuccess ? "Success" : "Failed")
+                                        </span>
+                                    </span>
+                                </div>
                             }
                         </div>
                     </div>
-                    @if (!string.IsNullOrEmpty(selectedActivity.EntityType))
+
+                    @if (totalPages > 1)
                     {
-                        <div class="detail-item">
-                            <div class="detail-label">Entity Type</div>
-                            <div class="detail-value">@selectedActivity.EntityType</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(selectedActivity.EntityId))
-                    {
-                        <div class="detail-item">
-                            <div class="detail-label">Entity ID</div>
-                            <div class="detail-value mono">@selectedActivity.EntityId</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrEmpty(selectedActivity.Details))
-                    {
-                        <div class="detail-item full-width">
-                            <div class="detail-label">Details</div>
-                            <div class="detail-value"
-                                 style="font-weight: 500; color: #374151; line-height: 1.5; word-break: break-word;">
-                                @selectedActivity.Details
+                        <div class="uac-foot">
+                            <span class="uac-foot-info">Page @currentPage of @totalPages &middot; @totalActionsCount records</span>
+                            <div class="uac-pages">
+                                <button type="button" class="uac-step" disabled="@(currentPage == 1)"
+                                        @onclick="() => OnPageChanged(currentPage - 1)">Previous</button>
+                                @foreach (var pg in GetPageNumbers())
+                                {
+                                    var p = pg;
+                                    <button type="button" class="uac-page @(currentPage == p ? "uac-page-on" : "")"
+                                            @onclick="() => OnPageChanged(p)">@p</button>
+                                }
+                                <button type="button" class="uac-step" disabled="@(currentPage == totalPages)"
+                                        @onclick="() => OnPageChanged(currentPage + 1)">Next</button>
                             </div>
                         </div>
                     }
+                }
+            }
+        </section>
+    </div>
+</div>
+
+@* ── Detail drawer ─────────────────────────────────────────────────────── *@
+@if (selectedActivity != null)
+{
+    <div class="uac uac-scrim" @onclick="CloseDetail"></div>
+    <aside class="uac uac-drawer" role="dialog" aria-modal="true" aria-label="Activity detail">
+        <div class="uac-drawer-head">
+            <div>
+                <h2>@FormatAction(selectedActivity.Action)</h2>
+                <div class="uac-drawer-sub">
+                    @selectedActivity.Username &middot; @selectedActivity.Timestamp.ToString("d MMM yyyy HH:mm:ss")
                 </div>
             </div>
+            <button type="button" class="uac-icon-btn uac-drawer-x" aria-label="Close" @onclick="CloseDetail">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                    <path d="M5 5l14 14M19 5L5 19"></path>
+                </svg>
+            </button>
         </div>
-    }
+        <div class="uac-drawer-body">
+            <div class="uac-dl">
+                <div>
+                    <div class="uac-dt">User</div>
+                    <div class="uac-dd">@selectedActivity.Username</div>
+                </div>
+                <div>
+                    <div class="uac-dt">Outcome</div>
+                    <div class="uac-dd">
+                        <span class="uac-badge @(selectedActivity.IsSuccess ? "uac-fam-good" : "uac-fam-bad")">
+                            @(selectedActivity.IsSuccess ? "Success" : "Failed")
+                        </span>
+                    </div>
+                </div>
+                <div>
+                    <div class="uac-dt">Action</div>
+                    <div class="uac-dd">
+                        <span class="uac-badge @ActionFamily(selectedActivity.Action)">@FormatAction(selectedActivity.Action)</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="uac-dt">Timestamp</div>
+                    <div class="uac-dd uac-dd-num">@selectedActivity.Timestamp.ToString("d MMM yyyy HH:mm:ss")</div>
+                </div>
+                @if (!string.IsNullOrEmpty(selectedActivity.EntityType))
+                {
+                    <div>
+                        <div class="uac-dt">Entity type</div>
+                        <div class="uac-dd">@selectedActivity.EntityType</div>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(selectedActivity.EntityId))
+                {
+                    <div>
+                        <div class="uac-dt">Entity id</div>
+                        <div class="uac-dd uac-dd-num">@selectedActivity.EntityId</div>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(selectedActivity.Details))
+                {
+                    <div class="uac-dl-full">
+                        <div class="uac-dt">Details</div>
+                        <div class="uac-dd">@selectedActivity.Details</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </aside>
+}
 
 @code {
     private bool isLoading = true;
@@ -1275,39 +483,106 @@
     private int totalPages = 1;
 
     // Quick filter - filter globally across multiple columns with the same input
-    private Func<ActivityLog, bool> _quickFilter => x =>
+    // What the page shows: the loaded page of rows, narrowed by the quick search
+    // and put in the chosen order. The search is the same four fields
+    // MudDataGrid's QuickFilter covered; it runs over the loaded page only,
+    // which is what it did before too.
+    private List<ActivityLog> VisibleActivities
     {
-        if (string.IsNullOrWhiteSpace(_searchString))
-            return true;
+        get
+        {
+            IEnumerable<ActivityLog> rows = recentActivities;
 
-        if (x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
+            if (!string.IsNullOrWhiteSpace(_searchString))
+            {
+                rows = rows.Where(x =>
+                    x.Username?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true
+                    || x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true
+                    || x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true
+                    || x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true);
+            }
 
-        if (x.Action?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
+            rows = sortBy switch
+            {
+                "user" => sortDesc
+                    ? rows.OrderByDescending(x => x.Username)
+                    : rows.OrderBy(x => x.Username),
+                "action" => sortDesc
+                    ? rows.OrderByDescending(x => x.Action)
+                    : rows.OrderBy(x => x.Action),
+                _ => sortDesc
+                    ? rows.OrderByDescending(x => x.Timestamp)
+                    : rows.OrderBy(x => x.Timestamp)
+            };
 
-        if (x.EntityType?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
+            return rows.ToList();
+        }
+    }
 
-        if (x.Details?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
-            return true;
+    // Newest first is the only useful default for a log, so time descending is
+    // where it starts. Clicking the column already sorted flips it.
+    private string sortBy = "time";
+    private bool sortDesc = true;
 
-        return false;
-    };
-
-    // Helper for action chip color
-    private Color GetActionChipColor(string action) => action switch
+    private void SortByColumn(string column)
     {
-        "Login" or "Logout" => Color.Success,
-        "RefreshToken" => Color.Info,
-        "LoginFailed" => Color.Error,
-        var a when a.StartsWith("Create") => Color.Primary,
-        var a when a.StartsWith("Update") => Color.Warning,
-        var a when a.StartsWith("Delete") => Color.Error,
-        var a when a.StartsWith("View") => Color.Info,
-        var a when a.StartsWith("Sync") => Color.Default,
-        _ => Color.Default
-    };
+        if (sortBy == column)
+        {
+            sortDesc = !sortDesc;
+        }
+        else
+        {
+            sortBy = column;
+            sortDesc = column == "time";
+        }
+    }
+
+    private string SortMark(string column) => sortBy != column ? "" : sortDesc ? " ▼" : " ▲";
+
+    private List<int> GetPageNumbers()
+    {
+        var pages = new List<int>();
+        var start = Math.Max(1, currentPage - 2);
+        var end = Math.Min(totalPages, currentPage + 2);
+        for (var i = start; i <= end; i++)
+            pages.Add(i);
+        return pages;
+    }
+
+    // One family token per kind of action, from the six in nocturne-tokens.css,
+    // so the badge in the log and the bar in the breakdown panel take the same
+    // hue for the same action and the ink is mixed from the same value as the
+    // wash. The old page had three separate mappings for this — a MudBlazor
+    // Color, a CSS gradient and a dot hex — and they did not agree: a login was
+    // Success green as a chip and #667eea blurple as a bar.
+    private static string ActionFamily(string? action)
+    {
+        var a = action ?? string.Empty;
+
+        if (a.Contains("Failed", StringComparison.OrdinalIgnoreCase)
+            || a.StartsWith("Delete", StringComparison.OrdinalIgnoreCase)
+            || a.Contains("Remove", StringComparison.OrdinalIgnoreCase))
+            return "uac-fam-bad";
+
+        if (a.StartsWith("Create", StringComparison.OrdinalIgnoreCase)
+            || a.Contains("Add", StringComparison.OrdinalIgnoreCase))
+            return "uac-fam-good";
+
+        if (a.StartsWith("Update", StringComparison.OrdinalIgnoreCase)
+            || a.Contains("Edit", StringComparison.OrdinalIgnoreCase))
+            return "uac-fam-warn";
+
+        if (a.Contains("Login", StringComparison.OrdinalIgnoreCase)
+            || a.Contains("Logout", StringComparison.OrdinalIgnoreCase)
+            || a.Contains("Auth", StringComparison.OrdinalIgnoreCase)
+            || a == "RefreshToken")
+            return "uac-fam-accent";
+
+        if (a.Contains("Sync", StringComparison.OrdinalIgnoreCase))
+            return "uac-fam-info";
+
+        return "uac-fam-neutral";
+    }
 
     private static string FormatAction(string? action)
     {
@@ -1516,28 +791,6 @@
         if (action.Contains("Login") || action.Contains("Auth")) return "bg-info";
         if (action.Contains("View") || action.Contains("Get")) return "bg-secondary";
         return "bg-warning text-dark";
-    }
-
-    private string GetActionBarColor(string action)
-    {
-        if (action.Contains("Create") || action.Contains("Add")) return "linear-gradient(90deg, #059669, #34d399)";
-        if (action.Contains("Update") || action.Contains("Edit")) return "linear-gradient(90deg, #2563eb, #60a5fa)";
-        if (action.Contains("Delete") || action.Contains("Remove")) return "linear-gradient(90deg, #dc2626, #f87171)";
-        if (action.Contains("Login") || action.Contains("Auth")) return "linear-gradient(90deg, #667eea, #a78bfa)";
-        if (action.Contains("View") || action.Contains("Get")) return "linear-gradient(90deg, #6b7280, #9ca3af)";
-        if (action.Contains("Sync")) return "linear-gradient(90deg, #0891b2, #22d3ee)";
-        return "linear-gradient(90deg, #d97706, #fbbf24)";
-    }
-
-    private string GetActionDotColor(string action)
-    {
-        if (action.Contains("Create") || action.Contains("Add")) return "#059669";
-        if (action.Contains("Update") || action.Contains("Edit")) return "#2563eb";
-        if (action.Contains("Delete") || action.Contains("Remove")) return "#dc2626";
-        if (action.Contains("Login") || action.Contains("Auth")) return "#667eea";
-        if (action.Contains("View") || action.Contains("Get")) return "#6b7280";
-        if (action.Contains("Sync")) return "#0891b2";
-        return "#d97706";
     }
 
     private void ShowDetail(ActivityLog activity)

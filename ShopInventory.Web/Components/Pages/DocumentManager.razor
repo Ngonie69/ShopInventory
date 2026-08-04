@@ -8,230 +8,329 @@
 
 <PageTitle>Document Manager - Shop Inventory</PageTitle>
 
-<div class="container-fluid fade-in">
-    <div class="page-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <div>
-                <h2>
-                    <i class="bi bi-file-earmark-pdf me-2" style="color: var(--primary-color);"></i>
-                    Document Manager
-                </h2>
-                <span class="text-muted">@EntityType #@EntityId</span>
+@* The Nocturne sheet is wwwroot/css/document-manager.css (linked from
+   App.razor), derived from security.css — the same two columns of independent
+   cards, the wide one holding what you do and the narrow one what it produced.
+
+   This page had no sheet of its own before: it was Bootstrap's .card,
+   .form-control, .list-group and .alert with MudButtons on top, which is why it
+   followed no theme in particular. Every control is native and classed now, and
+   each control selector is two classes deep so it out-specifies app.css's
+   global `.dark-theme input/select/textarea` block.
+
+   The signature canvas and the stored signature images keep a white plate in
+   both schemes. The PNG is saved and emailed as drawn, so a signature captured
+   on the dark ground would reach the customer invisible. *@
+
+<div class="dmg">
+
+    <header class="dmg-head">
+        <div class="dmg-head-inner">
+            <nav class="dmg-crumbs" aria-label="Breadcrumb">
+                <span>Documents</span>
+                <span class="dmg-crumb-sep" aria-hidden="true">/</span>
+                <span class="dmg-crumb-now" aria-current="page">@EntityType @EntityId</span>
+            </nav>
+            <div class="dmg-head-actions">
+                <button type="button" class="dmg-btn dmg-btn-quiet" @onclick="GoBack">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20 12H5"></path>
+                        <path d="M11 6l-6 6 6 6"></path>
+                    </svg>
+                    <span>Back</span>
+                </button>
             </div>
-            <MudButton Variant="Variant.Filled" Color="Color.Default" OnClick="GoBack">
-                <i class="bi bi-arrow-left me-2"></i>Back
-            </MudButton>
         </div>
-    </div>
+    </header>
 
-    <div class="row g-4">
-        <!-- Left Column: Actions -->
-        <div class="col-lg-8">
-            <!-- Generate Document -->
-            <div class="card mb-4">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="bi bi-file-pdf me-2"></i>Generate Document</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Select Template</label>
-                            <select class="form-select" @bind="selectedTemplateId">
-                                <option value="0">Use default template</option>
-                                @if (templates != null)
-                                {
-                                    @foreach (var template in templates)
-                                    {
-                                        <option value="@template.Id">@template.Name @(template.IsDefault ? "(Default)" : "")
-                                        </option>
-                                    }
-                                }
-                            </select>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">&nbsp;</label>
-                            <div class="d-grid gap-2">
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GenerateDocument"
-                                           Disabled="@isGenerating">
-                                    @if (isGenerating)
-                                    {
-                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-                                    }
-                                    <i class="bi bi-file-earmark-pdf me-2"></i>Generate PDF
-                                </MudButton>
-                            </div>
-                        </div>
-                    </div>
-                    @if (generateError != null)
-                    {
-                        <div class="alert alert-danger mt-3">@generateError</div>
-                    }
-                    @if (generateSuccess != null)
-                    {
-                        <div class="alert alert-success mt-3">@generateSuccess</div>
-                    }
-                </div>
+    <div class="dmg-body">
+
+        <section class="dmg-hero">
+            <div>
+                <div class="dmg-kicker">@EntityType @EntityId</div>
+                <h1>Document manager</h1>
+                <p>
+                    Render this document to PDF, send it, and sign it. Everything produced here is kept
+                    against the record, so the history on the right is what was actually sent and when.
+                </p>
             </div>
+        </section>
 
-            <!-- Email Document -->
-            <div class="card mb-4">
-                <div class="card-header bg-success text-white">
-                    <h5 class="mb-0"><i class="bi bi-envelope me-2"></i>Email Document</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Recipient Email *</label>
-                            <input type="email" class="form-control" @bind="recipientEmail"
-                                   placeholder="customer@example.com" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Recipient Name</label>
-                            <input type="text" class="form-control" @bind="recipientName" placeholder="Customer Name" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Subject</label>
-                            <input type="text" class="form-control" @bind="emailSubject" placeholder="Your Invoice" />
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Message</label>
-                            <textarea class="form-control" @bind="emailBody" rows="4"
-                                      placeholder="Dear customer..."></textarea>
-                        </div>
-                        <div class="col-12">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" @bind="includeAttachments"
-                                       id="includeAttachments">
-                                    <label class="form-check-label" for="includeAttachments">
-                                        Include all attachments
-                                    </label>
+        <div class="dmg-cols">
+
+            <div class="dmg-col">
+
+                <section class="dmg-card">
+                    <div class="dmg-card-head">
+                        <h2>Generate</h2>
+                    </div>
+                    <div class="dmg-card-body">
+                        <div class="dmg-row">
+                            <div class="dmg-field">
+                                <label class="dmg-label" for="dmgTemplate">Template</label>
+                                <div class="dmg-select">
+                                    <select id="dmgTemplate" class="dmg-input" @bind="selectedTemplateId">
+                                        <option value="0">Default for this document type</option>
+                                        @if (templates != null)
+                                        {
+                                            @foreach (var template in templates)
+                                            {
+                                                <option value="@template.Id">
+                                                    @template.Name@(template.IsDefault ? " (default)" : "")
+                                                </option>
+                                            }
+                                        }
+                                    </select>
+                                    <span class="dmg-caret" aria-hidden="true"></span>
                                 </div>
                             </div>
-                            <div class="col-12">
-                                <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="EmailDocument"
-                                           Disabled="@(isEmailing || string.IsNullOrEmpty(recipientEmail))">
-                                    @if (isEmailing)
+                            <div class="dmg-actions">
+                                <button type="button" class="dmg-btn dmg-btn-primary" disabled="@isGenerating"
+                                        @onclick="GenerateDocument">
+                                    @if (isGenerating)
                                     {
-                                        <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                                        <span class="dmg-spin" aria-hidden="true"></span>
+                                        <span>Rendering&#8230;</span>
                                     }
-                                    <i class="bi bi-send me-2"></i>Send Email
-                                </MudButton>
+                                    else
+                                    {
+                                        <span>Generate PDF</span>
+                                    }
+                                </button>
                             </div>
                         </div>
-                        @if (emailError != null)
+
+                        @if (generateSuccess != null)
                         {
-                            <div class="alert alert-danger mt-3">@emailError</div>
+                            <div class="dmg-notice dmg-fam-good" role="status">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M20 6L9 17l-5-5"></path>
+                                </svg>
+                                <span class="dmg-notice-text">@generateSuccess</span>
+                            </div>
                         }
+                        @if (generateError != null)
+                        {
+                            <div class="dmg-notice dmg-fam-bad" role="alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M12 7v6"></path>
+                                    <path d="M12 16.5v.01"></path>
+                                </svg>
+                                <span class="dmg-notice-text">@generateError</span>
+                            </div>
+                        }
+                    </div>
+                </section>
+
+                <section class="dmg-card">
+                    <div class="dmg-card-head">
+                        <h2>Email</h2>
+                    </div>
+                    <div class="dmg-card-body">
+                        <div class="dmg-row">
+                            <div class="dmg-field">
+                                <label class="dmg-label" for="dmgTo">
+                                    Recipient <span class="dmg-req" aria-hidden="true">*</span>
+                                </label>
+                                <input id="dmgTo" type="email" class="dmg-input" autocomplete="email"
+                                       placeholder="name@company.co.zw" @bind="recipientEmail" />
+                            </div>
+                            <div class="dmg-field">
+                                <label class="dmg-label" for="dmgToName">Recipient name</label>
+                                <input id="dmgToName" type="text" class="dmg-input" @bind="recipientName" />
+                            </div>
+                        </div>
+                        <div class="dmg-field">
+                            <label class="dmg-label" for="dmgSubject">Subject</label>
+                            <input id="dmgSubject" type="text" class="dmg-input" @bind="emailSubject" />
+                        </div>
+                        <div class="dmg-field">
+                            <label class="dmg-label" for="dmgBody">Message</label>
+                            <textarea id="dmgBody" class="dmg-textarea" rows="4" @bind="emailBody"></textarea>
+                        </div>
+                        <label class="dmg-check">
+                            <input type="checkbox" id="dmgAttach" @bind="includeAttachments" />
+                            <span>Attach everything on this record, not just the PDF</span>
+                        </label>
+                        <div class="dmg-actions">
+                            <button type="button" class="dmg-btn dmg-btn-primary"
+                                    disabled="@(isEmailing || string.IsNullOrEmpty(recipientEmail))"
+                                    @onclick="EmailDocument">
+                                @if (isEmailing)
+                                {
+                                    <span class="dmg-spin" aria-hidden="true"></span>
+                                    <span>Sending&#8230;</span>
+                                }
+                                else
+                                {
+                                    <span>Send email</span>
+                                }
+                            </button>
+                        </div>
+
                         @if (emailSuccess != null)
                         {
-                            <div class="alert alert-success mt-3">@emailSuccess</div>
+                            <div class="dmg-notice dmg-fam-good" role="status">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M20 6L9 17l-5-5"></path>
+                                </svg>
+                                <span class="dmg-notice-text">@emailSuccess</span>
+                            </div>
+                        }
+                        @if (emailError != null)
+                        {
+                            <div class="dmg-notice dmg-fam-bad" role="alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M12 7v6"></path>
+                                    <path d="M12 16.5v.01"></path>
+                                </svg>
+                                <span class="dmg-notice-text">@emailError</span>
+                            </div>
                         }
                     </div>
-                </div>
+                </section>
 
-                <!-- Digital Signature -->
-                <div class="card mb-4">
-                    <div class="card-header bg-warning text-dark">
-                        <h5 class="mb-0"><i class="bi bi-pen me-2"></i>Digital Signature</h5>
+                <section class="dmg-card">
+                    <div class="dmg-card-head">
+                        <h2>Signature</h2>
                     </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Signer Name *</label>
-                                <input type="text" class="form-control" @bind="signerName" placeholder="John Doe" />
+                    <div class="dmg-card-body">
+                        <div class="dmg-row">
+                            <div class="dmg-field">
+                                <label class="dmg-label" for="dmgSigner">
+                                    Signer <span class="dmg-req" aria-hidden="true">*</span>
+                                </label>
+                                <input id="dmgSigner" type="text" class="dmg-input" @bind="signerName" />
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Signer Email</label>
-                                <input type="email" class="form-control" @bind="signerEmail"
-                                       placeholder="signer@example.com" />
+                            <div class="dmg-field">
+                                <label class="dmg-label" for="dmgSignerEmail">Signer email</label>
+                                <input id="dmgSignerEmail" type="email" class="dmg-input" @bind="signerEmail" />
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Role</label>
-                                <select class="form-select" @bind="signerRole">
+                        </div>
+                        <div class="dmg-field">
+                            <label class="dmg-label" for="dmgSignerRole">Role</label>
+                            <div class="dmg-select">
+                                <select id="dmgSignerRole" class="dmg-input" @bind="signerRole">
                                     <option value="Customer">Customer</option>
                                     <option value="Supplier">Supplier</option>
                                     <option value="Manager">Manager</option>
                                     <option value="Accountant">Accountant</option>
                                 </select>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Signature Pad</label>
-                                <div class="border rounded p-2 bg-white" style="height: 200px;">
-                                    <canvas id="signaturePad" width="700" height="180"
-                                            style="border: 1px dashed #ccc; cursor: crosshair;"></canvas>
-                                </div>
-                                <div class="mt-2">
-                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
-                                               OnClick="ClearSignature">
-                                        <i class="bi bi-eraser"></i> Clear
-                                    </MudButton>
-                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="ms-2"
-                                               OnClick="SaveSignature" Disabled="@isSavingSignature">
-                                        @if (isSavingSignature)
-                                        {
-                                            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-                                        }
-                                        <i class="bi bi-check2"></i> Save Signature
-                                    </MudButton>
-                                </div>
+                                <span class="dmg-caret" aria-hidden="true"></span>
                             </div>
                         </div>
-                        @if (signatureError != null)
-                        {
-                            <div class="alert alert-danger mt-3">@signatureError</div>
-                        }
+                        <div class="dmg-field">
+                            <span class="dmg-label">Sign here</span>
+                            <div class="dmg-pad">
+                                <canvas id="signaturePad" width="700" height="180"
+                                        aria-label="Signature drawing area"></canvas>
+                            </div>
+                            <span class="dmg-hint">The image is saved as drawn and sent with the document.</span>
+                        </div>
+                        <div class="dmg-actions">
+                            <button type="button" class="dmg-btn dmg-btn-quiet" @onclick="ClearSignature">Clear</button>
+                            <button type="button" class="dmg-btn dmg-btn-primary" disabled="@isSavingSignature"
+                                    @onclick="SaveSignature">
+                                @if (isSavingSignature)
+                                {
+                                    <span class="dmg-spin" aria-hidden="true"></span>
+                                    <span>Saving&#8230;</span>
+                                }
+                                else
+                                {
+                                    <span>Save signature</span>
+                                }
+                            </button>
+                        </div>
+
                         @if (signatureSuccess != null)
                         {
-                            <div class="alert alert-success mt-3">@signatureSuccess</div>
+                            <div class="dmg-notice dmg-fam-good" role="status">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M20 6L9 17l-5-5"></path>
+                                </svg>
+                                <span class="dmg-notice-text">@signatureSuccess</span>
+                            </div>
+                        }
+                        @if (signatureError != null)
+                        {
+                            <div class="dmg-notice dmg-fam-bad" role="alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M12 7v6"></path>
+                                    <path d="M12 16.5v.01"></path>
+                                </svg>
+                                <span class="dmg-notice-text">@signatureError</span>
+                            </div>
                         }
                     </div>
-                </div>
+                </section>
             </div>
 
-            <!-- Right Column: Attachments & History -->
-            <div class="col-lg-4">
-                <!-- Attachments -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-paperclip me-2"></i>Attachments</h5>
+            <div class="dmg-col">
+
+                <section class="dmg-card">
+                    <div class="dmg-card-head">
+                        <h2>Attachments</h2>
+                        @if (attachments?.Any() == true)
+                        {
+                            <span class="dmg-card-count">@attachments.Count</span>
+                        }
                     </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            <label class="form-label">Upload File</label>
-                            <InputFile OnChange="HandleFileSelected" class="form-control" />
+                    <div class="dmg-card-body">
+                        <div class="dmg-field">
+                            <label class="dmg-label" for="dmgUpload">Upload</label>
+                            <InputFile id="dmgUpload" class="dmg-file" OnChange="HandleFileSelected" />
                             @if (isUploading)
                             {
-                                <div class="mt-2">
-                                    <div class="spinner-border spinner-border-sm me-2"></div>
-                                    Uploading...
+                                <div class="dmg-loading">
+                                    <span class="dmg-spin" aria-hidden="true"></span>
+                                    <span>Uploading&#8230;</span>
                                 </div>
                             }
                         </div>
+
                         @if (attachments?.Any() == true)
                         {
-                            <div class="list-group">
+                            <div class="dmg-list">
                                 @foreach (var attachment in attachments)
                                 {
-                                    <div class="list-group-item">
-                                        <div class="d-flex justify-content-between align-items-start">
-                                            <div class="flex-grow-1">
-                                                <h6 class="mb-1">@attachment.FileName</h6>
-                                                <small class="text-muted">@attachment.FileSizeFormatted</small>
-                                                @if (!string.IsNullOrEmpty(attachment.Description))
-                                                {
-                                                    <p class="mb-1"><small>@attachment.Description</small></p>
-                                                }
+                                    var att = attachment;
+                                    <div class="dmg-list-row">
+                                        <div class="dmg-list-text">
+                                            <div class="dmg-list-name">@att.FileName</div>
+                                            <div class="dmg-list-meta">
+                                                @att.FileSizeFormatted@(string.IsNullOrEmpty(att.Description) ? "" : $" · {att.Description}")
                                             </div>
-                                            <div class="btn-group-vertical btn-group-sm">
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                                           OnClick="() => DownloadAttachment(attachment.Id)">
-                                                    <i class="bi bi-download"></i>
-                                                </MudButton>
-                                                <MudButton Variant="Variant.Outlined" Color="Color.Error"
-                                                           OnClick="() => DeleteAttachment(attachment.Id)">
-                                                    <i class="bi bi-trash"></i>
-                                                </MudButton>
-                                            </div>
+                                        </div>
+                                        <div class="dmg-list-actions">
+                                            <button type="button" class="dmg-icon-btn" title="Download"
+                                                    aria-label="Download attachment" @onclick="() => DownloadAttachment(att.Id)">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                     stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M12 4v11"></path>
+                                                    <path d="M8 11l4 4 4-4"></path>
+                                                    <path d="M5 19h14"></path>
+                                                </svg>
+                                            </button>
+                                            <button type="button" class="dmg-icon-btn dmg-icon-btn-danger" title="Delete"
+                                                    aria-label="Delete attachment" @onclick="() => DeleteAttachment(att.Id)">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                     stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                    <path d="M4 7h16"></path>
+                                                    <path d="M9 7V5h6v2"></path>
+                                                    <path d="M6 7l1 13h10l1-13"></path>
+                                                </svg>
+                                            </button>
                                         </div>
                                     </div>
                                 }
@@ -239,35 +338,25 @@
                         }
                         else
                         {
-                            <p class="text-muted">No attachments</p>
+                            <div class="dmg-empty">Nothing attached to this record.</div>
                         }
                     </div>
-                </div>
+                </section>
 
-                <!-- Document History -->
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>History</h5>
+                <section class="dmg-card">
+                    <div class="dmg-card-head">
+                        <h2>History</h2>
                     </div>
-                    <div class="card-body">
+                    <div class="dmg-card-body">
                         @if (history?.Any() == true)
                         {
-                            <div class="timeline">
+                            <div class="dmg-timeline">
                                 @foreach (var item in history)
                                 {
-                                    <div class="timeline-item mb-3">
-                                        <div class="d-flex">
-                                            <div class="flex-shrink-0">
-                                                <i class="bi @GetHistoryIcon(item.Action) text-primary"></i>
-                                            </div>
-                                            <div class="flex-grow-1 ms-3">
-                                                <h6 class="mb-0">@item.Action</h6>
-                                                <small class="text-muted">@item.GeneratedAt.ToLocalTime().ToString("g")</small>
-                                                @if (!string.IsNullOrEmpty(item.RecipientEmail))
-                                                {
-                                                    <p class="mb-0"><small>To: @item.RecipientEmail</small></p>
-                                                }
-                                            </div>
+                                    <div class="dmg-event">
+                                        <div class="dmg-event-action">@item.Action</div>
+                                        <div class="dmg-event-meta">
+                                            @item.GeneratedAt.ToLocalTime().ToString("d MMM yyyy HH:mm")@(string.IsNullOrEmpty(item.RecipientEmail) ? "" : $" · {item.RecipientEmail}")
                                         </div>
                                     </div>
                                 }
@@ -275,43 +364,46 @@
                         }
                         else
                         {
-                            <p class="text-muted">No history</p>
+                            <div class="dmg-empty">Nothing has been generated or sent yet.</div>
                         }
                     </div>
-                </div>
+                </section>
 
-                <!-- Signatures -->
                 @if (signatures?.Any() == true)
                 {
-                    <div class="card mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0"><i class="bi bi-pen me-2"></i>Signatures</h5>
+                    <section class="dmg-card">
+                        <div class="dmg-card-head">
+                            <h2>Signatures</h2>
+                            <span class="dmg-card-count">@signatures.Count</span>
                         </div>
-                        <div class="card-body">
+                        <div class="dmg-card-body">
                             @foreach (var sig in signatures)
                             {
-                                <div class="mb-3 p-2 border rounded">
-                                    <div class="d-flex justify-content-between align-items-start">
-                                        <div>
-                                            <h6 class="mb-0">@sig.SignerName</h6>
-                                            <small class="text-muted">@sig.SignerRole</small>
-                                            <p class="mb-0"><small>@sig.SignedAt.ToLocalTime().ToString("g")</small></p>
+                                <div class="dmg-sig">
+                                    <div class="dmg-sig-head">
+                                        <div class="dmg-sig-text">
+                                            <div class="dmg-sig-name">@sig.SignerName</div>
+                                            <div class="dmg-sig-meta">
+                                                @sig.SignerRole &middot; @sig.SignedAt.ToLocalTime().ToString("d MMM yyyy HH:mm")
+                                            </div>
                                         </div>
                                         @if (sig.IsVerified)
                                         {
-                                            <span class="badge bg-success">Verified</span>
+                                            <span class="dmg-badge dmg-fam-good">Verified</span>
                                         }
                                     </div>
-                                    <img src="@sig.SignatureData" alt="Signature" class="img-fluid mt-2"
-                                         style="max-height: 80px;" />
+                                    <div class="dmg-sig-image">
+                                        <img src="@sig.SignatureData" alt="Signature of @sig.SignerName" />
+                                    </div>
                                 </div>
                             }
                         </div>
-                    </div>
+                    </section>
                 }
             </div>
         </div>
     </div>
+</div>
 
 @code {
     [Parameter] public string EntityType { get; set; } = "";

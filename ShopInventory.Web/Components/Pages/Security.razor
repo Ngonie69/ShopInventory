@@ -12,1364 +12,835 @@
 
 <PageTitle>Security Settings - Shop Inventory</PageTitle>
 
-<style>
-    /* ── Page ─────────────────────────────────────────── */
-    .sec-page {
-        min-height: 100vh;
-        padding: 1.5rem;
-    }
-
-    /* ── Header ───────────────────────────────────────── */
-    .sec-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        flex-wrap: wrap;
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .sec-header-left {
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-    }
-
-    .sec-header-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .3);
-        color: #fff;
-        font-size: 1.4rem;
-    }
-
-    .sec-header h2 {
-        font-weight: 700;
-        color: #1a1a2e;
-        margin: 0;
-        letter-spacing: -.3px;
-    }
-
-    .sec-header p {
-        color: #6b7280;
-        margin: 0;
-        font-size: .88rem;
-    }
-
-    /* ── Stat Cards ────────────────────────────────────── */
-    .stat-row {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
-    }
-
-    .stat-card {
-        background: #fff;
-        border-radius: 12px;
-        padding: 1.1rem 1.25rem;
-        display: flex;
-        align-items: center;
-        gap: .85rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        transition: box-shadow .2s;
-    }
-
-    .stat-card:hover {
-        box-shadow: 0 4px 14px rgba(0, 0, 0, .08);
-    }
-
-    .stat-icon {
-        width: 42px;
-        height: 42px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.1rem;
-        flex-shrink: 0;
-    }
-
-    .stat-icon.green {
-        background: #d1fae5;
-        color: #059669;
-    }
-
-    .stat-icon.red {
-        background: #fee2e2;
-        color: #dc2626;
-    }
-
-    .stat-icon.purple {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .stat-icon.amber {
-        background: #fef3c7;
-        color: #d97706;
-    }
-
-    .stat-icon.blue {
-        background: #dbeafe;
-        color: #2563eb;
-    }
-
-    .stat-info .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        line-height: 1.2;
-    }
-
-    .stat-info .stat-label {
-        font-size: .78rem;
-        color: #6b7280;
-        font-weight: 500;
-    }
-
-    /* ── Section Card ──────────────────────────────────── */
-    .sec-card {
-        background: #fff;
-        border-radius: 12px;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, .04);
-        margin-bottom: 1.25rem;
-        overflow: hidden;
-    }
-
-    .sec-card-header {
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid #f1f5f9;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .sec-card-header h5 {
-        margin: 0;
-        font-weight: 700;
-        font-size: .95rem;
-        color: #1a1a2e;
-        display: flex;
-        align-items: center;
-        gap: .5rem;
-    }
-
-    .sec-card-body {
-        padding: 1.25rem;
-    }
-
-    /* ── Status Badges ─────────────────────────────────── */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: .3rem;
-        padding: 4px 12px;
-        border-radius: 8px;
-        font-size: .78rem;
-        font-weight: 600;
-    }
-
-    .status-badge.enabled {
-        background: #d1fae5;
-        color: #065f46;
-    }
-
-    .status-badge.disabled {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    /* ── Info Alert ─────────────────────────────────────── */
-    .sec-info {
-        padding: .85rem 1rem;
-        border-radius: 10px;
-        display: flex;
-        align-items: flex-start;
-        gap: .5rem;
-        font-size: .88rem;
-        margin-bottom: 1rem;
-    }
-
-    .sec-info.info {
-        background: #eff6ff;
-        color: #1e40af;
-        border: 1px solid #bfdbfe;
-    }
-
-    .sec-info.warning {
-        background: #fffbeb;
-        color: #92400e;
-        border: 1px solid #fde68a;
-    }
-
-    .sec-info.success {
-        background: #ecfdf5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-    }
-
-    .sec-info.error {
-        background: #fef2f2;
-        color: #991b1b;
-        border: 1px solid #fca5a5;
-    }
-
-    /* ── Buttons ───────────────────────────────────────── */
-    .btn-sec-gradient {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, .25);
-        cursor: pointer;
-    }
-
-    .btn-sec-gradient:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 14px rgba(102, 126, 234, .4);
-        color: #fff;
-    }
-
-    .btn-sec-gradient:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-        transform: none;
-    }
-
-    .btn-sec-outline {
-        background: #fff;
-        color: #6b7280;
-        border: 1px solid #d1d5db;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-sec-outline:hover {
-        background: #f3f4f6;
-    }
-
-    .btn-sec-outline:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    .btn-sec-danger {
-        background: #dc2626;
-        border: none;
-        color: #fff;
-        padding: .55rem 1.35rem;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: .88rem;
-        cursor: pointer;
-        transition: all .2s;
-        display: inline-flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .btn-sec-danger:hover {
-        background: #b91c1c;
-    }
-
-    .btn-sec-danger:disabled {
-        opacity: .5;
-        cursor: not-allowed;
-    }
-
-    .btn-sec-sm {
-        padding: .35rem .85rem;
-        font-size: .82rem;
-        border-radius: 8px;
-    }
-
-    /* ── Form Inputs ───────────────────────────────────── */
-    .sec-input {
-        width: 100%;
-        padding: .55rem .85rem;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        font-size: .88rem;
-        color: #374151;
-        background: #f8fafc;
-        transition: border-color .2s, box-shadow .2s;
-        outline: none;
-    }
-
-    .sec-input:focus {
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, .12);
-        background: #fff;
-    }
-
-    .sec-input.mono {
-        font-family: 'Courier New', monospace;
-        letter-spacing: 2px;
-        text-align: center;
-        font-size: 1.1rem;
-    }
-
-    .sec-input-group {
-        display: flex;
-        gap: 0;
-    }
-
-    .sec-input-group .sec-input {
-        border-radius: 8px 0 0 8px;
-    }
-
-    .sec-input-group .btn-copy {
-        border-radius: 0 8px 8px 0;
-        padding: .55rem .85rem;
-        border: 1px solid #e5e7eb;
-        border-left: none;
-        background: #f8fafc;
-        color: #6b7280;
-        cursor: pointer;
-        transition: all .15s;
-    }
-
-    .sec-input-group .btn-copy:hover {
-        background: #ede9fe;
-        color: #7c3aed;
-    }
-
-    .sec-label {
-        display: block;
-        font-size: .78rem;
-        font-weight: 600;
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: .4px;
-        margin-bottom: .35rem;
-    }
-
-    /* ── Two-Col Layout ────────────────────────────────── */
-    .sec-columns {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1.25rem;
-    }
-
-    .sec-main-col {
-        display: flex;
-        flex-direction: column;
-        gap: 1.25rem;
-    }
-
-    .sec-side-col {
-        display: flex;
-        flex-direction: column;
-        gap: 1.25rem;
-    }
-
-    @@media (max-width: 992px) {
-        .sec-columns {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    /* ── Setup Card ────────────────────────────────────── */
-    .setup-card {
-        border: 2px solid #667eea;
-    }
-
-    .setup-card .sec-card-header {
-        background: linear-gradient(135deg, #667eea, #764ba2);
-    }
-
-    .setup-card .sec-card-header h5 {
-        color: #fff;
-    }
-
-    .setup-steps {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1.5rem;
-    }
-
-    @@media (max-width: 768px) {
-        .setup-steps {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .step-label {
-        display: inline-flex;
-        align-items: center;
-        gap: .35rem;
-        font-weight: 700;
-        font-size: .85rem;
-        color: #1a1a2e;
-        margin-bottom: .5rem;
-    }
-
-    .step-num {
-        width: 22px;
-        height: 22px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea, #764ba2);
-        color: #fff;
-        font-size: .7rem;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .qr-wrap {
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 10px;
-        padding: 1rem;
-        text-align: center;
-    }
-
-    .backup-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .35rem;
-        background: #f8fafc;
-        padding: .75rem;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-    }
-
-    .backup-grid code {
-        font-size: .88rem;
-        color: #374151;
-    }
-
-    /* ── Modal ──────────────────────────────────────────── */
-    /* Centres below the app bar, not the viewport: the page container is a stacking
-       context, so the bar paints over anything centred against the full viewport. */
-    .sec-overlay {
-        position: fixed;
-        inset: var(--kf-topbar-h, 74px) 0 0;
-        background: rgba(0, 0, 0, .4);
-        backdrop-filter: blur(4px);
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .sec-modal {
-        background: #fff;
-        border-radius: 14px;
-        width: 95%;
-        max-width: 460px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
-        overflow: hidden;
-    }
-
-    .sec-modal-header {
-        padding: 1rem 1.25rem;
-        border-bottom: 1px solid #f1f5f9;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .sec-modal-header h5 {
-        margin: 0;
-        font-weight: 700;
-        font-size: .95rem;
-        display: flex;
-        align-items: center;
-        gap: .4rem;
-    }
-
-    .sec-modal-header.danger {
-        background: #fef2f2;
-    }
-
-    .sec-modal-header.danger h5 {
-        color: #991b1b;
-    }
-
-    .sec-modal-body {
-        padding: 1.25rem;
-    }
-
-    .sec-modal-footer {
-        padding: .85rem 1.25rem;
-        border-top: 1px solid #f1f5f9;
-        display: flex;
-        justify-content: flex-end;
-        gap: .5rem;
-    }
-
-    .sec-modal-close {
-        border: none;
-        background: transparent;
-        color: #9ca3af;
-        cursor: pointer;
-        padding: 4px;
-        border-radius: 6px;
-        font-size: 1.1rem;
-    }
-
-    .sec-modal-close:hover {
-        color: #374151;
-        background: #f3f4f6;
-    }
-
-    /* ── Activity Table ────────────────────────────────── */
-    .activity-list {
-        max-height: 340px;
-        overflow-y: auto;
-    }
-
-    .activity-item {
-        display: flex;
-        align-items: center;
-        gap: .75rem;
-        padding: .65rem 0;
-        border-bottom: 1px solid #f8fafc;
-    }
-
-    .activity-item:last-child {
-        border-bottom: none;
-    }
-
-    .activity-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        flex-shrink: 0;
-    }
-
-    .activity-dot.success {
-        background: #10b981;
-    }
-
-    .activity-dot.fail {
-        background: #ef4444;
-    }
-
-    .activity-detail {
-        flex: 1;
-        min-width: 0;
-    }
-
-    .activity-action {
-        font-weight: 600;
-        font-size: .85rem;
-        color: #1a1a2e;
-    }
-
-    .activity-meta {
-        font-size: .78rem;
-        color: #9ca3af;
-    }
-
-    .activity-time {
-        font-size: .76rem;
-        color: #9ca3af;
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
-
-    /* ── Tips ───────────────────────────────────────────── */
-    .tip-item {
-        display: flex;
-        gap: .5rem;
-        margin-bottom: .85rem;
-    }
-
-    .tip-item:last-child {
-        margin-bottom: 0;
-    }
-
-    .tip-icon {
-        color: #10b981;
-        margin-top: 2px;
-        flex-shrink: 0;
-    }
-
-    .tip-text strong {
-        display: block;
-        font-size: .85rem;
-        color: #1a1a2e;
-    }
-
-    .tip-text span {
-        font-size: .8rem;
-        color: #6b7280;
-    }
-
-    /* ── Password Strength ─────────────────────────────── */
-    .pwd-rules {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: .3rem;
-        margin-top: .5rem;
-    }
-
-    .pwd-rule {
-        font-size: .78rem;
-        display: flex;
-        align-items: center;
-        gap: .3rem;
-    }
-
-    .pwd-rule.pass {
-        color: #059669;
-    }
-
-    .pwd-rule.fail {
-        color: #9ca3af;
-    }
-
-    /* ── Loading ───────────────────────────────────────── */
-    .sec-loading {
-        text-align: center;
-        padding: 4rem 2rem;
-    }
-
-    .sec-loading .spinner {
-        width: 40px;
-        height: 40px;
-        border: 3px solid #e5e7eb;
-        border-top-color: #667eea;
-        border-radius: 50%;
-        animation: spin .7s linear infinite;
-        display: inline-block;
-    }
-
-    @@keyframes spin {
-        to {
-            transform: rotate(360deg);
-        }
-    }
-</style>
-
-<div class="sec-page fade-in">
-    <!-- Header -->
-    <div class="sec-header">
-        <div class="sec-header-left">
-            <div class="sec-header-icon">
-                <i class="bi bi-shield-lock-fill"></i>
-            </div>
+@* The Nocturne sheet is wwwroot/css/security.css (linked from App.razor). Its
+   chrome is audit-trail.css's; the two-column stack of settings cards is this
+   page's own, because nothing here is a row of anything.
+
+   It lives in a file rather than in the <style> block this page used to carry,
+   and here that mattered more than on most pages: eleven password and code
+   fields, all of which app.css's global `.dark-theme input` rule would repaint
+   #1e293b. It also replaces about forty inline `style=` attributes holding
+   hard-coded hexes, none of which followed the theme — which is why the side
+   column used to be light-mode text on a dark ground.
+
+   The modals carry `.sec` themselves. They sit outside the page element, and
+   that class is what puts the page's tokens in reach. *@
+
+<div class="sec">
+
+    <header class="sec-head">
+        <div class="sec-head-inner">
+            <nav class="sec-crumbs" aria-label="Breadcrumb">
+                <span>Account</span>
+                <span class="sec-crumb-sep" aria-hidden="true">/</span>
+                <span class="sec-crumb-now" aria-current="page">Security</span>
+            </nav>
+        </div>
+    </header>
+
+    <div class="sec-body">
+
+        <section class="sec-hero">
             <div>
-                <h2>Security Settings</h2>
-                <p>Manage your account security, authentication, and privacy</p>
+                <div class="sec-kicker">Account protection</div>
+                <h1>Security</h1>
+                <p>
+                    How this account is signed into, and what has been done with it lately. A second factor
+                    is the single change that matters most here — everything else on the page assumes
+                    someone already has the password.
+                </p>
             </div>
-        </div>
-    </div>
+        </section>
 
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <div class="sec-info success">
-            <i class="bi bi-check-circle-fill"></i>
-            <span>@successMessage</span>
-        </div>
-    }
-    @if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="sec-info error">
-            <i class="bi bi-exclamation-triangle-fill"></i>
-            <span>@errorMessage</span>
-        </div>
-    }
-
-    @if (isLoading)
-    {
-        <div class="sec-loading">
-            <div class="spinner"></div>
-            <p style="color: #6b7280; margin-top: .75rem;">Loading security settings...</p>
-        </div>
-    }
-    else
-    {
-        <!-- Stat Cards -->
-        <div class="stat-row">
-            <div class="stat-card">
-                <div class="stat-icon @(twoFactorStatus?.IsEnabled == true ? "green" : "amber")">
-                    <i class="bi bi-shield-@(twoFactorStatus?.IsEnabled == true ? "check" : "exclamation")"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value">@(twoFactorStatus?.IsEnabled == true ? "On" : "Off")</div>
-                    <div class="stat-label">Two-Factor Auth</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon purple">
-                    <i class="bi bi-key-fill"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value">@(twoFactorStatus?.BackupCodesRemaining ?? 0)</div>
-                    <div class="stat-label">Backup Codes</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon blue">
-                    <i class="bi bi-fingerprint"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value">@passkeys.Count</div>
-                    <div class="stat-label">Registered Passkeys</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon blue">
-                    <i class="bi bi-clock-history"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value">@(activitySummary?.ActionsToday ?? 0)</div>
-                    <div class="stat-label">Actions Today</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div
-                    class="stat-icon @(activitySummary?.RecentActivities.Any(a => !a.IsSuccess && a.Action.Contains("Login", StringComparison.OrdinalIgnoreCase)) == true ? "red" : "green")">
-                    <i class="bi bi-person-check-fill"></i>
-                </div>
-                <div class="stat-info">
-                    <div class="stat-value">@(activitySummary?.ActionsThisWeek ?? 0)</div>
-                    <div class="stat-label">This Week</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 2FA Setup Section (shown when setting up) -->
-        @if (isSettingUp && setupData != null)
+        @if (!string.IsNullOrEmpty(successMessage))
         {
-            <div class="sec-card setup-card">
-                <div class="sec-card-header">
-                    <h5><i class="bi bi-qr-code"></i> Set Up Two-Factor Authentication</h5>
-                </div>
-                <div class="sec-card-body">
-                    <div class="setup-steps">
-                        <div>
-                            <div class="step-label"><span class="step-num">1</span> Scan QR Code</div>
-                            <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .75rem;">
-                                Scan with your authenticator app (Google Authenticator, Authy, etc.)
-                            </p>
-                            <div class="qr-wrap">
-                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=@Uri.EscapeDataString(setupData.QrCodeUri)"
-                                     alt="2FA QR Code" style="max-width: 200px;" />
-                            </div>
-                            <div style="margin-top: .75rem;">
-                                <label class="sec-label">Can't scan? Enter manually:</label>
-                                <div class="sec-input-group">
-                                    <input type="text" class="sec-input mono" value="@setupData.ManualEntryKey" readonly
-                                           style="font-size: .85rem; letter-spacing: 1px;" />
-                                    <button class="btn-copy" @onclick="() => CopyToClipboard(setupData.ManualEntryKey)">
-                                        <i class="bi bi-clipboard"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="step-label"><span class="step-num">2</span> Enter Verification Code</div>
-                            <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .75rem;">
-                                Enter the 6-digit code from your authenticator app.
-                            </p>
-                            <div style="margin-bottom: .75rem;">
-                                <label class="sec-label">Verification Code</label>
-                                <input type="text" class="sec-input mono" maxlength="6" placeholder="000000"
-                                       @bind="verificationCode" @bind:event="oninput" />
-                            </div>
-                            <div style="display: flex; gap: .5rem; margin-bottom: 1.25rem;">
-                                <button class="btn-sec-gradient" @onclick="VerifyAndEnable2FA"
-                                        disabled="@(string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6 || isVerifying)">
-                                    @if (isVerifying)
-                                    {
-                                        <span class="spinner-border spinner-border-sm"></span>
-                                    }
-                                    <i class="bi bi-check-circle"></i> Verify & Enable
-                                </button>
-                                <button class="btn-sec-outline" @onclick="CancelSetup">
-                                    <i class="bi bi-x-circle"></i> Cancel
-                                </button>
-                            </div>
-
-                            <div class="step-label"><span class="step-num">3</span> Save Backup Codes</div>
-                            <p style="color: #6b7280; font-size: .84rem; margin: 0 0 .5rem;">
-                                After the verification step succeeds, we'll show a one-time set of backup codes. Save them before closing that confirmation.
-                            </p>
-                            <div class="sec-info info" style="margin-bottom: 0;">
-                                <i class="bi bi-key-fill"></i>
-                                <span>Backup codes are only revealed after activation and won't be shown again from this setup screen.</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <div class="sec-notice sec-fam-good" role="status">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 6L9 17l-5-5"></path>
+                </svg>
+                <span class="sec-notice-text">@successMessage</span>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="sec-notice sec-fam-bad" role="alert">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 7v6"></path>
+                    <path d="M12 16.5v.01"></path>
+                </svg>
+                <span class="sec-notice-text">@errorMessage</span>
             </div>
         }
 
-        <div class="sec-columns">
-            <!-- Main Column -->
-            <div class="sec-main-col">
-                <!-- Two-Factor Auth Card -->
-                <div class="sec-card">
-                    <div class="sec-card-header">
-                        <h5><i class="bi bi-phone"></i> Two-Factor Authentication</h5>
-                        @if (twoFactorStatus?.IsEnabled == true)
-                        {
-                            <span class="status-badge enabled"><i class="bi bi-check-circle-fill"></i> Enabled</span>
-                        }
-                        else
-                        {
-                            <span class="status-badge disabled"><i class="bi bi-exclamation-triangle-fill"></i> Disabled</span>
-                        }
+        @if (isLoading)
+        {
+            <div class="sec-loading">
+                <span class="sec-spin" aria-hidden="true"></span>
+                <span>Loading security settings&#8230;</span>
+            </div>
+        }
+        else
+        {
+            var twoFactorOn = twoFactorStatus?.IsEnabled == true;
+            var codesLeft = twoFactorStatus?.BackupCodesRemaining ?? 0;
+            var score = CalculateSecurityScore();
+            var scoreFam = ScoreFamily(score);
+
+            <section class="sec-stats">
+                <div class="sec-stat @(twoFactorOn ? "sec-stat-good" : "sec-stat-alert")">
+                    <div class="sec-stat-head"><span class="sec-stat-rule"></span>Two-factor</div>
+                    <div class="sec-stat-num">@(twoFactorOn ? "On" : "Off")</div>
+                    <div class="sec-stat-sub">@(twoFactorOn ? "a code is required at login" : "password alone gets in")</div>
+                </div>
+                <div class="sec-stat @(twoFactorOn && codesLeft == 0 ? "sec-stat-alert" : "")">
+                    <div class="sec-stat-head"><span class="sec-stat-rule"></span>Backup codes</div>
+                    <div class="sec-stat-num">@codesLeft</div>
+                    <div class="sec-stat-sub">left to use if the app is lost</div>
+                </div>
+                <div class="sec-stat @(passkeys.Any() ? "sec-stat-good" : "")">
+                    <div class="sec-stat-head"><span class="sec-stat-rule"></span>Passkeys</div>
+                    <div class="sec-stat-num">@passkeys.Count</div>
+                    <div class="sec-stat-sub">devices that can sign in without a password</div>
+                </div>
+                <div class="sec-stat">
+                    <div class="sec-stat-head"><span class="sec-stat-rule"></span>Today</div>
+                    <div class="sec-stat-num">@(activitySummary?.ActionsToday ?? 0)</div>
+                    <div class="sec-stat-sub">actions on this account</div>
+                </div>
+                <div class="sec-stat">
+                    <div class="sec-stat-head"><span class="sec-stat-rule"></span>This week</div>
+                    <div class="sec-stat-num">@(activitySummary?.ActionsThisWeek ?? 0)</div>
+                    <div class="sec-stat-sub">actions on this account</div>
+                </div>
+            </section>
+
+            @if (isSettingUp && setupData != null)
+            {
+                <section class="sec-card sec-card-setup">
+                    <div class="sec-card-head">
+                        <h2>Set up two-factor authentication</h2>
+                        <div class="sec-card-head-aside">
+                            <span class="sec-badge sec-fam-accent">In progress</span>
+                        </div>
                     </div>
                     <div class="sec-card-body">
-                        @if (twoFactorStatus?.IsEnabled == true)
-                        {
-                            <p style="color: #6b7280; font-size: .88rem; margin: 0 0 .75rem;">
-                                Two-factor authentication is active. A code from your authenticator app is required at login.
-                            </p>
-                            <div class="sec-info info">
-                                <i class="bi bi-info-circle-fill"></i>
-                                <div>
-                                    <strong>Backup Codes Remaining:</strong> @twoFactorStatus.BackupCodesRemaining
-                                    @if (twoFactorStatus.EnabledAt.HasValue)
-                                    {
-                                        <br />
-                            
-                                        <span style="font-size: .82rem; opacity: .8;">Enabled on
-                                            @twoFactorStatus.EnabledAt.Value.ToString("MMMM dd, yyyy")</span>
-                                        }
-                                    </div>
+                        <div class="sec-steps">
+                            <div class="sec-step">
+                                <div class="sec-step-head">
+                                    <span class="sec-step-num">1</span>
+                                    <span>Scan the code</span>
                                 </div>
-                                <div style="display: flex; gap: .5rem; flex-wrap: wrap;">
-                                    <button class="btn-sec-outline" @onclick="ShowRegenerateBackupCodes">
-                                        <i class="bi bi-key"></i> Regenerate Backup Codes
-                                    </button>
-                                    <button class="btn-sec-danger btn-sec-sm" @onclick="ShowDisable2FA">
-                                        <i class="bi bi-shield-x"></i> Disable 2FA
-                                    </button>
+                                <p>Open your authenticator app — Google Authenticator, Authy, 1Password — and scan this.</p>
+                                <div class="sec-qr">
+                                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=@Uri.EscapeDataString(setupData.QrCodeUri)"
+                                         alt="Two-factor setup QR code" />
                                 </div>
-                            }
-                    else
-                            {
-                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 .75rem;">
-                                    Add an extra layer of security by requiring a code from your authenticator app when signing in.
-                                </p>
-                                <div class="sec-info warning">
-                                    <i class="bi bi-shield-exclamation"></i>
-                                    <span><strong>Recommended:</strong> Enable two-factor authentication to protect your
-                                        account.</span>
-                                    </div>
-                                    <button class="btn-sec-gradient" @onclick="StartSetup2FA">
-                                        <i class="bi bi-shield-check"></i> Enable Two-Factor Authentication
-                                    </button>
-                                }
-                            </div>
-                        </div>
-
-                        <div class="sec-card">
-                            <div class="sec-card-header">
-                                <h5><i class="bi bi-fingerprint"></i> Passkeys</h5>
-                                @if (passkeys.Any())
-                                {
-                                    <span class="status-badge enabled"><i class="bi bi-check-circle-fill"></i> @passkeys.Count registered</span>
-                                }
-                                else
-                                {
-                                    <span class="status-badge disabled"><i class="bi bi-exclamation-triangle-fill"></i> Not set up</span>
-                                }
-                            </div>
-                            <div class="sec-card-body">
-                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 1rem;">
-                                    Use Windows Hello, Face ID, Touch ID, or your device PIN to sign in without typing your password.
-                                </p>
-                                <div class="sec-info info">
-                                    <i class="bi bi-info-circle-fill"></i>
-                                    <span><strong>Requirement:</strong> Passkeys need HTTPS or localhost and a supported browser.</span>
-                                </div>
-
-                                @if (!string.IsNullOrEmpty(passkeySuccessMessage))
-                                {
-                                    <div class="sec-info success">
-                                        <i class="bi bi-check-circle-fill"></i>
-                                        <span>@passkeySuccessMessage</span>
-                                    </div>
-                                }
-                                @if (!string.IsNullOrEmpty(passkeyErrorMessage))
-                                {
-                                    <div class="sec-info error">
-                                        <i class="bi bi-exclamation-triangle-fill"></i>
-                                        <span>@passkeyErrorMessage</span>
-                                    </div>
-                                }
-
-                                <div style="display: grid; gap: .85rem; max-width: 420px;">
-                                    <div>
-                                        <label class="sec-label">Passkey Name</label>
-                                        <input type="text" class="sec-input" placeholder="e.g. Office Laptop"
-                                               @bind="newPasskeyName" @bind:event="oninput" />
-                                    </div>
-                                    <div>
-                                        <button class="btn-sec-gradient" @onclick="RegisterPasskey" disabled="@isRegisteringPasskey">
-                                            @if (isRegisteringPasskey)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                            }
-                                            <i class="bi bi-plus-circle"></i> Add Passkey
-                                        </button>
-                                    </div>
-                                </div>
-
-                                @if (passkeys.Any())
-                                {
-                                    <div style="display: grid; gap: .75rem; margin-top: 1rem;">
-                                        @foreach (var passkey in passkeys)
-                                        {
-                                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 1rem; border: 1px solid #e5e7eb; border-radius: 10px; background: #f8fafc;">
-                                                <div>
-                                                    <div style="font-weight: 700; color: #1a1a2e;">@passkey.FriendlyName</div>
-                                                    <div style="font-size: .82rem; color: #6b7280;">
-                                                        Added @passkey.CreatedAt.ToString("dd MMM yyyy")
-                                                        @if (passkey.LastUsedAt.HasValue)
-                                                        {
-                                                            <span> &middot; Last used @passkey.LastUsedAt.Value.ToString("dd MMM yyyy HH:mm")</span>
-                                                        }
-                                                    </div>
-                                                </div>
-                                                <i class="bi bi-fingerprint" style="font-size: 1.25rem; color: #667eea;"></i>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            </div>
-                        </div>
-
-                        <!-- Update Credentials Card -->
-                        <div class="sec-card">
-                            <div class="sec-card-header">
-                                <h5><i class="bi bi-person-gear"></i> Login Credentials</h5>
-                            </div>
-                            <div class="sec-card-body">
-                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 1rem;">
-                                    Update your username or email address. Password is required for verification.
-                                </p>
-                                @if (isLoadingCredentials)
-                                {
-                                    <div style="display: flex; align-items: center; gap: .5rem; color: #6b7280;">
-                                        <span class="spinner-border spinner-border-sm"></span> Loading credentials...
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div style="display: grid; gap: .85rem; max-width: 400px;">
-                                        <div>
-                                            <label class="sec-label">Username</label>
-                                            <input type="text" class="sec-input" placeholder="Enter new username"
-                                                   @bind="credUsername" @bind:event="oninput" />
-                                        </div>
-                                        <div>
-                                            <label class="sec-label">Email</label>
-                                            <input type="email" class="sec-input" placeholder="Enter email address"
-                                                   @bind="credEmail" @bind:event="oninput" />
-                                        </div>
-                                        <div>
-                                            <label class="sec-label">Current Password <span style="color: #ef4444;">*</span></label>
-                                            <input type="password" class="sec-input" placeholder="Verify with current password"
-                                                   @bind="credPassword" @bind:event="oninput" />
-                                        </div>
-                                        @if (!string.IsNullOrEmpty(credSuccessMessage))
-                                        {
-                                            <div class="sec-info success" style="margin: 0;">
-                                                <i class="bi bi-check-circle-fill"></i>
-                                                <span>@credSuccessMessage</span>
-                                            </div>
-                                        }
-                                        @if (!string.IsNullOrEmpty(credErrorMessage))
-                                        {
-                                            <div class="sec-info error" style="margin: 0;">
-                                                <i class="bi bi-exclamation-triangle-fill"></i>
-                                                <span>@credErrorMessage</span>
-                                            </div>
-                                        }
-                                        <div>
-                                            <button class="btn-sec-gradient" @onclick="UpdateCredentials"
-                                                    disabled="@(!IsCredentialsValid || isUpdatingCredentials)">
-                                                @if (isUpdatingCredentials)
-                                                {
-                                                    <span class="spinner-border spinner-border-sm"></span>
-                                                }
-                                                <i class="bi bi-check-lg"></i> Update Credentials
-                                            </button>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-
-                        <!-- Change Password Card -->
-                        <div class="sec-card">
-                            <div class="sec-card-header">
-                                <h5><i class="bi bi-lock-fill"></i> Change Password</h5>
-                            </div>
-                            <div class="sec-card-body">
-                                <p style="color: #6b7280; font-size: .88rem; margin: 0 0 1rem;">
-                                    Keep your account secure by using a strong, unique password.
-                                </p>
-                                <div style="display: grid; gap: .85rem; max-width: 400px;">
-                                    <div>
-                                        <label class="sec-label">Current Password</label>
-                                        <input type="password" class="sec-input" placeholder="Enter current password"
-                                               @bind="currentPassword" />
-                                    </div>
-                                    <div>
-                                        <label class="sec-label">New Password</label>
-                                        <input type="password" class="sec-input" placeholder="Enter new password"
-                                               @bind="newPassword" @bind:event="oninput" />
-                                        <div class="pwd-rules">
-                                            <span class="pwd-rule @(newPassword.Length >= 8 ? "pass" : "fail")">
-                                                <i class="bi bi-@(newPassword.Length >= 8 ? "check-circle-fill" : "circle")"></i> 8+
-                                                characters
-                                            </span>
-                                            <span
-                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") ? "pass" : "fail")">
-                                                <i
-                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") ? "check-circle-fill" : "circle")"></i>
-                                                Uppercase
-                                            </span>
-                                            <span
-                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") ? "pass" : "fail")">
-                                                <i
-                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") ? "check-circle-fill" : "circle")"></i>
-                                                Lowercase
-                                            </span>
-                                            <span
-                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[0-9]") ? "pass" : "fail")">
-                                                <i
-                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[0-9]") ? "check-circle-fill" : "circle")"></i>
-                                                Number
-                                            </span>
-                                            <span
-                                                class="pwd-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") ? "pass" : "fail")">
-                                                <i
-                                                class="bi bi-@(System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") ? "check-circle-fill" : "circle")"></i>
-                                                Special char
-                                            </span>
-                                            <span
-                                                class="pwd-rule @(newPassword == confirmPassword && confirmPassword.Length > 0 ? "pass" : "fail")">
-                                                <i
-                                                class="bi bi-@(newPassword == confirmPassword && confirmPassword.Length > 0 ? "check-circle-fill" : "circle")"></i>
-                                                Matches
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label class="sec-label">Confirm New Password</label>
-                                        <input type="password" class="sec-input" placeholder="Confirm new password"
-                                               @bind="confirmPassword" />
-                                    </div>
-                                    <div>
-                                        <button class="btn-sec-gradient" @onclick="ChangePassword"
-                                                disabled="@(!IsPasswordValid || isChangingPassword)">
-                                            @if (isChangingPassword)
-                                            {
-                                                <span class="spinner-border spinner-border-sm"></span>
-                                            }
-                                            <i class="bi bi-check-lg"></i> Update Password
+                                <div class="sec-field">
+                                    <label class="sec-label" for="secManualKey">Or enter this key by hand</label>
+                                    <div class="sec-input-group">
+                                        <input id="secManualKey" type="text" class="sec-input sec-input-code"
+                                               value="@setupData.ManualEntryKey" readonly />
+                                        <button type="button" class="sec-icon-btn" title="Copy" aria-label="Copy key"
+                                                @onclick="() => CopyToClipboard(setupData.ManualEntryKey)">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                 stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+                                                <path d="M5 15V5a2 2 0 0 1 2-2h8"></path>
+                                            </svg>
                                         </button>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Recent Activity Card -->
-                        <div class="sec-card">
-                            <div class="sec-card-header">
-                                <h5><i class="bi bi-clock-history"></i> Recent Activity</h5>
-                                <a href="/user-activity"
-                                       style="font-size: .82rem; color: #667eea; text-decoration: none; font-weight: 600;">
-                                    View all <i class="bi bi-arrow-right"></i>
-                                </a>
-                            </div>
-                            <div class="sec-card-body" style="padding-top: .5rem;">
-                                @if (recentActivity.Any())
-                                {
-                                    <div class="activity-list">
-                                        @foreach (var activity in recentActivity)
-                                        {
-                                            <div class="activity-item">
-                                                <div class="activity-dot @(activity.IsSuccess ? "success" : "fail")"></div>
-                                                <div class="activity-detail">
-                                                    <div class="activity-action">@FormatAction(activity.Action)</div>
-                                                    <div class="activity-meta">
-                                                        @if (!string.IsNullOrEmpty(activity.EntityType))
-                                                        {
-                                                            <span>@activity.EntityType</span>
-                                                        }
-                                                        @if (!string.IsNullOrEmpty(activity.Details))
-                                                        {
-                                                            <span> &middot; @TruncateText(activity.Details, 60)</span>
-                                                        }
-                                                    </div>
-                                                </div>
-                                                <span class="activity-time">@activity.TimeAgo</span>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                                else
-                                {
-                                    <p style="color: #9ca3af; font-size: .88rem; text-align: center; padding: 1.5rem 0; margin: 0;">
-                                        <i class="bi bi-clock" style="font-size: 1.5rem; display: block; margin-bottom: .5rem;"></i>
-                                        No recent activity found
-                                    </p>
-                                }
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Side Column -->
-                    <div class="sec-side-col">
-                        <!-- Security Score Card -->
-                        <div class="sec-card">
-                            <div class="sec-card-header">
-                                <h5><i class="bi bi-speedometer2"></i> Security Score</h5>
-                            </div>
-                            <div class="sec-card-body" style="text-align: center; padding: 1.5rem;">
-                                @{
-                                    var score = CalculateSecurityScore();
-                                    var scoreColor = score >= 80 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444";
-                                }
-                                <div style="position: relative; width: 120px; height: 120px; margin: 0 auto 1rem;">
-                                    <svg viewBox="0 0 36 36" style="width: 120px; height: 120px; transform: rotate(-90deg);">
-                                        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                              fill="none" stroke="#e5e7eb" stroke-width="3" />
-                                        <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                              fill="none" stroke="@scoreColor" stroke-width="3" stroke-dasharray="@score, 100"
-                                              stroke-linecap="round" />
-                                    </svg>
-                                    <div
-                                        style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;">
-                                        <span style="font-size: 1.6rem; font-weight: 800; color: @scoreColor;">@score</span>
-                                        <span style="font-size: .7rem; color: #9ca3af; font-weight: 600;">/ 100</span>
-                                    </div>
+                            <div class="sec-step">
+                                <div class="sec-step-head">
+                                    <span class="sec-step-num">2</span>
+                                    <span>Enter the code it shows</span>
                                 </div>
-                                <p style="font-size: .85rem; color: #6b7280; margin: 0;">
-                                    @if (score >= 80)
-                                    {
-                                        <span style="color: #059669; font-weight: 600;">Excellent!</span>
-                                        <span>Your
-                                            account is well protected.</span>
-                                        }
-                        else if (score >= 50)
+                                <div class="sec-field">
+                                    <label class="sec-label" for="secVerify">Verification code</label>
+                                    <input id="secVerify" type="text" class="sec-input sec-input-code" maxlength="6"
+                                           inputmode="numeric" autocomplete="one-time-code" placeholder="000000"
+                                           @bind="verificationCode" @bind:event="oninput" />
+                                </div>
+                                <div class="sec-actions">
+                                    <button type="button" class="sec-btn sec-btn-primary"
+                                            disabled="@(string.IsNullOrEmpty(verificationCode) || verificationCode.Length != 6 || isVerifying)"
+                                            @onclick="VerifyAndEnable2FA">
+                                        @if (isVerifying)
                                         {
-                                            <span style="color: #d97706; font-weight: 600;">Good.</span>
-                                            <span>Consider enabling 2FA for better security.</span>
+                                            <span class="sec-spin" aria-hidden="true"></span>
+                                            <span>Verifying&#8230;</span>
                                         }
                                         else
                                         {
-                                            <span style="color: #dc2626; font-weight: 600;">Needs attention.</span>
-                                            <span>Enable 2FA
-                                                and check recommendations below.</span>
-                                            }
-                                        </p>
-                                    </div>
+                                            <span>Verify and enable</span>
+                                        }
+                                    </button>
+                                    <button type="button" class="sec-btn sec-btn-quiet" @onclick="CancelSetup">Cancel</button>
                                 </div>
 
-                                <!-- Security Tips Card -->
-                                <div class="sec-card">
-                                    <div class="sec-card-header">
-                                        <h5><i class="bi bi-lightbulb-fill"></i> Security Checklist</h5>
-                                    </div>
-                                    <div class="sec-card-body">
-                                        <div class="tip-item">
-                                            <i class="bi bi-@(twoFactorStatus?.IsEnabled == true ? "check-circle-fill" : "circle") tip-icon"
-                                               style="color: @(twoFactorStatus?.IsEnabled == true ? "#10b981" : "#d1d5db");"></i>
-                                            <div class="tip-text">
-                                                <strong>Enable 2FA</strong>
-                                                <span>Adds an extra layer of protection</span>
-                                            </div>
-                                        </div>
-                                        <div class="tip-item">
-                                            <i class="bi bi-check-circle-fill tip-icon"></i>
-                                            <div class="tip-text">
-                                                <strong>Use a strong password</strong>
-                                                <span>At least 8 characters with mixed types</span>
-                                            </div>
-                                        </div>
-                                        <div class="tip-item">
-                                            <i class="bi bi-@(twoFactorStatus?.BackupCodesRemaining > 0 ? "check-circle-fill" : "circle") tip-icon"
-                                               style="color: @(twoFactorStatus?.BackupCodesRemaining > 0 ? "#10b981" : "#d1d5db");"></i>
-                                            <div class="tip-text">
-                                                <strong>Save backup codes</strong>
-                                                <span>Store them securely offline</span>
-                                            </div>
-                                        </div>
-                                        <div class="tip-item">
-                                            <i class="bi bi-check-circle-fill tip-icon"></i>
-                                            <div class="tip-text">
-                                                <strong>Don't share credentials</strong>
-                                                <span>Never share your password or 2FA codes</span>
-                                            </div>
-                                        </div>
-                                        <div class="tip-item">
-                                            <i class="bi bi-check-circle-fill tip-icon"></i>
-                                            <div class="tip-text">
-                                                <strong>Review activity regularly</strong>
-                                                <span>Monitor for unexpected logins</span>
-                                            </div>
-                                        </div>
-                                    </div>
+                                <div class="sec-step-head">
+                                    <span class="sec-step-num">3</span>
+                                    <span>Save the backup codes</span>
                                 </div>
-
-                                <!-- Quick Links Card -->
-                                <div class="sec-card">
-                                    <div class="sec-card-header">
-                                        <h5><i class="bi bi-link-45deg"></i> Quick Links</h5>
-                                    </div>
-                                    <div class="sec-card-body" style="display: flex; flex-direction: column; gap: .5rem;">
-                                        <a href="/user-activity"
-                                               style="display: flex; align-items: center; gap: .5rem; padding: .55rem .85rem; border-radius: 8px; text-decoration: none; color: #374151; font-size: .88rem; font-weight: 500; border: 1px solid #e5e7eb; transition: all .15s;">
-                                            <i class="bi bi-clock-history" style="color: #667eea;"></i> Login History & Audit Trail
-                                            <i class="bi bi-chevron-right" style="margin-left: auto; color: #d1d5db;"></i>
-                                        </a>
-                                        <a href="/settings"
-                                               style="display: flex; align-items: center; gap: .5rem; padding: .55rem .85rem; border-radius: 8px; text-decoration: none; color: #374151; font-size: .88rem; font-weight: 500; border: 1px solid #e5e7eb; transition: all .15s;">
-                                            <i class="bi bi-gear" style="color: #667eea;"></i> Account Settings
-                                            <i class="bi bi-chevron-right" style="margin-left: auto; color: #d1d5db;"></i>
-                                        </a>
-                                        <a href="/notifications"
-                                               style="display: flex; align-items: center; gap: .5rem; padding: .55rem .85rem; border-radius: 8px; text-decoration: none; color: #374151; font-size: .88rem; font-weight: 500; border: 1px solid #e5e7eb; transition: all .15s;">
-                                            <i class="bi bi-bell" style="color: #667eea;"></i> Notification Preferences
-                                            <i class="bi bi-chevron-right" style="margin-left: auto; color: #d1d5db;"></i>
-                                        </a>
-                                    </div>
+                                <div class="sec-notice sec-fam-warn">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12 4l9 16H3z"></path>
+                                        <path d="M12 10v4"></path>
+                                        <path d="M12 17.5v.01"></path>
+                                    </svg>
+                                    <span class="sec-notice-text">
+                                        A one-time set of codes appears once verification succeeds, and is never shown
+                                        again. They are the only way back in if the authenticator is lost.
+                                    </span>
                                 </div>
                             </div>
                         </div>
-                    }
+                    </div>
+                </section>
+            }
+
+            <div class="sec-cols">
+
+                <div class="sec-col">
+
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Two-factor authentication</h2>
+                            <div class="sec-card-head-aside">
+                                <span class="sec-badge @(twoFactorOn ? "sec-fam-good" : "sec-fam-warn")">
+                                    @(twoFactorOn ? "Enabled" : "Disabled")
+                                </span>
+                            </div>
+                        </div>
+                        <div class="sec-card-body">
+                            @if (twoFactorOn)
+                            {
+                                <p>
+                                    A code from your authenticator app is required at every login.
+                                    @if (twoFactorStatus!.EnabledAt.HasValue)
+                                    {
+                                        <text> Turned on @twoFactorStatus.EnabledAt.Value.ToString("d MMMM yyyy").</text>
+                                    }
+                                </p>
+                                <div class="sec-notice @(codesLeft > 0 ? "sec-fam-info" : "sec-fam-warn")">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="9"></circle>
+                                        <path d="M12 11v5"></path>
+                                        <path d="M12 7.5v.01"></path>
+                                    </svg>
+                                    <span class="sec-notice-text">
+                                        @if (codesLeft > 0)
+                                        {
+                                            <text>@codesLeft backup @(codesLeft == 1 ? "code" : "codes") remaining.</text>
+                                        }
+                                        else
+                                        {
+                                            <text>No backup codes left. Losing the authenticator would lock this account out.</text>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="sec-actions">
+                                    <button type="button" class="sec-btn sec-btn-quiet" @onclick="ShowRegenerateBackupCodes">
+                                        Regenerate backup codes
+                                    </button>
+                                    <button type="button" class="sec-btn sec-btn-danger" @onclick="ShowDisable2FA">
+                                        Disable
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                <p>
+                                    Requires a code from your authenticator app on top of the password, so a stolen
+                                    password on its own is not enough to sign in.
+                                </p>
+                                <div class="sec-notice sec-fam-warn">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M12 4l9 16H3z"></path>
+                                        <path d="M12 10v4"></path>
+                                        <path d="M12 17.5v.01"></path>
+                                    </svg>
+                                    <span class="sec-notice-text">
+                                        This is the single change on the page that matters most.
+                                    </span>
+                                </div>
+                                <div class="sec-actions">
+                                    <button type="button" class="sec-btn sec-btn-primary" @onclick="StartSetup2FA">
+                                        Enable two-factor authentication
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Passkeys</h2>
+                            <div class="sec-card-head-aside">
+                                <span class="sec-badge @(passkeys.Any() ? "sec-fam-good" : "sec-fam-neutral")">
+                                    @(passkeys.Any() ? $"{passkeys.Count} registered" : "None yet")
+                                </span>
+                            </div>
+                        </div>
+                        <div class="sec-card-body">
+                            <p>
+                                Sign in with Windows Hello, Face ID, Touch ID or a device PIN instead of typing a
+                                password. Passkeys need HTTPS or localhost and a browser that supports them.
+                            </p>
+
+                            @if (!string.IsNullOrEmpty(passkeySuccessMessage))
+                            {
+                                <div class="sec-notice sec-fam-good" role="status">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M20 6L9 17l-5-5"></path>
+                                    </svg>
+                                    <span class="sec-notice-text">@passkeySuccessMessage</span>
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(passkeyErrorMessage))
+                            {
+                                <div class="sec-notice sec-fam-bad" role="alert">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="9"></circle>
+                                        <path d="M12 7v6"></path>
+                                        <path d="M12 16.5v.01"></path>
+                                    </svg>
+                                    <span class="sec-notice-text">@passkeyErrorMessage</span>
+                                </div>
+                            }
+
+                            <div class="sec-form">
+                                <div class="sec-field">
+                                    <label class="sec-label" for="secPasskeyName">Passkey name</label>
+                                    <input id="secPasskeyName" type="text" class="sec-input" placeholder="Office laptop"
+                                           @bind="newPasskeyName" @bind:event="oninput" />
+                                    <span class="sec-hint">Names the device, so an old one can be told apart later.</span>
+                                </div>
+                                <div class="sec-actions">
+                                    <button type="button" class="sec-btn sec-btn-primary"
+                                            disabled="@isRegisteringPasskey" @onclick="RegisterPasskey">
+                                        @if (isRegisteringPasskey)
+                                        {
+                                            <span class="sec-spin" aria-hidden="true"></span>
+                                            <span>Waiting for the device&#8230;</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Add passkey</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (passkeys.Any())
+                            {
+                                <div class="sec-list">
+                                    @foreach (var passkey in passkeys)
+                                    {
+                                        <div class="sec-list-row">
+                                            <div class="sec-list-text">
+                                                <div class="sec-list-name">@passkey.FriendlyName</div>
+                                                <div class="sec-list-meta">
+                                                    Added @passkey.CreatedAt.ToString("d MMM yyyy")@(passkey.LastUsedAt.HasValue
+                                                        ? $" · last used {passkey.LastUsedAt.Value:d MMM yyyy HH:mm}"
+                                                        : " · never used")
+                                                </div>
+                                            </div>
+                                            <svg class="sec-list-mark" width="17" height="17" viewBox="0 0 24 24" fill="none"
+                                                 stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+                                                <path d="M12 4a8 8 0 0 0-8 8v3"></path>
+                                                <path d="M20 12a8 8 0 0 0-4-6.9"></path>
+                                                <path d="M8 12a4 4 0 0 1 8 0v6"></path>
+                                                <path d="M12 12v8"></path>
+                                            </svg>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Login credentials</h2>
+                        </div>
+                        <div class="sec-card-body">
+                            <p>Change the username or email this account signs in with. The current password confirms it is you.</p>
+                            @if (isLoadingCredentials)
+                            {
+                                <div class="sec-loading sec-loading-inline">
+                                    <span class="sec-spin" aria-hidden="true"></span>
+                                    <span>Loading credentials&#8230;</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="sec-form">
+                                    <div class="sec-field">
+                                        <label class="sec-label" for="secUsername">Username</label>
+                                        <input id="secUsername" type="text" class="sec-input" autocomplete="username"
+                                               @bind="credUsername" @bind:event="oninput" />
+                                    </div>
+                                    <div class="sec-field">
+                                        <label class="sec-label" for="secEmail">Email</label>
+                                        <input id="secEmail" type="email" class="sec-input" autocomplete="email"
+                                               @bind="credEmail" @bind:event="oninput" />
+                                    </div>
+                                    <div class="sec-field">
+                                        <label class="sec-label" for="secCredPwd">
+                                            Current password <span class="sec-req" aria-hidden="true">*</span>
+                                        </label>
+                                        <input id="secCredPwd" type="password" class="sec-input" autocomplete="current-password"
+                                               placeholder="Confirm with your current password"
+                                               @bind="credPassword" @bind:event="oninput" />
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(credSuccessMessage))
+                                    {
+                                        <div class="sec-notice sec-fam-good" role="status">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M20 6L9 17l-5-5"></path>
+                                            </svg>
+                                            <span class="sec-notice-text">@credSuccessMessage</span>
+                                        </div>
+                                    }
+                                    @if (!string.IsNullOrEmpty(credErrorMessage))
+                                    {
+                                        <div class="sec-notice sec-fam-bad" role="alert">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="9"></circle>
+                                                <path d="M12 7v6"></path>
+                                                <path d="M12 16.5v.01"></path>
+                                            </svg>
+                                            <span class="sec-notice-text">@credErrorMessage</span>
+                                        </div>
+                                    }
+                                    <div class="sec-actions">
+                                        <button type="button" class="sec-btn sec-btn-primary"
+                                                disabled="@(!IsCredentialsValid || isUpdatingCredentials)" @onclick="UpdateCredentials">
+                                            @if (isUpdatingCredentials)
+                                            {
+                                                <span class="sec-spin" aria-hidden="true"></span>
+                                                <span>Updating&#8230;</span>
+                                            }
+                                            else
+                                            {
+                                                <span>Update credentials</span>
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Change password</h2>
+                        </div>
+                        <div class="sec-card-body">
+                            <div class="sec-form">
+                                <div class="sec-field">
+                                    <label class="sec-label" for="secCurrentPwd">Current password</label>
+                                    <input id="secCurrentPwd" type="password" class="sec-input" autocomplete="current-password"
+                                           @bind="currentPassword" />
+                                </div>
+                                <div class="sec-field">
+                                    <label class="sec-label" for="secNewPwd">New password</label>
+                                    <input id="secNewPwd" type="password" class="sec-input" autocomplete="new-password"
+                                           @bind="newPassword" @bind:event="oninput" />
+                                    <div class="sec-rules" aria-label="Password requirements">
+                                        <span class="sec-rule @(newPassword.Length >= 8 ? "sec-rule-pass" : "")">
+                                            <span class="sec-rule-mark" aria-hidden="true"></span>8 characters
+                                        </span>
+                                        <span class="sec-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[A-Z]") ? "sec-rule-pass" : "")">
+                                            <span class="sec-rule-mark" aria-hidden="true"></span>Uppercase
+                                        </span>
+                                        <span class="sec-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[a-z]") ? "sec-rule-pass" : "")">
+                                            <span class="sec-rule-mark" aria-hidden="true"></span>Lowercase
+                                        </span>
+                                        <span class="sec-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, "[0-9]") ? "sec-rule-pass" : "")">
+                                            <span class="sec-rule-mark" aria-hidden="true"></span>Number
+                                        </span>
+                                        <span class="sec-rule @(System.Text.RegularExpressions.Regex.IsMatch(newPassword, @"[^a-zA-Z0-9]") ? "sec-rule-pass" : "")">
+                                            <span class="sec-rule-mark" aria-hidden="true"></span>Symbol
+                                        </span>
+                                        <span class="sec-rule @(newPassword == confirmPassword && confirmPassword.Length > 0 ? "sec-rule-pass" : "")">
+                                            <span class="sec-rule-mark" aria-hidden="true"></span>Matches
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="sec-field">
+                                    <label class="sec-label" for="secConfirmPwd">Confirm new password</label>
+                                    <input id="secConfirmPwd" type="password" class="sec-input" autocomplete="new-password"
+                                           @bind="confirmPassword" @bind:event="oninput" />
+                                </div>
+                                <div class="sec-actions">
+                                    <button type="button" class="sec-btn sec-btn-primary"
+                                            disabled="@(!IsPasswordValid || isChangingPassword)" @onclick="ChangePassword">
+                                        @if (isChangingPassword)
+                                        {
+                                            <span class="sec-spin" aria-hidden="true"></span>
+                                            <span>Updating&#8230;</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Update password</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Recent activity</h2>
+                            <div class="sec-card-head-aside">
+                                <a class="sec-btn sec-btn-ghost" href="/user-activity">View all</a>
+                            </div>
+                        </div>
+                        <div class="sec-card-body">
+                            @if (recentActivity.Any())
+                            {
+                                <div class="sec-activity">
+                                    @foreach (var activity in recentActivity)
+                                    {
+                                        <div class="sec-activity-row">
+                                            <span class="sec-dot @(activity.IsSuccess ? "" : "sec-dot-fail")" aria-hidden="true"></span>
+                                            <div class="sec-activity-text">
+                                                <div class="sec-activity-action">@FormatAction(activity.Action)</div>
+                                                <div class="sec-activity-meta">
+                                                    @if (!string.IsNullOrEmpty(activity.EntityType))
+                                                    {
+                                                        <span>@activity.EntityType</span>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(activity.Details))
+                                                    {
+                                                        <span> &middot; @TruncateText(activity.Details, 60)</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <span class="sec-activity-time">@activity.TimeAgo</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="sec-empty">
+                                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="9"></circle>
+                                        <path d="M12 7v5l3 2"></path>
+                                    </svg>
+                                    <span>Nothing recorded against this account yet.</span>
+                                </div>
+                            }
+                        </div>
+                    </section>
                 </div>
 
-                <!-- Disable 2FA Modal -->
-                @if (showDisableModal)
-                {
-                    <div class="sec-overlay" @onclick="() => showDisableModal = false">
-                        <div class="sec-modal" @onclick:stopPropagation="true">
-                            <div class="sec-modal-header danger">
-                                <h5><i class="bi bi-shield-x"></i> Disable Two-Factor Authentication</h5>
-                                <button class="sec-modal-close" @onclick="() => showDisableModal = false"><i
-                                    class="bi bi-x-lg"></i></button>
-                                </div>
-                                <div class="sec-modal-body">
-                                    <div class="sec-info warning" style="margin-bottom: .85rem;">
-                                        <i class="bi bi-exclamation-triangle-fill"></i>
-                                        <span><strong>Warning:</strong> Disabling 2FA will make your account less secure.</span>
-                                    </div>
-                                    <div style="display: grid; gap: .75rem;">
-                                        <div>
-                                            <label class="sec-label">Current Password</label>
-                                            <input type="password" class="sec-input" @bind="disablePassword"
-                                                   placeholder="Enter your password" />
-                                        </div>
-                                        <div>
-                                            <label class="sec-label">Authenticator Code</label>
-                                            <input type="text" class="sec-input mono" maxlength="6" placeholder="000000" @bind="disableCode" />
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="sec-modal-footer">
-                                    <button class="btn-sec-outline" @onclick="() => showDisableModal = false">Cancel</button>
-                                    <button class="btn-sec-danger" @onclick="Disable2FA"
-                                            disabled="@(string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode) || isDisabling)">
-                                        @if (isDisabling)
-                                        {
-                                            <span class="spinner-border spinner-border-sm"></span>
-                                        }
-                                        Disable 2FA
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    }
+                <div class="sec-col">
 
-                    <!-- Regenerate Backup Codes Modal -->
-                    @if (showRegenerateModal)
-                    {
-                        <div class="sec-overlay" @onclick="() => showRegenerateModal = false">
-                            <div class="sec-modal" @onclick:stopPropagation="true">
-                                <div class="sec-modal-header">
-                                    <h5><i class="bi bi-key-fill"></i> Regenerate Backup Codes</h5>
-                                    <button class="sec-modal-close" @onclick="() => showRegenerateModal = false"><i
-                                        class="bi bi-x-lg"></i></button>
-                                </div>
-                                <div class="sec-modal-body">
-                                    <div class="sec-info info" style="margin-bottom: .85rem;">
-                                        <i class="bi bi-info-circle-fill"></i>
-                                        <span>This will invalidate all existing backup codes and generate new ones.</span>
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Security score</h2>
+                        </div>
+                        <div class="sec-card-body">
+                            <div class="sec-score">
+                                <div class="sec-score-ring @scoreFam">
+                                    <svg viewBox="0 0 36 36" role="img" aria-label="Security score @score out of 100">
+                                        <path class="sec-score-track"
+                                              d="M18 2.0845a15.9155 15.9155 0 0 1 0 31.831a15.9155 15.9155 0 0 1 0-31.831"
+                                              fill="none" stroke-width="3" />
+                                        <path class="sec-score-arc"
+                                              d="M18 2.0845a15.9155 15.9155 0 0 1 0 31.831a15.9155 15.9155 0 0 1 0-31.831"
+                                              fill="none" stroke-width="3" stroke-dasharray="@score, 100"
+                                              stroke-linecap="round" />
+                                    </svg>
+                                    <div class="sec-score-face">
+                                        <span class="sec-score-num">@score</span>
+                                        <span class="sec-score-of">/ 100</span>
                                     </div>
-                                    <div>
-                                        <label class="sec-label">Enter Authenticator Code to Confirm</label>
-                                        <input type="text" class="sec-input mono" maxlength="6" placeholder="000000" @bind="regenerateCode" />
-                                    </div>
                                 </div>
-                                <div class="sec-modal-footer">
-                                    <button class="btn-sec-outline" @onclick="CloseRegenerateModal">Cancel</button>
-                                    <button class="btn-sec-gradient" @onclick="RegenerateBackupCodes"
-                                            disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)">
-                                        @if (isRegenerating)
-                                        {
-                                            <span class="spinner-border spinner-border-sm"></span>
-                                        }
-                                        Regenerate
-                                    </button>
+                                <div class="sec-score-verdict @scoreFam">
+                                    @(score >= 80 ? "Well protected" : score >= 50 ? "Adequate" : "Needs attention")
                                 </div>
+                                <p class="sec-score-note">
+                                    @(score >= 80
+                                        ? "Both factors are in place and there are codes to fall back on."
+                                        : score >= 50
+                                            ? "The password is doing most of the work. Two-factor authentication is what moves this up."
+                                            : "A password is currently the only thing between this account and anyone who has it.")
+                                </p>
                             </div>
                         </div>
-                    }
+                    </section>
 
-                    @if (showBackupCodesModal)
-                    {
-                        <div class="sec-overlay" @onclick="CloseBackupCodesModal">
-                            <div class="sec-modal" @onclick:stopPropagation="true">
-                                <div class="sec-modal-header">
-                                    <h5><i class="bi bi-key-fill"></i> @backupCodesModalTitle</h5>
-                                    <button class="sec-modal-close" @onclick="CloseBackupCodesModal"><i class="bi bi-x-lg"></i></button>
-                                </div>
-                                <div class="sec-modal-body">
-                                    <div class="sec-info warning" style="margin-bottom: .85rem;">
-                                        <i class="bi bi-exclamation-triangle-fill"></i>
-                                        <span>@backupCodesModalDescription</span>
-                                    </div>
-                                    <div class="backup-grid">
-                                        @foreach (var backupCode in displayedBackupCodes)
-                                        {
-                                            <span style="font-family: 'Courier New', monospace; font-size: .88rem; color: #374151;">@backupCode</span>
-                                        }
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Checklist</h2>
+                        </div>
+                        <div class="sec-card-body">
+                            <div class="sec-checks">
+                                <div class="sec-check @(twoFactorOn ? "sec-check-on" : "")">
+                                    <span class="sec-check-mark" aria-hidden="true">
+                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6L9 17l-5-5"></path>
+                                        </svg>
+                                    </span>
+                                    <div class="sec-check-text">
+                                        <div class="sec-check-title">Two-factor authentication on</div>
+                                        <div class="sec-check-sub">A stolen password stops being enough</div>
                                     </div>
                                 </div>
-                                <div class="sec-modal-footer">
-                                    <button class="btn-sec-outline btn-sec-sm" @onclick="CopyDisplayedBackupCodesToClipboard">
-                                        <i class="bi bi-clipboard"></i> Copy Codes
-                                    </button>
-                                    <button class="btn-sec-gradient" @onclick="CloseBackupCodesModal">Done</button>
+                                <div class="sec-check @(codesLeft > 0 ? "sec-check-on" : "")">
+                                    <span class="sec-check-mark" aria-hidden="true">
+                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6L9 17l-5-5"></path>
+                                        </svg>
+                                    </span>
+                                    <div class="sec-check-text">
+                                        <div class="sec-check-title">Backup codes saved</div>
+                                        <div class="sec-check-sub">The way back in if the phone is gone</div>
+                                    </div>
+                                </div>
+                                <div class="sec-check @(passkeys.Any() ? "sec-check-on" : "")">
+                                    <span class="sec-check-mark" aria-hidden="true">
+                                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                             stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M20 6L9 17l-5-5"></path>
+                                        </svg>
+                                    </span>
+                                    <div class="sec-check-text">
+                                        <div class="sec-check-title">At least one passkey</div>
+                                        <div class="sec-check-sub">Nothing to phish if there is no password to type</div>
+                                    </div>
+                                </div>
+                                <div class="sec-check">
+                                    <span class="sec-check-mark" aria-hidden="true"></span>
+                                    <div class="sec-check-text">
+                                        <div class="sec-check-title">Credentials kept to yourself</div>
+                                        <div class="sec-check-sub">A shared login makes the activity log meaningless</div>
+                                    </div>
+                                </div>
+                                <div class="sec-check">
+                                    <span class="sec-check-mark" aria-hidden="true"></span>
+                                    <div class="sec-check-text">
+                                        <div class="sec-check-title">Activity reviewed now and then</div>
+                                        <div class="sec-check-sub">A login you do not recognise is the first sign</div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                    </section>
+
+                    <section class="sec-card">
+                        <div class="sec-card-head">
+                            <h2>Elsewhere</h2>
+                        </div>
+                        <div class="sec-card-body">
+                            <div class="sec-links">
+                                <a class="sec-link" href="/user-activity">
+                                    <span>Login history and audit trail</span>
+                                    <svg class="sec-link-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                         stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 6l6 6-6 6"></path>
+                                    </svg>
+                                </a>
+                                <a class="sec-link" href="/settings">
+                                    <span>Account settings</span>
+                                    <svg class="sec-link-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                         stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 6l6 6-6 6"></path>
+                                    </svg>
+                                </a>
+                                <a class="sec-link" href="/notifications">
+                                    <span>Notifications</span>
+                                    <svg class="sec-link-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none"
+                                         stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                                         stroke-linejoin="round" aria-hidden="true">
+                                        <path d="M9 6l6 6-6 6"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@* ── Disable 2FA ───────────────────────────────────────────────────────── *@
+@if (showDisableModal)
+{
+    <div class="sec sec-scrim" @onclick="() => showDisableModal = false">
+        <div class="sec-modal sec-modal-danger" role="dialog" aria-modal="true"
+             aria-label="Disable two-factor authentication" @onclick:stopPropagation="true">
+            <div class="sec-modal-head">
+                <h2>Disable two-factor?</h2>
+                <button type="button" class="sec-icon-btn sec-modal-x" aria-label="Close"
+                        @onclick="() => showDisableModal = false">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M5 5l14 14M19 5L5 19"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="sec-modal-body">
+                <div class="sec-notice sec-fam-bad">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 4l9 16H3z"></path>
+                        <path d="M12 10v4"></path>
+                        <path d="M12 17.5v.01"></path>
+                    </svg>
+                    <span class="sec-notice-text">
+                        The password alone will get into this account again. Existing backup codes stop working.
+                    </span>
+                </div>
+                <div class="sec-field">
+                    <label class="sec-label" for="secDisablePwd">Current password</label>
+                    <input id="secDisablePwd" type="password" class="sec-input" autocomplete="current-password"
+                           @bind="disablePassword" />
+                </div>
+                <div class="sec-field">
+                    <label class="sec-label" for="secDisableCode">Authenticator code</label>
+                    <input id="secDisableCode" type="text" class="sec-input sec-input-code" maxlength="6"
+                           inputmode="numeric" autocomplete="one-time-code" placeholder="000000" @bind="disableCode" />
+                </div>
+            </div>
+            <div class="sec-modal-foot">
+                <button type="button" class="sec-btn sec-btn-quiet" @onclick="() => showDisableModal = false">Cancel</button>
+                <button type="button" class="sec-btn sec-btn-danger"
+                        disabled="@(string.IsNullOrEmpty(disablePassword) || string.IsNullOrEmpty(disableCode) || isDisabling)"
+                        @onclick="Disable2FA">
+                    @if (isDisabling)
+                    {
+                        <span class="sec-spin" aria-hidden="true"></span>
+                        <span>Disabling&#8230;</span>
                     }
+                    else
+                    {
+                        <span>Disable</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Regenerate backup codes ───────────────────────────────────────────── *@
+@if (showRegenerateModal)
+{
+    <div class="sec sec-scrim" @onclick="() => showRegenerateModal = false">
+        <div class="sec-modal" role="dialog" aria-modal="true" aria-label="Regenerate backup codes"
+             @onclick:stopPropagation="true">
+            <div class="sec-modal-head">
+                <h2>Regenerate backup codes</h2>
+                <button type="button" class="sec-icon-btn sec-modal-x" aria-label="Close"
+                        @onclick="() => showRegenerateModal = false">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M5 5l14 14M19 5L5 19"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="sec-modal-body">
+                <div class="sec-notice sec-fam-info">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 11v5"></path>
+                        <path d="M12 7.5v.01"></path>
+                    </svg>
+                    <span class="sec-notice-text">
+                        Every code issued before now stops working. Anything written down becomes worthless.
+                    </span>
+                </div>
+                <div class="sec-field">
+                    <label class="sec-label" for="secRegenCode">Authenticator code</label>
+                    <input id="secRegenCode" type="text" class="sec-input sec-input-code" maxlength="6"
+                           inputmode="numeric" autocomplete="one-time-code" placeholder="000000" @bind="regenerateCode" />
+                </div>
+            </div>
+            <div class="sec-modal-foot">
+                <button type="button" class="sec-btn sec-btn-quiet" @onclick="CloseRegenerateModal">Cancel</button>
+                <button type="button" class="sec-btn sec-btn-primary"
+                        disabled="@(string.IsNullOrEmpty(regenerateCode) || isRegenerating)" @onclick="RegenerateBackupCodes">
+                    @if (isRegenerating)
+                    {
+                        <span class="sec-spin" aria-hidden="true"></span>
+                        <span>Regenerating&#8230;</span>
+                    }
+                    else
+                    {
+                        <span>Regenerate</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Backup codes ──────────────────────────────────────────────────────── *@
+@if (showBackupCodesModal)
+{
+    <div class="sec sec-scrim" @onclick="CloseBackupCodesModal">
+        <div class="sec-modal" role="dialog" aria-modal="true" aria-label="@backupCodesModalTitle"
+             @onclick:stopPropagation="true">
+            <div class="sec-modal-head">
+                <h2>@backupCodesModalTitle</h2>
+                <button type="button" class="sec-icon-btn sec-modal-x" aria-label="Close" @onclick="CloseBackupCodesModal">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                        <path d="M5 5l14 14M19 5L5 19"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="sec-modal-body">
+                <div class="sec-notice sec-fam-warn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 4l9 16H3z"></path>
+                        <path d="M12 10v4"></path>
+                        <path d="M12 17.5v.01"></path>
+                    </svg>
+                    <span class="sec-notice-text">@backupCodesModalDescription</span>
+                </div>
+                <div class="sec-codes">
+                    @foreach (var backupCode in displayedBackupCodes)
+                    {
+                        <span class="sec-code">@backupCode</span>
+                    }
+                </div>
+            </div>
+            <div class="sec-modal-foot">
+                <button type="button" class="sec-btn sec-btn-quiet" @onclick="CopyDisplayedBackupCodesToClipboard">
+                    Copy codes
+                </button>
+                <button type="button" class="sec-btn sec-btn-primary" @onclick="CloseBackupCodesModal">Done</button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     private bool isLoading = true;
@@ -1876,6 +1347,13 @@ confirmPassword);
     }
 
     // ── Helpers ──────────────────────────────────────────
+
+    // The score's three steps as family classes rather than hexes, so the ring,
+    // the number and the verdict take one hue between them and it darkens on
+    // paper with everything else in nocturne-tokens.css. The thresholds are the
+    // ones CalculateSecurityScore was already written against.
+    private static string ScoreFamily(int score) =>
+        score >= 80 ? "sec-fam-good" : score >= 50 ? "sec-fam-warn" : "sec-fam-bad";
 
     private int CalculateSecurityScore()
     {

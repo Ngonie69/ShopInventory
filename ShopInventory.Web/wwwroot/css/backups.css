@@ -1,0 +1,1229 @@
+/* ==========================================================================
+   Backups — Nocturne
+
+   A derivation, not an import: there is no Backups.dc.html in any of the design
+   projects, so this follows the documented fallback the way audit-trail.css and
+   local-stock.css did.
+
+   The source is audit-trail.css, and the shape is nearly the same page: a
+   sticky header carrying the one action, a stated hero, a row of four figures,
+   a panel whose rows wash into the ground, and a badge per row saying what kind
+   of thing it is and how it ended. A backup run *is* an audit event — it has a
+   start, a duration, an outcome and a person who asked for it — so the grid,
+   the families and the row-to-card treatment below 1040px all carry over
+   unchanged.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   Rules live here rather than in the inline Razor <style> block this page used
+   to carry, for the reason every sibling gives: app.css carries global
+   `.dark-theme input/select/textarea` rules at (0,1,1) that would otherwise
+   repaint the create form's fields #1e293b, so each control carries a class and
+   each control selector is two classes deep, winning regardless of load order.
+   Headings are pinned to Nocturne's 500 against Bootstrap's global
+   `h1-h6 { font-weight: 600 }`.
+
+   Three departures from the block this replaces:
+
+   - The 135° #667eea→#764ba2 gradient on the header tile and the primary button
+     is gone; it is not a Nocturne colour, and Nocturne outlines its primary
+     action rather than filling it.
+   - The status and type badges were six hard-coded fill-and-ink pairs. They are
+     one family token apiece now, so the ink is mixed from the same value as the
+     wash and the two cannot drift.
+   - The three modals painted themselves white, so all three stayed white in
+     dark mode. They are on the page's own ground now, and each carries `.bak`
+     itself — which is what puts the tokens in reach, since every rule below
+     reads two classes deep.
+
+   Restore is the one control in this module that destroys data, so it is the
+   one that gets a filled button rather than an outlined one. That is a
+   deliberate exception to the house rule: an outline here would make the
+   irreversible action look exactly like Cancel beside it.
+   ========================================================================== */
+
+.bak {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --bak-bg: var(--noct-bg);
+    --bak-surface: var(--noct-surface);
+    --bak-wash: var(--noct-wash);
+    --bak-ink: var(--noct-ink);
+    --bak-ink-2: var(--noct-ink-2);
+    --bak-mute: var(--noct-mute);
+    --bak-mute-2: var(--noct-mute-2);
+    --bak-mute-3: var(--noct-mute-3);
+    --bak-faint: var(--noct-faint);
+    --bak-placeholder: var(--noct-placeholder);
+    --bak-divider: var(--noct-divider);
+    --bak-rule: var(--noct-rule);
+    --bak-hover: var(--noct-hover);
+    --bak-press: var(--noct-press);
+    --bak-field-bg: var(--noct-field-bg);
+    --bak-field-edge: var(--noct-field-edge);
+    --bak-field-edge-hi: var(--noct-field-edge-hi);
+    --bak-accent: var(--noct-accent);
+    --bak-accent-rgb: var(--noct-accent-rgb);
+    --bak-accent-text: var(--noct-accent-text);
+    --bak-box: var(--noct-box);
+    --bak-on-box: var(--noct-on-box);
+    --bak-dot-off: var(--noct-dot-off);
+    --bak-thumb: var(--noct-thumb);
+    --bak-scrim: var(--noct-scrim);
+    --bak-shadow-pop: var(--noct-shadow-pop);
+    --bak-caret: var(--noct-caret);
+    --bak-scheme: var(--noct-scheme);
+
+    /* Run families — the backup's type and its outcome each tint a badge from
+       one. */
+    --bak-fam-neutral: var(--noct-fam-neutral);
+    --bak-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --bak-fam-accent: var(--noct-fam-accent);
+    --bak-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --bak-fam-info: var(--noct-fam-info);
+    --bak-fam-info-rgb: var(--noct-fam-info-rgb);
+    --bak-fam-good: var(--noct-fam-good);
+    --bak-fam-good-rgb: var(--noct-fam-good-rgb);
+    --bak-fam-warn: var(--noct-fam-warn);
+    --bak-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --bak-fam-bad: var(--noct-fam-bad);
+    --bak-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --bak-s1: var(--noct-s1);
+    --bak-s2: var(--noct-s2);
+    --bak-s3: var(--noct-s3);
+    --bak-s4: var(--noct-s4);
+    --bak-s6: var(--noct-s6);
+    --bak-s8: var(--noct-s8);
+    --bak-r-sm: var(--noct-r-sm);
+    --bak-r-md: var(--noct-r-md);
+    --bak-r-lg: var(--noct-r-lg);
+
+    /* The history's nine columns — this page's own, not the system's. The file
+       name takes the slack because it is the only column whose content has no
+       fixed length; the rest are sized to their longest real value
+       ("Differential", "InProgress", "dd MMM HH:mm"). */
+    --bak-cols: minmax(0, 2fr) 108px 118px 86px 116px 82px minmax(0, 1fr) 84px 104px;
+
+    color-scheme: var(--bak-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.bak {
+    min-height: 100vh;
+    background: var(--bak-bg);
+    color: var(--bak-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.bak * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges
+   carry on WebKit, so hand the fill back to `color`. */
+.bak,
+.bak * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.bak :focus-visible {
+    outline: 2px solid var(--bak-accent);
+    outline-offset: 2px;
+}
+
+.bak ::selection {
+    background: rgba(var(--bak-accent-rgb), .3);
+}
+
+.bak h1,
+.bak h2,
+.bak h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.bak-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--bak-bg);
+    border-bottom: 1px solid var(--bak-divider);
+}
+
+.bak-head-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s6);
+}
+
+.bak-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--bak-mute-3);
+}
+
+.bak-crumb-sep {
+    color: var(--bak-faint);
+}
+
+.bak-crumb-now {
+    color: var(--bak-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bak-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.bak .bak-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--bak-s2) calc(var(--bak-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--bak-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--bak-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.bak .bak-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.bak .bak-btn svg {
+    display: block;
+    flex: none;
+}
+
+.bak .bak-btn-primary {
+    color: var(--bak-accent);
+    border-color: var(--bak-accent);
+    letter-spacing: .02em;
+}
+
+.bak .bak-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--bak-accent-rgb), .12);
+}
+
+.bak .bak-btn-primary:active:not(:disabled) {
+    background: rgba(var(--bak-accent-rgb), .22);
+}
+
+.bak .bak-btn-ghost {
+    color: var(--bak-accent);
+}
+
+.bak .bak-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--bak-accent-rgb), .1);
+}
+
+.bak .bak-btn-quiet {
+    color: var(--bak-mute-2);
+    border-color: var(--bak-divider);
+}
+
+.bak .bak-btn-quiet:hover:not(:disabled) {
+    color: var(--bak-ink);
+    border-color: var(--bak-field-edge-hi);
+    background: var(--bak-hover);
+}
+
+/* The module's one filled button, and the reason is in this sheet's header:
+   restore overwrites the live database, and next to Cancel an outline would
+   make that look like an equally ordinary choice. */
+.bak .bak-btn-danger {
+    color: #ffffff;
+    background: var(--bak-fam-bad);
+    border-color: var(--bak-fam-bad);
+}
+
+.bak .bak-btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.bak .bak-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--bak-r-sm);
+    background: transparent;
+    color: var(--bak-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.bak .bak-icon-btn:hover {
+    background: var(--bak-press);
+    color: var(--bak-ink);
+}
+
+.bak .bak-icon-btn-warn:hover {
+    background: rgba(var(--bak-fam-warn-rgb), .14);
+    color: var(--bak-fam-warn);
+}
+
+.bak .bak-icon-btn-danger:hover {
+    background: rgba(var(--bak-fam-bad-rgb), .12);
+    color: var(--bak-fam-bad);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.bak-body {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--bak-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.bak-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.bak-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--bak-accent-text);
+    margin-bottom: 9px;
+}
+
+.bak-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.bak-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--bak-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The four figures ──────────────────────────────────────────────────── */
+
+.bak-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--bak-s4);
+}
+
+.bak-stat {
+    padding: var(--bak-s6) 18px;
+    border: 1px solid var(--bak-divider);
+    border-radius: var(--bak-r-lg);
+    background: var(--bak-surface);
+    min-width: 0;
+}
+
+.bak-stat-lead {
+    background:
+        linear-gradient(155deg, rgba(var(--bak-accent-rgb), .12), transparent 62%),
+        var(--bak-surface);
+}
+
+/* The failure count is the one figure that changes meaning when it is not zero,
+   so it takes the danger hue only then — a permanently red card would say
+   "something is wrong" on a clean week. */
+.bak-stat-alert {
+    background:
+        linear-gradient(155deg, rgba(var(--bak-fam-bad-rgb), .12), transparent 62%),
+        var(--bak-surface);
+}
+
+.bak-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--bak-mute-2);
+}
+
+.bak-stat-lead .bak-stat-head {
+    color: var(--bak-accent-text);
+}
+
+.bak-stat-alert .bak-stat-head {
+    color: var(--bak-fam-bad);
+}
+
+.bak-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--bak-mute-3);
+}
+
+.bak-stat-lead .bak-stat-rule {
+    background: var(--bak-accent);
+}
+
+.bak-stat-alert .bak-stat-rule {
+    background: var(--bak-fam-bad);
+}
+
+.bak-stat-num {
+    margin-top: var(--bak-s4);
+    font-size: 32px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The total-size figure is a formatted string ("1.4 GB"), not a count, so it
+   needs room the counts do not. */
+.bak-stat-num-text {
+    font-size: 26px;
+}
+
+.bak-stat-alert .bak-stat-num {
+    color: var(--bak-fam-bad);
+}
+
+.bak-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--bak-mute-2);
+}
+
+/* ── The schedule strip ────────────────────────────────────────────────── */
+/* Two dates that answer "am I covered right now", so they sit above the history
+   rather than inside it. */
+
+.bak-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s8);
+    flex-wrap: wrap;
+    padding: var(--bak-s4) 18px;
+    border: 1px solid var(--bak-divider);
+    border-radius: var(--bak-r-lg);
+    background: var(--bak-surface);
+}
+
+.bak-strip-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--bak-s3);
+    min-width: 0;
+}
+
+.bak-strip-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--bak-mute-3);
+    white-space: nowrap;
+}
+
+.bak-strip-value {
+    font-size: 13px;
+    color: var(--bak-ink-2);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── The history ───────────────────────────────────────────────────────── */
+
+.bak-panel {
+    border: 1px solid var(--bak-divider);
+    border-radius: var(--bak-r-lg);
+    background: linear-gradient(to bottom, var(--bak-wash), transparent 240px);
+}
+
+.bak-panel-head {
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s4);
+    padding: var(--bak-s4) var(--bak-s8);
+    flex-wrap: wrap;
+}
+
+.bak-panel-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.bak-count {
+    font-size: 12.5px;
+    color: var(--bak-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.bak-scroll {
+    overflow-x: auto;
+}
+
+.bak-grid {
+    min-width: 1180px;
+}
+
+.bak-thead,
+.bak-row {
+    display: grid;
+    grid-template-columns: var(--bak-cols);
+    align-items: center;
+    gap: var(--bak-s4);
+}
+
+.bak-thead {
+    padding: 0 var(--bak-s8) var(--bak-s4);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--bak-mute-3);
+}
+
+.bak-row {
+    padding: 11px var(--bak-s8);
+    border-top: 1px solid var(--bak-rule);
+    transition: background-color .12s ease;
+}
+
+.bak-row:hover {
+    background: var(--bak-hover);
+}
+
+/* A failed run is marked at the row's edge rather than by washing the whole
+   line: the status badge already says failed, and a full red row would drown
+   the badges beside it. */
+.bak-row-failed {
+    box-shadow: inset 3px 0 0 var(--bak-fam-bad);
+    background: rgba(var(--bak-fam-bad-rgb), .05);
+}
+
+.bak-row-failed:hover {
+    background: rgba(var(--bak-fam-bad-rgb), .1);
+}
+
+/* A run still going is the one row worth watching, so it takes the accent edge
+   and the spinner in its badge. */
+.bak-row-running {
+    box-shadow: inset 3px 0 0 var(--bak-accent);
+    background: rgba(var(--bak-accent-rgb), .05);
+}
+
+.bak-file {
+    min-width: 0;
+}
+
+.bak-file-name {
+    font-size: 13px;
+    color: var(--bak-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bak-file-desc {
+    font-size: 11.5px;
+    color: var(--bak-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bak-num {
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--bak-mute);
+}
+
+.bak-text {
+    font-size: 12.5px;
+    color: var(--bak-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bak-none {
+    color: var(--bak-faint);
+}
+
+.bak-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+/* Row labels, carried for the card layout below 1040px and hidden above it. */
+.bak-rl {
+    display: none;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+.bak-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    overflow: hidden;
+    color: var(--bak-fam, var(--bak-mute));
+    background: rgba(var(--bak-fam-rgb, 94, 100, 131), .14);
+}
+
+.bak-fam-neutral {
+    --bak-fam: var(--bak-fam-neutral);
+    --bak-fam-rgb: var(--bak-fam-neutral-rgb);
+}
+
+.bak-fam-accent {
+    --bak-fam: var(--bak-fam-accent);
+    --bak-fam-rgb: var(--bak-fam-accent-rgb);
+}
+
+.bak-fam-info {
+    --bak-fam: var(--bak-fam-info);
+    --bak-fam-rgb: var(--bak-fam-info-rgb);
+}
+
+.bak-fam-good {
+    --bak-fam: var(--bak-fam-good);
+    --bak-fam-rgb: var(--bak-fam-good-rgb);
+}
+
+.bak-fam-warn {
+    --bak-fam: var(--bak-fam-warn);
+    --bak-fam-rgb: var(--bak-fam-warn-rgb);
+}
+
+.bak-fam-bad {
+    --bak-fam: var(--bak-fam-bad);
+    --bak-fam-rgb: var(--bak-fam-bad-rgb);
+}
+
+.bak-badge svg {
+    flex: none;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.bak .bak-input,
+.bak .bak-textarea {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--bak-ink);
+    caret-color: var(--bak-accent);
+    background: var(--bak-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--bak-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.bak .bak-textarea {
+    min-height: 64px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.bak .bak-input:hover,
+.bak .bak-textarea:hover {
+    border-color: var(--bak-field-edge);
+}
+
+.bak .bak-input:focus-visible,
+.bak .bak-textarea:focus-visible {
+    border-color: rgba(var(--bak-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.bak .bak-input::placeholder,
+.bak .bak-textarea::placeholder {
+    color: var(--bak-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--bak-placeholder);
+}
+
+.bak-select {
+    position: relative;
+    display: flex;
+}
+
+.bak .bak-select select.bak-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.bak-select .bak-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--bak-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.bak-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.bak-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--bak-mute-3);
+}
+
+.bak-hint {
+    font-size: 11.5px;
+    color: var(--bak-mute-3);
+    text-wrap: pretty;
+}
+
+/* The cloud-upload switch: a native checkbox with its own drawn track, so it
+   keeps the keyboard and screen-reader behaviour the control has for free. */
+.bak-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--bak-s4);
+    font-size: 13px;
+    color: var(--bak-mute);
+    cursor: pointer;
+    user-select: none;
+}
+
+.bak-switch-off {
+    cursor: not-allowed;
+    opacity: .55;
+}
+
+.bak .bak-switch input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.bak-track {
+    position: relative;
+    width: 34px;
+    height: 19px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--bak-dot-off);
+    transition: background-color .15s;
+}
+
+.bak-track::after {
+    content: "";
+    position: absolute;
+    top: 2.5px;
+    left: 2.5px;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--bak-on-box);
+    transition: transform .15s;
+}
+
+.bak-switch input:checked + .bak-track {
+    background: var(--bak-box);
+}
+
+.bak-switch input:checked + .bak-track::after {
+    transform: translateX(15px);
+}
+
+.bak-switch input:focus-visible + .bak-track {
+    outline: 2px solid var(--bak-accent);
+    outline-offset: 2px;
+}
+
+/* ── Modals ────────────────────────────────────────────────────────────── */
+/* Centred below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window however high its z-index. Each modal carries `.bak` itself, which is
+   what puts the page's tokens in reach. */
+
+.bak-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* `.bak`'s own min-height would otherwise stretch the scrim 74px past the
+       bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--bak-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--bak-s6);
+    animation: bak-fade .18s ease;
+}
+
+.bak-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(520px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--bak-s8));
+    min-height: 0;
+    border: 1px solid var(--bak-divider);
+    border-radius: var(--bak-r-lg);
+    background: var(--bak-bg);
+    box-shadow: var(--bak-shadow-pop);
+    animation: bak-rise .2s ease;
+}
+
+.bak-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--bak-s4);
+    padding: var(--bak-s6) var(--bak-s8);
+    border-bottom: 1px solid var(--bak-divider);
+    flex: none;
+}
+
+.bak-modal-head h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+}
+
+/* The restore dialog says what it is before anything is read: the heading takes
+   the danger hue and the panel takes a rule in it. */
+.bak-modal-danger .bak-modal-head {
+    border-bottom-color: rgba(var(--bak-fam-bad-rgb), .35);
+}
+
+.bak-modal-danger .bak-modal-head h2 {
+    color: var(--bak-fam-bad);
+}
+
+.bak-modal-x {
+    margin-left: auto;
+}
+
+.bak-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--bak-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--bak-s6);
+}
+
+.bak-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--bak-s3);
+    padding: var(--bak-s4) var(--bak-s8);
+    border-top: 1px solid var(--bak-divider);
+    flex: none;
+}
+
+.bak-modal-text {
+    margin: 0;
+    font-size: 13px;
+    color: var(--bak-mute);
+    text-wrap: pretty;
+}
+
+/* The file being acted on, stated back so the dialog is answerable without
+   remembering which row was clicked. */
+.bak-dl {
+    display: flex;
+    flex-direction: column;
+    gap: var(--bak-s2);
+    padding: var(--bak-s4) var(--bak-s6);
+    border: 1px solid var(--bak-divider);
+    border-radius: var(--bak-r-md);
+    background: var(--bak-surface);
+}
+
+.bak-dl-row {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: var(--bak-s4);
+    align-items: baseline;
+}
+
+.bak-dt {
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--bak-faint);
+}
+
+.bak-dd {
+    font-size: 12.5px;
+    color: var(--bak-ink-2);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+/* ── Notices, empty and loading ────────────────────────────────────────── */
+/* Tinted from the family token rather than filled: Nocturne keeps saturation
+   off large fields, so the hue arrives as a rule, a mark and a thin wash. */
+
+.bak-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--bak-s3);
+    padding: 11px 13px;
+    border-radius: var(--bak-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+}
+
+.bak-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.bak-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.bak-notice-good {
+    color: var(--bak-fam-good);
+    background: rgba(var(--bak-fam-good-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--bak-fam-good-rgb), .3);
+}
+
+.bak-notice-bad {
+    color: var(--bak-fam-bad);
+    background: rgba(var(--bak-fam-bad-rgb), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--bak-fam-bad-rgb), .3);
+}
+
+.bak .bak-notice-x {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    opacity: .6;
+    cursor: pointer;
+    transition: opacity .13s;
+}
+
+.bak .bak-notice-x:hover {
+    opacity: 1;
+}
+
+/* The toast. Fixed to the bottom right rather than the page flow, and clear of
+   the app bar for the same reason the modals are. */
+.bak-toast {
+    position: fixed;
+    right: var(--bak-s8);
+    bottom: var(--bak-s8);
+    z-index: 9999;
+    min-height: 0;
+    max-width: min(420px, calc(100vw - var(--bak-s8) * 2));
+    box-shadow: var(--bak-shadow-pop);
+    animation: bak-rise .2s ease;
+}
+
+.bak-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--bak-s3);
+    padding: 64px var(--bak-s8);
+    font-size: 13px;
+    color: var(--bak-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.bak-empty svg {
+    color: var(--bak-accent);
+    opacity: .7;
+}
+
+.bak-empty h3 {
+    font-size: 15px;
+    color: var(--bak-ink-2);
+}
+
+.bak-empty p {
+    margin: 0;
+    max-width: 44ch;
+}
+
+.bak-empty-actions {
+    margin-top: var(--bak-s3);
+    display: flex;
+    gap: var(--bak-s3);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.bak-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--bak-s4);
+    padding: 72px var(--bak-s8);
+    font-size: 13px;
+    color: var(--bak-mute-2);
+}
+
+.bak-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: bak-spin .7s linear infinite;
+}
+
+.bak-spin-xs {
+    width: 9px;
+    height: 9px;
+    border-width: 1.5px;
+}
+
+@keyframes bak-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes bak-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes bak-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .bak-scrim,
+    .bak-modal,
+    .bak-toast {
+        animation: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.bak-scroll::-webkit-scrollbar,
+.bak-modal-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.bak-scroll::-webkit-scrollbar-thumb,
+.bak-modal-body::-webkit-scrollbar-thumb {
+    background: var(--bak-thumb);
+    border-radius: 8px;
+}
+
+.bak-scroll::-webkit-scrollbar-track,
+.bak-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+/* Below 1040px a row stops being a grid row and becomes a labelled card, which
+   is the treatment every sibling sheet uses — nine columns will not survive a
+   phone, and a horizontal scroll for the last four of them is worse than
+   stacking. */
+
+@media (max-width: 1040px) {
+    .bak-scroll {
+        overflow-x: visible;
+    }
+
+    .bak-grid {
+        min-width: 0;
+    }
+
+    .bak-thead {
+        display: none;
+    }
+
+    .bak-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--bak-s2);
+        padding: var(--bak-s4) var(--bak-s6);
+    }
+
+    .bak-row > * {
+        display: flex;
+        align-items: baseline;
+        gap: var(--bak-s4);
+        min-width: 0;
+    }
+
+    .bak-rl {
+        display: block;
+        flex: none;
+        width: 84px;
+        font-size: 10.5px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--bak-faint);
+    }
+
+    /* The file name is the card's title, so it keeps the full width and drops
+       its label. */
+    .bak-row > .bak-file {
+        display: block;
+    }
+
+    .bak-file-name {
+        font-size: 13.5px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .bak-file-desc {
+        white-space: normal;
+    }
+}
+
+@media (max-width: 900px) {
+    .bak-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .bak-head-inner {
+        padding: var(--bak-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--bak-s3);
+    }
+
+    .bak-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .bak-head-actions .bak-btn {
+        flex: 1;
+    }
+
+    .bak-body {
+        padding: var(--bak-s8) 18px 56px;
+    }
+
+    .bak-hero h1 {
+        font-size: 24px;
+    }
+
+    .bak-panel-head,
+    .bak-thead {
+        padding-inline: var(--bak-s6);
+    }
+
+    .bak-modal-head,
+    .bak-modal-body,
+    .bak-modal-foot {
+        padding-inline: var(--bak-s6);
+    }
+
+    .bak-toast {
+        right: var(--bak-s4);
+        left: var(--bak-s4);
+        bottom: var(--bak-s4);
+        max-width: none;
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .bak .bak-input,
+    .bak .bak-textarea {
+        font-size: 16px;
+    }
+}

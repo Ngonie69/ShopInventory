@@ -1,0 +1,1267 @@
+/* ==========================================================================
+   Security — Nocturne
+
+   A derivation, not an import: there is no Security.dc.html in any of the
+   design projects, so this follows the documented fallback the way
+   audit-trail.css and local-stock.css did.
+
+   The chrome is audit-trail.css's — sticky header, stated hero, a row of
+   figures, and the same family-token badge for saying what state a thing is in.
+   The body is not: this page is a stack of independent settings cards in two
+   columns rather than one long list, because nothing here is a row of anything.
+   Five separate controls (2FA, passkeys, credentials, password, activity) each
+   own a card, and the narrow column beside them holds the three things that
+   only report — the score, the checklist and the links.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   Rules live here rather than in the inline Razor <style> block this page used
+   to carry, and on this page that mattered more than on most: it has eleven
+   password and code fields, and app.css's global `.dark-theme input` rule at
+   (0,1,1) would repaint every one of them #1e293b. Each control carries a class
+   and each control selector is two classes deep, winning regardless of load
+   order. Headings are pinned to Nocturne's 500 against Bootstrap's global
+   `h1-h6 { font-weight: 600 }`.
+
+   Four departures from the block this replaces:
+
+   - The 135° #667eea→#764ba2 gradient on the header tile and every primary
+     button is gone. It is not a Nocturne colour, and Nocturne outlines its
+     primary action rather than filling it.
+   - The page carried around forty inline `style=` attributes holding hard-coded
+     hexes — #6b7280 for muted text, #10b981/#f59e0b/#ef4444 for the score ring,
+     #667eea for every link and icon. None of them followed the theme, so the
+     side column was light-mode text on a dark ground. They are all tokens now,
+     and the markup carries no colour at all.
+   - Status was said four ways at once (a tinted icon tile, a filled badge, a
+     coloured heading and a coloured dot). It is one badge on the card head,
+     from the same family set as everywhere else.
+   - The three modals painted themselves white and stayed white in dark mode.
+     They are on the page's own ground now, and each carries `.sec` itself,
+     which is what puts the tokens in reach.
+
+   The score ring keeps its three-step hue, because a score *is* a judgement and
+   the three steps are the judgement. They are the family tokens rather than
+   raw hexes, so the ring darkens on paper with everything else.
+   ========================================================================== */
+
+.sec {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --sec-bg: var(--noct-bg);
+    --sec-surface: var(--noct-surface);
+    --sec-wash: var(--noct-wash);
+    --sec-ink: var(--noct-ink);
+    --sec-ink-2: var(--noct-ink-2);
+    --sec-mute: var(--noct-mute);
+    --sec-mute-2: var(--noct-mute-2);
+    --sec-mute-3: var(--noct-mute-3);
+    --sec-faint: var(--noct-faint);
+    --sec-placeholder: var(--noct-placeholder);
+    --sec-divider: var(--noct-divider);
+    --sec-rule: var(--noct-rule);
+    --sec-hover: var(--noct-hover);
+    --sec-press: var(--noct-press);
+    --sec-field-bg: var(--noct-field-bg);
+    --sec-field-edge: var(--noct-field-edge);
+    --sec-field-edge-hi: var(--noct-field-edge-hi);
+    --sec-accent: var(--noct-accent);
+    --sec-accent-rgb: var(--noct-accent-rgb);
+    --sec-accent-text: var(--noct-accent-text);
+    --sec-dot-off: var(--noct-dot-off);
+    --sec-thumb: var(--noct-thumb);
+    --sec-scrim: var(--noct-scrim);
+    --sec-shadow-pop: var(--noct-shadow-pop);
+    --sec-scheme: var(--noct-scheme);
+
+    /* State families — a card's status, a notice's severity and the score
+       ring's three steps all come from here. */
+    --sec-fam-neutral: var(--noct-fam-neutral);
+    --sec-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --sec-fam-accent: var(--noct-fam-accent);
+    --sec-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --sec-fam-info: var(--noct-fam-info);
+    --sec-fam-info-rgb: var(--noct-fam-info-rgb);
+    --sec-fam-good: var(--noct-fam-good);
+    --sec-fam-good-rgb: var(--noct-fam-good-rgb);
+    --sec-fam-warn: var(--noct-fam-warn);
+    --sec-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --sec-fam-bad: var(--noct-fam-bad);
+    --sec-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --sec-s1: var(--noct-s1);
+    --sec-s2: var(--noct-s2);
+    --sec-s3: var(--noct-s3);
+    --sec-s4: var(--noct-s4);
+    --sec-s6: var(--noct-s6);
+    --sec-s8: var(--noct-s8);
+    --sec-r-sm: var(--noct-r-sm);
+    --sec-r-md: var(--noct-r-md);
+    --sec-r-lg: var(--noct-r-lg);
+
+    /* This page's own: the face a secret is set in. A backup code, a TOTP code
+       and a manual-entry key are all read a character at a time and typed
+       somewhere else, which is the one job a proportional face is bad at. */
+    --sec-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+
+    color-scheme: var(--sec-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.sec {
+    min-height: 100vh;
+    background: var(--sec-bg);
+    color: var(--sec-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.sec * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the badges and
+   the score carry on WebKit, so hand the fill back to `color`. */
+.sec,
+.sec * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.sec :focus-visible {
+    outline: 2px solid var(--sec-accent);
+    outline-offset: 2px;
+}
+
+.sec ::selection {
+    background: rgba(var(--sec-accent-rgb), .3);
+}
+
+.sec h1,
+.sec h2,
+.sec h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.sec-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--sec-bg);
+    border-bottom: 1px solid var(--sec-divider);
+}
+
+.sec-head-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s6);
+}
+
+.sec-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--sec-mute-3);
+}
+
+.sec-crumb-sep {
+    color: var(--sec-faint);
+}
+
+.sec-crumb-now {
+    color: var(--sec-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sec-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.sec .sec-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--sec-s2) calc(var(--sec-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--sec-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--sec-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.sec .sec-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.sec .sec-btn svg {
+    display: block;
+    flex: none;
+}
+
+.sec .sec-btn-primary {
+    color: var(--sec-accent);
+    border-color: var(--sec-accent);
+    letter-spacing: .02em;
+}
+
+.sec .sec-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--sec-accent-rgb), .12);
+}
+
+.sec .sec-btn-primary:active:not(:disabled) {
+    background: rgba(var(--sec-accent-rgb), .22);
+}
+
+.sec .sec-btn-ghost {
+    color: var(--sec-accent);
+}
+
+.sec .sec-btn-ghost:hover:not(:disabled) {
+    background: rgba(var(--sec-accent-rgb), .1);
+}
+
+.sec .sec-btn-quiet {
+    color: var(--sec-mute-2);
+    border-color: var(--sec-divider);
+}
+
+.sec .sec-btn-quiet:hover:not(:disabled) {
+    color: var(--sec-ink);
+    border-color: var(--sec-field-edge-hi);
+    background: var(--sec-hover);
+}
+
+/* Turning 2FA off weakens the account, and it is the only control here that
+   does. It gets the danger outline so it does not read as the same kind of
+   choice as the button beside it. */
+.sec .sec-btn-danger {
+    color: var(--sec-fam-bad);
+    border-color: rgba(var(--sec-fam-bad-rgb), .55);
+}
+
+.sec .sec-btn-danger:hover:not(:disabled) {
+    background: rgba(var(--sec-fam-bad-rgb), .12);
+    border-color: var(--sec-fam-bad);
+}
+
+.sec .sec-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--sec-r-sm);
+    background: transparent;
+    color: var(--sec-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.sec .sec-icon-btn:hover {
+    background: var(--sec-press);
+    color: var(--sec-ink);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.sec-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s8);
+}
+
+/* ── Hero ──────────────────────────────────────────────────────────────── */
+
+.sec-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.sec-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--sec-accent-text);
+    margin-bottom: 9px;
+}
+
+.sec-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.sec-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--sec-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── The figures ───────────────────────────────────────────────────────── */
+/* Five rather than the sibling sheets' four, because 2FA, backup codes and
+   passkeys are three separate answers to "is this account hard to get into"
+   and collapsing any two of them would hide which one is missing. */
+
+.sec-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--sec-s4);
+}
+
+.sec-stat {
+    padding: var(--sec-s6) 18px;
+    border: 1px solid var(--sec-divider);
+    border-radius: var(--sec-r-lg);
+    background: var(--sec-surface);
+    min-width: 0;
+}
+
+.sec-stat-good {
+    background:
+        linear-gradient(155deg, rgba(var(--sec-fam-good-rgb), .12), transparent 62%),
+        var(--sec-surface);
+}
+
+.sec-stat-alert {
+    background:
+        linear-gradient(155deg, rgba(var(--sec-fam-warn-rgb), .14), transparent 62%),
+        var(--sec-surface);
+}
+
+.sec-stat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--sec-mute-2);
+}
+
+.sec-stat-good .sec-stat-head {
+    color: var(--sec-fam-good);
+}
+
+.sec-stat-alert .sec-stat-head {
+    color: var(--sec-fam-warn);
+}
+
+.sec-stat-rule {
+    width: 12px;
+    height: 1px;
+    flex: none;
+    background: var(--sec-mute-3);
+}
+
+.sec-stat-good .sec-stat-rule {
+    background: var(--sec-fam-good);
+}
+
+.sec-stat-alert .sec-stat-rule {
+    background: var(--sec-fam-warn);
+}
+
+.sec-stat-num {
+    margin-top: var(--sec-s4);
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.sec-stat-good .sec-stat-num {
+    color: var(--sec-fam-good);
+}
+
+.sec-stat-alert .sec-stat-num {
+    color: var(--sec-fam-warn);
+}
+
+.sec-stat-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--sec-mute-2);
+}
+
+/* ── The two columns ───────────────────────────────────────────────────── */
+
+.sec-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr);
+    gap: var(--sec-s6);
+    align-items: start;
+}
+
+.sec-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s6);
+    min-width: 0;
+}
+
+/* ── A settings card ───────────────────────────────────────────────────── */
+
+.sec-card {
+    border: 1px solid var(--sec-divider);
+    border-radius: var(--sec-r-lg);
+    background: var(--sec-surface);
+    min-width: 0;
+}
+
+/* The setup card is the one thing on the page that is mid-task, so it washes
+   into the ground rather than sitting as another settled panel. */
+.sec-card-setup {
+    background: linear-gradient(to bottom, var(--sec-wash), transparent 240px);
+    border-color: rgba(var(--sec-accent-rgb), .38);
+}
+
+.sec-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s4);
+    padding: var(--sec-s6) 18px var(--sec-s4);
+    flex-wrap: wrap;
+}
+
+.sec-card-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.sec-card-head-aside {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+}
+
+.sec-card-body {
+    padding: 0 18px var(--sec-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s4);
+}
+
+.sec-card-body p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--sec-mute-2);
+    max-width: 68ch;
+    text-wrap: pretty;
+}
+
+.sec-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────── */
+/* One badge, one family token. Each family class sets the hue and its channel;
+   the badge mixes both its ink and its wash from them, so adding a family is
+   two declarations and never a fill-and-ink pair that can drift apart. */
+
+.sec-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: .04em;
+    white-space: nowrap;
+    color: var(--sec-fam, var(--sec-mute));
+    background: rgba(var(--sec-fam-rgb, 94, 100, 131), .14);
+}
+
+.sec-fam-neutral {
+    --sec-fam: var(--sec-fam-neutral);
+    --sec-fam-rgb: var(--sec-fam-neutral-rgb);
+}
+
+.sec-fam-accent {
+    --sec-fam: var(--sec-fam-accent);
+    --sec-fam-rgb: var(--sec-fam-accent-rgb);
+}
+
+.sec-fam-info {
+    --sec-fam: var(--sec-fam-info);
+    --sec-fam-rgb: var(--sec-fam-info-rgb);
+}
+
+.sec-fam-good {
+    --sec-fam: var(--sec-fam-good);
+    --sec-fam-rgb: var(--sec-fam-good-rgb);
+}
+
+.sec-fam-warn {
+    --sec-fam: var(--sec-fam-warn);
+    --sec-fam-rgb: var(--sec-fam-warn-rgb);
+}
+
+.sec-fam-bad {
+    --sec-fam: var(--sec-fam-bad);
+    --sec-fam-rgb: var(--sec-fam-bad-rgb);
+}
+
+/* ── Notices ───────────────────────────────────────────────────────────── */
+/* Tinted from the family token rather than filled: Nocturne keeps saturation
+   off large fields, so the hue arrives as a rule, a mark and a thin wash. The
+   severity class is a family class, so there is no separate set of four. */
+
+.sec-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sec-s3);
+    padding: 10px 12px;
+    border-radius: var(--sec-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+    color: var(--sec-fam, var(--sec-mute));
+    background: rgba(var(--sec-fam-rgb, 94, 100, 131), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--sec-fam-rgb, 94, 100, 131), .3);
+}
+
+.sec-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.sec-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.sec .sec-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--sec-ink);
+    caret-color: var(--sec-accent);
+    background: var(--sec-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--sec-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+/* A code or a key: monospace, spaced out, and never auto-corrected. */
+.sec .sec-input-code {
+    font-family: var(--sec-mono);
+    font-size: 15px;
+    letter-spacing: .18em;
+}
+
+.sec .sec-input:hover {
+    border-color: var(--sec-field-edge);
+}
+
+.sec .sec-input:focus-visible {
+    border-color: rgba(var(--sec-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.sec .sec-input::placeholder {
+    color: var(--sec-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--sec-placeholder);
+}
+
+.sec .sec-input:read-only {
+    color: var(--sec-mute);
+}
+
+.sec-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.sec-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--sec-mute-3);
+}
+
+.sec-req {
+    color: var(--sec-fam-bad);
+}
+
+.sec-hint {
+    font-size: 11.5px;
+    color: var(--sec-mute-3);
+    text-wrap: pretty;
+}
+
+/* A field and the button that copies it, joined so they read as one control. */
+.sec-input-group {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s2);
+}
+
+.sec-input-group .sec-input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* The forms are narrow by intent: a username, an email and a password are all
+   short, and a field the width of the card invites the eye to travel further
+   than the content ever goes. */
+.sec-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s4);
+    max-width: 420px;
+}
+
+/* ── 2FA setup ─────────────────────────────────────────────────────────── */
+
+.sec-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sec-s8);
+}
+
+.sec-step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s4);
+    min-width: 0;
+}
+
+.sec-step-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+    font-size: 13.5px;
+    color: var(--sec-ink-2);
+}
+
+.sec-step-num {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border-radius: 999px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--sec-accent-text);
+    background: rgba(var(--sec-accent-rgb), .16);
+}
+
+/* The QR image comes from an external service and is always drawn dark-on-
+   white, so it keeps a white plate under it in both schemes — inverting it
+   would stop it scanning. */
+.sec-qr {
+    display: inline-flex;
+    padding: var(--sec-s4);
+    border-radius: var(--sec-r-md);
+    background: #ffffff;
+    box-shadow: inset 0 0 0 1px var(--sec-divider);
+    align-self: flex-start;
+}
+
+.sec-qr img {
+    display: block;
+    width: 180px;
+    height: 180px;
+}
+
+/* ── Password rules ────────────────────────────────────────────────────── */
+/* Six chips that turn as they are satisfied. Held as chips rather than a list
+   so the whole set is readable at a glance while typing. */
+
+.sec-rules {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.sec-rule {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--sec-mute-3);
+    background: var(--sec-press);
+    transition: color .15s, background-color .15s;
+}
+
+.sec-rule-pass {
+    color: var(--sec-fam-good);
+    background: rgba(var(--sec-fam-good-rgb), .14);
+}
+
+.sec-rule-mark {
+    width: 6px;
+    height: 6px;
+    flex: none;
+    border-radius: 999px;
+    border: 1.5px solid currentColor;
+}
+
+.sec-rule-pass .sec-rule-mark {
+    background: currentColor;
+}
+
+/* ── Passkeys ──────────────────────────────────────────────────────────── */
+
+.sec-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s2);
+}
+
+.sec-list-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s4);
+    padding: var(--sec-s3) var(--sec-s4);
+    border: 1px solid var(--sec-divider);
+    border-radius: var(--sec-r-md);
+    min-width: 0;
+}
+
+.sec-list-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.sec-list-name {
+    font-size: 13px;
+    color: var(--sec-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sec-list-meta {
+    font-size: 11.5px;
+    color: var(--sec-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.sec-list-mark {
+    flex: none;
+    color: var(--sec-accent);
+}
+
+/* ── Recent activity ───────────────────────────────────────────────────── */
+
+.sec-activity {
+    display: flex;
+    flex-direction: column;
+}
+
+.sec-activity-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sec-s4);
+    padding: 9px 0;
+    border-top: 1px solid var(--sec-rule);
+    min-width: 0;
+}
+
+.sec-activity-row:first-child {
+    border-top: 0;
+}
+
+/* An outcome, not a decoration: a failed action is the only reason to read this
+   card, so it is the only thing in it that carries a hue. */
+.sec-dot {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    margin-top: 7px;
+    border-radius: 999px;
+    background: var(--sec-dot-off);
+}
+
+.sec-dot-fail {
+    background: var(--sec-fam-bad);
+}
+
+.sec-activity-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.sec-activity-action {
+    font-size: 13px;
+    color: var(--sec-ink-2);
+}
+
+.sec-activity-meta {
+    font-size: 11.5px;
+    color: var(--sec-mute-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sec-activity-time {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--sec-mute-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Score ─────────────────────────────────────────────────────────────── */
+
+.sec-score {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sec-s4);
+    text-align: center;
+}
+
+.sec-score-ring {
+    position: relative;
+    width: 128px;
+    height: 128px;
+}
+
+.sec-score-ring svg {
+    width: 128px;
+    height: 128px;
+    transform: rotate(-90deg);
+}
+
+.sec-score-track {
+    stroke: var(--sec-press);
+}
+
+/* The arc's hue is the judgement, set from a family token by the class the
+   markup puts on the ring. */
+.sec-score-arc {
+    stroke: var(--sec-fam, var(--sec-fam-neutral));
+    transition: stroke-dasharray .4s ease;
+}
+
+.sec-score-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.sec-score-num {
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--sec-fam, var(--sec-ink));
+}
+
+.sec-score-of {
+    font-size: 11px;
+    color: var(--sec-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.sec-score-verdict {
+    font-size: 13px;
+    color: var(--sec-fam, var(--sec-ink-2));
+}
+
+.sec-score-note {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--sec-mute-2);
+    text-wrap: pretty;
+}
+
+/* ── Checklist ─────────────────────────────────────────────────────────── */
+
+.sec-checks {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s4);
+}
+
+.sec-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sec-s3);
+    min-width: 0;
+}
+
+.sec-check-mark {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin-top: 3px;
+    border-radius: 999px;
+    border: 1.5px solid var(--sec-dot-off);
+    display: grid;
+    place-items: center;
+    color: transparent;
+}
+
+.sec-check-on .sec-check-mark {
+    border-color: var(--sec-fam-good);
+    color: var(--sec-fam-good);
+}
+
+.sec-check-text {
+    min-width: 0;
+}
+
+.sec-check-title {
+    font-size: 13px;
+    color: var(--sec-ink-2);
+}
+
+.sec-check-sub {
+    font-size: 11.5px;
+    color: var(--sec-mute-3);
+    text-wrap: pretty;
+}
+
+/* ── Quick links ───────────────────────────────────────────────────────── */
+
+.sec-links {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s2);
+}
+
+.sec .sec-link {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s3);
+    padding: var(--sec-s3) var(--sec-s4);
+    border: 1px solid var(--sec-divider);
+    border-radius: var(--sec-r-md);
+    font-size: 12.5px;
+    color: var(--sec-mute);
+    text-decoration: none;
+    transition: color .14s, border-color .14s, background-color .14s;
+}
+
+.sec .sec-link:hover {
+    color: var(--sec-ink);
+    border-color: var(--sec-field-edge-hi);
+    background: var(--sec-hover);
+}
+
+.sec-link-chevron {
+    margin-left: auto;
+    flex: none;
+    color: var(--sec-faint);
+}
+
+/* ── Modals ────────────────────────────────────────────────────────────── */
+/* Centred below the app bar rather than against the viewport: the page is a
+   stacking context, so the bar paints over anything centred against the whole
+   window however high its z-index. Each modal carries `.sec` itself, which is
+   what puts the page's tokens in reach. */
+
+.sec-scrim {
+    position: fixed;
+    inset: var(--kf-topbar-h, 74px) 0 0;
+    z-index: 9998;
+    /* `.sec`'s own min-height would otherwise stretch the scrim 74px past the
+       bottom of what it is meant to cover. */
+    min-height: 0;
+    background: var(--sec-scrim);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--sec-s6);
+    animation: sec-fade .18s ease;
+}
+
+.sec-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(480px, 100%);
+    max-height: calc(100vh - var(--kf-topbar-h, 74px) - var(--sec-s8));
+    min-height: 0;
+    border: 1px solid var(--sec-divider);
+    border-radius: var(--sec-r-lg);
+    background: var(--sec-bg);
+    box-shadow: var(--sec-shadow-pop);
+    animation: sec-rise .2s ease;
+}
+
+.sec-modal-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sec-s4);
+    padding: var(--sec-s6) var(--sec-s8);
+    border-bottom: 1px solid var(--sec-divider);
+    flex: none;
+}
+
+.sec-modal-head h2 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+}
+
+.sec-modal-danger .sec-modal-head {
+    border-bottom-color: rgba(var(--sec-fam-bad-rgb), .35);
+}
+
+.sec-modal-danger .sec-modal-head h2 {
+    color: var(--sec-fam-bad);
+}
+
+.sec-modal-x {
+    margin-left: auto;
+}
+
+.sec-modal-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--sec-s8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sec-s4);
+}
+
+.sec-modal-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--sec-s3);
+    padding: var(--sec-s4) var(--sec-s8);
+    border-top: 1px solid var(--sec-divider);
+    flex: none;
+}
+
+/* Backup codes, shown once. Two columns of monospace on a recessed ground so
+   they read as a block to be copied rather than as page prose. */
+.sec-codes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sec-s3) var(--sec-s6);
+    padding: var(--sec-s4) var(--sec-s6);
+    border: 1px solid var(--sec-divider);
+    border-radius: var(--sec-r-md);
+    background: var(--sec-field-bg);
+}
+
+.sec-code {
+    font-family: var(--sec-mono);
+    font-size: 13px;
+    letter-spacing: .1em;
+    color: var(--sec-ink-2);
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.sec-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sec-s3);
+    padding: 40px var(--sec-s6);
+    font-size: 12.5px;
+    color: var(--sec-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.sec-empty svg {
+    color: var(--sec-accent);
+    opacity: .7;
+}
+
+.sec-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sec-s4);
+    padding: 72px var(--sec-s8);
+    font-size: 13px;
+    color: var(--sec-mute-2);
+}
+
+.sec-loading-inline {
+    padding: 0;
+    justify-content: flex-start;
+    font-size: 12.5px;
+}
+
+.sec-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: sec-spin .7s linear infinite;
+}
+
+@keyframes sec-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes sec-fade {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes sec-rise {
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .sec-scrim,
+    .sec-modal {
+        animation: none;
+    }
+
+    .sec-score-arc {
+        transition: none;
+    }
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────────────── */
+
+.sec-modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sec-modal-body::-webkit-scrollbar-thumb {
+    background: var(--sec-thumb);
+    border-radius: 8px;
+}
+
+.sec-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .sec-cols {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sec-stats {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .sec-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .sec-head-inner {
+        padding: var(--sec-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--sec-s3);
+    }
+
+    .sec-body {
+        padding: var(--sec-s8) 18px 56px;
+    }
+
+    .sec-hero h1 {
+        font-size: 24px;
+    }
+
+    .sec-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sec-card-head,
+    .sec-card-body {
+        padding-inline: var(--sec-s6);
+    }
+
+    .sec-modal-head,
+    .sec-modal-body,
+    .sec-modal-foot {
+        padding-inline: var(--sec-s6);
+    }
+
+    .sec-codes {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .sec .sec-input {
+        font-size: 16px;
+    }
+}

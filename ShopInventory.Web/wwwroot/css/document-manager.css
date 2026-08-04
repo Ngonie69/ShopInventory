@@ -1,0 +1,817 @@
+/* ==========================================================================
+   Document Manager — Nocturne
+
+   A derivation, not an import: there is no Document Manager.dc.html in any of
+   the design projects, so this follows the documented fallback.
+
+   The source is security.css — the sibling written two pages earlier in this
+   same group — because the shape is the same one: a header, a stated hero, and
+   two columns of independent cards, a wide one holding the things you *do* and
+   a narrow one holding the things that only report. Here that is generate,
+   email and sign on the left, attachments, history and signatures on the right.
+
+   Palette and spacing come from nocturne-tokens.css — the block below aliases
+   them rather than restating them, so a colour is corrected in one place for
+   the whole system. Light is the base and `.dark-theme` the override, both
+   stated there in the order App.razor's pre-paint script stamps the class in.
+
+   This page had no stylesheet of its own at all. It was Bootstrap's `.card`,
+   `.form-control`, `.list-group` and `.alert` with MudButtons on top, which is
+   why it was the one page in the group that already followed no theme in
+   particular. Every control is native and classed now, and each control
+   selector is two classes deep so it out-specifies app.css's global
+   `.dark-theme input/select/textarea` block regardless of load order. Headings
+   are pinned to Nocturne's 500 against Bootstrap's global 600.
+
+   Two things needed care rather than translation:
+
+   - The signature canvas is drawn on by pointer and read back as a PNG. It
+     keeps a white plate and a dark stroke in both schemes, because the image is
+     saved as-is and a signature captured on a dark ground would arrive at the
+     customer as an invisible one.
+   - The three cards used Bootstrap's contextual header bars (`bg-primary`,
+     `bg-success`, `bg-warning`) as their only distinction. Nocturne does not
+     flood a surface with hue, so what those bars were carrying — that these are
+     three different kinds of action — is carried by the heading and the order
+     instead.
+   ========================================================================== */
+
+.dmg {
+    /* Palette from nocturne-tokens.css; see that file for why these are aliases
+       rather than values, and which sheets share them. */
+    --dmg-bg: var(--noct-bg);
+    --dmg-surface: var(--noct-surface);
+    --dmg-wash: var(--noct-wash);
+    --dmg-ink: var(--noct-ink);
+    --dmg-ink-2: var(--noct-ink-2);
+    --dmg-mute: var(--noct-mute);
+    --dmg-mute-2: var(--noct-mute-2);
+    --dmg-mute-3: var(--noct-mute-3);
+    --dmg-faint: var(--noct-faint);
+    --dmg-placeholder: var(--noct-placeholder);
+    --dmg-divider: var(--noct-divider);
+    --dmg-rule: var(--noct-rule);
+    --dmg-hover: var(--noct-hover);
+    --dmg-press: var(--noct-press);
+    --dmg-field-bg: var(--noct-field-bg);
+    --dmg-field-edge: var(--noct-field-edge);
+    --dmg-field-edge-hi: var(--noct-field-edge-hi);
+    --dmg-accent: var(--noct-accent);
+    --dmg-accent-rgb: var(--noct-accent-rgb);
+    --dmg-accent-text: var(--noct-accent-text);
+    --dmg-box: var(--noct-box);
+    --dmg-caret: var(--noct-caret);
+    --dmg-scheme: var(--noct-scheme);
+
+    --dmg-fam-neutral: var(--noct-fam-neutral);
+    --dmg-fam-neutral-rgb: var(--noct-fam-neutral-rgb);
+    --dmg-fam-accent: var(--noct-fam-accent);
+    --dmg-fam-accent-rgb: var(--noct-fam-accent-rgb);
+    --dmg-fam-info: var(--noct-fam-info);
+    --dmg-fam-info-rgb: var(--noct-fam-info-rgb);
+    --dmg-fam-good: var(--noct-fam-good);
+    --dmg-fam-good-rgb: var(--noct-fam-good-rgb);
+    --dmg-fam-warn: var(--noct-fam-warn);
+    --dmg-fam-warn-rgb: var(--noct-fam-warn-rgb);
+    --dmg-fam-bad: var(--noct-fam-bad);
+    --dmg-fam-bad-rgb: var(--noct-fam-bad-rgb);
+
+    --dmg-s1: var(--noct-s1);
+    --dmg-s2: var(--noct-s2);
+    --dmg-s3: var(--noct-s3);
+    --dmg-s4: var(--noct-s4);
+    --dmg-s6: var(--noct-s6);
+    --dmg-s8: var(--noct-s8);
+    --dmg-r-sm: var(--noct-r-sm);
+    --dmg-r-md: var(--noct-r-md);
+    --dmg-r-lg: var(--noct-r-lg);
+
+    color-scheme: var(--dmg-scheme);
+}
+
+/* ── Page ──────────────────────────────────────────────────────────────── */
+
+.dmg {
+    min-height: 100vh;
+    background: var(--dmg-bg);
+    color: var(--dmg-ink);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+.dmg * {
+    box-sizing: border-box;
+}
+
+/* app.css forces `-webkit-text-fill-color: inherit` in dark theme for an iOS
+   input fix; inside this page that would flatten the family hues the notices
+   carry on WebKit, so hand the fill back to `color`. */
+.dmg,
+.dmg * {
+    -webkit-text-fill-color: currentColor;
+}
+
+.dmg :focus-visible {
+    outline: 2px solid var(--dmg-accent);
+    outline-offset: 2px;
+}
+
+.dmg ::selection {
+    background: rgba(var(--dmg-accent-rgb), .3);
+}
+
+.dmg h1,
+.dmg h2,
+.dmg h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    margin: 0;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.dmg-head {
+    position: sticky;
+    top: var(--kf-topbar-h, 74px);
+    z-index: 30;
+    background: var(--dmg-bg);
+    border-bottom: 1px solid var(--dmg-divider);
+}
+
+.dmg-head-inner {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 13px 28px;
+    display: flex;
+    align-items: center;
+    gap: var(--dmg-s6);
+}
+
+.dmg-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--dmg-s3);
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--dmg-mute-3);
+}
+
+.dmg-crumb-sep {
+    color: var(--dmg-faint);
+}
+
+.dmg-crumb-now {
+    color: var(--dmg-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dmg-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--dmg-s3);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+/* Nocturne outlines its primary action rather than filling it. */
+
+.dmg .dmg-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    height: 32px;
+    padding: var(--dmg-s2) calc(var(--dmg-s3) * 1.2);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--dmg-ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--dmg-r-md);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+
+.dmg .dmg-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.dmg .dmg-btn svg {
+    display: block;
+    flex: none;
+}
+
+.dmg .dmg-btn-primary {
+    color: var(--dmg-accent);
+    border-color: var(--dmg-accent);
+    letter-spacing: .02em;
+}
+
+.dmg .dmg-btn-primary:hover:not(:disabled) {
+    background: rgba(var(--dmg-accent-rgb), .12);
+}
+
+.dmg .dmg-btn-primary:active:not(:disabled) {
+    background: rgba(var(--dmg-accent-rgb), .22);
+}
+
+.dmg .dmg-btn-quiet {
+    color: var(--dmg-mute-2);
+    border-color: var(--dmg-divider);
+}
+
+.dmg .dmg-btn-quiet:hover:not(:disabled) {
+    color: var(--dmg-ink);
+    border-color: var(--dmg-field-edge-hi);
+    background: var(--dmg-hover);
+}
+
+.dmg .dmg-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: var(--dmg-r-sm);
+    background: transparent;
+    color: var(--dmg-mute-2);
+    cursor: pointer;
+    transition: background-color .13s, color .13s;
+}
+
+.dmg .dmg-icon-btn:hover {
+    background: var(--dmg-press);
+    color: var(--dmg-ink);
+}
+
+.dmg .dmg-icon-btn-danger:hover {
+    background: rgba(var(--dmg-fam-bad-rgb), .12);
+    color: var(--dmg-fam-bad);
+}
+
+/* ── Body ──────────────────────────────────────────────────────────────── */
+
+.dmg-body {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 30px 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--dmg-s8);
+}
+
+.dmg-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.dmg-kicker {
+    font-size: 10.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--dmg-accent-text);
+    margin-bottom: 9px;
+}
+
+.dmg-hero h1 {
+    margin: 0 0 7px;
+    font-size: 30px;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+}
+
+.dmg-hero p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--dmg-mute-2);
+    max-width: 56ch;
+    text-wrap: pretty;
+}
+
+/* ── Columns and cards ─────────────────────────────────────────────────── */
+
+.dmg-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr);
+    gap: var(--dmg-s6);
+    align-items: start;
+}
+
+.dmg-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dmg-s6);
+    min-width: 0;
+}
+
+.dmg-card {
+    border: 1px solid var(--dmg-divider);
+    border-radius: var(--dmg-r-lg);
+    background: var(--dmg-surface);
+    min-width: 0;
+}
+
+.dmg-card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dmg-s4);
+    padding: var(--dmg-s6) 18px var(--dmg-s4);
+    flex-wrap: wrap;
+}
+
+.dmg-card-head h2 {
+    margin: 0;
+    font-size: 15px;
+    letter-spacing: -.01em;
+}
+
+.dmg-card-count {
+    font-size: 12px;
+    color: var(--dmg-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.dmg-card-body {
+    padding: 0 18px var(--dmg-s6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dmg-s4);
+}
+
+.dmg-card-body p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--dmg-mute-2);
+    text-wrap: pretty;
+}
+
+.dmg-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--dmg-s3);
+    flex-wrap: wrap;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.dmg .dmg-input,
+.dmg .dmg-textarea,
+.dmg .dmg-file {
+    width: 100%;
+    min-height: 34px;
+    padding: 8px 12px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--dmg-ink);
+    caret-color: var(--dmg-accent);
+    background: var(--dmg-field-bg);
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: var(--dmg-r-md);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color .15s, background-color .15s;
+}
+
+.dmg .dmg-textarea {
+    min-height: 92px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.dmg .dmg-input:hover,
+.dmg .dmg-textarea:hover,
+.dmg .dmg-file:hover {
+    border-color: var(--dmg-field-edge);
+}
+
+.dmg .dmg-input:focus-visible,
+.dmg .dmg-textarea:focus-visible,
+.dmg .dmg-file:focus-visible {
+    border-color: rgba(var(--dmg-accent-rgb), .55);
+    outline-offset: 0;
+}
+
+.dmg .dmg-input::placeholder,
+.dmg .dmg-textarea::placeholder {
+    color: var(--dmg-placeholder);
+    opacity: 1;
+    -webkit-text-fill-color: var(--dmg-placeholder);
+}
+
+/* The file picker's own button is a browser control that ignores everything
+   above, so it is dressed on its own. */
+.dmg .dmg-file {
+    padding: 6px 8px;
+    cursor: pointer;
+}
+
+.dmg .dmg-file::file-selector-button {
+    margin-right: var(--dmg-s4);
+    padding: 5px 11px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--dmg-accent);
+    background: transparent;
+    border: 1px solid var(--dmg-accent);
+    border-radius: var(--dmg-r-sm);
+    cursor: pointer;
+}
+
+.dmg .dmg-file::file-selector-button:hover {
+    background: rgba(var(--dmg-accent-rgb), .12);
+}
+
+.dmg-select {
+    position: relative;
+    display: flex;
+}
+
+.dmg .dmg-select select.dmg-input {
+    padding: 8px 28px 8px 11px;
+    cursor: pointer;
+}
+
+.dmg-select .dmg-caret {
+    position: absolute;
+    right: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 10px;
+    height: 7px;
+    background: var(--dmg-caret) no-repeat center / contain;
+    pointer-events: none;
+}
+
+.dmg-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.dmg-label {
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--dmg-mute-3);
+}
+
+.dmg-req {
+    color: var(--dmg-fam-bad);
+}
+
+.dmg-hint {
+    font-size: 11.5px;
+    color: var(--dmg-mute-3);
+    text-wrap: pretty;
+}
+
+.dmg-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--dmg-s4);
+    align-items: end;
+}
+
+.dmg-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dmg-s3);
+    font-size: 13px;
+    color: var(--dmg-mute);
+    cursor: pointer;
+    user-select: none;
+}
+
+.dmg .dmg-check input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin: 0;
+    accent-color: var(--dmg-box);
+    cursor: pointer;
+}
+
+/* ── Signature pad ─────────────────────────────────────────────────────── */
+/* The canvas is read back as a PNG and sent to a customer, so it holds a white
+   plate and a dark stroke in both schemes. A signature captured on the dark
+   ground would arrive as an invisible one. */
+
+.dmg-pad {
+    padding: var(--dmg-s3);
+    border: 1px solid var(--dmg-divider);
+    border-radius: var(--dmg-r-md);
+    background: #ffffff;
+    overflow-x: auto;
+}
+
+.dmg-pad canvas {
+    display: block;
+    border: 1px dashed #c8cad6;
+    border-radius: var(--dmg-r-sm);
+    cursor: crosshair;
+    touch-action: none;
+}
+
+/* ── Attachments ───────────────────────────────────────────────────────── */
+
+.dmg-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dmg-s2);
+}
+
+.dmg-list-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dmg-s3);
+    padding: var(--dmg-s3) var(--dmg-s4);
+    border: 1px solid var(--dmg-divider);
+    border-radius: var(--dmg-r-md);
+    min-width: 0;
+}
+
+.dmg-list-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.dmg-list-name {
+    font-size: 12.5px;
+    color: var(--dmg-ink-2);
+    overflow-wrap: anywhere;
+}
+
+.dmg-list-meta {
+    font-size: 11.5px;
+    color: var(--dmg-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.dmg-list-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+}
+
+/* ── History ───────────────────────────────────────────────────────────── */
+/* A rail down the left rather than an icon per row: the actions are all of one
+   kind, and what is worth reading is the order they happened in. */
+
+.dmg-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dmg-s4);
+    padding-left: var(--dmg-s4);
+    border-left: 1px solid var(--dmg-rule);
+}
+
+.dmg-event {
+    position: relative;
+    min-width: 0;
+}
+
+.dmg-event::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--dmg-s4) * -1 - 3.5px);
+    top: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--dmg-accent);
+}
+
+.dmg-event-action {
+    font-size: 12.5px;
+    color: var(--dmg-ink-2);
+}
+
+.dmg-event-meta {
+    font-size: 11.5px;
+    color: var(--dmg-mute-3);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+/* ── Signatures ────────────────────────────────────────────────────────── */
+
+.dmg-sig {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dmg-s3);
+    padding: var(--dmg-s4);
+    border: 1px solid var(--dmg-divider);
+    border-radius: var(--dmg-r-md);
+    min-width: 0;
+}
+
+.dmg-sig-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dmg-s3);
+}
+
+.dmg-sig-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.dmg-sig-name {
+    font-size: 13px;
+    color: var(--dmg-ink-2);
+}
+
+.dmg-sig-meta {
+    font-size: 11.5px;
+    color: var(--dmg-mute-3);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Same reason as the pad: the stored image is a dark stroke on transparency,
+   so it needs a light plate to be visible in either scheme. */
+.dmg-sig-image {
+    padding: var(--dmg-s3);
+    border-radius: var(--dmg-r-sm);
+    background: #ffffff;
+}
+
+.dmg-sig-image img {
+    display: block;
+    max-width: 100%;
+    max-height: 80px;
+}
+
+/* ── Badges and notices ────────────────────────────────────────────────── */
+
+.dmg-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--dmg-fam, var(--dmg-mute));
+    background: rgba(var(--dmg-fam-rgb, 94, 100, 131), .14);
+}
+
+.dmg-fam-neutral {
+    --dmg-fam: var(--dmg-fam-neutral);
+    --dmg-fam-rgb: var(--dmg-fam-neutral-rgb);
+}
+
+.dmg-fam-accent {
+    --dmg-fam: var(--dmg-fam-accent);
+    --dmg-fam-rgb: var(--dmg-fam-accent-rgb);
+}
+
+.dmg-fam-info {
+    --dmg-fam: var(--dmg-fam-info);
+    --dmg-fam-rgb: var(--dmg-fam-info-rgb);
+}
+
+.dmg-fam-good {
+    --dmg-fam: var(--dmg-fam-good);
+    --dmg-fam-rgb: var(--dmg-fam-good-rgb);
+}
+
+.dmg-fam-warn {
+    --dmg-fam: var(--dmg-fam-warn);
+    --dmg-fam-rgb: var(--dmg-fam-warn-rgb);
+}
+
+.dmg-fam-bad {
+    --dmg-fam: var(--dmg-fam-bad);
+    --dmg-fam-rgb: var(--dmg-fam-bad-rgb);
+}
+
+/* Tinted from the family token rather than filled: Nocturne keeps saturation
+   off large fields, so the hue arrives as a rule, a mark and a thin wash. */
+.dmg-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dmg-s3);
+    padding: 10px 12px;
+    border-radius: var(--dmg-r-md);
+    font-size: 12.5px;
+    text-wrap: pretty;
+    color: var(--dmg-fam, var(--dmg-mute));
+    background: rgba(var(--dmg-fam-rgb, 94, 100, 131), .1);
+    box-shadow: inset 0 0 0 1px rgba(var(--dmg-fam-rgb, 94, 100, 131), .3);
+}
+
+.dmg-notice svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.dmg-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ── Empty and loading ─────────────────────────────────────────────────── */
+
+.dmg-empty {
+    padding: var(--dmg-s6) 0;
+    font-size: 12.5px;
+    color: var(--dmg-mute-3);
+    text-align: center;
+    text-wrap: pretty;
+}
+
+.dmg-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--dmg-s3);
+    font-size: 12.5px;
+    color: var(--dmg-mute-2);
+}
+
+.dmg-spin {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: dmg-spin .7s linear infinite;
+}
+
+@keyframes dmg-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dmg-spin {
+        animation: none;
+    }
+}
+
+/* ── Narrow screens ────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+    .dmg-cols {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .dmg-head-inner {
+        padding: var(--dmg-s3) 18px;
+        flex-wrap: wrap;
+        gap: var(--dmg-s3);
+    }
+
+    .dmg-head-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .dmg-body {
+        padding: var(--dmg-s8) 18px 56px;
+    }
+
+    .dmg-hero h1 {
+        font-size: 24px;
+    }
+
+    .dmg-card-head,
+    .dmg-card-body {
+        padding-inline: var(--dmg-s6);
+    }
+
+    .dmg-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* 16px is the smallest size iOS will render a focused field at without
+       zooming the page. */
+    .dmg .dmg-input,
+    .dmg .dmg-textarea {
+        font-size: 16px;
+    }
+}
