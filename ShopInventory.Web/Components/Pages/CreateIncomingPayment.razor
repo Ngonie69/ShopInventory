@@ -105,7 +105,7 @@
                                 <input class="sfm-input @(validationErrors.ContainsKey("CardCode") ? "is-bad" : "")"
                                        value="@bpSearchTerm" @oninput="OnBpSearchInput"
                                        @onfocus="() => showBpDropdown = true" @onblur="HandleBpBlur"
-                                       placeholder="Search by code or name&hellip;" autocomplete="off" />
+                                       placeholder="Search by code or name…" autocomplete="off" />
                                 @if (isBpLoading)
                                 {
                                     <span class="sfm-combo-clear"><span class="sfm-spin"></span></span>
@@ -163,7 +163,7 @@
                         </div>
                         <label class="sfm-lab sfm-span3">
                             <span class="sfm-lab-t">Remarks</span>
-                            <input class="sfm-input" @bind="remarks" placeholder="Optional payment remarks&hellip;" />
+                            <input class="sfm-input" @bind="remarks" placeholder="Optional payment remarks…" />
                         </label>
                     </div>
                 </section>

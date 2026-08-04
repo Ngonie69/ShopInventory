@@ -85,7 +85,7 @@
                                 <div class="sfm-combo">
                                     <input class="sfm-input" @bind="bpSearchTerm" @bind:event="oninput"
                                            @onfocus="() => showBPDropdown = true" @onblur="OnBPSearchBlur"
-                                           placeholder="Search by code or name&hellip;" autocomplete="off" />
+                                           placeholder="Search by code or name…" autocomplete="off" />
                                     @if (selectedBusinessPartner != null)
                                     {
                                         <button type="button" class="sfm-combo-clear" @onclick="ClearSelectedBP"
@@ -252,7 +252,7 @@
                                                        @oninput="e => OnCnItemCodeInput(index, e.Value?.ToString())"
                                                        @onfocus="() => OnCnItemCodeFocus(index)"
                                                        @onblur="() => OnCnItemCodeBlur(index)"
-                                                       placeholder="Search&hellip;" autocomplete="off" />
+                                                       placeholder="Search…" autocomplete="off" />
                                                 @if (lineState.ShowDropdown)
                                                 {
                                                     <div class="sfm-drop is-wide">
