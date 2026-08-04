@@ -824,9 +824,12 @@
     --sfm-lines-min: 900px;
 }
 
-/* #, code, description, qty, unit price, disc %, warehouse, total, remove */
+/* #, code, description, qty, unit price, disc %, VAT %, warehouse, total, remove.
+   An order prices tax per line *and* names a warehouse: the tax it carries is what
+   the document totals to in SAP, and posting without it understates the order. */
 .is-order .sfm-lines {
-    --sfm-cols: 24px 132px minmax(150px, 1fr) 84px 96px 64px 96px 100px 28px;
+    --sfm-cols: 24px 128px minmax(140px, 1fr) 76px 92px 60px 60px 92px 100px 28px;
+    --sfm-lines-min: 960px;
 }
 
 /* A quotation is not stock movement, so it prices VAT per line where the order

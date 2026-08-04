@@ -11,7 +11,10 @@
     <div class="macc-shell">
         <div class="macc-header">
             <div>
-                <h1>Manage Merchandiser Accounts</h1>
+                <div class="macc-title-row">
+                    <span class="macc-header-icon"><i class="ph ph-user-focus" aria-hidden="true"></i></span>
+                    <h1>Manage Merchandiser Accounts</h1>
+                </div>
                 <p>Create merchandiser accounts, review existing profiles, and update assigned business partners.</p>
             </div>
         </div>
@@ -31,44 +34,44 @@
                 <div class="macc-grid">
                     <section class="macc-card">
                         <div class="macc-card-header">
-                            <h2>Create Account</h2>
+                            <h2><i class="ph ph-user-plus" aria-hidden="true"></i>Create Account</h2>
                             <span>Role is fixed to Merchandiser</span>
                         </div>
 
                         <div class="macc-field-grid">
                             <div class="macc-field">
-                                <label for="username">Username</label>
+                                <label for="username"><i class="ph ph-user" aria-hidden="true"></i>Username</label>
                                 <InputText id="username" class="macc-input" @bind-Value="createForm.Username" />
                                 <ValidationMessage For="() => createForm.Username" />
                             </div>
 
                             <div class="macc-field">
-                                <label for="email">Email</label>
+                                <label for="email"><i class="ph ph-envelope-simple" aria-hidden="true"></i>Email</label>
                                 <InputText id="email" class="macc-input" @bind-Value="createForm.Email" />
                                 <ValidationMessage For="() => createForm.Email" />
                             </div>
 
                             <div class="macc-field">
-                                <label for="firstName">First Name</label>
+                                <label for="firstName"><i class="ph ph-user-circle" aria-hidden="true"></i>First Name</label>
                                 <InputText id="firstName" class="macc-input" @bind-Value="createForm.FirstName" />
                                 <ValidationMessage For="() => createForm.FirstName" />
                             </div>
 
                             <div class="macc-field">
-                                <label for="lastName">Last Name</label>
+                                <label for="lastName"><i class="ph ph-user-circle" aria-hidden="true"></i>Last Name</label>
                                 <InputText id="lastName" class="macc-input" @bind-Value="createForm.LastName" />
                                 <ValidationMessage For="() => createForm.LastName" />
                             </div>
 
                             <div class="macc-field">
-                                <label for="password">Password</label>
+                                <label for="password"><i class="ph ph-lock-key" aria-hidden="true"></i>Password</label>
                                 <InputText id="password" type="password" class="macc-input"
                                            @bind-Value="createForm.Password" />
                                 <ValidationMessage For="() => createForm.Password" />
                             </div>
 
                             <div class="macc-field">
-                                <label for="confirmPassword">Confirm Password</label>
+                                <label for="confirmPassword"><i class="ph ph-check-square" aria-hidden="true"></i>Confirm Password</label>
                                 <InputText id="confirmPassword" type="password" class="macc-input"
                                            @bind-Value="createForm.ConfirmPassword" />
                                 <ValidationMessage For="() => createForm.ConfirmPassword" />
@@ -76,7 +79,7 @@
                         </div>
 
                         <div class="macc-field">
-                            <label for="warehouse">Default Warehouse</label>
+                            <label for="warehouse"><i class="ph ph-warehouse" aria-hidden="true"></i>Default Warehouse</label>
                             <select id="warehouse" class="macc-input" @bind="selectedWarehouseCode">
                                 <option value="">Select a warehouse</option>
                                 @foreach (var warehouse in warehouses)
@@ -91,12 +94,12 @@
 
                     <section class="macc-card">
                         <div class="macc-card-header">
-                            <h2>Assigned Business Partners</h2>
+                            <h2><i class="ph ph-buildings" aria-hidden="true"></i>Assigned Business Partners</h2>
                             <span>@createForm.AssignedCustomerCodes.Count selected</span>
                         </div>
 
                         <div class="macc-field">
-                            <label for="customerSearch">Search customers</label>
+                            <label for="customerSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i>Search customers</label>
                             <input id="customerSearch" class="macc-input" @bind="createCustomerSearchTerm"
                                    @bind:event="oninput" placeholder="Search by code or name" />
                         </div>
@@ -123,7 +126,7 @@
                             }
                             else
                             {
-                                <div class="macc-empty">No customers match the current search.</div>
+                                <div class="macc-empty"><i class="ph ph-magnifying-glass macc-empty-icon" aria-hidden="true"></i>No customers match the current search.</div>
                             }
                         </div>
                     </section>
@@ -131,19 +134,19 @@
 
                 <div class="macc-actions macc-create-actions">
                     <button type="submit" class="macc-submit" disabled="@isCreating">
-                        @(isCreating ? "Creating..." : "Create Merchandiser Account")
+                        <i class="ph ph-user-plus" aria-hidden="true"></i>@(isCreating ? "Creating..." : "Create Merchandiser Account")
                     </button>
                 </div>
             </EditForm>
 
             <section class="macc-card macc-account-section">
                 <div class="macc-card-header">
-                    <h2>Existing Merchandiser Accounts</h2>
+                    <h2><i class="ph ph-users" aria-hidden="true"></i>Existing Merchandiser Accounts</h2>
                     <span>@filteredMerchandisers.Count() visible</span>
                 </div>
 
                 <div class="macc-field">
-                    <label for="accountSearch">Search accounts</label>
+                    <label for="accountSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i>Search accounts</label>
                     <input id="accountSearch" class="macc-input" @bind="accountSearchTerm" @bind:event="oninput"
                            placeholder="Search by username, name, or email" />
                 </div>
@@ -175,7 +178,7 @@
                                                 ? "No warehouse"
                                                 : $"Warehouse: {merchandiser.AssignedWarehouseCode}")
                                         </span>
-                                        <span class="macc-chip macc-chip-count">@selectedCount BP assigned</span>
+                                        <span class="macc-chip macc-chip-count"><i class="ph ph-buildings" aria-hidden="true"></i>@selectedCount BP assigned</span>
                                     </div>
 
                                     <div class="macc-bp-tags">
@@ -194,7 +197,7 @@
                                         <div class="macc-inline-actions">
                                             <button type="button" class="macc-secondary-button"
                                                     @onclick="() => BeginEditAssignedCustomers(merchandiser)">
-                                                @(isEditing ? "Editing Assignments" : "Edit Assignments")
+                                                <i class="ph ph-pencil-simple" aria-hidden="true"></i>@(isEditing ? "Editing Assignments" : "Edit Assignments")
                                             </button>
                                         </div>
                                     </div>
@@ -203,12 +206,12 @@
                                     {
                                         <div class="macc-editor-shell">
                                             <div class="macc-card-header macc-editor-header">
-                                                <h2>Update Merchandiser Assignments</h2>
+                                                <h2><i class="ph ph-pencil-simple" aria-hidden="true"></i>Update Merchandiser Assignments</h2>
                                                 <span>@editingAssignedCustomerCodes.Count BP selected</span>
                                             </div>
 
                                             <div class="macc-field">
-                                                <label for="editWarehouse">Assigned warehouse</label>
+                                                <label for="editWarehouse"><i class="ph ph-warehouse" aria-hidden="true"></i>Assigned warehouse</label>
                                                 <select id="editWarehouse" class="macc-input" @bind="editingWarehouseCode">
                                                     <option value="">No warehouse assigned</option>
                                                     @foreach (var warehouse in warehouses)
@@ -222,7 +225,7 @@
                                                 <div class="macc-editor-grid">
                                                     <section class="macc-editor-column macc-editor-selection">
                                                         <div class="macc-card-header macc-editor-subheader">
-                                                            <h3>Selected business partners</h3>
+                                                            <h3><i class="ph ph-list-checks" aria-hidden="true"></i>Selected business partners</h3>
                                                             <span>Remove assignments directly from here</span>
                                                         </div>
 
@@ -238,7 +241,7 @@
                                                                         </div>
                                                                         <button type="button" class="macc-selected-remove"
                                                                                 @onclick="() => ToggleEditCustomer(selectedCode, false)">
-                                                                            Remove
+                                                                            <i class="ph ph-x" aria-hidden="true"></i>Remove
                                                                         </button>
                                                                     </div>
                                                                 }
@@ -246,13 +249,13 @@
                                                         }
                                                         else
                                                         {
-                                                            <div class="macc-empty macc-selected-empty">No business partners selected yet.</div>
+                                                            <div class="macc-empty macc-selected-empty"><i class="ph ph-list-dashes macc-empty-icon" aria-hidden="true"></i>No business partners selected yet.</div>
                                                         }
                                                     </section>
 
                                                     <section class="macc-editor-column">
                                                         <div class="macc-field">
-                                                            <label for="editCustomerSearch">Search business partners</label>
+                                                            <label for="editCustomerSearch"><i class="ph ph-magnifying-glass" aria-hidden="true"></i>Search business partners</label>
                                                             <input id="editCustomerSearch" class="macc-input" @bind="editCustomerSearchTerm"
                                                                    @bind:event="oninput" placeholder="Search by code or name" />
                                                             <small>Selected business partners stay visible on the left while you search and add more here.</small>
@@ -277,7 +280,7 @@
                                                             }
                                                             else
                                                             {
-                                                                <div class="macc-empty">No business partners match the current search.</div>
+                                                                <div class="macc-empty"><i class="ph ph-magnifying-glass macc-empty-icon" aria-hidden="true"></i>No business partners match the current search.</div>
                                                             }
                                                         </div>
                                                     </section>
@@ -286,11 +289,11 @@
                                                 <div class="macc-actions macc-inline-actions">
                                                     <button type="button" class="macc-submit" disabled="@isUpdating"
                                                             @onclick="() => SaveAssignedCustomersAsync(merchandiser)">
-                                                        @(isUpdating ? "Saving..." : "Save Assignments")
+                                                        <i class="ph ph-floppy-disk" aria-hidden="true"></i>@(isUpdating ? "Saving..." : "Save Assignments")
                                                     </button>
                                                     <button type="button" class="macc-secondary-button" disabled="@isUpdating"
                                                             @onclick="CancelEditAssignedCustomers">
-                                                        Cancel
+                                                        <i class="ph ph-x" aria-hidden="true"></i>Cancel
                                                     </button>
                                                 </div>
                                             </div>
@@ -301,6 +304,7 @@
                     else
                             {
                                 <div class="macc-empty-state">
+                                    <i class="ph ph-users-three macc-empty-icon" aria-hidden="true"></i>
                                     <h3>No merchandiser accounts found</h3>
                                     <p>Try a different search or create the first merchandiser account above.</p>
                                 </div>
@@ -798,6 +802,100 @@
             .dark-theme .macc-selected-remove {
                 color: #fca5a5;
                 background: rgba(248, 113, 113, 0.18);
+            }
+
+            /* Icons. Phosphor is loaded globally in App.razor; every selector
+               below is scoped under a .macc-* class so nothing here reaches the
+               shell or another page. */
+            .macc-title-row {
+                display: flex;
+                align-items: center;
+                gap: .85rem;
+            }
+
+            .macc-header-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex: none;
+                width: 46px;
+                height: 46px;
+                border-radius: 15px;
+                background: #e0f2fe;
+                color: #0369a1;
+                font-size: 1.45rem;
+            }
+
+            .macc-field label,
+            .macc-chip,
+            .macc-status {
+                display: inline-flex;
+                align-items: center;
+                gap: .35rem;
+            }
+
+            .macc-field label i,
+            .macc-chip i,
+            .macc-status i {
+                font-size: .95rem;
+                line-height: 1;
+            }
+
+            .macc-submit,
+            .macc-secondary-button,
+            .macc-selected-remove {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: .4rem;
+            }
+
+            .macc-submit i,
+            .macc-secondary-button i,
+            .macc-selected-remove i {
+                font-size: 1.05rem;
+                line-height: 1;
+            }
+
+            .macc-card-header h2,
+            .macc-card-header h3,
+            .macc-empty-state h3 {
+                display: flex;
+                align-items: center;
+                gap: .5rem;
+            }
+
+            .macc-card-header h2 i,
+            .macc-card-header h3 i {
+                font-size: 1.1rem;
+                line-height: 1;
+                color: #0369a1;
+            }
+
+            .macc-empty-state h3 {
+                justify-content: center;
+            }
+
+            .macc-empty-icon {
+                display: block;
+                font-size: 2.1rem;
+                line-height: 1;
+                color: #94a3b8;
+                margin-bottom: .5rem;
+            }
+
+            .dark-theme .macc-header-icon {
+                background: #0c2d43;
+                color: #7dd3fc;
+            }
+
+            .dark-theme .macc-card-header h2 i,
+            .dark-theme .macc-card-header h3 i {
+                color: #7dd3fc;
+            }
+
+            .dark-theme .macc-empty-icon {
+                color: #64748b;
             }
 
             @@media (max-width: 900px) {

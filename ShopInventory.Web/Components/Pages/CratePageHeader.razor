@@ -1,17 +1,22 @@
 <div class="crt-hero">
     <div class="crt-hero-grid">
-        <div>
-            <div class="crt-kicker">Crate Control</div>
-            <h1 class="crt-title">@Title</h1>
-            <p class="crt-subtitle">@Subtitle</p>
+        <div class="crt-hero-lead">
+            <span class="crt-hero-icon"><i class="ph ph-stack" aria-hidden="true"></i></span>
+            <div>
+                <div class="crt-kicker"><i class="ph ph-cube" aria-hidden="true"></i>Crate Control</div>
+                <h1 class="crt-title">@Title</h1>
+                <p class="crt-subtitle">@Subtitle</p>
+            </div>
         </div>
         <button type="button" class="crt-btn crt-btn-secondary" @onclick="OnRefresh" disabled="@IsLoading">
             @if (IsLoading)
             {
+                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
                 <span>Refreshing...</span>
             }
             else
             {
+                <i class="ph ph-arrows-clockwise" aria-hidden="true"></i>
                 <span>Refresh</span>
             }
         </button>
@@ -19,19 +24,19 @@
 
     <div class="crt-summary-grid">
         <div class="crt-summary-card">
-            <div class="crt-summary-label">Transactions</div>
+            <div class="crt-summary-label"><i class="ph ph-list-bullets" aria-hidden="true"></i>Transactions</div>
             <div class="crt-summary-value">@TransactionCount</div>
         </div>
         <div class="crt-summary-card">
-            <div class="crt-summary-label">Pending PODs</div>
+            <div class="crt-summary-label"><i class="ph ph-hourglass-high" aria-hidden="true"></i>Pending PODs</div>
             <div class="crt-summary-value">@PendingPodCount</div>
         </div>
         <div class="crt-summary-card">
-            <div class="crt-summary-label">GRV Pending</div>
+            <div class="crt-summary-label"><i class="ph ph-warning-circle" aria-hidden="true"></i>GRV Pending</div>
             <div class="crt-summary-value">@VariancePendingCount</div>
         </div>
         <div class="crt-summary-card">
-            <div class="crt-summary-label">GRVs Raised</div>
+            <div class="crt-summary-label"><i class="ph ph-check-circle" aria-hidden="true"></i>GRVs Raised</div>
             <div class="crt-summary-value">@GrvCount</div>
         </div>
     </div>
@@ -39,7 +44,10 @@
 
 @if (!string.IsNullOrWhiteSpace(StatusMessage))
 {
-    <div class="alert @(StatusIsSuccess ? "alert-success" : "alert-danger") mb-3">@StatusMessage</div>
+    <div class="alert @(StatusIsSuccess ? "alert-success" : "alert-danger") mb-3">
+        <i class="ph @(StatusIsSuccess ? "ph-check-circle" : "ph-warning-octagon")" aria-hidden="true"></i>
+        <span>@StatusMessage</span>
+    </div>
 }
 
 @code {

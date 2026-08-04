@@ -76,6 +76,14 @@
                         <div class="sfm-stat-v">@editRequest.Lines.Count</div>
                     </div>
                     <div class="sfm-stat">
+                        <div class="sfm-stat-k">Subtotal</div>
+                        <div class="sfm-stat-v">@CalculateSubTotal().ToString("N2")</div>
+                    </div>
+                    <div class="sfm-stat">
+                        <div class="sfm-stat-k">VAT</div>
+                        <div class="sfm-stat-v is-vat">@CalculateVatAmount().ToString("N2")</div>
+                    </div>
+                    <div class="sfm-stat">
                         <div class="sfm-stat-k">Order total</div>
                         <div class="sfm-stat-v is-total">@CalculateOrderTotal().ToString("N2")</div>
                     </div>
@@ -260,6 +268,7 @@
                                         <div class="sfm-r">Qty</div>
                                         <div class="sfm-r">Unit price</div>
                                         <div class="sfm-r">Disc %</div>
+                                        <div class="sfm-r">VAT %</div>
                                         <div>Warehouse</div>
                                         <div class="sfm-r">Total</div>
                                         <div></div>
@@ -321,6 +330,11 @@
                                             @* step matches SAP's six-decimal discounts so a special price like 5.714286% is not flagged as invalid *@
                                             <input type="number" min="0" max="100" step="0.000001"
                                                    class="sfm-input sfm-num" @bind="line.DiscountPercent" />
+                                            @* The rate the order was stored at. It was already round-tripped
+                                               through this form unseen; showing it keeps an edit from silently
+                                               re-saving a rate the operator never got to check. *@
+                                            <input type="number" min="0" max="100" step="0.1"
+                                                   class="sfm-input sfm-num" @bind="line.TaxPercent" />
                                             <select class="sfm-select sfm-cell" @bind="line.WarehouseCode">
                                                 <option value="">Default</option>
                                                 @foreach (var wh in cachedWarehouses)
@@ -369,7 +383,10 @@
                             <span class="sfm-total-cur">@editRequest.Currency</span>
                         </div>
                         <div class="sfm-total-v">@CalculateOrderTotal().ToString("N2")</div>
-                        <div class="sfm-total-sub">@editRequest.Lines.Count line(s)</div>
+                        <div class="sfm-total-sub">
+                            @editRequest.Lines.Count line(s) &middot; subtotal @CalculateSubTotal().ToString("N2")
+                        </div>
+                        <div class="sfm-total-sub">VAT @CalculateVatAmount().ToString("N2")</div>
 
                         @if (validationErrors.Any() || lineValidationErrors.Any())
                         {
@@ -860,9 +877,24 @@ state.FilteredProducts.Count;
         return line.DiscountPercent > 0 ? subtotal * (1 - line.DiscountPercent / 100) : subtotal;
     }
 
+    private decimal CalculateSubTotal()
+    {
+        return editRequest.Lines.Sum(CalculateLineTotal);
+    }
+
+    private decimal CalculateVatAmount()
+    {
+        return editRequest.Lines.Sum(line => CalculateLineTotal(line) * line.TaxPercent / 100);
+    }
+
+    /// <summary>
+    /// The document total, tax included — the figure SAP will show on the posted order. Mirrors
+    /// SalesOrderService.CalculateSalesOrderTotals on the API so the operator is not shown one
+    /// number and credit-checked on another.
+    /// </summary>
     private decimal CalculateOrderTotal()
     {
-        return editRequest.Lines.Sum(l => CalculateLineTotal(l));
+        return CalculateSubTotal() + CalculateVatAmount();
     }
 
     private string TruncateName(string? name, int maxLength)

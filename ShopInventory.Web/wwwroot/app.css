@@ -4738,6 +4738,115 @@ html.dark-theme {
     }
 }
 
+/* Icons for the account sales report. Phosphor is loaded globally in
+   App.razor. Every selector is scoped under an .aspr-* class so nothing here
+   reaches the shell or another page. */
+.aspr-hero-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 15px;
+    background: #cffafe;
+    color: #155e75;
+    font-size: 1.5rem;
+}
+
+.aspr-hero-lead {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+}
+
+.aspr-kicker,
+.aspr-meta-chip,
+.aspr-pill,
+.aspr-filter-grid label span,
+.aspr-summary-card span,
+.aspr-kv-grid span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.aspr-grouping-button i,
+.aspr-action i {
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.aspr-grouping-button,
+.aspr-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.aspr-section-header h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.aspr-section-header h2 i {
+    font-size: 1.15rem;
+    color: #155e75;
+}
+
+.aspr-summary-card i,
+.aspr-kv-grid i,
+.aspr-filter-grid label span i,
+.aspr-meta-chip i,
+.aspr-pill i {
+    font-size: 0.95rem;
+}
+
+.aspr-empty-icon {
+    font-size: 2.2rem;
+    line-height: 1;
+    color: #94a3b8;
+}
+
+.aspr-table thead th i {
+    margin-right: 0.35rem;
+    font-size: 0.9rem;
+}
+
+.aspr-detail-summary strong,
+.aspr-period-summary strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.aspr-detail-summary strong i,
+.aspr-period-summary strong i {
+    font-size: 1rem;
+    color: #155e75;
+}
+
+.aspr-detail-metrics span i {
+    margin-right: 0.3rem;
+    font-size: 0.9rem;
+}
+
+.dark-theme .aspr-hero-icon {
+    background: #0e3a45;
+    color: #67e8f9;
+}
+
+.dark-theme .aspr-section-header h2 i,
+.dark-theme .aspr-detail-summary strong i,
+.dark-theme .aspr-period-summary strong i {
+    color: #67e8f9;
+}
+
+.dark-theme .aspr-empty-icon {
+    color: #64748b;
+}
+
 /* ========================================
    Responsive Mobile Styles (Legacy)
    ======================================== */
@@ -5253,9 +5362,6 @@ html.dark-theme {
 .dark-theme .ci-page,
 .dark-theme .bak-page,
 .dark-theme .transfer-page,
-.dark-theme .cq-page,
-.dark-theme .ccn-page,
-.dark-theme .cso-page,
 .dark-theme .md-page,
 .dark-theme .qt-page {
     background: #0f172a !important;
@@ -5279,9 +5385,6 @@ html.dark-theme {
 .dark-theme .cp-header h2,
 .dark-theme .ci-header h2,
 .dark-theme .bak-header h2,
-.dark-theme .cq-header h2,
-.dark-theme .ccn-header h2,
-.dark-theme .cso-header h2,
 .dark-theme .md-header h2,
 .dark-theme .qt-header h2,
 .dark-theme .header-title,
@@ -5304,9 +5407,6 @@ html.dark-theme {
 .dark-theme .um-header p,
 .dark-theme .notif-header p,
 .dark-theme .it-header p,
-.dark-theme .cq-header p,
-.dark-theme .ccn-header p,
-.dark-theme .cso-header p,
 .dark-theme .md-header p,
 .dark-theme .qt-header p,
 .dark-theme .header-subtitle {
@@ -6363,38 +6463,8 @@ html.dark-theme {
     border-color: #334155 !important;
     box-shadow: none !important;
 }
-.dark-theme .cq-page,
-.dark-theme .ccn-page,
-.dark-theme .cso-page {
-    background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%) !important;
-}
-.dark-theme .cq-header h2,
-.dark-theme .ccn-header h2,
-.dark-theme .cso-header h2 {
-    color: #f1f5f9 !important;
-}
-.dark-theme .cq-header p,
-.dark-theme .ccn-header p,
-.dark-theme .cso-header p {
-    color: #94a3b8 !important;
-}
 .dark-theme .form-card-title {
     color: #f1f5f9 !important;
-}
-.dark-theme .cq-breadcrumb,
-.dark-theme .ccn-breadcrumb,
-.dark-theme .cso-breadcrumb {
-    color: #94a3b8 !important;
-}
-.dark-theme .cq-breadcrumb a,
-.dark-theme .ccn-breadcrumb a,
-.dark-theme .cso-breadcrumb a {
-    color: #60a5fa !important;
-}
-.dark-theme .cq-breadcrumb .sep,
-.dark-theme .ccn-breadcrumb .sep,
-.dark-theme .cso-breadcrumb .sep {
-    color: #475569 !important;
 }
 .dark-theme .form-field label {
     color: #94a3b8 !important;
@@ -6415,9 +6485,6 @@ html.dark-theme {
 .dark-theme .form-field input::placeholder,
 .dark-theme .form-field textarea::placeholder {
     color: #64748b !important;
-}
-.dark-theme .ccn-checkbox-row {
-    color: #e2e8f0 !important;
 }
 /* Loading state */
 .dark-theme .loading-state p {
@@ -10575,6 +10642,56 @@ canvas {
     margin-top: .35rem;
     color: #b91c1c;
     font-size: .82rem;
+}
+
+/* Icons for the portal recovery screens. Phosphor is loaded globally in
+   App.razor. Scoped under .customer-recovery-* so nothing here reaches the
+   staff shell or the rest of the portal. */
+.customer-recovery-eyebrow,
+.customer-recovery-card .form-label,
+.customer-recovery-back {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+}
+
+/* .customer-recovery-back was `display: block` with `text-align: center` to
+   centre itself; as an inline-flex link it needs the parent to do the
+   centring instead. */
+.customer-recovery-card .customer-recovery-back {
+    display: flex;
+    justify-content: center;
+}
+
+.customer-recovery-card .form-label i,
+.customer-recovery-eyebrow i,
+.customer-recovery-back i {
+    font-size: .95rem;
+    line-height: 1;
+}
+
+.customer-recovery-card .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+}
+
+.customer-recovery-card .btn i {
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.customer-recovery-card .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: .5rem;
+}
+
+.customer-recovery-card .alert i {
+    font-size: 1.1rem;
+    line-height: 1.4;
+    flex: none;
 }
 
 /* Keep the Kefalos shell authoritative over legacy staff-layout rules below it. */

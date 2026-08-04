@@ -1702,12 +1702,26 @@
 
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
-/* Below the split's own minimum the detail panel stops being a column: it
-   goes full width and un-sticks, above the list rather than beside it, so
-   neither has to be read out of a horizontal scroll. */
+/* Below the split's own minimum the detail panel stops being a column: it goes
+   full width and un-sticks, so neither it nor the list has to be read out of a
+   horizontal scroll.
+
+   It stacks *after* the list, not before. Source order puts the panel first so
+   it can be the sticky right-hand column above this width, and reversing here
+   looked tempting for the same reason — but with nothing selected the panel is
+   an empty "No account selected" placeholder, and leading a phone with that
+   means scrolling past a placeholder to reach the thing the page is about. */
 @media (max-width: 1100px) {
     .cpa-split {
-        flex-direction: column-reverse;
+        flex-direction: column;
+    }
+
+    .cpa-panel {
+        order: 1;
+    }
+
+    .cpa-side {
+        order: 2;
     }
 
     .cpa-panel,

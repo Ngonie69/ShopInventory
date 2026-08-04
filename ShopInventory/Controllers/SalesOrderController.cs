@@ -5,6 +5,7 @@ using ShopInventory.Authentication;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 using ShopInventory.Features.SalesOrders.Commands.ApproveSalesOrder;
+using ShopInventory.Features.SalesOrders.Commands.BackfillWebOrderTax;
 using ShopInventory.Features.SalesOrders.Commands.ConvertToInvoice;
 using ShopInventory.Features.SalesOrders.Commands.CreateSalesOrder;
 using ShopInventory.Features.SalesOrders.Commands.DeleteSalesOrder;
@@ -16,6 +17,7 @@ using ShopInventory.Features.SalesOrders.Queries.DownloadSalesOrderPdf;
 using ShopInventory.Features.SalesOrders.Queries.GetLocalSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderById;
 using ShopInventory.Features.SalesOrders.Queries.GetSalesOrderByNumber;
+using ShopInventory.Middleware;
 using ShopInventory.Models.Entities;
 using System.Security.Claims;
 
@@ -243,6 +245,30 @@ public class SalesOrderController(IMediator mediator) : ApiControllerBase
     {
         var result = await mediator.Send(new DeleteSalesOrderCommand(id), cancellationToken);
         return result.Match(_ => NoContent(), errors => Problem(errors));
+    }
+
+    /// <summary>
+    /// Repair the tax mirror of web sales orders created before the form sent a tax rate.
+    /// </summary>
+    /// <remarks>
+    /// Run it with <c>dryRun=true</c> first: that reports the affected population without writing,
+    /// and is the only way to size it, since the orders live in the deployed database.
+    /// </remarks>
+    [HttpPost("backfill-web-order-tax")]
+    [SapBackgroundWork]
+    [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(BackfillWebOrderTaxResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> BackfillWebOrderTax(
+        [FromQuery] bool dryRun = true,
+        [FromQuery] int maxPostedOrders = 200,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mediator.Send(
+            new BackfillWebOrderTaxCommand(dryRun, maxPostedOrders),
+            cancellationToken);
+
+        return result.Match(value => Ok(value), errors => Problem(errors));
     }
 
     private Guid? GetCurrentUserId()
