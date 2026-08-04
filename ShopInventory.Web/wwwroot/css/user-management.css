@@ -466,9 +466,7 @@
    `.dark-theme input/select/textarea` block regardless of load order. */
 
 .um-page .um-input,
-.um-page .um-select,
 .um-overlay .um-input,
-.um-overlay .um-select,
 .um-overlay textarea.um-input {
     width: 100%;
     min-height: 34px;
@@ -493,52 +491,29 @@
     resize: vertical;
 }
 
-/* The caret is drawn into the field rather than into a wrapper: these selects
-   are used bare in the markup, with no element to hang a pseudo-caret on. */
-.um-page .um-select,
-.um-overlay .um-select {
-    width: auto;
-    min-width: 148px;
-    padding-right: 30px;
-    background-image: var(--um-caret);
-    background-repeat: no-repeat;
-    background-position: right 11px center;
-    cursor: pointer;
-}
-
-.um-page .um-select-sm,
-.um-overlay .um-select-sm {
-    min-width: 116px;
-    min-height: 30px;
-    padding-block: 5px;
-    font-size: 12.5px;
-}
-
 /* A native popup takes its background from the field's own background-color,
    and these fields are a 5%-white wash — which the browser composites onto
    white and then ignores `color-scheme` for. Left alone, dark theme draws the
    options in near-white ink on a near-white sheet, i.e. invisible. The options
-   are therefore given the opaque surface explicitly. The page's two filters
-   don't rely on this at all; they are `.um-dd` listboxes further down. */
-.um-page .um-select option,
-.um-overlay .um-select option,
-.um-page .um-select optgroup,
-.um-overlay .um-select optgroup {
+   are therefore given the opaque surface explicitly. Keyed on `.um-input`
+   because the page's one native select is the warehouse picker in the
+   merchandiser modal, which carries that class; the filters are `.um-dd`
+   listboxes further down and don't rely on this at all. */
+.um-page .um-input option,
+.um-overlay .um-input option,
+.um-page .um-input optgroup,
+.um-overlay .um-input optgroup {
     color: var(--um-ink);
     background-color: var(--um-surface);
 }
 
 .um-page .um-input:hover,
-.um-page .um-select:hover,
-.um-overlay .um-input:hover,
-.um-overlay .um-select:hover {
+.um-overlay .um-input:hover {
     border-color: var(--um-field-edge);
 }
 
 .um-page .um-input:focus-visible,
-.um-page .um-select:focus-visible,
-.um-overlay .um-input:focus-visible,
-.um-overlay .um-select:focus-visible {
+.um-overlay .um-input:focus-visible {
     border-color: rgba(var(--um-accent-rgb), .55);
     outline-offset: 0;
 }
@@ -2060,7 +2035,6 @@
         max-width: none;
     }
 
-    .um-page .um-select,
     .um-filter-bar .um-dd {
         flex: 1;
         min-width: 0;
@@ -2089,11 +2063,9 @@
     /* 16px is the smallest size iOS will render a focused field at without
        zooming the page. */
     .um-page .um-input,
-    .um-page .um-select,
     .um-page .um-search-box input,
     .um-page .um-dd-btn,
-    .um-overlay .um-input,
-    .um-overlay .um-select {
+    .um-overlay .um-input {
         font-size: 16px;
     }
 }

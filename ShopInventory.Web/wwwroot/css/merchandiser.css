@@ -411,13 +411,6 @@
     cursor: pointer;
 }
 
-/* On the products toolbar the category select sits in a row of controls and
-   sizes to its content; in a form column it fills the column. */
-.mp-page .mch-select-auto {
-    width: auto;
-    min-width: 148px;
-}
-
 /* The popup is a platform window, so no rule here reaches inside it — but it
    takes its fill from the *field*, and the field above is a translucent wash
    (`--noct-field-bg` is rgba(243,245,254,.05) in dark). The browser composites
@@ -1643,10 +1636,6 @@
 
     .mch-search {
         max-width: none;
-    }
-
-    .mp-page .mch-select-auto {
-        width: 100%;
     }
 
     .mp-bulk {

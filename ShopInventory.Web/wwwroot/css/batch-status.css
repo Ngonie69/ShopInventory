@@ -352,31 +352,6 @@
     opacity: 1;
 }
 
-/* The "Change to" control: a native select with its own caret, so the row keeps
-   the design's 30px height on every platform. */
-.bsc-select-wrap {
-    position: relative;
-    width: 132px;
-}
-
-.bsc-select-wrap > i {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 12px;
-    opacity: .55;
-    pointer-events: none;
-}
-
-.bsc .bsc-select {
-    min-height: 30px;
-    font-size: 12.5px;
-    padding-right: 24px;
-    cursor: pointer;
-    background-image: none;
-}
-
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 
 /* Every button stays an outline on the page's own ground so the accent keeps

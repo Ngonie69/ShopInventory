@@ -976,33 +976,6 @@ button.exc-tile.exc-tile-on {
     outline-offset: 0;
 }
 
-.exc .exc-select {
-    appearance: none;
-    -webkit-appearance: none;
-    padding-right: 26px;
-    cursor: pointer;
-    min-width: 132px;
-}
-
-.exc .exc-select option {
-    background: var(--exc-menu-bg);
-    color: var(--exc-text);
-}
-
-.exc-select-wrap {
-    position: relative;
-}
-
-.exc-select-caret {
-    position: absolute;
-    right: 9px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 12px;
-    opacity: .55;
-    pointer-events: none;
-}
-
 .exc-switch {
     display: inline-flex;
     align-items: center;

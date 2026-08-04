@@ -96,9 +96,6 @@
     /* The select caret, whole. A var() inside the data URL's quoted string
        would not be substituted, so each theme carries the finished image. */
     --sfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8093' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
-    /* The date input's calendar button is drawn by the UA, so it cannot be
-       coloured — only filtered. On paper it is already dark-on-light. */
-    --sfm-caret-filter: none;
     --sfm-shadow-rgb: 16, 32, 47;
     --sfm-shadow-a: .14;
     --sfm-shadow-lg-a: .2;
@@ -152,9 +149,6 @@
     --sfm-placeholder: #5b6e80;
     --sfm-readonly-ink: #b9c7d4;
     --sfm-caret: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236d8091' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
-    /* Not invert(1): a full inversion takes the glyph to pure white, brighter
-       than any other mark on the row. .85 lands it near --sfm-muted. */
-    --sfm-caret-filter: invert(.85);
     --sfm-shadow-rgb: 4, 9, 15;
     --sfm-shadow-a: .55;
     --sfm-shadow-lg-a: .6;

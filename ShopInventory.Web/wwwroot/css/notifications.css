@@ -70,7 +70,6 @@
     --ntf-accent-rgb: var(--noct-accent-rgb);
     --ntf-accent-text: var(--noct-accent-text);
     --ntf-dot-on: var(--noct-dot-on);
-    --ntf-caret: var(--noct-caret);
     --ntf-scheme: var(--noct-scheme);
 
     /* Event families — the notification's type and its category each tint a
@@ -542,27 +541,6 @@
 .ntf .ntf-input:focus-visible {
     border-color: rgba(var(--ntf-accent-rgb), .55);
     outline-offset: 0;
-}
-
-.ntf-select {
-    position: relative;
-    display: flex;
-}
-
-.ntf .ntf-select select.ntf-input {
-    padding: 6px 28px 6px 11px;
-    cursor: pointer;
-}
-
-.ntf-select .ntf-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--ntf-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 /* ── A notification ────────────────────────────────────────────────────── */

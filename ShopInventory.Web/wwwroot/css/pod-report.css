@@ -61,7 +61,6 @@
     --podr-warn-bg: var(--noct-warn-bg);
     --podr-warn-edge: var(--noct-warn-edge);
     --podr-warn-ink: var(--noct-warn-ink);
-    --podr-caret: var(--noct-caret);
     --podr-clear: var(--noct-clear);
     --podr-scheme: var(--noct-scheme);
 
@@ -394,27 +393,6 @@
 
 .podr .podr-input[type="search"]::-webkit-search-cancel-button:hover {
     opacity: 1;
-}
-
-.podr-select {
-    position: relative;
-    display: flex;
-}
-
-.podr .podr-select select.podr-input {
-    padding: 8px 28px 8px 11px;
-    cursor: pointer;
-}
-
-.podr-select .podr-caret {
-    position: absolute;
-    right: 11px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 10px;
-    height: 7px;
-    background: var(--podr-caret) no-repeat center / contain;
-    pointer-events: none;
 }
 
 .podr-search {
