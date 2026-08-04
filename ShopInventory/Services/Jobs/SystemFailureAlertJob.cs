@@ -54,7 +54,10 @@ public sealed class SystemFailureAlertJob : IJob
 
     public async Task Execute(IJobExecutionContext context)
     {
-        if (!_alertSettings.Enabled || _alertSettings.AlertRecipients.Count == 0)
+        // Enablement alone gates the job. An empty recipient list used to return here, which also
+        // suppressed the in-app alert below — health transitions were mailed or they were not
+        // reported at all, and the bell never carried a single System notification.
+        if (!_alertSettings.Enabled)
         {
             return;
         }
@@ -91,8 +94,19 @@ public sealed class SystemFailureAlertJob : IJob
         // Recovery: was bad, now healthy — send all-clear once
         if (lastNotifiedStatus != HealthStatus.Healthy && currentStatus == HealthStatus.Healthy)
         {
-            _logger.LogInformation("System health recovered to Healthy — sending all-clear email");
-            if (await SendEmailAsync(BuildRecoveryEmail(report), context.CancellationToken))
+            _logger.LogInformation("System health recovered to Healthy — sending all-clear");
+            var recoveryEmailed = await SendEmailAsync(BuildRecoveryEmail(report), context.CancellationToken);
+            var recoveryRaised = await RaiseSystemAlertAsync(
+                scope,
+                "All systems healthy",
+                "Every monitored component has returned to a healthy state. No further action is required.",
+                "Success",
+                context.CancellationToken);
+
+            // Either channel landing is enough to say the all-clear was delivered. Gating this on
+            // the email alone meant a deployment without SMTP never advanced the state, so the job
+            // re-announced the same recovery on every poll.
+            if (recoveryEmailed || recoveryRaised)
             {
                 dataMap[LastNotifiedStatusKey] = HealthStatus.Healthy.ToString();
                 dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
@@ -137,12 +151,20 @@ public sealed class SystemFailureAlertJob : IJob
         }
 
         _logger.LogWarning(
-            "System health is {Status} — sending failure alert email (condition {ConditionState}, next reminder in {NextCooldownMinutes} minute(s))",
+            "System health is {Status} — sending failure alert (condition {ConditionState}, next reminder in {NextCooldownMinutes} minute(s))",
             currentStatus,
             conditionChanged ? "changed" : "unchanged",
             _alertSettings.AlertCooldownMinutes * CooldownMultipliers[nextEscalationLevel]);
 
-        if (await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken))
+        var alertEmailed = await SendEmailAsync(BuildAlertEmail(report, currentStatus), context.CancellationToken);
+        var alertRaised = await RaiseSystemAlertAsync(
+            scope,
+            currentStatus == HealthStatus.Unhealthy ? "System failure" : "System degraded",
+            BuildAlertNotificationMessage(report, currentStatus),
+            currentStatus == HealthStatus.Unhealthy ? "Error" : "Warning",
+            context.CancellationToken);
+
+        if (alertEmailed || alertRaised)
         {
             dataMap[LastNotifiedStatusKey] = currentStatus.ToString();
             dataMap[LastAlertSentUtcKey] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
@@ -163,11 +185,73 @@ public sealed class SystemFailureAlertJob : IJob
                 .OrderBy(entry => entry.Key, StringComparer.Ordinal)
                 .Select(entry => $"{entry.Key}={entry.Value.Status}"));
 
+    /// <summary>
+    /// Puts the same health transition in the notification bell for the operators who are already
+    /// logged in, alongside the email to the on-call list. Rides the job's existing cooldown ladder,
+    /// so a long-lived failure is announced on the same backoff rather than on every poll.
+    /// </summary>
+    private async Task<bool> RaiseSystemAlertAsync(
+        AsyncServiceScope scope,
+        string title,
+        string message,
+        string type,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+            await notificationService.CreateSystemAlertAsync(title, message, type, cancellationToken);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // The condition is already in the log at Warning and may have mailed successfully;
+            // losing the bell is not worth failing the job and re-running the health checks.
+            _logger.LogError(ex, "Failed to raise the in-app notification for a system health alert");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The failing checks as one line. Notification.Message is capped at 1000 characters, so a
+    /// report with many failing entries is truncated rather than rejected by the database.
+    /// </summary>
+    private static string BuildAlertNotificationMessage(HealthReport report, HealthStatus status)
+    {
+        const int messageLimit = 1000;
+
+        var failing = report.Entries
+            .Where(entry => entry.Value.Status != HealthStatus.Healthy)
+            .OrderByDescending(entry => entry.Value.Status)
+            .Select(entry => $"{entry.Key} ({entry.Value.Status})")
+            .ToList();
+
+        var lead = status == HealthStatus.Unhealthy
+            ? "One or more components are failing"
+            : "One or more components are degraded";
+
+        var message = failing.Count == 0
+            ? $"{lead}."
+            : $"{lead}: {string.Join(", ", failing)}.";
+
+        return message.Length <= messageLimit
+            ? message
+            : message[..(messageLimit - 1)] + "…";
+    }
+
     private async Task<bool> SendEmailAsync((string subject, string body) email, CancellationToken cancellationToken)
     {
         if (!_emailSettings.Enabled)
         {
-            _logger.LogWarning("Email is disabled — system health alert not sent");
+            _logger.LogWarning("Email is disabled — system health alert not emailed");
+            return false;
+        }
+
+        // Reachable now that an empty recipient list no longer stops the job before it starts:
+        // MailMessage with no To throws, and the in-app alert is the delivery in that configuration.
+        if (_alertSettings.AlertRecipients.Count == 0)
+        {
+            _logger.LogInformation("No system health alert recipients configured — alert raised in-app only");
             return false;
         }
 

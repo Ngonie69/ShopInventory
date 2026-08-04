@@ -11,6 +11,11 @@ public static class NotificationAudienceRules
     public static readonly string[] InventoryBroadcastCategories = ["LowStock", "Stock", "Inventory", "InventoryTransfer", "TransferRequest", "TransferApproval"];
     public static readonly string[] PurchasingBroadcastCategories = ["PurchaseRequest", "PurchaseQuotation", "PurchaseOrder", "PurchaseInvoice", "GoodsReceiptPurchaseOrder"];
     public static readonly string[] PodBroadcastCategories = ["POD", "ProofOfDelivery"];
+    // Every category a producer writes must appear in one of these lists. The non-admin branch of
+    // BuildVisibleNotificationsQuery admits a row only if its category matches a list the viewer's
+    // roles can see, so an unlisted category is stored and then shown to nobody — which is what
+    // happened to "ProductCatalog" for its whole life.
+    public static readonly string[] ProductCatalogBroadcastCategories = ["ProductCatalog"];
     public static readonly string[] AppVersionBroadcastCategories = ["AppVersion"];
     public static readonly string[] LabBroadcastCategories = ["Lab", "Batch", "BatchStatus"];
 
@@ -116,6 +121,11 @@ public static class NotificationAudienceRules
         if (LabBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
         {
             return LabAudienceRoles;
+        }
+
+        if (ProductCatalogBroadcastCategories.Contains(category, StringComparer.OrdinalIgnoreCase))
+        {
+            return CatalogueAudienceRoles;
         }
 
         return AdminAudienceRoles;

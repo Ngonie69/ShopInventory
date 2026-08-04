@@ -16,6 +16,7 @@ public sealed class CreateCreditNoteHandler(
     ISender sender,
     IRevmaxClient revmaxClient,
     IIdempotencyRequestStore idempotencyRequestStore,
+    INotificationService notificationService,
     ILogger<CreateCreditNoteHandler> logger
 ) : IRequestHandler<CreateCreditNoteCommand, ErrorOr<CreditNoteDto>>
 {
@@ -82,6 +83,21 @@ public sealed class CreateCreditNoteHandler(
                 cancellationToken);
 
             try { await auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created for {command.Request.CardCode}", true); } catch { }
+
+            try
+            {
+                await notificationService.CreateNotificationAsync(
+                    CreditNoteNotificationFactory.CreateCreatedNotification(creditNote),
+                    cancellationToken);
+            }
+            catch (Exception notificationException)
+            {
+                logger.LogWarning(
+                    notificationException,
+                    "Failed to publish credit note notification for {CreditNoteNumber}",
+                    creditNote.CreditNoteNumber);
+            }
+
             return creditNote;
         }
         catch (Exception ex)

@@ -130,6 +130,11 @@
     private ElementReference _notifPanel;
     private Topbar? _topbar;
     private List<NotificationModel> _recentNotifications = new();
+
+    // How many notifications the bell holds. It used to be 5, which a single busy producer could
+    // monopolise outright — a depot uploading PODs turned the whole dropdown over every couple of
+    // minutes, so nothing from any other module was ever visible there. The panel already scrolls.
+    private const int RecentNotificationCount = 20;
     private System.Threading.Timer? _pollTimer;
     private bool _isAuthenticated;
     private int _pollFailures;
@@ -235,7 +240,7 @@
         try
         {
             var previousUnread = _unreadCount;
-            var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
+            var response = await NotificationClient.GetNotificationsAsync(1, RecentNotificationCount, false);
             if (response != null)
             {
                 // Only show toast if NOT connected to SignalR (to avoid duplicates)
@@ -253,7 +258,7 @@
                 await InvokeAsync(() =>
                 {
                     _unreadCount = response.UnreadCount;
-                    _recentNotifications = response.Notifications.Take(5).ToList();
+                    _recentNotifications = response.Notifications.Take(RecentNotificationCount).ToList();
                     StateHasChanged();
                 });
 
@@ -282,11 +287,11 @@
     {
         try
         {
-            var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
+            var response = await NotificationClient.GetNotificationsAsync(1, RecentNotificationCount, false);
             if (response != null)
             {
                 _unreadCount = response.UnreadCount;
-                _recentNotifications = response.Notifications.Take(5).ToList();
+                _recentNotifications = response.Notifications.Take(RecentNotificationCount).ToList();
             }
         }
         catch
@@ -331,7 +336,7 @@
     {
         try
         {
-            var response = await NotificationClient.GetNotificationsAsync(1, 5, false);
+            var response = await NotificationClient.GetNotificationsAsync(1, RecentNotificationCount, false);
             var visibleNotification = response?.Notifications.FirstOrDefault(n => n.Id == notification.Id && !n.IsRead);
             if (response == null || visibleNotification == null)
             {
@@ -341,7 +346,7 @@
             await InvokeAsync(() =>
             {
                 _unreadCount = response.UnreadCount;
-                _recentNotifications = response.Notifications.Take(5).ToList();
+                _recentNotifications = response.Notifications.Take(RecentNotificationCount).ToList();
 
                 ShowNotificationToast(visibleNotification);
 

@@ -41,6 +41,11 @@ public interface INotificationService
 /// </summary>
 public class NotificationService : INotificationService
 {
+    /// <summary>
+    /// How long a low-stock alert for an item suppresses another one for the same item.
+    /// </summary>
+    private const int LowStockReAlertDays = 7;
+
     private readonly ApplicationDbContext _context;
     private readonly ILogger<NotificationService> _logger;
     private readonly IHubContext<NotificationHub> _hubContext;
@@ -291,6 +296,7 @@ public class NotificationService : INotificationService
         var canSeePodBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.PodAudienceRoles);
         var canSeeAppVersionNotifications = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.AppVersionAudienceRoles);
         var canSeeLabBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.LabAudienceRoles);
+        var canSeeProductCatalogBroadcasts = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.CatalogueAudienceRoles);
         var canSeeDashboardRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.DashboardAudienceRoles);
         var canSeeSalesOrderRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesOrderPageAudienceRoles);
         var canSeeSalesOrderEditRoutes = NotificationAudienceRules.HasAnyRole(normalizedRoles, NotificationAudienceRules.SalesOrderEditAudienceRoles);
@@ -341,7 +347,8 @@ public class NotificationService : INotificationService
                                     (canSeePurchasingBroadcasts && NotificationAudienceRules.PurchasingBroadcastCategories.Contains(n.Category)) ||
                                     (canSeePodBroadcasts && NotificationAudienceRules.PodBroadcastCategories.Contains(n.Category)) ||
                                     (canSeeAppVersionNotifications && NotificationAudienceRules.AppVersionBroadcastCategories.Contains(n.Category)) ||
-                                    (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category)))))
+                                    (canSeeLabBroadcasts && NotificationAudienceRules.LabBroadcastCategories.Contains(n.Category)) ||
+                                    (canSeeProductCatalogBroadcasts && NotificationAudienceRules.ProductCatalogBroadcastCategories.Contains(n.Category)))))
             .Where(n =>
                                 (hasUsername && n.TargetUsername == username && n.Category == "TransferApproval") ||
                                 (isDriver &&
@@ -436,6 +443,26 @@ public class NotificationService : INotificationService
         var alertLevel = currentStock <= 0 ? "Critical" : currentStock < reorderLevel / 2 ? "Critical" : "Warning";
         var type = alertLevel == "Critical" ? "Error" : "Warning";
 
+        // An item that is low today is usually still low tomorrow, and the sweep that calls this
+        // runs every morning. Without this the same handful of items would re-alert daily until
+        // they were replenished, which is how a useful alert becomes one people scroll past.
+        var alreadyAlerted = await _context.Notifications
+            .AsNoTracking()
+            .AnyAsync(n => n.Category == "LowStock" &&
+                           n.EntityType == "Product" &&
+                           n.EntityId == itemCode &&
+                           n.CreatedAt > DateTime.UtcNow.AddDays(-LowStockReAlertDays),
+                cancellationToken);
+
+        if (alreadyAlerted)
+        {
+            _logger.LogDebug(
+                "Skipping low stock notification for {ItemCode}; one was raised within the last {Days} day(s)",
+                itemCode,
+                LowStockReAlertDays);
+            return;
+        }
+
         await CreateNotificationAsync(new CreateNotificationRequest
         {
             Title = $"Low Stock Alert: {itemName}",
@@ -445,7 +472,9 @@ public class NotificationService : INotificationService
             EntityType = "Product",
             EntityId = itemCode,
             ActionUrl = $"/products?search={itemCode}",
-            TargetRole = "Admin" // Send to all admins
+            // Broadcast rather than TargetRole "Admin". The audience rules resolve a LowStock
+            // notification pointing at /products to the intersection of the Inventory and Catalogue
+            // audiences — Admin and StockController — and stock control is who acts on this.
         }, cancellationToken);
     }
 

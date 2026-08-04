@@ -16,6 +16,7 @@ public sealed class CreateCreditNoteFromInvoiceHandler(
     ISender sender,
     IRevmaxClient revmaxClient,
     IIdempotencyRequestStore idempotencyRequestStore,
+    INotificationService notificationService,
     ILogger<CreateCreditNoteFromInvoiceHandler> logger
 ) : IRequestHandler<CreateCreditNoteFromInvoiceCommand, ErrorOr<CreditNoteDto>>
 {
@@ -96,6 +97,22 @@ public sealed class CreateCreditNoteFromInvoiceHandler(
                 cancellationToken);
 
             try { await auditService.LogAsync(AuditActions.CreateCreditNote, "CreditNote", creditNote.Id.ToString(), $"Credit note created from invoice {command.InvoiceId}", true); } catch { }
+
+            try
+            {
+                await notificationService.CreateNotificationAsync(
+                    CreditNoteNotificationFactory.CreateCreatedNotification(creditNote),
+                    cancellationToken);
+            }
+            catch (Exception notificationException)
+            {
+                logger.LogWarning(
+                    notificationException,
+                    "Failed to publish credit note notification for {CreditNoteNumber} (from invoice {InvoiceId})",
+                    creditNote.CreditNoteNumber,
+                    command.InvoiceId);
+            }
+
             return creditNote;
         }
         catch (InvalidOperationException ex)
