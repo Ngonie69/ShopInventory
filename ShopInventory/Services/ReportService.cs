@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using ShopInventory.Common.Sales;
 using ShopInventory.DTOs;
 using ShopInventory.Models;
 
@@ -1213,6 +1214,11 @@ ORDER BY T0."CardName"
         var payments = await paymentsTask;
 
         var customerInvoices = customerInvoiceRows
+            // Van sales accounts book stock onto the vans rather than out to a
+            // customer, and they trade at a scale that takes every place in the
+            // ranking. They are dropped before the fold, so the customer total
+            // counts the same book of business the ranking comes from.
+            .Where(row => !VanSalesAccounts.IsVanSalesAccount(GetRowStringOrDefault(row, "CardCode")))
             .GroupBy(row => GetRowStringOrDefault(row, "CardCode"), StringComparer.Ordinal)
             .Select(customer => new
             {

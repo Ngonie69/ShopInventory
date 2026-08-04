@@ -1,15 +1,14 @@
-namespace ShopInventory.Web.Common;
+namespace ShopInventory.Common.Sales;
 
 /// <summary>
 /// The van sales business partners. Stock booked to these accounts moves onto a
-/// sales van rather than to a customer anybody reps, so nothing they buy belongs
-/// in a sales rep's figures — they are large enough to bury every real customer
-/// in a ranking.
+/// sales van rather than out to a customer anybody sells to, so they are not a
+/// customer in the sense any ranking means — and they trade at a scale that
+/// buries every real account below them.
 ///
-/// The API holds the same list in ShopInventory.Common.Sales.VanSalesAccounts,
-/// where it drops these accounts from the Top Customers report and from POD
-/// follow-up. The two projects do not reference each other, so the copies are
-/// held equal by a test rather than by the compiler.
+/// The Web mirrors this list in ShopInventory.Web.Common.VanSalesAccounts for
+/// the sales rep dashboard, which ranks from its own order window rather than
+/// from this report. A test holds the two copies equal.
 /// </summary>
 public static class VanSalesAccounts
 {

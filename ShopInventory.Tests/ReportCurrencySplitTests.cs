@@ -238,6 +238,32 @@ public class ReportCurrencySplitTests
     }
 
     /// <summary>
+    /// Van sales accounts book stock onto the vans rather than out to a customer, and they trade at
+    /// a scale that took every place in the ranking. They go before the fold, so the customer total
+    /// counts the same book of business the ranking is drawn from.
+    /// </summary>
+    [Fact]
+    public async Task Top_customers_leaves_out_the_van_sales_accounts()
+    {
+        var calls = new List<SqlCall>();
+        var service = BuildService(calls, _ =>
+        [
+            CustomerRow("VAN008", "Van Sales East 2", "USD", invoices: 400, total: 738_200_000m),
+            CustomerRow("VAN020", "Van Sales CBD", "USD", invoices: 300, total: 387_600_000m),
+            CustomerRow("C1", "Acme", "USD", invoices: 2, total: 200m),
+            CustomerRow("C2", "Beta", "USD", invoices: 1, total: 50m)
+        ]);
+
+        var report = await service.GetTopCustomersAsync(From, To, topCount: 10);
+
+        Assert.Equal(["C1", "C2"], report.TopCustomers.Select(c => c.CardCode));
+        Assert.Equal(2, report.TotalCustomers);
+
+        // The ranking is renumbered around them rather than carrying their gaps.
+        Assert.Equal([1, 2], report.TopCustomers.Select(c => c.Rank));
+    }
+
+    /// <summary>
     /// The buckets were a second CASE, over boundaries that move daily. Deriving them from the raw
     /// invoice date is what lets the statement stay constant.
     /// </summary>
