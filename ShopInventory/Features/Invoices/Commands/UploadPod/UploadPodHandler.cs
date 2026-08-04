@@ -167,33 +167,16 @@ public sealed class UploadPodHandler(
                     },
                     cancellationToken);
             }
-            else if (uploader is not null &&
-                string.Equals(uploader.Role, "PodOperator", StringComparison.OrdinalIgnoreCase))
-            {
-                var nonDriverPodAudienceRoles = NotificationAudienceRules.PodAudienceRoles
-                    .Where(role => !string.Equals(role, "Driver", StringComparison.OrdinalIgnoreCase))
-                    .Distinct(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var targetRole in nonDriverPodAudienceRoles)
-                {
-                    await notificationService.CreateNotificationAsync(
-                        new CreateNotificationRequest
-                        {
-                            Title = notificationTitle,
-                            Message = notificationMessage,
-                            Type = "Success",
-                            Category = "POD",
-                            EntityType = "Invoice",
-                            EntityId = command.DocEntry.ToString(),
-                            ActionUrl = "/pods",
-                            TargetRole = targetRole,
-                            Data = notificationData
-                        },
-                        cancellationToken);
-                }
-            }
             else
             {
+                // One broadcast row, not one row per role. A PodOperator upload used to fan out
+                // across every non-Driver PodAudienceRole, so a single POD wrote four rows and a
+                // busy depot buried every other module's notifications in the bell. The audience is
+                // unchanged: CreateNotificationAsync resolves a broadcast to
+                // GetBroadcastAudienceRoles("POD", "/pods") — the same four roles — for both the
+                // SignalR groups and the push fan-out, and the visibility query admits a broadcast
+                // to exactly those roles. Drivers were never in that set, so the old non-Driver
+                // filter was already a no-op.
                 await notificationService.CreateNotificationAsync(
                     ModuleNotificationFactory.CreateBroadcastNotification(
                         notificationTitle,

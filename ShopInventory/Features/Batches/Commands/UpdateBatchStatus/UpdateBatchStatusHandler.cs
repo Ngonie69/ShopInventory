@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.Extensions.Options;
 using ShopInventory.Common.Errors;
 using ShopInventory.Configuration;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Services;
 
 namespace ShopInventory.Features.Batches.Commands.UpdateBatchStatus;
@@ -10,6 +11,7 @@ namespace ShopInventory.Features.Batches.Commands.UpdateBatchStatus;
 public sealed class UpdateBatchStatusHandler(
     ISAPServiceLayerClient sapClient,
     IOptions<SAPSettings> settings,
+    INotificationService notificationService,
     ILogger<UpdateBatchStatusHandler> logger
 ) : IRequestHandler<UpdateBatchStatusCommand, ErrorOr<Success>>
 {
@@ -30,6 +32,34 @@ public sealed class UpdateBatchStatusHandler(
                 "Updated batch {BatchEntryId} to status {Status}",
                 command.BatchEntryId,
                 command.Status);
+
+            // The Lab audience had a category, an audience rule and a route reserved for it and no
+            // producer, so it received no notification of any kind. This is that producer.
+            try
+            {
+                await notificationService.CreateNotificationAsync(
+                    ModuleNotificationFactory.CreateBroadcastNotification(
+                        $"Batch Status Updated: {command.BatchEntryId}",
+                        $"Batch {command.BatchEntryId} was set to {command.Status}.",
+                        "Info",
+                        "BatchStatus",
+                        "Batch",
+                        command.BatchEntryId.ToString(),
+                        "/lab/batch-status",
+                        new Dictionary<string, string>
+                        {
+                            ["batchEntryId"] = command.BatchEntryId.ToString(),
+                            ["status"] = command.Status
+                        }),
+                    cancellationToken);
+            }
+            catch (Exception notificationException)
+            {
+                logger.LogWarning(
+                    notificationException,
+                    "Failed to publish batch status notification for batch {BatchEntryId}",
+                    command.BatchEntryId);
+            }
 
             return Result.Success;
         }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +7,7 @@ using ShopInventory.Common.Idempotency;
 using ShopInventory.Common.Validation;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
 
@@ -15,6 +17,7 @@ public sealed class CreateQuotationHandler(
     ApplicationDbContext context,
     ISAPServiceLayerClient sapClient,
     IIdempotencyRequestStore idempotencyRequestStore,
+    INotificationService notificationService,
     ILogger<CreateQuotationHandler> logger
 ) : IRequestHandler<CreateQuotationCommand, ErrorOr<QuotationDto>>
 {
@@ -138,6 +141,43 @@ public sealed class CreateQuotationHandler(
                 quotation.QuotationNumber,
                 quotation.SAPDocEntry,
                 quotation.SAPDocNum);
+
+            // Raised only after the document is in SAP and committed locally, so the bell never
+            // announces a quotation that a later failure rolls back. Placed after the replay
+            // branches above for the same reason an idempotent retry must not re-notify.
+            try
+            {
+                await notificationService.CreateNotificationAsync(
+                    ModuleNotificationFactory.CreateBroadcastNotification(
+                        $"Quotation Created: {quotation.QuotationNumber}",
+                        $"Quotation {quotation.QuotationNumber} for {ModuleNotificationFactory.DescribeBusinessPartner(quotation.CardCode, quotation.CardName)} " +
+                        $"totaling {ModuleNotificationFactory.DescribeMoney(quotation.Currency, quotation.DocTotal)} was created.",
+                        "Success",
+                        "Quotation",
+                        "Quotation",
+                        quotation.SAPDocEntry?.ToString() ?? quotation.Id.ToString(),
+                        "/quotations",
+                        new Dictionary<string, string>
+                        {
+                            ["quotationId"] = quotation.Id.ToString(),
+                            ["quotationNumber"] = quotation.QuotationNumber,
+                            ["sapDocEntry"] = quotation.SAPDocEntry?.ToString() ?? string.Empty,
+                            ["sapDocNum"] = quotation.SAPDocNum?.ToString() ?? string.Empty,
+                            ["cardCode"] = quotation.CardCode,
+                            ["cardName"] = quotation.CardName ?? string.Empty,
+                            ["currency"] = quotation.Currency ?? string.Empty,
+                            ["docTotal"] = quotation.DocTotal.ToString(CultureInfo.InvariantCulture),
+                            ["status"] = quotation.Status.ToString()
+                        }),
+                    cancellationToken);
+            }
+            catch (Exception notificationException)
+            {
+                logger.LogWarning(
+                    notificationException,
+                    "Failed to publish quotation notification for {QuotationNumber}",
+                    quotation.QuotationNumber);
+            }
 
             var response = MapToDto(quotation);
 

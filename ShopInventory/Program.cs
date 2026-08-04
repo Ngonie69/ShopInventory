@@ -258,6 +258,8 @@ try
         builder.Configuration.GetSection(CreditNoteSyncSettings.SectionName));
     builder.Services.Configure<CreditLimitSettings>(
         builder.Configuration.GetSection(CreditLimitSettings.SectionName));
+    builder.Services.Configure<LowStockAlertSettings>(
+        builder.Configuration.GetSection(LowStockAlertSettings.SectionName));
     builder.Services.Configure<MobileVersionPolicyOptions>(builder.Configuration.GetSection(MobileVersionPolicyOptions.SectionName));
 
     // Get JWT settings for authentication configuration

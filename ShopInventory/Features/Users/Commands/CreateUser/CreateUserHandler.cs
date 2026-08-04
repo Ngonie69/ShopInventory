@@ -5,6 +5,7 @@ using ShopInventory.Common.Extensions;
 using ShopInventory.Common.Errors;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Models;
 using ShopInventory.Services;
 using BC = BCrypt.Net.BCrypt;
@@ -14,6 +15,7 @@ namespace ShopInventory.Features.Users.Commands.CreateUser;
 public sealed class CreateUserHandler(
     ApplicationDbContext context,
     IAuditService auditService,
+    INotificationService notificationService,
     ILogger<CreateUserHandler> logger
 ) : IRequestHandler<CreateUserCommand, ErrorOr<UserCreatedResponseDto>>
 {
@@ -89,6 +91,37 @@ public sealed class CreateUserHandler(
         logger.LogInformation("User {Username} created by admin", user.Username);
 
         try { await auditService.LogAsync(AuditActions.CreateUser, "User", user.Id.ToString(), $"User {user.Username} created with role {user.Role}", true); } catch { }
+
+        // Account changes went to the audit trail and nowhere else, so nobody learned that an
+        // account had been opened unless they went looking. Security + /user-management resolves to
+        // Admin only, which is who this is for.
+        try
+        {
+            await notificationService.CreateNotificationAsync(
+                ModuleNotificationFactory.CreateBroadcastNotification(
+                    $"User Account Created: {user.Username}",
+                    $"Account {user.Username} was created with the {user.Role} role.",
+                    "Info",
+                    "Security",
+                    "User",
+                    user.Id.ToString(),
+                    "/user-management",
+                    new Dictionary<string, string>
+                    {
+                        ["userId"] = user.Id.ToString(),
+                        ["username"] = user.Username,
+                        ["role"] = user.Role,
+                        ["isActive"] = user.IsActive.ToString().ToLowerInvariant()
+                    }),
+                cancellationToken);
+        }
+        catch (Exception notificationException)
+        {
+            logger.LogWarning(
+                notificationException,
+                "Failed to publish user creation notification for {Username}",
+                user.Username);
+        }
 
         return new UserCreatedResponseDto
         {

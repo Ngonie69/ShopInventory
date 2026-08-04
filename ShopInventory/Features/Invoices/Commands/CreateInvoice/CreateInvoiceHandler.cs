@@ -8,6 +8,7 @@ using ShopInventory.Configuration;
 using ShopInventory.Data;
 using ShopInventory.DTOs;
 using ShopInventory.Features.Invoices.Events;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Mappings;
 using ShopInventory.Models;
 using ShopInventory.Models.Entities;
@@ -24,6 +25,7 @@ public sealed class CreateInvoiceHandler(
     IInvoiceFiscalizationQueue fiscalizationQueue,
     IAuditService auditService,
     IIdempotencyRequestStore idempotencyRequestStore,
+    INotificationService notificationService,
     ApplicationDbContext context,
     IOptions<SAPSettings> settings,
     ILogger<CreateInvoiceHandler> logger
@@ -193,6 +195,33 @@ public sealed class CreateInvoiceHandler(
 
             var invoiceDto = invoice.ToDto();
             var fiscalizationResult = QueueFiscalization(invoiceDto, command.UserId, command.Username);
+
+            // Targeted at whoever raised it, not broadcast. Invoices are the highest-volume document
+            // in the system — one per delivery — so a broadcast here would turn the bell over every
+            // few minutes and bury every other module, which is the exact failure the POD notification
+            // used to cause. Each user seeing their own keeps the volume proportionate.
+            if (!string.IsNullOrWhiteSpace(command.Username))
+            {
+                try
+                {
+                    await notificationService.CreateNotificationAsync(
+                        WorkflowNotificationFactory.CreateInvoiceCreatedNotification(
+                            command.UserId,
+                            command.Username,
+                            invoiceDto,
+                            reservationId: null,
+                            "/invoices",
+                            fiscalizationResult),
+                        cancellationToken);
+                }
+                catch (Exception notificationException)
+                {
+                    logger.LogWarning(
+                        notificationException,
+                        "Failed to publish invoice notification for DocEntry {DocEntry}",
+                        invoice.DocEntry);
+                }
+            }
 
             var response = new InvoiceCreatedResponseDto
             {

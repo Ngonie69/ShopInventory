@@ -29,6 +29,8 @@ public static class QuartzConfiguration
         var creditLimit = configuration.GetSection(CreditLimitSettings.SectionName)
             .Get<CreditLimitSettings>() ?? new CreditLimitSettings();
         var healthAlert = configuration.GetSection("SystemHealthAlert").Get<SystemHealthAlertSettings>() ?? new SystemHealthAlertSettings();
+        var lowStockAlert = configuration.GetSection(LowStockAlertSettings.SectionName)
+            .Get<LowStockAlertSettings>() ?? new LowStockAlertSettings();
 
         services.AddQuartz(q =>
         {
@@ -92,6 +94,12 @@ public static class QuartzConfiguration
             if (dailyStock.EnableAutoConsolidation)
             {
                 AddCronJob<EndOfDayConsolidationJob>(q, "end-of-day-consolidation", BuildDailyCron(dailyStock.EndOfDayTimeCAT, "18:00"));
+            }
+
+            // After the daily stock snapshot, so it measures the figures the day is starting from.
+            if (sap.Enabled && lowStockAlert.Enabled)
+            {
+                AddCronJob<LowStockReviewJob>(q, "low-stock-review", BuildDailyCron(lowStockAlert.ReviewTimeCAT, "07:30"));
             }
 
             // After the day's invoicing and payments are in, so the balances it reports are the

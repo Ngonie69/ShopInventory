@@ -1,3 +1,4 @@
+using System.Globalization;
 using ErrorOr;
 using MediatR;
 using Microsoft.AspNetCore.SignalR;
@@ -6,6 +7,7 @@ using ShopInventory.Common.Errors;
 using ShopInventory.Common.Idempotency;
 using ShopInventory.Configuration;
 using ShopInventory.Data;
+using ShopInventory.Features.Notifications;
 using ShopInventory.Hubs;
 using ShopInventory.Models.Entities;
 using ShopInventory.Services;
@@ -19,6 +21,7 @@ public sealed class CreateDesktopSaleHandler(
     IInventoryLockService lockService,
     IHubContext<NotificationHub> hubContext,
     IIdempotencyRequestStore idempotencyRequestStore,
+    INotificationService notificationService,
     IOptions<RevmaxSettings> revmaxSettings,
     ILogger<CreateDesktopSaleHandler> logger
 ) : IRequestHandler<CreateDesktopSaleCommand, ErrorOr<DesktopSaleResponseDto>>
@@ -425,6 +428,54 @@ public sealed class CreateDesktopSaleHandler(
             logger.LogError(ex, "Fiscalization failed for desktop sale {SaleId}", sale.Id);
             sale.FiscalizationStatus = DesktopSaleFiscalizationStatus.Failed;
             sale.FiscalError = ex.Message;
+        }
+
+        if (sale.FiscalizationStatus == DesktopSaleFiscalizationStatus.Failed)
+        {
+            await NotifyFiscalizationFailedAsync(sale, ct);
+        }
+    }
+
+    /// <summary>
+    /// A till sale that did not fiscalize needs someone to act on it, and until now it existed only
+    /// in the log and in the row's FiscalError.
+    /// </summary>
+    /// <remarks>
+    /// Only the failures are notified. The sales themselves are far too frequent to put in the bell
+    /// — they already reach the Web as a live "DesktopSaleCreated" hub event, which is the right
+    /// shape for a feed.
+    /// </remarks>
+    private async Task NotifyFiscalizationFailedAsync(DesktopSaleEntity sale, CancellationToken ct)
+    {
+        try
+        {
+            await notificationService.CreateNotificationAsync(
+                ModuleNotificationFactory.CreateBroadcastNotification(
+                    $"Desktop Sale Not Fiscalized: {sale.ExternalReferenceId}",
+                    $"Sale {sale.ExternalReferenceId} for " +
+                    $"{ModuleNotificationFactory.DescribeBusinessPartner(sale.CardCode, sale.CardName)} " +
+                    $"totaling {ModuleNotificationFactory.DescribeMoney(sale.Currency, sale.TotalAmount)} " +
+                    $"could not be fiscalized: {sale.FiscalError ?? "no detail was returned"}.",
+                    "Error",
+                    "SalesOrder",
+                    "DesktopSale",
+                    sale.Id.ToString(),
+                    "/desktop-sales",
+                    new Dictionary<string, string>
+                    {
+                        ["saleId"] = sale.Id.ToString(),
+                        ["externalReferenceId"] = sale.ExternalReferenceId ?? string.Empty,
+                        ["cardCode"] = sale.CardCode ?? string.Empty,
+                        ["cardName"] = sale.CardName ?? string.Empty,
+                        ["currency"] = sale.Currency ?? string.Empty,
+                        ["totalAmount"] = sale.TotalAmount.ToString(CultureInfo.InvariantCulture),
+                        ["fiscalError"] = sale.FiscalError ?? string.Empty
+                    }),
+                ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to publish fiscalization failure notification for desktop sale {SaleId}", sale.Id);
         }
     }
 }
